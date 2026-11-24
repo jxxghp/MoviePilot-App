@@ -1,7 +1,10 @@
 {
   "name": "@moviepilot/media_player",
-  "version": "2.0.2",
+  "version": "1.0.0",
   "description": "MoviePilot HarmonyOS NEXT media_player HAR",
   "main": "Index.ets",
-  "dependencies": {}
+  "dependencies": {
+    "@moviepilot/design_system": "file:../design_system",
+    "@moviepilot/core_rust_bridge": "file:../core_rust_bridge"
+  }
 }

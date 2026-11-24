@@ -1,6 +1,6 @@
 import { UIAbility, Want, AbilityConstant, Configuration, ConfigurationConstant, common } from '@kit.AbilityKit';
 import { display, window, KeyboardAvoidMode } from '@kit.ArkUI';
-import { HarmonyAdaptiveLayout, HarmonyAppearanceStore } from '@moviepilot/design_system';
+import { HarmonyAdaptiveLayout, HarmonyAppearanceStore, PlaybackPreferencesStore } from '@moviepilot/design_system';
 import { RustCoreBridge, NativeHuksStore } from '@moviepilot/core_rust_bridge';
 
 /**
@@ -45,8 +45,12 @@ export default class EntryAbility extends UIAbility {
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     HarmonyAppearanceStore.initDefaults();
     HarmonyAppearanceStore.ensureAppStorageDefaults();
+    PlaybackPreferencesStore.ensureAppStorageDefaults();
     EntryAbility.appCtx = this.context;
-    EntryAbility.storeInitPromise = NativeHuksStore.shared().init(this.context);
+    EntryAbility.storeInitPromise = Promise.all([
+      NativeHuksStore.shared().init(this.context),
+      PlaybackPreferencesStore.init(this.context)
+    ]).then(() => {});
     this.syncSystemColorMode(this.context.config.colorMode);
     EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
     this.handleIncomingWant(want);

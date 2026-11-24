@@ -9,12 +9,14 @@ import UIKit
 import VLCKit
 import os
 
-/// 已由当前 MoviePilot 实例授权的媒体清单，不包含访问令牌。
+/// 已由当前 MoviePilot 实例授权的媒体清单，不包含访问令牌；当条目为 `.strm` 时可选携带客户端直链地址。
 struct MediaPlaybackManifest: Decodable, Sendable {
   let itemId: String
   let server: String?
   let title: String
   let contentUrl: URL
+  let strmUrl: URL?
+  let customHeaders: [String: String]
   let mediaType: String?
   let artist: String?
   let album: String?
@@ -24,11 +26,29 @@ struct MediaPlaybackManifest: Decodable, Sendable {
   let resumePositionMs: Int?
   let durationMs: Int?
 
+  private enum CodingKeys: String, CodingKey {
+    case itemId
+    case server
+    case title
+    case contentUrl
+    case strmUrl
+    case mediaType
+    case artist
+    case album
+    case subtitles
+    case lyricsUrl
+    case mediaSourceId
+    case resumePositionMs
+    case durationMs
+  }
+
   init(
     itemId: String,
     server: String?,
     title: String,
     contentUrl: URL,
+    strmUrl: URL? = nil,
+    customHeaders: [String: String] = [:],
     mediaType: String?,
     artist: String?,
     album: String?,
@@ -42,6 +62,8 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     self.server = server
     self.title = title
     self.contentUrl = contentUrl
+    self.strmUrl = strmUrl
+    self.customHeaders = customHeaders
     self.mediaType = mediaType
     self.artist = artist
     self.album = album
@@ -50,6 +72,40 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     self.mediaSourceId = mediaSourceId
     self.resumePositionMs = resumePositionMs
     self.durationMs = durationMs
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    itemId = try container.decode(String.self, forKey: .itemId)
+    server = try container.decodeIfPresent(String.self, forKey: .server)
+    title = try container.decode(String.self, forKey: .title)
+    contentUrl = try container.decode(URL.self, forKey: .contentUrl)
+    let rawStrm = try container.decodeIfPresent(String.self, forKey: .strmUrl)
+    strmUrl = rawStrm.flatMap(PlayableMediaFormat.sanitizeDirectStreamURL)
+    customHeaders = [:]
+    mediaType = try container.decodeIfPresent(String.self, forKey: .mediaType)
+    artist = try container.decodeIfPresent(String.self, forKey: .artist)
+    album = try container.decodeIfPresent(String.self, forKey: .album)
+    subtitles =
+      try container.decodeIfPresent([MediaPlaybackSubtitle].self, forKey: .subtitles) ?? []
+    lyricsUrl = try container.decodeIfPresent(URL.self, forKey: .lyricsUrl)
+    mediaSourceId = try container.decodeIfPresent(String.self, forKey: .mediaSourceId)
+    resumePositionMs = try container.decodeIfPresent(Int.self, forKey: .resumePositionMs)
+    durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+  }
+
+  /// 按用户「STRM 直链播放」开关返回优先起播地址。
+  func preferredPlaybackURL(strmDirectEnabled: Bool) -> URL {
+    if strmDirectEnabled, let strmUrl {
+      return strmUrl
+    }
+    return contentUrl
+  }
+
+  /// 当前是否处于优先 STRM 直链且存在同源代理流可供失败自动回退。
+  func canFallbackToProxy(strmDirectEnabled: Bool) -> Bool {
+    guard strmDirectEnabled, let strmUrl else { return false }
+    return strmUrl != contentUrl
   }
 }
 
@@ -365,9 +421,33 @@ final class MediaPlaybackClient {
       try? FileManager.default.removeItem(at: tempURL)
       throw MediaPlaybackError.unavailable
     }
+    let resolvedExt = ext.isEmpty ? (path as NSString).pathExtension : ext
+    if PlayableMediaFormat.isStrmExtension(resolvedExt) {
+      defer { try? FileManager.default.removeItem(at: tempURL) }
+      guard
+        let strmData = try? Data(contentsOf: tempURL, options: .mappedIfSafe),
+        let spec = PlayableMediaFormat.parseStrmData(strmData, fallbackFileName: fileName)
+      else {
+        throw MediaPlaybackError.unavailable
+      }
+      let cleanTitle = (fileName as NSString).deletingPathExtension
+      return MediaPlaybackManifest(
+        itemId: "file:\(storage):\(path)",
+        server: nil,
+        title: cleanTitle.isEmpty ? fileName : cleanTitle,
+        contentUrl: spec.url,
+        strmUrl: spec.url,
+        customHeaders: spec.headers,
+        mediaType: spec.kind.rawValue,
+        artist: nil,
+        album: nil,
+        subtitles: [],
+        lyricsUrl: nil
+      )
+    }
     let destination = FileManager.default.temporaryDirectory
       .appendingPathComponent("moviepilot-play-\(UUID().uuidString)")
-      .appendingPathExtension(ext.isEmpty ? (isAudio ? "mp3" : "mp4") : ext)
+      .appendingPathExtension(resolvedExt.isEmpty ? (isAudio ? "mp3" : "mp4") : resolvedExt)
     try? FileManager.default.removeItem(at: destination)
     try FileManager.default.moveItem(at: tempURL, to: destination)
     return MediaPlaybackManifest(
@@ -383,19 +463,43 @@ final class MediaPlaybackClient {
     )
   }
 
-  /// 为解码器构造媒体对象，本地受管文件直接播放，流媒体 URL 将资源 Cookie 限制到当前实例路径。
-  func makeMedia(url: URL) throws -> VLCMedia {
+  /// 为解码器构造媒体对象：同源代理流限定当前实例资源 Cookie，外部 STRM 直链绝不携带实例凭据并按需注入播放器请求头。
+  func makeMedia(url: URL, customHeaders: [String: String] = [:]) throws -> VLCMedia {
     if url.isFileURL {
       guard let media = VLCMedia(url: url) else { throw MediaPlaybackError.unavailable }
       return media
     }
-    guard let media = VLCMedia(url: url), let cookie = resourceCookie, let host = url.host,
-      media.storeCookie(
-        "\(cookie.name)=\(cookie.value)", forHost: host,
-        path: url.deletingLastPathComponent().path + "/") == 0
+    guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+      let media = VLCMedia(url: url)
     else { throw MediaPlaybackError.unavailable }
+    if address.contains(url) {
+      guard let cookie = resourceCookie, let host = url.host,
+        media.storeCookie(
+          "\(cookie.name)=\(cookie.value)", forHost: host,
+          path: url.deletingLastPathComponent().path + "/") == 0
+      else { throw MediaPlaybackError.unavailable }
+    } else {
+      Self.applyExternalStreamHeaders(customHeaders, to: media, url: url)
+    }
     media.addOption(":network-caching=1500")
     return media
+  }
+
+  /// 向外部无凭据直链媒体对象注入安全的 STRM 附加请求头（User-Agent / Referer / Cookie）。
+  static func applyExternalStreamHeaders(
+    _ headers: [String: String],
+    to media: VLCMedia,
+    url: URL
+  ) {
+    if let ua = headers["User-Agent"], !ua.isEmpty {
+      media.addOption(":http-user-agent=\(ua)")
+    }
+    if let referer = headers["Referer"], !referer.isEmpty {
+      media.addOption(":http-referrer=\(referer)")
+    }
+    if let cookie = headers["Cookie"], !cookie.isEmpty, let host = url.host {
+      _ = media.storeCookie(cookie, forHost: host, path: "/")
+    }
   }
 
   /// 返回当前实例下指定路径片段对应的 API URL。
@@ -625,6 +729,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private var lastObservedPositionMs = 0
   private var lastObservedDurationMs = 0
   private var hasPlayedCurrentItem = false
+  private var didFallbackFromStrmDirect = false
   private var lastProgressReportAt: Date = .distantPast
   private var progressReportTask: Task<Void, Never>?
 
@@ -2191,12 +2296,19 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     lyricsStack.addArrangedSubview(label)
   }
 
+  /// 是否启用客户端 STRM 直链优先起播（默认开启）。
+  private var isStrmDirectEnabled: Bool {
+    (UserDefaults.standard.object(forKey: "nativeV2.playback.strmDirectPlay") as? Bool) ?? true
+  }
+
   /// 初始化解码器并绑定受控媒体流或独立无凭据本地/外部音视频源。
   private func configurePlayer() -> Bool {
     player.delegate = self
     player.drawable = isAudioPlayback ? nil : videoView
+    didFallbackFromStrmDirect = false
     do {
-      player.media = try makePlaybackMedia(url: manifest.contentUrl)
+      let targetURL = manifest.preferredPlaybackURL(strmDirectEnabled: isStrmDirectEnabled)
+      player.media = try makePlaybackMedia(url: targetURL, customHeaders: manifest.customHeaders)
     } catch {
       showError(error.localizedDescription)
       return false
@@ -2352,6 +2464,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         self.hasPlayedCurrentItem = true
         self.applyDefaultRateIfNeeded()
         self.applyTrackPreferencesIfReady()
+      } else if newState == .error {
+        self.tryFallbackFromStrmDirectToProxyIfNeeded()
       } else if newState == .stopping || newState == .stopped {
         self.handlePossiblePlaybackCompletion()
       }
@@ -2502,10 +2616,25 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
+  /// 当客户端直连容器内网 STRM 地址不可达时，自动回退一次服务端受控代理流重试。
+  private func tryFallbackFromStrmDirectToProxyIfNeeded() {
+    guard !hasPlayedCurrentItem,
+      !didFallbackFromStrmDirect,
+      manifest.canFallbackToProxy(strmDirectEnabled: isStrmDirectEnabled),
+      let fallbackMedia = try? makePlaybackMedia(url: manifest.contentUrl, customHeaders: [:])
+    else { return }
+    didFallbackFromStrmDirect = true
+    player.media = fallbackMedia
+    player.play()
+  }
+
   /// 构造解码器媒体对象；独立播放模式下不附加任何 MoviePilot Cookie 或认证头。
-  private func makePlaybackMedia(url: URL) throws -> VLCMedia {
+  private func makePlaybackMedia(
+    url: URL,
+    customHeaders: [String: String] = [:]
+  ) throws -> VLCMedia {
     if let client {
-      return try client.makeMedia(url: url)
+      return try client.makeMedia(url: url, customHeaders: customHeaders)
     }
     if url.isFileURL {
       guard let media = VLCMedia(url: url) else { throw MediaPlaybackError.unavailable }
@@ -2514,6 +2643,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
       let media = VLCMedia(url: url)
     else { throw MediaPlaybackError.unavailable }
+    MediaPlaybackClient.applyExternalStreamHeaders(customHeaders, to: media, url: url)
     media.addOption(":network-caching=1500")
     return media
   }
@@ -3200,7 +3330,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
             title: item.title, artist: item.artist, album: item.album)
         }
         guard !Task.isCancelled, !self.closed else { return }
-        let media = try client.makeMedia(url: nextManifest.contentUrl)
+        let nextURL = nextManifest.preferredPlaybackURL(strmDirectEnabled: self.isStrmDirectEnabled)
+        let media = try client.makeMedia(url: nextURL, customHeaders: nextManifest.customHeaders)
+        self.didFallbackFromStrmDirect = false
         self.player.pause()
         self.cleanupTemporarySubtitles()
         self.player.media = media

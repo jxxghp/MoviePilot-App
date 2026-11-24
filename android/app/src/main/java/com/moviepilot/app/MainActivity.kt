@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import coil.Coil
 import coil.ImageLoader
 import coil.decode.DataSource
@@ -28,10 +29,14 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.MoviePilotTheme
 import com.moviepilot.designsystem.NativeAppearanceMode
 import com.moviepilot.designsystem.NativeAppearanceStore
+import com.moviepilot.media.LocalMediaMetadataExtractor
 import com.moviepilot.media.MediaPlaybackRequest
+import com.moviepilot.media.PlaybackPipBridge
 import com.moviepilot.rustbridge.MoviePilotRepository
-import com.moviepilot.rustbridge.RustCoreBridge
 import com.moviepilot.rustbridge.SessionState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okio.Buffer
 
 /**
@@ -125,6 +130,11 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        PlaybackPipBridge.notifyUserLeaveHint()
+    }
+
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
         // 支持验收测试通过显式 Extra 切换外观深浅色（不引入任何硬编码业务数据）
@@ -152,14 +162,17 @@ class MainActivity : ComponentActivity() {
                 pendingDeepLink = uri.toString()
             }
             "content", "file" -> {
-                val path = uri.toString()
-                val isAudio = intent.type?.startsWith("audio/") == true ||
-                    RustCoreBridge.detectMediaKind(path) == "audio"
-                pendingExternalMedia = MediaPlaybackRequest(
-                    url = path,
-                    title = uri.lastPathSegment ?: "本地媒体文件",
-                    isAudio = isAudio,
-                )
+                val mimeHint = intent.type
+                lifecycleScope.launch {
+                    val extracted = withContext(Dispatchers.IO) {
+                        LocalMediaMetadataExtractor.buildLocalPlaybackRequest(
+                            context = applicationContext,
+                            uri = uri,
+                            mimeHint = mimeHint,
+                        )
+                    }
+                    pendingExternalMedia = extracted
+                }
             }
         }
     }

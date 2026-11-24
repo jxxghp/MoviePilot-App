@@ -754,17 +754,19 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
-// N.B. the name of the extension is very misleading, since it is 
-// rather `InterfaceTooLargeException`, caused by too many methods 
+// N.B. the name of the extension is very misleading, since it is
+// rather `InterfaceTooLargeException`, caused by too many methods
 // in the interface for large crates.
 //
 // By splitting the otherwise huge interface into two parts
-// * UniffiLib 
+// * UniffiLib
 // * IntegrityCheckingUniffiLib (this)
 // we allow for ~2x as many methods in the UniffiLib interface.
-// 
-// The `ffi_uniffi_contract_version` method and all checksum methods are put 
+//
+// The `ffi_uniffi_contract_version` method and all checksum methods are put
 // into `IntegrityCheckingUniffiLib` and these methods are called only once,
 // when the library is loaded.
 internal interface IntegrityCheckingUniffiLib : Library {
@@ -799,6 +801,8 @@ fun uniffi_moviepilot_core_checksum_func_parse_agent_markdown(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_deep_link_json(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_parse_strm_content(
+): Short
 fun uniffi_moviepilot_core_checksum_func_plan_plugin_form_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_server_address_contains(
@@ -821,8 +825,8 @@ internal interface UniffiLib : Library {
         internal val INSTANCE: UniffiLib by lazy {
             val componentName = "moviepilot_core"
             // For large crates we prevent `MethodTooLargeException` (see #2340)
-            // N.B. the name of the extension is very misleading, since it is 
-            // rather `InterfaceTooLargeException`, caused by too many methods 
+            // N.B. the name of the extension is very misleading, since it is
+            // rather `InterfaceTooLargeException`, caused by too many methods
             // in the interface for large crates.
             //
             // By splitting the otherwise huge interface into two parts
@@ -830,7 +834,7 @@ internal interface UniffiLib : Library {
             // * IntegrityCheckingUniffiLib
             // And all checksum methods are put into `IntegrityCheckingUniffiLib`
             // we allow for ~2x as many methods in the UniffiLib interface.
-            // 
+            //
             // Thus we first load the library with `loadIndirect` as `IntegrityCheckingUniffiLib`
             // so that we can (optionally!) call `uniffiCheckApiChecksums`...
             loadIndirect<IntegrityCheckingUniffiLib>(componentName)
@@ -845,12 +849,12 @@ internal interface UniffiLib : Library {
             // to trigger this issue, the performance impact is negligible, running on
             // a macOS M1 machine the `loadIndirect` call takes ~50ms.
             val lib = loadIndirect<UniffiLib>(componentName)
-            // No need to check the contract version and checksums, since 
+            // No need to check the contract version and checksums, since
             // we already did that with `IntegrityCheckingUniffiLib` above.
             // Loading of library with integrity check done.
             lib
         }
-        
+
         // The Cleaner for the whole library
         internal val CLEANER: UniffiCleaner by lazy {
             UniffiCleaner.create()
@@ -858,57 +862,59 @@ internal interface UniffiLib : Library {
     }
 
     // FFI functions
-    fun uniffi_moviepilot_core_fn_clone_nativesseparser(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_moviepilot_core_fn_clone_nativesseparser(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_moviepilot_core_fn_free_nativesseparser(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_free_nativesseparser(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun uniffi_moviepilot_core_fn_constructor_nativesseparser_new(uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_constructor_nativesseparser_new(uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
-fun uniffi_moviepilot_core_fn_method_nativesseparser_finish(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_method_nativesseparser_finish(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_method_nativesseparser_push_chunk(`ptr`: Pointer,`chunk`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_method_nativesseparser_push_chunk(`ptr`: Pointer,`chunk`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_analyze_cron_expression(`expr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_analyze_cron_expression(`expr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_apply_plugin_form_patch(`originalModelJson`: RustBuffer.ByValue,`patchJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_apply_plugin_form_patch(`originalModelJson`: RustBuffer.ByValue,`patchJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_build_v3_endpoint_url(`baseUrl`: RustBuffer.ByValue,`pathSegments`: RustBuffer.ByValue,`queryJson`: RustBuffer.ByValue,`trailingSlash`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_build_v3_endpoint_url(`baseUrl`: RustBuffer.ByValue,`pathSegments`: RustBuffer.ByValue,`queryJson`: RustBuffer.ByValue,`trailingSlash`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_classify_http_auth_status(`status`: Short,`bodyText`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_classify_http_auth_status(`status`: Short,`bodyText`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_compute_medal_palette(`medalId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_compute_medal_palette(`medalId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_compute_subscribe_progress(`totalEpisode`: Int,`lackEpisode`: Int,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_compute_subscribe_progress(`totalEpisode`: Int,`lackEpisode`: Int,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_core_version(uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_core_version(uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_decode_jwt_token_claims(`token`: RustBuffer.ByValue,`nowEpochSecs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_decode_jwt_token_claims(`token`: RustBuffer.ByValue,`nowEpochSecs`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_detect_playable_media_kind(`pathOrExt`: RustBuffer.ByValue,`includeStreaming`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_detect_playable_media_kind(`pathOrExt`: RustBuffer.ByValue,`includeStreaming`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_evaluate_plugin_expression(`expr`: RustBuffer.ByValue,`modelJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_evaluate_plugin_expression(`expr`: RustBuffer.ByValue,`modelJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun uniffi_moviepilot_core_fn_func_evaluate_user_permissions(`permissionsJson`: RustBuffer.ByValue,`isSuperuser`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_evaluate_user_permissions(`permissionsJson`: RustBuffer.ByValue,`isSuperuser`: Byte,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_filter_and_group_resources(`resourcesJson`: RustBuffer.ByValue,`criteriaJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_filter_and_group_resources(`resourcesJson`: RustBuffer.ByValue,`criteriaJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_normalize_server_address(`raw`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_normalize_server_address(`raw`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_parse_agent_markdown(`markdown`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_parse_agent_markdown(`markdown`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_parse_deep_link_json(`rawUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_parse_deep_link_json(`rawUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_plan_plugin_form_json(`documentJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_parse_strm_content(`rawText`: RustBuffer.ByValue,`fallbackFileName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_server_address_contains(`baseUrl`: RustBuffer.ByValue,`candidateUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_plan_plugin_form_json(`documentJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_server_address_contains(`baseUrl`: RustBuffer.ByValue,`candidateUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-fun ffi_moviepilot_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun ffi_moviepilot_core_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-fun ffi_moviepilot_core_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
-fun ffi_moviepilot_core_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun ffi_moviepilot_core_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -916,7 +922,7 @@ fun ffi_moviepilot_core_rust_future_cancel_u8(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_u8(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
 fun ffi_moviepilot_core_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -924,7 +930,7 @@ fun ffi_moviepilot_core_rust_future_cancel_i8(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_i8(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
 fun ffi_moviepilot_core_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -932,7 +938,7 @@ fun ffi_moviepilot_core_rust_future_cancel_u16(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_u16(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Short
 fun ffi_moviepilot_core_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -940,7 +946,7 @@ fun ffi_moviepilot_core_rust_future_cancel_i16(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_i16(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Short
 fun ffi_moviepilot_core_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -948,7 +954,7 @@ fun ffi_moviepilot_core_rust_future_cancel_u32(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_u32(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Int
 fun ffi_moviepilot_core_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -956,7 +962,7 @@ fun ffi_moviepilot_core_rust_future_cancel_i32(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_i32(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Int
 fun ffi_moviepilot_core_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -964,7 +970,7 @@ fun ffi_moviepilot_core_rust_future_cancel_u64(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_u64(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Long
 fun ffi_moviepilot_core_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -972,7 +978,7 @@ fun ffi_moviepilot_core_rust_future_cancel_i64(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_i64(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Long
 fun ffi_moviepilot_core_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -980,7 +986,7 @@ fun ffi_moviepilot_core_rust_future_cancel_f32(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_f32(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Float
 fun ffi_moviepilot_core_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -988,7 +994,7 @@ fun ffi_moviepilot_core_rust_future_cancel_f64(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_f64(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Double
 fun ffi_moviepilot_core_rust_future_poll_pointer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -996,7 +1002,7 @@ fun ffi_moviepilot_core_rust_future_cancel_pointer(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_pointer(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_pointer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_pointer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Pointer
 fun ffi_moviepilot_core_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1004,7 +1010,7 @@ fun ffi_moviepilot_core_rust_future_cancel_rust_buffer(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_rust_buffer(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 fun ffi_moviepilot_core_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
 ): Unit
@@ -1012,7 +1018,7 @@ fun ffi_moviepilot_core_rust_future_cancel_void(`handle`: Long,
 ): Unit
 fun ffi_moviepilot_core_rust_future_free_void(`handle`: Long,
 ): Unit
-fun ffi_moviepilot_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+fun ffi_moviepilot_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): Unit
 
 }
@@ -1071,6 +1077,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_parse_deep_link_json() != 45112.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_parse_strm_content() != 31599.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_plan_plugin_form_json() != 32974.toShort()) {
@@ -1160,7 +1169,7 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
         }
     }
 
-/** 
+/**
  * Used to instantiate an interface without an actual pointer, for fakes in tests, mostly.
  *
  * @suppress
@@ -1529,11 +1538,11 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
  * 有状态流式 SSE 解析器对象，供原生网络流逐块喂入字节并消费事件帧。
  */
 public interface NativeSseParserInterface {
-    
+
     fun `finish`(): List<SseEventFfi>
-    
+
     fun `pushChunk`(`chunk`: kotlin.String): List<SseEventFfi>
-    
+
     companion object
 }
 
@@ -1639,7 +1648,7 @@ open class NativeSseParser: Disposable, AutoCloseable, NativeSseParserInterface
     }
     )
     }
-    
+
 
     override fun `pushChunk`(`chunk`: kotlin.String): List<SseEventFfi> {
             return FfiConverterSequenceTypeSseEventFfi.lift(
@@ -1651,14 +1660,14 @@ open class NativeSseParser: Disposable, AutoCloseable, NativeSseParserInterface
     }
     )
     }
-    
 
-    
 
-    
-    
+
+
+
+
     companion object
-    
+
 }
 
 /**
@@ -1695,14 +1704,14 @@ public object FfiConverterTypeNativeSseParser: FfiConverter<NativeSseParser, Poi
  * 跨端 FFI Cron 摘要记录。
  */
 data class CronSummaryFfi (
-    var `rawValue`: kotlin.String, 
-    var `format`: kotlin.String, 
-    var `fields`: List<kotlin.String>, 
-    var `hasAmbiguousWeekday`: kotlin.Boolean, 
-    var `descriptionZh`: kotlin.String, 
+    var `rawValue`: kotlin.String,
+    var `format`: kotlin.String,
+    var `fields`: List<kotlin.String>,
+    var `hasAmbiguousWeekday`: kotlin.Boolean,
+    var `descriptionZh`: kotlin.String,
     var `isValidFiveField`: kotlin.Boolean
 ) {
-    
+
     companion object
 }
 
@@ -1746,13 +1755,13 @@ public object FfiConverterTypeCronSummaryFfi: FfiConverterRustBuffer<CronSummary
  * 跨端 FFI JWT 声明记录。
  */
 data class JwtClaimsFfi (
-    var `subject`: kotlin.String?, 
-    var `userName`: kotlin.String?, 
-    var `exp`: kotlin.Long?, 
-    var `superUser`: kotlin.Boolean, 
+    var `subject`: kotlin.String?,
+    var `userName`: kotlin.String?,
+    var `exp`: kotlin.Long?,
+    var `superUser`: kotlin.Boolean,
     var `isExpired`: kotlin.Boolean
 ) {
-    
+
     companion object
 }
 
@@ -1793,14 +1802,14 @@ public object FfiConverterTypeJwtClaimsFfi: FfiConverterRustBuffer<JwtClaimsFfi>
  * 跨端 FFI Markdown 块记录。
  */
 data class MarkdownBlockFfi (
-    var `kind`: kotlin.String, 
-    var `level`: kotlin.UByte, 
-    var `language`: kotlin.String?, 
-    var `text`: kotlin.String, 
-    var `items`: List<kotlin.String>, 
+    var `kind`: kotlin.String,
+    var `level`: kotlin.UByte,
+    var `language`: kotlin.String?,
+    var `text`: kotlin.String,
+    var `items`: List<kotlin.String>,
     var `rowsJson`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -1844,14 +1853,14 @@ public object FfiConverterTypeMarkdownBlockFfi: FfiConverterRustBuffer<MarkdownB
  * 跨端 FFI 社区勋章金属色板记录。
  */
 data class MedalPaletteFfi (
-    var `medalId`: kotlin.String, 
-    var `baseHex`: kotlin.String, 
-    var `rimHex`: kotlin.String, 
-    var `engraveDarkHex`: kotlin.String, 
-    var `engraveLightHex`: kotlin.String, 
+    var `medalId`: kotlin.String,
+    var `baseHex`: kotlin.String,
+    var `rimHex`: kotlin.String,
+    var `engraveDarkHex`: kotlin.String,
+    var `engraveLightHex`: kotlin.String,
     var `tier`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -1895,13 +1904,13 @@ public object FfiConverterTypeMedalPaletteFfi: FfiConverterRustBuffer<MedalPalet
  * 跨端 FFI 权限矩阵记录。
  */
 data class PermissionsFfi (
-    var `discovery`: kotlin.Boolean, 
-    var `search`: kotlin.Boolean, 
-    var `subscribe`: kotlin.Boolean, 
-    var `manage`: kotlin.Boolean, 
+    var `discovery`: kotlin.Boolean,
+    var `search`: kotlin.Boolean,
+    var `subscribe`: kotlin.Boolean,
+    var `manage`: kotlin.Boolean,
     var `admin`: kotlin.Boolean
 ) {
-    
+
     companion object
 }
 
@@ -1942,12 +1951,12 @@ public object FfiConverterTypePermissionsFfi: FfiConverterRustBuffer<Permissions
  * 跨端 FFI SSE 事件记录。
  */
 data class SseEventFfi (
-    var `event`: kotlin.String, 
-    var `data`: kotlin.String, 
-    var `id`: kotlin.String?, 
+    var `event`: kotlin.String,
+    var `data`: kotlin.String,
+    var `id`: kotlin.String?,
     var `isDone`: kotlin.Boolean
 ) {
-    
+
     companion object
 }
 
@@ -1982,16 +1991,55 @@ public object FfiConverterTypeSseEventFfi: FfiConverterRustBuffer<SseEventFfi> {
 
 
 /**
+ * 跨端 FFI STRM 直链解析结果记录。
+ */
+data class StrmStreamFfi (
+    var `url`: kotlin.String,
+    var `headersJson`: kotlin.String,
+    var `mediaKind`: kotlin.String
+) {
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeStrmStreamFfi: FfiConverterRustBuffer<StrmStreamFfi> {
+    override fun read(buf: ByteBuffer): StrmStreamFfi {
+        return StrmStreamFfi(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: StrmStreamFfi) = (
+            FfiConverterString.allocationSize(value.`url`) +
+            FfiConverterString.allocationSize(value.`headersJson`) +
+            FfiConverterString.allocationSize(value.`mediaKind`)
+    )
+
+    override fun write(value: StrmStreamFfi, buf: ByteBuffer) {
+            FfiConverterString.write(value.`url`, buf)
+            FfiConverterString.write(value.`headersJson`, buf)
+            FfiConverterString.write(value.`mediaKind`, buf)
+    }
+}
+
+
+
+/**
  * 跨端 FFI 订阅进度记录。
  */
 data class SubscribeProgressFfi (
-    var `total`: kotlin.Int, 
-    var `completed`: kotlin.Int, 
-    var `lack`: kotlin.Int, 
-    var `ratio`: kotlin.Double, 
+    var `total`: kotlin.Int,
+    var `completed`: kotlin.Int,
+    var `lack`: kotlin.Int,
+    var `ratio`: kotlin.Double,
     var `label`: kotlin.String
 ) {
-    
+
     companion object
 }
 
@@ -2034,37 +2082,37 @@ public object FfiConverterTypeSubscribeProgressFfi: FfiConverterRustBuffer<Subsc
  * FFI 统一错误类型。
  */
 sealed class CoreFfiException: kotlin.Exception() {
-    
+
     class InvalidAddress(
-        
+
         val `msg`: kotlin.String
         ) : CoreFfiException() {
         override val message
             get() = "msg=${ `msg` }"
     }
-    
+
     class InvalidEndpoint(
-        
+
         val `msg`: kotlin.String
         ) : CoreFfiException() {
         override val message
             get() = "msg=${ `msg` }"
     }
-    
+
     class InvalidJson(
-        
+
         val `msg`: kotlin.String
         ) : CoreFfiException() {
         override val message
             get() = "msg=${ `msg` }"
     }
-    
+
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<CoreFfiException> {
         override fun lift(error_buf: RustBuffer.ByValue): CoreFfiException = FfiConverterTypeCoreFfiError.lift(error_buf)
     }
 
-    
+
 }
 
 /**
@@ -2072,7 +2120,7 @@ sealed class CoreFfiException: kotlin.Exception() {
  */
 public object FfiConverterTypeCoreFfiError : FfiConverterRustBuffer<CoreFfiException> {
     override fun read(buf: ByteBuffer): CoreFfiException {
-        
+
 
         return when(buf.getInt()) {
             1 -> CoreFfiException.InvalidAddress(
@@ -2287,7 +2335,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 无损合并插件表单补丁到服务端原始模型（保留未知键与 64 位大整数）。
@@ -2300,7 +2348,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 基于实例根地址构造安全的 `/api/v1/...` 完整请求 URL。
@@ -2313,7 +2361,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 分类 401/403 响应决策：`"valid"` / `"logout"` / `"forbidden"`。
@@ -2325,7 +2373,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 计算社区 3D 勋章的金属基色与背面凹雕配色方案。
@@ -2337,7 +2385,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 计算剧集订阅完成进度。
@@ -2349,7 +2397,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 返回 Rust 共享内核版本号，用于三端 FFI 冒烟健康检查。
@@ -2361,7 +2409,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 解码 JWT 声明并判断是否过期。
@@ -2373,7 +2421,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 根据文件扩展名或路径推断原生播放器媒体类型（`"video"` / `"audio"` / `None`）。
@@ -2385,7 +2433,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 安全评估插件表单条件表达式（`v-show` / `v-if`）。
@@ -2397,7 +2445,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 解析用户权限 JSON（严格对齐前端与 iOS 语义）。
@@ -2410,7 +2458,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 执行站点资源 9 维级联筛选与同规格分组，返回完整结果 JSON。
@@ -2423,7 +2471,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 规范化 MoviePilot 实例地址（保留反向代理子路径，拒绝非法协议与内嵌凭据）。
@@ -2436,7 +2484,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 解析 AI 智能助手流式 Markdown 文本为块级渲染节点。
@@ -2448,7 +2496,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 解析 `moviepilot://` 或 Web 路由，返回强类型 JSON 结构（非法路由返回 `None`）。
@@ -2460,7 +2508,20 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
+
+        /**
+         * 解析 `.strm` 文本并返回规范化 HTTP(S) 直链、请求头 JSON 与媒体类型。
+         */
+    @Throws(CoreFfiException::class) fun `parseStrmContent`(`rawText`: kotlin.String, `fallbackFileName`: kotlin.String?): StrmStreamFfi {
+            return FfiConverterTypeStrmStreamFfi.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_strm_content(
+        FfiConverterString.lower(`rawText`),FfiConverterOptionalString.lower(`fallbackFileName`),_status)
+}
+    )
+    }
+
 
         /**
          * 解码动态插件 `get_form`/`get_page` JSON 并输出跨端统一渲染规划树 JSON。
@@ -2473,7 +2534,7 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
         /**
          * 校验目标 URL 是否严格属于给定实例源及部署子路径。
@@ -2485,6 +2546,6 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
 }
     )
     }
-    
+
 
 

@@ -125,6 +125,7 @@ export struct HarmonySubscriptionsPage {
   onBack: () => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
   onPlayServerItem: (itemId: string, server: string, title: string) => void = () => {};
+  onPlayStorageFile: (storage: string, filePath: string, title: string) => void = () => {};
 
   aboutToAppear(): void {
     if (this.initialMode === 'square') {
@@ -1005,6 +1006,7 @@ export struct HarmonySubscriptionsPage {
           .borderRadius(12)
           .backgroundColor(this.accentHex)
           .onClick(() => {
+            this.showFilesSheet = false;
             this.onPlayServerItem(lib.itemId, lib.server, activeSub ? activeSub.name : '媒体库播放');
           })
 
@@ -1021,6 +1023,27 @@ export struct HarmonySubscriptionsPage {
           .borderRadius(12)
           .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '24' : '16'))
           .onClick(() => this.openLibraryFileDetail(lib, activeSub))
+        } else if (lib.filePath.length > 0 && RustCoreBridge.detectPlayableMediaKind(lib.filePath).length > 0) {
+          Row({ space: 4 }) {
+            SymbolGlyph($r('sys.symbol.play_fill'))
+              .fontSize(12)
+              .fontColor([Color.White])
+            Text('立即播放')
+              .fontSize(11.5)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Color.White)
+          }
+          .padding({ left: 10, right: 11, top: 5, bottom: 5 })
+          .borderRadius(12)
+          .backgroundColor(this.accentHex)
+          .onClick(() => {
+            this.showFilesSheet = false;
+            this.onPlayStorageFile(
+              lib.storage || 'local',
+              lib.filePath,
+              activeSub ? activeSub.name : '订阅文件播放'
+            );
+          })
         }
       }
       .width('100%')

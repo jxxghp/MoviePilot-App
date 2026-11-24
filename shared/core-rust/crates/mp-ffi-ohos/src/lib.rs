@@ -64,6 +64,12 @@ pub mod bridge {
         }
     }
 
+    pub fn parse_strm_json(raw_text: &str, fallback_file_name: &str) -> Result<String, String> {
+        let fallback = (!fallback_file_name.trim().is_empty()).then_some(fallback_file_name.trim());
+        let spec = PlayableMediaFormat::parse_strm_content(raw_text, fallback)?;
+        serde_json::to_string(&spec).map_err(|e| e.to_string())
+    }
+
     pub fn parse_agent_markdown_json(markdown: &str) -> String {
         let blocks = AgentMarkdownParser::parse(markdown);
         serde_json::to_string(&blocks).unwrap_or_else(|_| "[]".to_string())
@@ -185,6 +191,12 @@ mod napi_exports {
     }
 
     #[napi]
+    pub fn parse_strm_json(raw_text: String, fallback_file_name: String) -> Result<String> {
+        bridge::parse_strm_json(&raw_text, &fallback_file_name)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
     pub fn parse_agent_markdown_json(markdown: String) -> String {
         bridge::parse_agent_markdown_json(&markdown)
     }
@@ -254,7 +266,7 @@ mod tests {
 
     #[test]
     fn ohos_bridge_smoke_test() {
-        assert_eq!(bridge::core_version(), "2.0.2");
+        assert_eq!(bridge::core_version(), env!("CARGO_PKG_VERSION"));
         let parsed = bridge::parse_deep_link_json("moviepilot://media/tmdb/550?type=movie");
         assert!(parsed.contains("\"media_id\":\"550\""));
         let palette = bridge::compute_medal_palette_json("gold_contributor");

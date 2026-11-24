@@ -65,10 +65,16 @@ enum NativeBackgroundPreset: String, CaseIterable, Identifiable {
     }
   }
 
-  /// 深色模式四段渐变色点（消费 shared/design-tokens 自动生成的同源色板）。
+  /// 深色模式四段渐变色点（iOS 端针对星夜紫玫单独校准深丝绒酒红至暮光靛紫的低灰雾色阶，其余预设消费同源色板）。
   var darkStops: [Color] {
     switch self {
-    case .cinematic: GeneratedDesignTokens.BackgroundStops.cinematicDark
+    case .cinematic:
+      [
+        Color(red: 0.2314, green: 0.1608, blue: 0.1882),  // #3B2930 深丝绒酒红（顶）
+        Color(red: 0.3098, green: 0.2157, blue: 0.3098),  // #4F374F 通透紫梅微光（中左）
+        Color(red: 0.2824, green: 0.2157, blue: 0.3255),  // #483753 清澈紫晶（中下）
+        Color(red: 0.2471, green: 0.2314, blue: 0.3490),  // #3F3B59 暮光蓝紫（中右与底）
+      ]
     case .ocean: GeneratedDesignTokens.BackgroundStops.oceanDark
     case .forest: GeneratedDesignTokens.BackgroundStops.forestDark
     case .amber: GeneratedDesignTokens.BackgroundStops.amberDark

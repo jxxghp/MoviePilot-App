@@ -40,6 +40,7 @@
         <string>com.microsoft.windows-media-wmv</string>
         <string>com.real.realmedia-vbr</string>
         <string>com.moviepilot.media.m2ts</string>
+        <string>com.moviepilot.media.strm</string>
       </array>
     </dict>
     <dict>
@@ -170,6 +171,15 @@
       <key>UTTypeTagSpecification</key><dict>
         <key>public.filename-extension</key><array><string>wma</string></array>
         <key>public.mime-type</key><array><string>audio/x-ms-wma</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.moviepilot.media.strm</string>
+      <key>UTTypeDescription</key><string>STRM Direct Stream Link</string>
+      <key>UTTypeConformsTo</key><array><string>public.audiovisual-content</string><string>public.plain-text</string></array>
+      <key>UTTypeTagSpecification</key><dict>
+        <key>public.filename-extension</key><array><string>strm</string></array>
+        <key>public.mime-type</key><array><string>application/x-strm</string></array>
       </dict>
     </dict>
   </array>

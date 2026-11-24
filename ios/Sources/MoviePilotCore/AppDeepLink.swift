@@ -6,14 +6,30 @@ public enum PlayableMediaKind: String, Equatable, Hashable, Sendable {
   case audio
 }
 
-/// 统一维护 MoviePilot 原生播放器支持的音视频文件扩展名与类型判别逻辑。
+/// 从 `.strm` 文本文件中解析出的客户端直链播放规格（含可选安全请求头与音视频类型）。
+public struct StrmStreamSpec: Equatable, Hashable, Sendable {
+  public let url: URL
+  public let headers: [String: String]
+  public let kind: PlayableMediaKind
+
+  public init(url: URL, headers: [String: String] = [:], kind: PlayableMediaKind = .video) {
+    self.url = url
+    self.headers = headers
+    self.kind = kind
+  }
+}
+
+/// 统一维护 MoviePilot 原生播放器支持的音视频文件扩展名与 `.strm` 直链解析逻辑。
 public enum PlayableMediaFormat {
-  /// 原生视频播放器（VLCKit / AVKit / PiP）支持的常见封装格式扩展名。
+  /// 原生视频播放器（VLCKit / AVKit / PiP）支持的常见封装格式与 `.strm` 直链扩展名。
   public static let videoExtensions: Set<String> = [
     "mp4", "mkv", "mk3d", "mov", "m4v", "avi", "ts", "m2ts", "mts",
     "webm", "flv", "f4v", "wmv", "asf", "rmvb", "rm", "mpg", "mpeg",
-    "vob", "3gp", "3g2", "ogv",
+    "vob", "3gp", "3g2", "ogv", "strm",
   ]
+
+  /// `.strm` 文件允许读取的最大字节上限（64KB），防止误读大型二进制文件。
+  public static let maxStrmBytes = 64 * 1024
 
   /// 仅用于网络流地址推断的视频流播放列表扩展名。
   public static let streamingVideoExtensions: Set<String> = [
@@ -52,6 +68,220 @@ public enum PlayableMediaFormat {
   /// 判断扩展名是否为原生视频格式。
   public static func isVideoExtension(_ rawExt: String?) -> Bool {
     kind(forExtension: rawExt, includeStreaming: false) == .video
+  }
+
+  /// 判断扩展名是否为 `.strm` 直链描述文件。
+  public static func isStrmExtension(_ rawExt: String?) -> Bool {
+    normalized(rawExt) == "strm"
+  }
+
+  /// 按完整路径或文件名推断播放模式；针对 `*.flac.strm` 等双扩展名优先识别内层音频格式。
+  public static func kind(
+    forPath rawPath: String?,
+    includeStreaming: Bool = false
+  ) -> PlayableMediaKind? {
+    guard let trimmed = rawPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !trimmed.isEmpty
+    else { return nil }
+    let nsPath = trimmed as NSString
+    let ext = nsPath.pathExtension
+    guard !ext.isEmpty else { return nil }
+    if isStrmExtension(ext) {
+      let stem = nsPath.deletingPathExtension as NSString
+      let innerExt = stem.pathExtension
+      if !innerExt.isEmpty, audioExtensions.contains(innerExt.lowercased()) {
+        return .audio
+      }
+      return .video
+    }
+    return kind(forExtension: ext, includeStreaming: includeStreaming)
+  }
+
+  /// 解析 `.strm` 文件字节数据（兼容 UTF-8 BOM、UTF-16 与 GB18030），提取 HTTP(S) 直链与可选安全请求头。
+  public static func parseStrmData(
+    _ data: Data,
+    fallbackFileName: String? = nil
+  ) -> StrmStreamSpec? {
+    guard !data.isEmpty, data.count <= maxStrmBytes else { return nil }
+    let decodedText: String? = {
+      if data.starts(with: [0xFF, 0xFE]), let s = String(data: data, encoding: .utf16LittleEndian) {
+        return s
+      }
+      if data.starts(with: [0xFE, 0xFF]), let s = String(data: data, encoding: .utf16BigEndian) {
+        return s
+      }
+      if let s = String(data: data, encoding: .utf8) {
+        return s
+      }
+      let gbEncoding = CFStringConvertEncodingToNSStringEncoding(
+        CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
+      return String(data: data, encoding: String.Encoding(rawValue: gbEncoding))
+    }()
+    guard let text = decodedText else { return nil }
+    return parseStrmContent(text, fallbackFileName: fallbackFileName)
+  }
+
+  /// 解析 `.strm` 文本字符串，支持 `#EXTVLCOPT`、`#KODIPROP` 与 `|User-Agent=...&Referer=...` 管道请求头。
+  public static func parseStrmContent(
+    _ rawText: String,
+    fallbackFileName: String? = nil
+  ) -> StrmStreamSpec? {
+    guard rawText.utf8.count <= maxStrmBytes, !rawText.contains("\0") else { return nil }
+    let cleanBody = rawText.hasPrefix("\u{feff}") ? String(rawText.dropFirst()) : rawText
+    var headers: [String: String] = [:]
+    var targetLine: String?
+
+    for rawLine in cleanBody.components(separatedBy: .newlines) {
+      let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+      if line.isEmpty { continue }
+      if line.hasPrefix("#") {
+        parseStrmDirective(
+          String(line.dropFirst()).trimmingCharacters(in: .whitespaces), into: &headers)
+        continue
+      }
+      if targetLine == nil {
+        targetLine = line
+      }
+    }
+
+    guard let rawTarget = targetLine else { return nil }
+    let parts = rawTarget.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+    let rawURLPart = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+    if parts.count == 2 {
+      parseHeaderPairs(
+        String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines), into: &headers)
+    }
+
+    guard let url = sanitizeDirectStreamURL(rawURLPart) else { return nil }
+    let decodedPath = url.path.removingPercentEncoding ?? url.path
+    let inferredKind =
+      (!isStrmExtension((decodedPath as NSString).pathExtension)
+        ? kind(forPath: decodedPath, includeStreaming: true)
+        : nil)
+      ?? kind(forPath: fallbackFileName, includeStreaming: true)
+      ?? .video
+    return StrmStreamSpec(url: url, headers: headers, kind: inferredKind)
+  }
+
+  /// 校验并规范化外部 HTTP(S) 直链 URL（自动转义空格/中文/方括号，拒绝内嵌账号密码与非 HTTP 协议）。
+  public static func sanitizeDirectStreamURL(_ rawURL: String) -> URL? {
+    let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed.utf8.count <= 4096,
+      !trimmed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
+      let schemeRange = trimmed.range(of: "://")
+    else { return nil }
+    let scheme = trimmed[..<schemeRange.lowerBound].lowercased()
+    guard scheme == "http" || scheme == "https" else { return nil }
+    let afterScheme = trimmed[schemeRange.upperBound...]
+    let authEnd =
+      afterScheme.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" })
+      ?? afterScheme.endIndex
+    let authority = String(afterScheme[..<authEnd])
+    guard !authority.isEmpty, !authority.contains("@") else { return nil }
+    let tailWithFrag = String(afterScheme[authEnd...])
+    let pathAndQuery = tailWithFrag.split(
+      separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+    let escapedTail = percentEscapeRawURLTail(String(pathAndQuery))
+    guard let url = URL(string: "\(scheme)://\(authority)\(escapedTail)"),
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      let host = components.host, !host.isEmpty,
+      components.user == nil, components.password == nil
+    else { return nil }
+    return url
+  }
+
+  private static func parseStrmDirective(_ directive: String, into headers: inout [String: String])
+  {
+    let lower = directive.lowercased()
+    if lower.hasPrefix("extvlcopt:") {
+      let rest = String(directive.dropFirst("extvlcopt:".count))
+      guard let eq = rest.firstIndex(of: "=") else { return }
+      let key = rest[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
+      let val = rest[rest.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+      switch key {
+      case "http-user-agent": insertSafeHeader("User-Agent", value: val, into: &headers)
+      case "http-referrer", "http-referer": insertSafeHeader("Referer", value: val, into: &headers)
+      case "http-cookie": insertSafeHeader("Cookie", value: val, into: &headers)
+      default: break
+      }
+      return
+    }
+    if lower.hasPrefix("kodiprop:") {
+      let rest = String(directive.dropFirst("kodiprop:".count)).trimmingCharacters(in: .whitespaces)
+      if let range = rest.range(of: "stream_headers=", options: .caseInsensitive)
+        ?? rest.range(of: "http-headers=", options: .caseInsensitive)
+      {
+        parseHeaderPairs(String(rest[range.upperBound...]), into: &headers)
+      }
+    }
+  }
+
+  private static func parseHeaderPairs(_ rawPairs: String, into headers: inout [String: String]) {
+    for pair in rawPairs.split(separator: "&") {
+      guard let eq = pair.firstIndex(of: "=") else { continue }
+      let rawKey = pair[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
+      let rawVal = String(pair[pair.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+      let decodedVal = rawVal.removingPercentEncoding ?? rawVal
+      switch rawKey {
+      case "user-agent": insertSafeHeader("User-Agent", value: decodedVal, into: &headers)
+      case "referer", "referrer": insertSafeHeader("Referer", value: decodedVal, into: &headers)
+      case "cookie": insertSafeHeader("Cookie", value: decodedVal, into: &headers)
+      case "origin": insertSafeHeader("Origin", value: decodedVal, into: &headers)
+      case "authorization": insertSafeHeader("Authorization", value: decodedVal, into: &headers)
+      default: break
+      }
+    }
+  }
+
+  private static func insertSafeHeader(
+    _ name: String,
+    value: String,
+    into headers: inout [String: String]
+  ) {
+    let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !clean.isEmpty, clean.utf8.count <= 4096,
+      !clean.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+    else { return }
+    headers[name] = clean
+  }
+
+  private static func percentEscapeRawURLTail(_ raw: String) -> String {
+    let utf8 = Array(raw.utf8)
+    var out = ""
+    out.reserveCapacity(utf8.count + 16)
+    var i = 0
+    while i < utf8.count {
+      let b = utf8[i]
+      switch b {
+      case UInt8(ascii: " "):
+        out += "%20"
+      case UInt8(ascii: "["):
+        out += "%5B"
+      case UInt8(ascii: "]"):
+        out += "%5D"
+      case UInt8(ascii: "%"):
+        if i + 2 < utf8.count, isASCIIHex(utf8[i + 1]), isASCIIHex(utf8[i + 2]) {
+          out.append(Character(UnicodeScalar(b)))
+          out.append(Character(UnicodeScalar(utf8[i + 1])))
+          out.append(Character(UnicodeScalar(utf8[i + 2])))
+          i += 3
+          continue
+        }
+        out += "%25"
+      case 0x21...0x7E:
+        out.append(Character(UnicodeScalar(b)))
+      default:
+        out += String(format: "%%%02X", b)
+      }
+      i += 1
+    }
+    return out
+  }
+
+  private static func isASCIIHex(_ byte: UInt8) -> Bool {
+    (byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9"))
+      || (byte >= UInt8(ascii: "a") && byte <= UInt8(ascii: "f"))
+      || (byte >= UInt8(ascii: "A") && byte <= UInt8(ascii: "F"))
   }
 
   /// 规范化扩展名：去除首尾空白与前导点并转为小写。
@@ -260,7 +490,8 @@ public enum AppDeepLink: Equatable, Hashable, Sendable {
       !url.pathComponents.contains("..")
     else { return nil }
     guard
-      let kind = PlayableMediaFormat.kind(forExtension: url.pathExtension, includeStreaming: false)
+      let kind = PlayableMediaFormat.kind(forPath: path, includeStreaming: false)
+        ?? PlayableMediaFormat.kind(forExtension: url.pathExtension, includeStreaming: false)
         ?? fallbackKind
     else { return nil }
     let stripped = url.deletingPathExtension().lastPathComponent

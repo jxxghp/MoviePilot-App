@@ -9,6 +9,34 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- 声明外部播放器与各媒体服务器原生客户端包可见性（Android 11+） -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="emby" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="jellyfin" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="plex" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="trimemedia" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="audio/*" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
@@ -49,14 +77,35 @@
                     android:scheme="moviepilot-app" />
             </intent-filter>
 
-            <!-- 系统文件管理器与分享菜单直接用 MoviePilot 原生播放音视频（未登录也可播放） -->
+            <!-- 系统文件管理器与分享菜单直接用 MoviePilot 原生播放音视频与 .strm 直链文件（未登录也可播放） -->
             <intent-filter tools:ignore="AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="audio/*" />
+                <data android:mimeType="application/x-strm" />
+            </intent-filter>
+            <intent-filter tools:ignore="AppLinkUrlError">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.strm" />
+                <data android:pathPattern=".*\\.STRM" />
             </intent-filter>
         </activity>
+
+        <!-- Media3 前台播放会话服务（系统通知栏、锁屏、蓝牙、快捷设置与穿戴设备播控） -->
+        <service
+            android:name="com.moviepilot.media.MoviePilotPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
 
         <!-- Jetpack Glance 桌面小组件 -->
         <receiver

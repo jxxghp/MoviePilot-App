@@ -141,6 +141,14 @@ pub fn parse_deep_link_json(raw_url: String) -> Option<String> {
     serde_json::to_string(&parsed).ok()
 }
 
+/// 跨端 FFI STRM 直链解析结果记录。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StrmStreamFfi {
+    pub url: String,
+    pub headers_json: String,
+    pub media_kind: String,
+}
+
 /// 根据文件扩展名或路径推断原生播放器媒体类型（`"video"` / `"audio"` / `None`）。
 #[uniffi::export]
 pub fn detect_playable_media_kind(path_or_ext: String, include_streaming: bool) -> Option<String> {
@@ -156,6 +164,27 @@ pub fn detect_playable_media_kind(path_or_ext: String, include_streaming: bool) 
         }
         .to_string(),
     )
+}
+
+/// 解析 `.strm` 文本并返回规范化 HTTP(S) 直链、请求头 JSON 与媒体类型。
+#[uniffi::export]
+pub fn parse_strm_content(
+    raw_text: String,
+    fallback_file_name: Option<String>,
+) -> Result<StrmStreamFfi, CoreFfiError> {
+    let spec = PlayableMediaFormat::parse_strm_content(&raw_text, fallback_file_name.as_deref())
+        .map_err(|msg| CoreFfiError::InvalidAddress { msg })?;
+    let headers_json = serde_json::to_string(&spec.headers)
+        .map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })?;
+    let media_kind = match spec.media_kind {
+        mp_core_model::PlayableMediaKind::Video => "video".to_string(),
+        mp_core_model::PlayableMediaKind::Audio => "audio".to_string(),
+    };
+    Ok(StrmStreamFfi {
+        url: spec.url,
+        headers_json,
+        media_kind,
+    })
 }
 
 /// 解析 AI 智能助手流式 Markdown 文本为块级渲染节点。
@@ -379,7 +408,7 @@ mod tests {
 
     #[test]
     fn ffi_smoke_test_roundtrip() {
-        assert_eq!(core_version(), "2.0.2");
+        assert_eq!(core_version(), env!("CARGO_PKG_VERSION"));
         let parsed = parse_deep_link_json("moviepilot://media/tmdb/550?type=movie".into()).unwrap();
         assert!(parsed.contains("\"media_id\":\"550\""));
         let cron = analyze_cron_expression("*/15 * * * *".into());

@@ -29,7 +29,15 @@ import {
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
-import { HarmonyPlaybackRequest } from '@moviepilot/media_player';
+import {
+  HarmonyPlaybackRequest,
+  HarmonyQueueItem,
+  buildPlaybackRequestFromStreamInfo
+} from '@moviepilot/media_player';
+import {
+  MusicAlbumArtistSheetHost,
+  LibrarySeriesEpisodeSheetHost
+} from './MusicSheets';
 
 interface ExploreSourceDef {
   key: string;
@@ -258,6 +266,9 @@ export struct HarmonyDiscoverPage {
   @State private musicAlbums: MpMusicAlbum[] = [];
   @State private modules: CustomModulePref[] = DEFAULT_DISCOVER_MODULES;
   @State private showModulesSheet: boolean = false;
+  @State private showMusicAlbumSheet: boolean = false;
+  @State private selectedMusicAlbum: MpMusicAlbum | null = null;
+  @State private musicSheetTrigger: number = 0;
   private scroller: Scroller = new Scroller();
   onOpenMedia: (item: MpMediaItem) => void = () => {};
   onOpenExplore: (src: string) => void = () => {};
@@ -336,14 +347,15 @@ export struct HarmonyDiscoverPage {
 
   private async playContinueItem(entry: MpMediaItem): Promise<void> {
     try {
-      const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(entry.id, entry.serverName);
+      const targetId = entry.serverItemId && entry.serverItemId.length > 0 ? entry.serverItemId : entry.id;
+      const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(targetId, entry.serverName);
       if (manifest && manifest.contentUrl.length > 0) {
-        this.onPlayMedia({
-          url: manifest.contentUrl,
-          title: manifest.title || entry.title,
-          subtitle: entry.subtitle || entry.serverName,
-          isAudio: manifest.mediaType === 'audio'
-        });
+        this.onPlayMedia(buildPlaybackRequestFromStreamInfo(
+          manifest,
+          entry.title,
+          entry.subtitle || entry.serverName,
+          { overrideArtworkUrl: entry.posterUrl || entry.backdropUrl }
+        ));
         return;
       }
     } catch {
@@ -636,7 +648,11 @@ export struct HarmonyDiscoverPage {
                   .width(126)
               }
               .alignItems(HorizontalAlign.Start)
-              .onClick(() => this.onOpenExplore('music'))
+              .onClick(() => {
+                this.selectedMusicAlbum = al;
+                this.musicSheetTrigger += 1;
+                this.showMusicAlbumSheet = true;
+              })
             }, (al: MpMusicAlbum) => `mu_${al.id}`)
           }
           .padding({ left: 16, right: 16 })
@@ -1107,6 +1123,13 @@ export struct HarmonyDiscoverPage {
             showClose: false,
             backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
           })
+
+          MusicAlbumArtistSheetHost({
+            visible: $showMusicAlbumSheet,
+            seedAlbum: this.selectedMusicAlbum,
+            openTrigger: this.musicSheetTrigger,
+            onPlayMedia: (req: HarmonyPlaybackRequest) => this.onPlayMedia(req)
+          })
         }
         .padding({ bottom: this.isShortLandscape() ? 84 : 128 })
       }
@@ -1419,8 +1442,12 @@ export struct HarmonyExplorePage {
   @State private items: MpMediaItem[] = [];
   @State private albums: MpMusicAlbum[] = [];
   @State private loading: boolean = true;
+  @State private showMusicAlbumSheet: boolean = false;
+  @State private selectedMusicAlbum: MpMusicAlbum | null = null;
+  @State private musicSheetTrigger: number = 0;
   onBack: () => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
+  onPlayMedia: (req: HarmonyPlaybackRequest) => void = () => {};
 
   aboutToAppear(): void {
     if (this.initialSource.length > 0) {
@@ -1584,6 +1611,11 @@ export struct HarmonyExplorePage {
                     .width('100%')
                 }
                 .alignItems(HorizontalAlign.Start)
+                .onClick(() => {
+                  this.selectedMusicAlbum = al;
+                  this.musicSheetTrigger += 1;
+                  this.showMusicAlbumSheet = true;
+                })
               }
             }, (al: MpMusicAlbum) => al.id)
           }
@@ -1621,6 +1653,13 @@ export struct HarmonyExplorePage {
         .scrollBar(BarState.Off)
         .layoutWeight(1)
       }
+
+      MusicAlbumArtistSheetHost({
+        visible: $showMusicAlbumSheet,
+        seedAlbum: this.selectedMusicAlbum,
+        openTrigger: this.musicSheetTrigger,
+        onPlayMedia: (req: HarmonyPlaybackRequest) => this.onPlayMedia(req)
+      })
     }
     .width('100%')
     .height('100%')
@@ -1642,9 +1681,105 @@ export struct HarmonyGlobalSearchPage {
   @State private results: MpMediaItem[] = [];
   @State private searching: boolean = false;
   @State private hasSearched: boolean = false;
+  @State private showMusicAlbumSheet: boolean = false;
+  @State private selectedMusicAlbum: MpMusicAlbum | null = null;
+  @State private musicSheetTrigger: number = 0;
+  @State private showEpisodePickerSheet: boolean = false;
+  @State private selectedSeriesItem: MpMediaItem | null = null;
+  @State private episodeSheetTrigger: number = 0;
   onBack: () => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
   onOpenPerson: (person: MpCastMember) => void = () => {};
+  onPlayMedia: (req: HarmonyPlaybackRequest) => void = () => {};
+
+  private isSeriesMediaItem(it: MpMediaItem): boolean {
+    const t = it.type.trim().toLowerCase();
+    return t === '电视剧' || t === 'series' || t === 'tv' || t === '剧集';
+  }
+
+  private isAudioMediaItem(it: MpMediaItem): boolean {
+    const t = it.type.trim().toLowerCase();
+    return t === '音频' || t === '音乐' || t === 'audio' || t === 'music';
+  }
+
+  private async handleQuickPlayLibraryItem(it: MpMediaItem): Promise<void> {
+    if (this.isSeriesMediaItem(it)) {
+      this.selectedSeriesItem = it;
+      this.episodeSheetTrigger += 1;
+      this.showEpisodePickerSheet = true;
+      return;
+    }
+    const targetId = (it.serverItemId && it.serverItemId.length > 0) ? it.serverItemId : it.id;
+    if (!targetId) {
+      this.onOpenMedia(it);
+      return;
+    }
+    const stream = await MoviePilotRepository.shared().fetchVideoStreamInfo(targetId, it.serverName);
+    if (!stream || stream.contentUrl.length === 0) {
+      this.onOpenMedia(it);
+      return;
+    }
+    if (stream.mediaType === 'audio' || this.isAudioMediaItem(it)) {
+      const audioResults = this.results.filter(
+        (x: MpMediaItem) => x.inLibrary && (this.isAudioMediaItem(x) || this.scopeIndex === 3)
+      );
+      const queue: HarmonyQueueItem[] = [];
+      let qIdx = 0;
+      for (let i = 0; i < audioResults.length; i++) {
+        const a = audioResults[i];
+        const aid = (a.serverItemId && a.serverItemId.length > 0) ? a.serverItemId : a.id;
+        if (aid === targetId) {
+          qIdx = queue.length;
+        }
+        queue.push({
+          itemId: aid,
+          title: a.title,
+          subtitle: a.subtitle || a.serverName,
+          server: a.serverName,
+          artworkUrl: a.posterUrl
+        });
+      }
+      this.onPlayMedia(buildPlaybackRequestFromStreamInfo(
+        stream,
+        it.title,
+        it.subtitle || it.serverName,
+        {
+          queue: queue.length > 1 ? queue : undefined,
+          queueIndex: queue.length > 1 ? qIdx : undefined,
+          overrideArtworkUrl: it.posterUrl
+        }
+      ));
+      return;
+    }
+    this.onPlayMedia(buildPlaybackRequestFromStreamInfo(
+      stream,
+      it.title,
+      it.subtitle || it.serverName,
+      { overrideArtworkUrl: it.posterUrl || it.backdropUrl }
+    ));
+  }
+
+  private handleMusicScopeTap(it: MpMediaItem): void {
+    if (it.inLibrary && it.serverName.length > 0 && this.isAudioMediaItem(it)) {
+      this.handleQuickPlayLibraryItem(it).catch(() => {});
+      return;
+    }
+    const rawId = it.mediaId || it.id;
+    this.selectedMusicAlbum = {
+      id: rawId,
+      title: it.title,
+      artist: it.subtitle,
+      year: it.year,
+      coverUrl: it.posterUrl,
+      rating: it.vote,
+      source: it.source || 'musicbrainz',
+      mediaSource: it.source || 'musicbrainz',
+      mediaId: rawId,
+      albumId: rawId
+    };
+    this.musicSheetTrigger += 1;
+    this.showMusicAlbumSheet = true;
+  }
 
   private async runSearch(overrideKeyword?: string): Promise<void> {
     const q = (overrideKeyword ?? this.query).trim();
@@ -1728,22 +1863,47 @@ export struct HarmonyGlobalSearchPage {
         Grid() {
           ForEach(this.results, (it: MpMediaItem) => {
             GridItem() {
-              PosterCard({
-                item: it,
-                fillWidth: true,
-                onTap: () => {
-                  if (this.scopeIndex === 2 || it.type === '人物') {
-                    this.onOpenPerson({
-                      id: it.tmdbId || it.id,
-                      name: it.title,
-                      character: it.subtitle,
-                      profileUrl: it.posterUrl
-                    });
-                  } else {
-                    this.onOpenMedia(it);
+              Column({ space: 6 }) {
+                PosterCard({
+                  item: it,
+                  fillWidth: true,
+                  showPlayBadge: this.scopeIndex === 3 || (it.inLibrary && it.serverName.length > 0),
+                  onTap: () => {
+                    if (this.scopeIndex === 2 || it.type === '人物') {
+                      this.onOpenPerson({
+                        id: it.tmdbId || it.id,
+                        name: it.title,
+                        character: it.subtitle,
+                        profileUrl: it.posterUrl
+                      });
+                    } else if (this.scopeIndex === 3) {
+                      this.handleMusicScopeTap(it);
+                    } else {
+                      this.onOpenMedia(it);
+                    }
                   }
+                })
+
+                if ((this.scopeIndex === 1 || it.inLibrary) && it.serverName.length > 0 && this.scopeIndex !== 2) {
+                  Row({ space: 4 }) {
+                    SymbolGlyph($r('sys.symbol.play_fill'))
+                      .fontSize(11)
+                      .fontColor([Color.White])
+                    Text(this.isSeriesMediaItem(it) ? '选集播放' : '立即播放')
+                      .fontSize(11)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor(Color.White)
+                  }
+                  .width('100%')
+                  .height(26)
+                  .justifyContent(FlexAlign.Center)
+                  .borderRadius(8)
+                  .backgroundColor(this.accentHex)
+                  .onClick(() => {
+                    this.handleQuickPlayLibraryItem(it).catch(() => {});
+                  })
                 }
-              })
+              }
             }
           }, (it: MpMediaItem) => it.id)
         }
@@ -1796,6 +1956,21 @@ export struct HarmonyGlobalSearchPage {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       }
+
+      MusicAlbumArtistSheetHost({
+        visible: $showMusicAlbumSheet,
+        seedAlbum: this.selectedMusicAlbum,
+        openTrigger: this.musicSheetTrigger,
+        onPlayMedia: (req: HarmonyPlaybackRequest) => this.onPlayMedia(req)
+      })
+
+      LibrarySeriesEpisodeSheetHost({
+        visible: $showEpisodePickerSheet,
+        seriesItem: this.selectedSeriesItem,
+        openTrigger: this.episodeSheetTrigger,
+        onPlayMedia: (req: HarmonyPlaybackRequest) => this.onPlayMedia(req),
+        onOpenDetail: (item: MpMediaItem) => this.onOpenMedia(item)
+      })
     }
     .width('100%')
     .height('100%')

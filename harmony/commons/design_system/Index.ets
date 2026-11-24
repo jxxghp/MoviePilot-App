@@ -16,6 +16,15 @@ export {
 } from './src/main/ets/store/AppearanceStore';
 
 export {
+  PlaybackScaleMode,
+  PLAYBACK_SPEED_VALUES,
+  PLAYBACK_SPEED_LABELS,
+  PLAYBACK_SCALE_MODES,
+  PLAYBACK_SCALE_LABELS,
+  PlaybackPreferencesStore
+} from './src/main/ets/store/PlaybackPreferencesStore';
+
+export {
   HarmonyBreakpoint,
   HarmonySheetDetents,
   HarmonyAdaptiveLayout

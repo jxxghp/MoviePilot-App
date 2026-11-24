@@ -585,6 +585,7 @@ fun MediaDetailScreen(
                                             headers = manifest.headers,
                                             itemId = manifest.itemId,
                                             server = manifest.server,
+                                            mediaSourceId = manifest.mediaSourceId.orEmpty(),
                                             resumePositionMs = manifest.resumePositionMs,
                                             subtitles = manifest.subtitles.map {
                                                 SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)

@@ -1768,11 +1768,42 @@ final class NativeV2EntryTests: XCTestCase {
   }
 
   /// 从真实连接与登录进入当前会话，等待业务壳出现但保留它的默认选项。
-  private func signInToNativeBusiness(_ profile: String = "a", mode: String = "ready")
+  /// 验证深色「星夜紫玫」玻璃主题渲染层次与「播放偏好 -> STRM 直链播放」默认开启开关。
+  func testNativeSettingsCinematicThemeAndStrmPlaybackToggle() async throws {
+    let app = try await signInToNativeBusiness(
+      extra: [
+        "-nativeV2.appearance.mode", "dark",
+        "-nativeV2.appearance.bgPreset", "cinematic",
+        "-nativeV2.appearance.accentPreset", "violet",
+      ])
+    defer { app.terminate() }
+    openSettingsHub(app: app)
+    XCTAssertTrue(app.buttons["native-workspace-sites"].waitForExistence(timeout: 10))
+    try await Task.sleep(nanoseconds: 1_500_000_000)
+    capture("native-settings-cinematic-top")
+
+    let scroll = app.scrollViews["native-settings-scroll"]
+    scroll.swipeUp()
+    try await Task.sleep(nanoseconds: 800_000_000)
+    capture("native-settings-cinematic-bottom")
+
+    scroll.swipeDown()
+    let playbackRow = app.buttons["native-settings-playback"]
+    reveal(playbackRow, app: app)
+    XCTAssertTrue(playbackRow.waitForExistence(timeout: 10))
+    tap(playbackRow, app: app)
+    let strmToggle = app.switches["native-playback-strm-direct"]
+    XCTAssertTrue(strmToggle.waitForExistence(timeout: 10))
+    XCTAssertEqual(strmToggle.value as? String, "1")
+  }
+
+  private func signInToNativeBusiness(
+    _ profile: String = "a", mode: String = "ready", extra: [String] = []
+  )
     async throws -> XCUIApplication
   {
     try await configure(profile, mode: mode, reset: true)
-    let app = try cleanPicker()
+    let app = try cleanPicker(extra: extra)
     connect(profile, app: app)
     enterCredentials(profile, app: app)
     tap(app.buttons["native-v2-login"], app: app)

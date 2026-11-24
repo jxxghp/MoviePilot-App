@@ -63,8 +63,8 @@ enum NativeTheme {
     light: UIColor.white,
     dark: UIColor(red: 0.12, green: 0.10, blue: 0.16, alpha: 1))
   static let divider = adaptive(
-    light: UIColor(white: 0.0, alpha: 0.09),
-    dark: UIColor(white: 1.0, alpha: 0.11))
+    light: UIColor(white: 0.0, alpha: 0.085),
+    dark: UIColor(white: 1.0, alpha: 0.085))
 
   /// 根据当前外观与背景色板计算顶部状态栏安全区柔和遮罩色（浅色模式无缝贴合浅色底，深色模式无缝贴合深色底）。
   @MainActor
@@ -183,18 +183,18 @@ private struct NativeSheetGlassBackdrop: View {
   var body: some View {
     let isLight = colorScheme == .light
     ZStack {
-      // 主界面同源流光渐变以半透明透色铺底：既保留背后画面的通透层次，又绝不发灰发黑。
+      // 主界面同源流光渐变以高保真透色铺底：既保留背后画面的通透层次，又绝不发灰发黑。
       CinematicAmbientGradient()
-        .opacity(isLight ? 0.82 : 0.78)
+        .opacity(isLight ? 0.84 : 0.88)
 
-      // 极轻主题强调色与紫玫透色玻璃光泽，贴合主界面低雾感透色玻璃质感。
+      // 纯净中性白色镜面玻璃提亮层，不叠加彩色颜料雾，保持清澈玻璃通透感。
       LinearGradient(
         colors: isLight
-          ? [Color.white.opacity(0.24), .clear, appearance.accentColor.opacity(0.06)]
+          ? [Color.white.opacity(0.26), .clear, appearance.accentColor.opacity(0.05)]
           : [
-            appearance.accentColor.opacity(0.12),
-            .clear,
-            Color(red: 0.70, green: 0.39, blue: 0.59).opacity(0.10),
+            Color.white.opacity(0.072),
+            Color.white.opacity(0.024),
+            Color.white.opacity(0.042),
           ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
@@ -320,9 +320,9 @@ extension View {
 enum CinematicStyle {
   static let margin: CGFloat = 20
   static let radius: CGFloat = 24
-  static let background = Color(red: 0.16, green: 0.16, blue: 0.23)
-  static let solidSurface = Color(red: 0.28, green: 0.23, blue: 0.32)
-  static let separator = Color.white.opacity(0.10)
+  static let background = Color(red: 0.22, green: 0.16, blue: 0.20)
+  static let solidSurface = Color(red: 0.27, green: 0.21, blue: 0.28)
+  static let separator = Color.white.opacity(0.085)
 }
 
 /// 缓慢微弱的同色系动态流光渐变：严格限定在用户当前所选渐变色板内呼吸流动（iOS 18+ 使用 GPU 加速 `MeshGradient`，
@@ -372,8 +372,8 @@ struct CinematicAmbientGradient: View {
           SIMD2(0.0, 1.0), SIMD2(bottomX, 1.0), SIMD2(1.0, 1.0),
         ],
         colors: [
-          c0, c0, c1,
-          c1, c2, c2,
+          c0, c0, c0,
+          c1, c2, c3,
           c2, c3, c3,
         ],
         smoothsColors: true
@@ -445,9 +445,9 @@ struct CinematicPanel<Content: View>: View {
         appearance.accentColor.opacity(0.18),
       ]
       : [
-        .white.opacity(contrast == .increased ? 0.42 : 0.20),
-        .white.opacity(contrast == .increased ? 0.28 : 0.075),
-        .white.opacity(contrast == .increased ? 0.35 : 0.12),
+        .white.opacity(contrast == .increased ? 0.40 : 0.175),
+        .white.opacity(contrast == .increased ? 0.24 : 0.070),
+        .white.opacity(contrast == .increased ? 0.32 : 0.125),
       ]
     content
       .padding(padding)
@@ -464,7 +464,7 @@ struct CinematicPanel<Content: View>: View {
       .overlay(
         shape.strokeBorder(
           LinearGradient(colors: borderColors, startPoint: .topLeading, endPoint: .bottomTrailing),
-          lineWidth: contrast == .increased ? 1 : 0.7
+          lineWidth: contrast == .increased ? 1 : 0.75
         ).allowsHitTesting(false)
       )
   }
@@ -516,21 +516,22 @@ private struct CinematicPanelSurface: ViewModifier {
         }
       }
     } else {
-      // 深色下原系统材质仅 12% 不透明度，背后又是平滑渐变，模糊几乎不可见却要逐帧采样背景；
-      // 实测其提亮不足 1 个色阶，改为等效的极淡白色填充，不再产生背景模糊开销。
+      // 深色采用纯净中性白色镜面玻璃提亮，彻底移除重色颜料染色与浓重黑影，使底层渐变清澈透出并呈现轻盈玻璃边界。
       content.background {
         ZStack {
-          shape.fill(Color.white.opacity(increased ? 0.014 : 0.004))
+          shape.fill(Color.white.opacity(increased ? 0.095 : 0.046))
           shape.fill(
             LinearGradient(
-              colors: [
-                accentColor.opacity(0.08),
-                accentColor.opacity(0.05),
-                Color(red: 0.70, green: 0.39, blue: 0.59).opacity(0.08),
+              stops: [
+                .init(color: .white.opacity(increased ? 0.038 : 0.020), location: 0),
+                .init(color: .white.opacity(0.004), location: 0.48),
+                .init(color: .white.opacity(increased ? 0.020 : 0.010), location: 1),
               ],
-              startPoint: .topLeading, endPoint: .bottomTrailing)
+              startPoint: .topLeading,
+              endPoint: .bottomTrailing
+            )
           )
-          .shadow(color: shadowColor(0.22), radius: shadowRadius, y: shadowY)
+          .shadow(color: shadowColor(0.04), radius: showsShadow ? 5 : 0, y: showsShadow ? 2 : 0)
         }
       }
     }
@@ -2003,15 +2004,12 @@ struct NativeSubscriptionsHubSkeletonView: View {
               NativeSkeletonBlock(width: 168, height: 13, cornerRadius: 5)
             }
             Spacer(minLength: 8)
-            NativeSkeletonBlock(width: 94, height: 32, cornerRadius: 16)
+            VStack(alignment: .trailing, spacing: 5) {
+              NativeSkeletonBlock(width: 48, height: 20, cornerRadius: 6)
+              NativeSkeletonBlock(width: 44, height: 11, cornerRadius: 4)
+            }
           }
           NativeSkeletonBlock(height: 7, cornerRadius: 3.5)
-          HStack(spacing: 8) {
-            NativeSkeletonBlock(width: 62, height: 22, cornerRadius: 11)
-            NativeSkeletonBlock(width: 62, height: 22, cornerRadius: 11)
-            NativeSkeletonBlock(width: 62, height: 22, cornerRadius: 11)
-            Spacer(minLength: 0)
-          }
         }
       }
       .nativeSkeletonShimmer()

@@ -175,7 +175,11 @@ fun SettingsHubScreen(
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val host = serverUrl.substringAfter("://").substringBefore("/")
-    val rustVersion = remember { RustCoreBridge.version() }
+    val appVersion = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "1.0.0"
+    }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val isAdmin = permissions?.admin != false
@@ -385,7 +389,7 @@ fun SettingsHubScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text("客户端版本", color = colors.textSecondary, fontSize = 14.sp)
-                                NativeAdaptiveBadge("v$rustVersion", tint = colors.accent)
+                                NativeAdaptiveBadge("v$appVersion", tint = colors.accent)
                             }
                             if (onSwitchServer != null) {
                                 HorizontalDivider(color = colors.divider)

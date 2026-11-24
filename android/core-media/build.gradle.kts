@@ -20,8 +20,12 @@ android {
 dependencies {
     api(project(":design-system"))
     api(project(":core-rust-bridge"))
+    api(libs.coil.compose)
     api(libs.media3.exoplayer)
     api(libs.media3.exoplayer.hls)
+    api(libs.media3.exoplayer.dash)
+    api(libs.media3.datasource.okhttp)
     api(libs.media3.ui)
     api(libs.media3.session)
+    implementation(libs.media3.ffmpeg.decoder)
 }

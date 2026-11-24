@@ -606,32 +606,194 @@ class MoviePilotRepository(context: Context) {
 
     /** 拉取音乐发现四大榜单（豆瓣音乐 / 本周榜单 / 热门专辑 / 近期新发）。 */
     suspend fun fetchMusicFeed(feed: String, page: Int = 1): List<MusicAlbumDto> {
-        val resp = when (feed) {
-            "weekly" -> authedRequest(listOf("recommend", "music_weekly"), query = listOf("page" to page.toString()))
-            "popular" -> authedRequest(
-                listOf("music", "explore"),
-                query = listOf("media_source" to "musicbrainz", "sort" to "popular", "page" to page.toString()),
-            )
-            "latest" -> authedRequest(
-                listOf("music", "explore"),
-                query = listOf("media_source" to "musicbrainz", "sort" to "latest", "page" to page.toString()),
-            )
-            else -> authedRequest(listOf("recommend", "music_douban"), query = listOf("page" to page.toString()))
-        }.getOrNull() ?: return emptyList()
+        val (segments, query) = buildMusicFeedEndpoint(feed, page)
+        val resp = authedRequest(segments, query = query).getOrNull() ?: return emptyList()
+        if (resp.status !in 200..299) return emptyList()
+        val fallbackSource = if (feed == "popular" || feed == "latest") "musicbrainz" else "douban"
         return extractArray(resp.body).mapNotNull { el ->
-            val obj = el.asObj() ?: return@mapNotNull null
-            val title = obj.str("title") ?: obj.str("name") ?: return@mapNotNull null
-            MusicAlbumDto(
-                id = obj.str("media_id") ?: obj.str("douban_id") ?: obj.str("id") ?: title,
-                title = title,
-                artist = obj.str("artist") ?: obj.str("author") ?: obj.str("subtitle") ?: obj.str("original_title") ?: "",
-                year = obj.str("year") ?: obj.str("release_date")?.take(4) ?: "",
-                coverUrl = resolveImageUrl(obj.str("poster_path") ?: obj.str("cover") ?: obj.str("image"), maxWidth = 500),
-                source = obj.str("media_source") ?: "douban",
-                voteAverage = obj.dbl("vote_average") ?: 0.0,
-                overview = obj.str("overview") ?: "",
+            parseMusicAlbumObj(el.asObj(), fallbackSource = fallbackSource)
+        }
+    }
+
+    private fun parseMusicAlbumObj(obj: JsonObject?, fallbackSource: String = "musicbrainz"): MusicAlbumDto? {
+        if (obj == null) return null
+        val title = obj.str("title") ?: obj.str("name") ?: return null
+        val artistsList = obj["artists"].asArr()?.mapNotNull {
+            it.asPrim()?.content?.takeIf { s -> s.isNotBlank() && s != "null" }
+        }.orEmpty()
+        val artistIdsList = obj["artist_ids"].asArr()?.mapNotNull {
+            it.asPrim()?.content?.takeIf { s -> s.isNotBlank() && s != "null" }
+        }.orEmpty()
+        val primaryId = obj.str("media_id") ?: obj.str("douban_id") ?: obj.str("id") ?: obj.str("album_id") ?: title
+        val albumLookup = obj.str("album_id")?.takeIf { it.isNotBlank() } ?: primaryId
+        val rawYear = obj.str("year") ?: obj.int("year")?.toString() ?: obj.str("release_date")?.take(4) ?: ""
+        return MusicAlbumDto(
+            id = primaryId,
+            albumId = albumLookup,
+            releaseId = obj.str("musicbrainz_release_id")?.takeIf { it.isNotBlank() },
+            title = title,
+            artist = obj.str("artist") ?: artistsList.firstOrNull() ?: obj.str("author") ?: obj.str("subtitle") ?: obj.str("original_title") ?: "",
+            artistId = artistIdsList.firstOrNull() ?: obj.str("artist_id")?.takeIf { it.isNotBlank() },
+            year = rawYear,
+            albumType = obj.str("album_type").orEmpty(),
+            totalTracks = obj.int("total_tracks") ?: 0,
+            coverUrl = resolveImageUrl(obj.str("cover_url") ?: obj.str("poster_path") ?: obj.str("cover") ?: obj.str("image"), maxWidth = 500),
+            source = obj.str("media_source")?.takeIf { it.isNotBlank() } ?: fallbackSource,
+            voteAverage = obj.dbl("rating")?.takeIf { it > 0.0 } ?: obj.dbl("vote_average") ?: 0.0,
+            overview = obj.str("overview") ?: "",
+        )
+    }
+
+    /** 拉取音乐专辑完整详情与分碟曲目清单（`GET /api/v1/music/album/{id}?media_source=...`）。 */
+    suspend fun fetchMusicAlbumDetail(
+        albumId: String,
+        source: String,
+        releaseId: String? = null,
+    ): MusicAlbumDetailDto? {
+        val cleanId = albumId.trim()
+        if (cleanId.isEmpty()) return null
+        val resolvedSource = source.ifBlank { "musicbrainz" }
+        val query = buildList {
+            add("media_source" to resolvedSource)
+            if (!releaseId.isNullOrBlank()) {
+                add("musicbrainz_release_id" to releaseId)
+            }
+        }
+        val resp = authedRequest(listOf("music", "album", cleanId), query = query).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        val artists = obj["artists"].asArr()?.mapNotNull {
+            it.asPrim()?.content?.takeIf { s -> s.isNotBlank() && s != "null" }
+        }.orEmpty()
+        val artistIds = obj["artist_ids"].asArr()?.mapNotNull {
+            it.asPrim()?.content?.takeIf { s -> s.isNotBlank() && s != "null" }
+        }.orEmpty()
+        val primaryArtist = obj.str("artist") ?: artists.firstOrNull().orEmpty()
+        val tracks = obj["tracks"].asArr().orEmpty().mapIndexedNotNull { idx, trEl ->
+            val tr = trEl.asObj() ?: return@mapIndexedNotNull null
+            val trTitle = tr.str("title") ?: tr.str("name") ?: return@mapIndexedNotNull null
+            val trArtists = tr["artists"].asArr()?.mapNotNull {
+                it.asPrim()?.content?.takeIf { s -> s.isNotBlank() && s != "null" }
+            }.orEmpty()
+            MusicTrackDto(
+                id = tr.str("media_id") ?: tr.str("id") ?: "$cleanId-${idx + 1}",
+                title = trTitle,
+                artist = tr.str("artist") ?: trArtists.firstOrNull() ?: primaryArtist,
+                discNumber = (tr.int("disc_number") ?: tr.int("medium_number") ?: 1).coerceAtLeast(1),
+                trackNumber = tr.int("track_number") ?: (idx + 1),
+                durationSeconds = (tr.int("duration") ?: ((tr.lng("duration_ms") ?: 0L) / 1000L).toInt()).coerceAtLeast(0),
             )
         }
+        return MusicAlbumDetailDto(
+            id = obj.str("media_id") ?: obj.str("album_id") ?: cleanId,
+            title = obj.str("title") ?: obj.str("name").orEmpty(),
+            artist = primaryArtist,
+            artists = artists,
+            artistIds = artistIds,
+            albumType = obj.str("album_type").orEmpty(),
+            year = obj.str("year") ?: obj.int("year")?.toString() ?: obj.str("release_date")?.take(4).orEmpty(),
+            totalTracks = obj.int("total_tracks") ?: tracks.size,
+            coverUrl = resolveImageUrl(obj.str("cover_url") ?: obj.str("poster_path") ?: obj.str("cover") ?: obj.str("image"), maxWidth = 600),
+            overview = obj.str("overview").orEmpty(),
+            source = obj.str("media_source")?.takeIf { it.isNotBlank() } ?: resolvedSource,
+            tracks = tracks,
+        )
+    }
+
+    /** 并发拉取音乐艺人资料及其专辑作品网格（`GET /api/v1/music/artist/{id}` + `/albums`）。 */
+    suspend fun fetchMusicArtistDetail(
+        artistId: String,
+        source: String,
+        fallbackName: String = "",
+    ): MusicArtistDetailDto? = coroutineScope {
+        val cleanId = artistId.trim()
+        if (cleanId.isEmpty()) return@coroutineScope null
+        val resolvedSource = source.ifBlank { "musicbrainz" }
+        val q = listOf("media_source" to resolvedSource)
+        val infoDeferred = async {
+            authedRequest(listOf("music", "artist", cleanId), query = q).getOrNull()
+        }
+        val albumsDeferred = async {
+            authedRequest(listOf("music", "artist", cleanId, "albums"), query = q).getOrNull()
+        }
+        val infoResp = infoDeferred.await()
+        val albumsResp = albumsDeferred.await()
+        val infoObj = if (infoResp != null && infoResp.status in 200..299) extractObject(infoResp.body) else null
+        val parsedAlbums = if (albumsResp != null && albumsResp.status in 200..299) {
+            val seen = HashSet<String>()
+            extractArray(albumsResp.body).mapNotNull { el ->
+                parseMusicAlbumObj(el.asObj(), fallbackSource = resolvedSource)
+            }.filter { seen.add("${it.source}|${it.id}|${it.title}") }
+        } else {
+            emptyList()
+        }
+        if (infoObj == null && parsedAlbums.isEmpty()) return@coroutineScope null
+        MusicArtistDetailDto(
+            id = cleanId,
+            name = infoObj?.str("name") ?: infoObj?.str("title") ?: fallbackName,
+            country = infoObj?.str("country").orEmpty(),
+            area = infoObj?.str("area").orEmpty(),
+            lifeSpan = infoObj?.str("life_span").orEmpty(),
+            imageUrl = resolveImageUrl(infoObj?.str("image_url") ?: infoObj?.str("poster_path") ?: infoObj?.str("image"), maxWidth = 480),
+            overview = infoObj?.str("overview").orEmpty(),
+            source = resolvedSource,
+            albums = parsedAlbums,
+        )
+    }
+
+    /** 查询指定音乐专辑是否处于已订阅状态（`POST /api/v1/media/status`）。 */
+    suspend fun checkMusicAlbumSubscribed(mediaSource: String, mediaId: String): Boolean {
+        if (mediaId.isBlank()) return false
+        val body = """[{"media_source":"${esc(mediaSource.ifBlank { "musicbrainz" })}","media_id":"${esc(mediaId)}","mtype":"音乐"}]"""
+        val resp = authedRequest(listOf("media", "status"), method = "POST", body = body).getOrNull() ?: return false
+        if (resp.status !in 200..299) return false
+        val first = extractArray(resp.body).firstOrNull()?.asObj() ?: return false
+        return first.bool("subscribed") ?: false
+    }
+
+    /** 提交音乐专辑订阅（`POST /api/v1/subscribe/`）。 */
+    suspend fun subscribeMusicAlbum(
+        title: String,
+        mediaSource: String,
+        mediaId: String,
+        year: String = "",
+        totalTracks: Int = 0,
+    ): Pair<Boolean, String> {
+        if (mediaId.isBlank()) return false to "专辑缺少有效媒体标识"
+        val fields = mutableListOf(
+            """"name":"${esc(title)}"""",
+            """"type":"音乐"""",
+            """"music_type":"album"""",
+            """"media_source":"${esc(mediaSource.ifBlank { "musicbrainz" })}"""",
+            """"media_id":"${esc(mediaId)}"""",
+        )
+        if (year.isNotBlank()) fields += """"year":"${esc(year)}""""
+        if (totalTracks > 0) fields += """"total_tracks":$totalTracks"""
+        val resp = authedRequest(
+            segments = listOf("subscribe"),
+            method = "POST",
+            body = "{${fields.joinToString(",")}}",
+            trailingSlash = true,
+        ).getOrNull() ?: return false to "网络请求失败"
+        val msg = extractObject(resp.body)?.str("message")
+            ?: if (resp.status in 200..299) "已添加专辑订阅" else "添加音乐订阅失败 (HTTP ${resp.status})"
+        return (resp.status in 200..299) to msg
+    }
+
+    /** 取消音乐专辑订阅（`DELETE /api/v1/subscribe/media/{mediaId}`）。 */
+    suspend fun unsubscribeMusicAlbum(mediaSource: String, mediaId: String): Pair<Boolean, String> {
+        if (mediaId.isBlank()) return false to "专辑缺少有效媒体标识"
+        val resp = authedRequest(
+            segments = listOf("subscribe", "media", mediaId),
+            method = "DELETE",
+            query = listOf(
+                "media_source" to mediaSource.ifBlank { "musicbrainz" },
+                "mtype" to "音乐",
+            ),
+        ).getOrNull() ?: return false to "网络请求失败"
+        val msg = extractObject(resp.body)?.str("message")
+            ?: if (resp.status in 200..299) "已取消专辑订阅" else "取消音乐订阅失败 (HTTP ${resp.status})"
+        return (resp.status in 200..299) to msg
     }
 
     /** 拉取所有已启用媒体服务器的真实「继续观看」列表（聚合多媒体服务器，精确还原小数进度百分比）。 */
@@ -774,6 +936,9 @@ class MoviePilotRepository(context: Context) {
             contentRating = obj.str("content_rating") ?: obj.str("official_rating"),
             releaseDate = obj.str("release_date") ?: obj.str("first_air_date") ?: obj.str("premiere_date"),
             inLibrary = obj.bool("in_library") ?: (serverItemId != null),
+            subtitle = obj.str("artist")
+                ?: obj["artists"].asArr()?.firstOrNull()?.asPrim()?.content?.takeIf { it != "null" && it.isNotBlank() }
+                ?: obj.str("subtitle"),
             popularityCount = obj.int("count") ?: 0,
             shareUser = obj.str("share_user"),
             shareComment = obj.str("share_comment"),
@@ -3040,7 +3205,13 @@ class MoviePilotRepository(context: Context) {
             .take(20)
     }
 
-    /** 拉取媒体服务器真实直放流与外挂字幕清单（`GET /api/v1/mediaserver/stream-info`）。 */
+    private fun isStrmDirectPlayEnabled(): Boolean =
+        runCatching {
+            appContext.getSharedPreferences("mp_playback_prefs_v1", Context.MODE_PRIVATE)
+                .getBoolean("strm_direct_play", true)
+        }.getOrDefault(true)
+
+    /** 拉取媒体服务器真实直放流与外挂字幕清单（`GET /api/v1/mediaserver/stream-info`）；当返回安全 `strm_url` 且开启直链播放时优先直连。 */
     suspend fun fetchVideoStreamInfo(
         itemId: String,
         server: String? = null,
@@ -3056,7 +3227,18 @@ class MoviePilotRepository(context: Context) {
         if (resp.status !in 200..299) return null
         val obj = extractObject(resp.body) ?: return null
         val rawUrl = obj.str("content_url")?.takeIf { it.isNotBlank() } ?: return null
-        val contentUrl = resolveSameOriginUrl(auth.serverUrl, rawUrl)
+        val sameOriginUrl = resolveSameOriginUrl(auth.serverUrl, rawUrl)
+        val parsedStrmUrl = obj.str("strm_url")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { RustCoreBridge.parseStrm(it)?.url }
+        val useStrmDirect = parsedStrmUrl != null && isStrmDirectPlayEnabled()
+        val activeUrl = if (useStrmDirect) parsedStrmUrl!! else sameOriginUrl
+        val sameOriginHeaders = buildPlaybackHeaders(sameOriginUrl)
+        val activeHeaders = if (useStrmDirect && !RustCoreBridge.containsUrl(auth.serverUrl, activeUrl)) {
+            emptyMap()
+        } else {
+            sameOriginHeaders
+        }
         val subs = obj["subtitles"].asArr().orEmpty().mapNotNull { el ->
             val so = el.asObj() ?: return@mapNotNull null
             val su = so.str("url")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
@@ -3071,14 +3253,19 @@ class MoviePilotRepository(context: Context) {
         return MediaPlaybackManifestDto(
             itemId = obj.str("item_id") ?: itemId,
             server = obj.str("server") ?: server.orEmpty(),
+            mediaSourceId = obj.str("media_source_id") ?: mediaSourceId,
             mediaType = obj.str("media_type") ?: "video",
             title = obj.str("title").orEmpty(),
-            contentUrl = contentUrl,
+            contentUrl = activeUrl,
+            strmUrl = parsedStrmUrl,
+            proxyFallbackUrl = if (useStrmDirect && activeUrl != sameOriginUrl) sameOriginUrl else null,
+            originUrl = auth.serverUrl,
             subtitles = subs,
             lyricsUrl = lyricsUrl,
             durationMs = obj.lng("duration_ms") ?: ((obj.dbl("duration") ?: 0.0) * 1000.0).toLong(),
             resumePositionMs = obj.lng("position_ms") ?: obj.lng("resume_position_ms") ?: 0L,
-            headers = buildPlaybackHeaders(contentUrl),
+            headers = activeHeaders,
+            sameOriginHeaders = sameOriginHeaders,
         )
     }
 
@@ -3100,17 +3287,33 @@ class MoviePilotRepository(context: Context) {
         if (resp.status !in 200..299) return null
         val obj = extractObject(resp.body) ?: return null
         val rawUrl = obj.str("content_url")?.takeIf { it.isNotBlank() } ?: return null
-        val contentUrl = resolveSameOriginUrl(auth.serverUrl, rawUrl)
+        val sameOriginUrl = resolveSameOriginUrl(auth.serverUrl, rawUrl)
+        val parsedStrmUrl = obj.str("strm_url")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { RustCoreBridge.parseStrm(it)?.url }
+        val useStrmDirect = parsedStrmUrl != null && isStrmDirectPlayEnabled()
+        val activeUrl = if (useStrmDirect) parsedStrmUrl!! else sameOriginUrl
+        val sameOriginHeaders = buildPlaybackHeaders(sameOriginUrl)
+        val activeHeaders = if (useStrmDirect && !RustCoreBridge.containsUrl(auth.serverUrl, activeUrl)) {
+            emptyMap()
+        } else {
+            sameOriginHeaders
+        }
         val lyricsUrl = obj.str("lyrics_url")?.takeIf { it.isNotBlank() }?.let { resolveSameOriginUrl(auth.serverUrl, it) }
         return MediaPlaybackManifestDto(
             itemId = obj.str("item_id").orEmpty(),
             server = obj.str("server").orEmpty(),
+            mediaSourceId = obj.str("media_source_id"),
             mediaType = "audio",
             title = obj.str("title") ?: title,
-            contentUrl = contentUrl,
+            contentUrl = activeUrl,
+            strmUrl = parsedStrmUrl,
+            proxyFallbackUrl = if (useStrmDirect && activeUrl != sameOriginUrl) sameOriginUrl else null,
+            originUrl = auth.serverUrl,
             lyricsUrl = lyricsUrl,
             durationMs = obj.lng("duration_ms") ?: 0L,
-            headers = buildPlaybackHeaders(contentUrl),
+            headers = activeHeaders,
+            sameOriginHeaders = sameOriginHeaders,
         )
     }
 
@@ -3141,7 +3344,46 @@ class MoviePilotRepository(context: Context) {
         return if (ok) destFile else null
     }
 
-    /** 回传当前播放位置与状态到媒体服务器（`POST /api/v1/mediaserver/progress`）。 */
+    /**
+     * 解析并准备存储音视频文件起播源：
+     * - `.strm` 文件（本地或云盘）仅读取 `<= 64KB` 文本并立即删除临时文件，返回客户端直连 HTTP(S) URL 与可选安全请求头；
+     * - 常规音视频封装文件保留受管缓存文件并返回 `file://` URI。
+     */
+    suspend fun resolveStoragePlayback(
+        storage: String,
+        path: String,
+        destFile: java.io.File,
+        fallbackKind: String? = null,
+    ): ResolvedStoragePlaybackDto? {
+        val downloaded = downloadStorageFileToCache(storage, path, destFile) ?: return null
+        if (!downloaded.exists()) return null
+        val fileName = path.substringAfterLast('/').ifBlank { downloaded.name }
+        if (RustCoreBridge.isStrmPath(fileName) || RustCoreBridge.isStrmPath(downloaded.name)) {
+            val rawBytes = runCatching {
+                if (downloaded.length() in 1..65_536L) downloaded.readBytes() else null
+            }.getOrNull()
+            runCatching { downloaded.delete() }
+            val bytes = rawBytes ?: return null
+            val text = decodeStrmBytes(bytes) ?: return null
+            val spec = RustCoreBridge.parseStrm(text, fileName) ?: return null
+            return ResolvedStoragePlaybackDto(
+                url = spec.url,
+                isAudio = spec.mediaKind == "audio",
+                streamHeaders = spec.headers,
+                tempFilePath = null,
+                isStrmDirect = true,
+            )
+        }
+        val detectedKind = fallbackKind ?: RustCoreBridge.detectMediaKind(path, false)
+        return ResolvedStoragePlaybackDto(
+            url = android.net.Uri.fromFile(downloaded).toString(),
+            isAudio = detectedKind == "audio",
+            tempFilePath = downloaded.absolutePath,
+            isStrmDirect = false,
+        )
+    }
+
+    /** 回传当前播放位置与状态到媒体服务器（`POST /api/v1/mediaserver/progress`，附带可选 `media_source_id`）。 */
     suspend fun reportMediaPlaybackProgress(
         itemId: String,
         server: String,
@@ -3149,9 +3391,21 @@ class MoviePilotRepository(context: Context) {
         durationMs: Long,
         isPaused: Boolean,
         state: String,
+        mediaSourceId: String? = null,
     ) {
         if (itemId.isBlank() || server.isBlank() || itemId.startsWith("file.")) return
-        val body = """{"item_id":"${esc(itemId)}","server":"${esc(server)}","position_ms":${positionMs.coerceAtLeast(0L)},"duration_ms":${durationMs.coerceAtLeast(0L)},"is_paused":$isPaused,"state":"${esc(state)}"}"""
+        val fields = mutableListOf(
+            """"item_id":"${esc(itemId)}"""",
+            """"server":"${esc(server)}"""",
+            """"position_ms":${positionMs.coerceAtLeast(0L)}""",
+            """"duration_ms":${durationMs.coerceAtLeast(0L)}""",
+            """"is_paused":$isPaused""",
+            """"state":"${esc(state)}"""",
+        )
+        if (!mediaSourceId.isNullOrBlank()) {
+            fields += """"media_source_id":"${esc(mediaSourceId)}""""
+        }
+        val body = "{${fields.joinToString(",")}}"
         runCatching {
             authedRequest(listOf("mediaserver", "progress"), method = "POST", body = body)
         }
@@ -3517,6 +3771,29 @@ class MoviePilotRepository(context: Context) {
         s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
 
     companion object {
+        /** 解码 `.strm` 字节数组（兼容 UTF-8 BOM、UTF-16 LE/BE 与 GB18030）。 */
+        fun decodeStrmBytes(bytes: ByteArray): String? {
+            if (bytes.isEmpty() || bytes.size > 65_536) return null
+            if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) {
+                return String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+            }
+            if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
+                return String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+            }
+            val utf8 = runCatching {
+                java.nio.charset.StandardCharsets.UTF_8
+                    .newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes))
+                    .toString()
+            }.getOrNull()
+            if (utf8 != null) return utf8.removePrefix("\uFEFF")
+            return runCatching {
+                String(bytes, java.nio.charset.Charset.forName("GB18030"))
+            }.getOrNull()
+        }
+
         private val TMDB_GENRE_ID_TO_ZH = mapOf(
             28 to "动作", 12 to "冒险", 16 to "动画", 35 to "喜剧", 80 to "犯罪",
             99 to "纪录", 18 to "剧情", 10751 to "家庭", 14 to "奇幻", 36 to "历史",
@@ -3614,6 +3891,45 @@ class MoviePilotRepository(context: Context) {
             imdbId?.trim()?.takeIf { it.isNotBlank() && it != "0" }?.let { return "imdb" to it }
             tvdbId?.trim()?.takeIf { it.isNotBlank() && it != "0" }?.let { return "tvdb" to it }
             return null
+        }
+
+        /**
+         * 构造音乐探索四大榜单的规范化 API 路径与查询参数（修复 MusicBrainz `mode=chart` / `mode=fresh` 422 参数问题）。
+         */
+        fun buildMusicFeedEndpoint(feed: String, page: Int = 1): Pair<List<String>, List<Pair<String, String>>> {
+            val pageStr = page.coerceAtLeast(1).toString()
+            return when (feed) {
+                "weekly" -> listOf("recommend", "music_weekly") to listOf("page" to pageStr)
+                "popular" -> listOf("music", "explore") to listOf(
+                    "mode" to "chart",
+                    "entity" to "album",
+                    "range_name" to "this_month",
+                    "media_source" to "musicbrainz",
+                    "count" to "30",
+                    "page" to pageStr,
+                )
+                "latest" -> listOf("music", "explore") to listOf(
+                    "mode" to "fresh",
+                    "days" to "30",
+                    "media_source" to "musicbrainz",
+                    "count" to "30",
+                    "page" to pageStr,
+                )
+                else -> listOf("recommend", "music_douban") to listOf("page" to pageStr)
+            }
+        }
+
+        /**
+         * 剧集智能续播定位（对齐 iOS `nextPlayableEpisodeIndex`）：
+         * 优先定位 `resumePositionMs > 30_000 && !played` 的在看集，其次首个 `!played` 未看集，全部看完回退首集 `0`。
+         */
+        fun smartNextPlayableEpisodeIndex(episodes: List<MediaServerBrowseItemDto>): Int? {
+            if (episodes.isEmpty()) return null
+            val resumingIdx = episodes.indexOfFirst { it.resumePositionMs > 30_000L && !it.played }
+            if (resumingIdx >= 0) return resumingIdx
+            val unplayedIdx = episodes.indexOfFirst { !it.played }
+            if (unplayedIdx >= 0) return unplayedIdx
+            return 0
         }
     }
 }

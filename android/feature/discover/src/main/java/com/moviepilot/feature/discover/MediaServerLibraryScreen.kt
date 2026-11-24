@@ -73,6 +73,7 @@ import com.moviepilot.designsystem.ProvideSkeletonShimmer
 import com.moviepilot.designsystem.SkeletonSurfaceRole
 import com.moviepilot.designsystem.nativePosterGridSkeletonItems
 import com.moviepilot.media.MediaPlaybackRequest
+import com.moviepilot.media.QueueTrackSpec
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaServerBrowseItemDto
@@ -475,10 +476,10 @@ fun MediaServerLibraryScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     val resolvedSrv = entry.server.ifBlank { activeServer }
-                                    val isAudioEntry = isMusicLib ||
-                                        entry.type.equals("Audio", ignoreCase = true) ||
-                                        entry.type.equals("MusicAlbum", ignoreCase = true)
-                                    if (!isAudioEntry && onOpenServerDetail != null && entry.itemId.isNotBlank()) {
+                                    val isDirectAudioTrack = entry.type.equals("Audio", ignoreCase = true)
+                                    val isMusicAlbumEntry = entry.type.equals("MusicAlbum", ignoreCase = true) ||
+                                        (isMusicLib && !isDirectAudioTrack)
+                                    if (!isDirectAudioTrack && onOpenServerDetail != null && entry.itemId.isNotBlank()) {
                                         onOpenServerDetail(entry.itemId, resolvedSrv, entry.title, entry.imageUrl)
                                     } else {
                                         scope.launch {
@@ -486,6 +487,26 @@ fun MediaServerLibraryScreen(
                                             val manifest = repository.fetchVideoStreamInfo(entry.itemId, resolvedSrv)
                                             if (manifest != null) {
                                                 val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                                val siblingAudio = if (isDirectAudioTrack || isMusicLib) {
+                                                    items.filter { it.type.equals("Audio", ignoreCase = true) || (!isMusicAlbumEntry && isMusicLib) }
+                                                } else {
+                                                    emptyList()
+                                                }
+                                                val audioQueue = siblingAudio.mapIndexed { qIdx, a ->
+                                                    val aSrv = a.server.ifBlank { resolvedSrv }
+                                                    MediaPlaybackRequest(
+                                                        url = "",
+                                                        title = a.title,
+                                                        subtitle = listOfNotNull(aSrv.ifBlank { null }, a.year.ifBlank { null }).joinToString(" · "),
+                                                        artworkUrl = a.imageUrl,
+                                                        isAudio = true,
+                                                        itemId = a.itemId,
+                                                        server = aSrv,
+                                                        queueIndex = qIdx,
+                                                        lazySpec = QueueTrackSpec.MediaServerItem(a.itemId, aSrv),
+                                                    )
+                                                }
+                                                val curQIdx = siblingAudio.indexOfFirst { it.itemId == entry.itemId }.coerceAtLeast(0)
                                                 onPlayMedia(
                                                     MediaPlaybackRequest(
                                                         url = manifest.contentUrl,
@@ -500,10 +521,13 @@ fun MediaServerLibraryScreen(
                                                         headers = manifest.headers,
                                                         itemId = manifest.itemId,
                                                         server = manifest.server,
+                                                        mediaSourceId = manifest.mediaSourceId.orEmpty(),
                                                         resumePositionMs = manifest.resumePositionMs,
                                                         subtitles = manifest.subtitles.map {
                                                             SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
                                                         },
+                                                        queue = audioQueue,
+                                                        queueIndex = curQIdx,
                                                     ),
                                                 )
                                             } else if (onOpenServerDetail != null && entry.itemId.isNotBlank()) {

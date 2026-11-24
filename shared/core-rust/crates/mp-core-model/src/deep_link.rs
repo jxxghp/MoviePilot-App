@@ -12,19 +12,29 @@ pub enum PlayableMediaKind {
     Audio,
 }
 
-/// 统一维护 MoviePilot 三端原生播放器支持的音视频扩展名。
+/// 从 `.strm` 文本文件中解析出的客户端直链播放规格（含可选安全请求头与推断出的媒体类型）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StrmStreamSpec {
+    pub url: String,
+    pub headers: HashMap<String, String>,
+    pub media_kind: PlayableMediaKind,
+}
+
+/// 统一维护 MoviePilot 三端原生播放器支持的音视频扩展名与 `.strm` 直链解析。
 pub struct PlayableMediaFormat;
 
 impl PlayableMediaFormat {
     const VIDEO_EXTS: &'static [&'static str] = &[
         "mp4", "mkv", "mk3d", "mov", "m4v", "avi", "ts", "m2ts", "mts", "webm", "flv", "f4v",
-        "wmv", "asf", "rmvb", "rm", "mpg", "mpeg", "vob", "3gp", "3g2", "ogv",
+        "wmv", "asf", "rmvb", "rm", "mpg", "mpeg", "vob", "3gp", "3g2", "ogv", "strm",
     ];
     const STREAMING_VIDEO_EXTS: &'static [&'static str] = &["m3u8", "mpd"];
     const AUDIO_EXTS: &'static [&'static str] = &[
         "mp3", "flac", "m4a", "aac", "wav", "ogg", "oga", "opus", "alac", "ape", "aiff", "aif",
         "wma", "mka", "caf", "dsf", "dff", "amr",
     ];
+    const MAX_STRM_BYTES: usize = 64 * 1024;
 
     /// 按扩展名推断播放模式；`include_streaming` 为真时额外识别 m3u8/mpd。
     pub fn kind_for_extension(raw_ext: &str, include_streaming: bool) -> Option<PlayableMediaKind> {
@@ -44,13 +54,209 @@ impl PlayableMediaFormat {
         None
     }
 
-    /// 根据路径或文件名推断可播放媒体类型。
+    /// 根据路径或文件名推断可播放媒体类型；对 `*.flac.strm` 等双扩展名优先识别内层音频后缀。
     pub fn kind_for_path(path: &str, include_streaming: bool) -> Option<PlayableMediaKind> {
-        let ext = path.rsplit('.').next()?;
-        if ext.len() == path.len() {
+        let trimmed = path.trim();
+        let ext = trimmed.rsplit('.').next()?;
+        if ext.len() == trimmed.len() {
             return None;
         }
+        if ext.eq_ignore_ascii_case("strm") {
+            let stem = &trimmed[..trimmed.len().saturating_sub(ext.len() + 1)];
+            if let Some(inner_ext) = stem.rsplit('.').next()
+                && inner_ext.len() < stem.len()
+                && Self::AUDIO_EXTS.contains(&inner_ext.to_ascii_lowercase().as_str())
+            {
+                return Some(PlayableMediaKind::Audio);
+            }
+            return Some(PlayableMediaKind::Video);
+        }
         Self::kind_for_extension(ext, include_streaming)
+    }
+
+    /// 判断路径或文件名是否为 `.strm` 虚拟流文件。
+    pub fn is_strm_path(path_or_ext: &str) -> bool {
+        let trimmed = path_or_ext.trim().trim_start_matches('.');
+        if !trimmed.contains('.') {
+            return trimmed.eq_ignore_ascii_case("strm");
+        }
+        trimmed
+            .rsplit('.')
+            .next()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("strm"))
+    }
+
+    /// 解析 `.strm` 文件文本，提取规范化 HTTP(S) 直链、可选播放器请求头及音视频模式。
+    pub fn parse_strm_content(
+        raw_text: &str,
+        fallback_file_name: Option<&str>,
+    ) -> Result<StrmStreamSpec, String> {
+        if raw_text.len() > Self::MAX_STRM_BYTES {
+            return Err("STRM 文件体积超出 64KB 安全上限".to_string());
+        }
+        if raw_text.contains('\0') {
+            return Err("STRM 文件包含二进制数据，非有效直链文本".to_string());
+        }
+        let body = raw_text.trim_start_matches('\u{feff}');
+        let mut headers: HashMap<String, String> = HashMap::new();
+        let mut target_line: Option<&str> = None;
+
+        for raw_line in body.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix('#') {
+                Self::parse_strm_directive(rest.trim(), &mut headers);
+                continue;
+            }
+            if target_line.is_none() {
+                target_line = Some(line);
+            }
+        }
+
+        let raw_target = target_line.ok_or_else(|| "STRM 文件未包含有效的播放地址".to_string())?;
+        let (raw_url_part, pipe_headers) = match raw_target.split_once('|') {
+            Some((u, h)) => (u.trim(), Some(h.trim())),
+            None => (raw_target, None),
+        };
+        if let Some(pipe_raw) = pipe_headers {
+            Self::parse_header_pairs(pipe_raw, &mut headers);
+        }
+
+        let normalized_input = Self::escape_raw_url_input(raw_url_part);
+        let mut parsed = Url::parse(&normalized_input)
+            .map_err(|_| "STRM 播放地址不是合法的 HTTP/HTTPS URL".to_string())?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err("STRM 直链仅支持 http 或 https 协议".to_string());
+        }
+        if parsed.host_str().unwrap_or_default().is_empty() {
+            return Err("STRM 播放地址缺少有效主机名".to_string());
+        }
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Err("STRM 播放地址禁止内嵌账号或密码凭据".to_string());
+        }
+        parsed.set_fragment(None);
+
+        let decoded_path = AppDeepLink::urlencoding_decode(parsed.path());
+        let media_kind = if !Self::is_strm_path(&decoded_path) {
+            Self::kind_for_path(&decoded_path, true)
+        } else {
+            None
+        }
+        .or_else(|| fallback_file_name.and_then(|name| Self::kind_for_path(name, true)))
+        .unwrap_or(PlayableMediaKind::Video);
+
+        Ok(StrmStreamSpec {
+            url: parsed.into(),
+            headers,
+            media_kind,
+        })
+    }
+
+    fn parse_strm_directive(directive: &str, headers: &mut HashMap<String, String>) {
+        if let Some(rest) = directive
+            .strip_prefix("EXTVLCOPT:")
+            .or_else(|| directive.strip_prefix("extvlcopt:"))
+        {
+            if let Some((k, v)) = rest.trim().split_once('=') {
+                let mapped = match k.trim().to_ascii_lowercase().as_str() {
+                    "http-user-agent" => Some("User-Agent"),
+                    "http-referrer" | "http-referer" => Some("Referer"),
+                    "http-cookie" => Some("Cookie"),
+                    _ => None,
+                };
+                if let Some(header_name) = mapped {
+                    Self::insert_safe_header(headers, header_name, v.trim());
+                }
+            }
+            return;
+        }
+        if let Some(rest) = directive.strip_prefix("KODIPROP:") {
+            let trimmed = rest.trim();
+            if let Some(pairs) = trimmed
+                .strip_prefix("inputstream.adaptive.stream_headers=")
+                .or_else(|| trimmed.strip_prefix("http-headers="))
+            {
+                Self::parse_header_pairs(pairs, headers);
+            }
+        }
+    }
+
+    fn parse_header_pairs(raw_pairs: &str, headers: &mut HashMap<String, String>) {
+        for pair in raw_pairs.split('&') {
+            let Some((raw_k, raw_v)) = pair.split_once('=') else {
+                continue;
+            };
+            let canonical = match raw_k.trim().to_ascii_lowercase().as_str() {
+                "user-agent" => Some("User-Agent"),
+                "referer" | "referrer" => Some("Referer"),
+                "cookie" => Some("Cookie"),
+                "origin" => Some("Origin"),
+                "authorization" => Some("Authorization"),
+                _ => None,
+            };
+            if let Some(name) = canonical {
+                let decoded = AppDeepLink::urlencoding_decode(raw_v.trim());
+                Self::insert_safe_header(headers, name, &decoded);
+            }
+        }
+    }
+
+    fn insert_safe_header(headers: &mut HashMap<String, String>, name: &str, value: &str) {
+        let clean = value.trim();
+        if clean.is_empty() || clean.len() > 4096 || clean.chars().any(char::is_control) {
+            return;
+        }
+        headers.insert(name.to_string(), clean.to_string());
+    }
+
+    /// 兼容网盘/NAS STRM 生成器输出的未编码空格、方括号与孤立百分号，避免重复编码已有 `%XX`。
+    fn escape_raw_url_input(raw: &str) -> String {
+        let Some((scheme_and_auth, rest)) = raw.split_once("://") else {
+            return raw.to_string();
+        };
+        let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+        let authority = &rest[..authority_end];
+        let path_and_query = &rest[authority_end..];
+        let bytes = path_and_query.as_bytes();
+        let mut out = String::with_capacity(raw.len() + 16);
+        out.push_str(scheme_and_auth);
+        out.push_str("://");
+        out.push_str(authority);
+        let mut i = 0;
+        while i < bytes.len() {
+            match bytes[i] {
+                b' ' => out.push_str("%20"),
+                b'[' => out.push_str("%5B"),
+                b']' => out.push_str("%5D"),
+                b'%' => {
+                    if i + 2 < bytes.len()
+                        && bytes[i + 1].is_ascii_hexdigit()
+                        && bytes[i + 2].is_ascii_hexdigit()
+                    {
+                        out.push('%');
+                        out.push(bytes[i + 1] as char);
+                        out.push(bytes[i + 2] as char);
+                        i += 3;
+                        continue;
+                    }
+                    out.push_str("%25");
+                }
+                ch if ch < 0x80 => out.push(ch as char),
+                _ => {
+                    // 非 ASCII UTF-8 字符保留原样交由 `Url::parse` 按 RFC 3986 统一百分号编码
+                    let slice = &path_and_query[i..];
+                    if let Some(ch) = slice.chars().next() {
+                        out.push(ch);
+                        i += ch.len_utf8();
+                        continue;
+                    }
+                }
+            }
+            i += 1;
+        }
+        out
     }
 }
 
@@ -634,5 +840,62 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn recognizes_strm_extensions_and_parses_strm_direct_links() {
+        assert_eq!(
+            PlayableMediaFormat::kind_for_extension(".strm", false),
+            Some(PlayableMediaKind::Video)
+        );
+        assert_eq!(
+            PlayableMediaFormat::kind_for_path("/media/movies/Avatar (2009).strm", false),
+            Some(PlayableMediaKind::Video)
+        );
+        assert_eq!(
+            PlayableMediaFormat::kind_for_path("/media/music/晴天.flac.strm", false),
+            Some(PlayableMediaKind::Audio)
+        );
+
+        let cloud_strm = "\u{feff}#EXTM3U\n#EXTVLCOPT:http-user-agent=Mozilla/5.0 (115Browser)\n#EXTVLCOPT:http-referrer=https://115.com/\nhttps://alist.example.test:5244/d/电影/阿凡达 [4K HDR]/Avatar 100% Pure.mkv?sign=abc%2B123\n";
+        let spec = PlayableMediaFormat::parse_strm_content(cloud_strm, Some("Avatar.strm"))
+            .expect("解析云盘 STRM 失败");
+        assert_eq!(
+            spec.url,
+            "https://alist.example.test:5244/d/%E7%94%B5%E5%BD%B1/%E9%98%BF%E5%87%A1%E8%BE%BE%20%5B4K%20HDR%5D/Avatar%20100%25%20Pure.mkv?sign=abc%2B123"
+        );
+        assert_eq!(spec.media_kind, PlayableMediaKind::Video);
+        assert_eq!(
+            spec.headers.get("User-Agent").map(String::as_str),
+            Some("Mozilla/5.0 (115Browser)")
+        );
+        assert_eq!(
+            spec.headers.get("Referer").map(String::as_str),
+            Some("https://115.com/")
+        );
+
+        let pipe_audio = "http://192.168.1.15:5244/d/Music/Track 01.flac|User-Agent=Kodi%2F21.0&Cookie=sid%3Dxyz";
+        let audio_spec = PlayableMediaFormat::parse_strm_content(pipe_audio, Some("Track.strm"))
+            .expect("解析管道请求头音频 STRM 失败");
+        assert_eq!(
+            audio_spec.url,
+            "http://192.168.1.15:5244/d/Music/Track%2001.flac"
+        );
+        assert_eq!(audio_spec.media_kind, PlayableMediaKind::Audio);
+        assert_eq!(
+            audio_spec.headers.get("User-Agent").map(String::as_str),
+            Some("Kodi/21.0")
+        );
+        assert_eq!(
+            audio_spec.headers.get("Cookie").map(String::as_str),
+            Some("sid=xyz")
+        );
+
+        assert!(PlayableMediaFormat::parse_strm_content("file:///etc/passwd", None).is_err());
+        assert!(
+            PlayableMediaFormat::parse_strm_content("http://admin:secret@192.168.1.1/v.mp4", None)
+                .is_err()
+        );
+        assert!(PlayableMediaFormat::parse_strm_content("# only comments\n\n", None).is_err());
     }
 }

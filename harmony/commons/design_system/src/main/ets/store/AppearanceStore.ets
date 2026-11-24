@@ -119,10 +119,10 @@ export const DEFAULT_DISCOVER_MODULES: CustomModulePref[] = [
 ];
 
 export const DEFAULT_DASHBOARD_MODULES: CustomModulePref[] = [
+  { id: 'medals', title: '社区勋章', enabled: true },
   { id: 'media_stats', title: '媒体库统计', enabled: true },
   { id: 'storage', title: '存储空间', enabled: true },
   { id: 'downloader', title: '下载器', enabled: true },
-  { id: 'medals', title: '社区勋章', enabled: true },
   { id: 'memory', title: '内存占用', enabled: true },
   { id: 'recent', title: '近期入库', enabled: true },
   { id: 'transfer_trend', title: '整理趋势', enabled: true },
@@ -155,7 +155,7 @@ export class HarmonyAppearanceStore {
   static readonly KEY_SAFE_LEFT_VP = 'mp_safe_left_vp';
   static readonly KEY_SAFE_RIGHT_VP = 'mp_safe_right_vp';
   static readonly KEY_DISCOVER_MODULES = 'mp_discover_modules_v2';
-  static readonly KEY_DASHBOARD_MODULES = 'mp_dashboard_modules_v2';
+  static readonly KEY_DASHBOARD_MODULES = 'mp_dashboard_modules_v3';
 
   /** 确保 AppStorage 中存在全部外观、窗口与安全避让区默认键值（已存在时不覆盖）。 */
   static ensureAppStorageDefaults(): void {
@@ -247,7 +247,7 @@ export class HarmonyAppearanceStore {
     snap['showAiMascot'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT) ?? true;
     snap['locale'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_LOCALE) ?? 'zh-CN';
     snap['discoverModules'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_DISCOVER_MODULES) ?? '';
-    snap['dashboardModules'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES) ?? '';
+    snap['dashboardModulesV3'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES) ?? '';
     return JSON.stringify(snap);
   }
 
@@ -283,8 +283,8 @@ export class HarmonyAppearanceStore {
       if (typeof rec['discoverModules'] === 'string' && (rec['discoverModules'] as string).length > 2) {
         AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DISCOVER_MODULES, rec['discoverModules'] as string);
       }
-      if (typeof rec['dashboardModules'] === 'string' && (rec['dashboardModules'] as string).length > 2) {
-        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES, rec['dashboardModules'] as string);
+      if (typeof rec['dashboardModulesV3'] === 'string' && (rec['dashboardModulesV3'] as string).length > 2) {
+        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES, rec['dashboardModulesV3'] as string);
       }
     } catch {
       // ignore malformed snapshot

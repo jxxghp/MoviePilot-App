@@ -1,4 +1,5 @@
 import { http } from '@kit.NetworkKit';
+import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { RustCoreBridge } from '../bridge/RustCoreBridge';
 
@@ -50,6 +51,14 @@ export class NativeRcpTransport {
       parts.push(`${key}=${value}`);
     });
     return parts.join('; ');
+  }
+
+  /** 仅当候选 URL 严格同源于当前实例时返回已存储的 Cookie 请求头（含 `resource_token`），严禁跨源泄露。 */
+  getCookieHeaderForUrl(url: string): string {
+    if (!this.isSameOriginUrl(url)) {
+      return '';
+    }
+    return this.getCookieHeader();
   }
 
   /** 严格校验候选 URL 是否归属当前实例同源与子路径边界。 */
@@ -230,6 +239,168 @@ export class NativeRcpTransport {
     } finally {
       client.destroy();
     }
+  }
+
+  /** 拉取受体积上限保护的同源二进制载荷（用于外挂字幕 <= 16MB、LRC 歌词 <= 2MB 与封面解码）。 */
+  async fetchBytesBounded(url: string, token: string = '', maxBytes: number = 16777216): Promise<ArrayBuffer | null> {
+    if (!this.isSameOriginUrl(url)) {
+      return null;
+    }
+    const client = http.createHttp();
+    const header: Record<string, string> = {};
+    header['Accept'] = '*/*';
+    header['Accept-Encoding'] = 'identity';
+    if (token.length > 0) {
+      header['Authorization'] = `Bearer ${token}`;
+    }
+    const cookieStr = this.getCookieHeaderForUrl(url);
+    if (cookieStr.length > 0) {
+      header['Cookie'] = cookieStr;
+    }
+    const reqOpts: http.HttpRequestOptions = {
+      method: http.RequestMethod.GET,
+      header: header,
+      expectDataType: http.HttpDataType.ARRAY_BUFFER,
+      connectTimeout: 15000,
+      readTimeout: 45000,
+      usingCache: false
+    };
+    if (this.allowSelfSigned) {
+      reqOpts.remoteValidation = 'skip';
+    }
+    try {
+      const resp = await client.request(url, reqOpts);
+      this.captureSetCookies(url, resp.header, resp.cookies ?? '');
+      if (resp.responseCode === 401 || resp.responseCode === 403) {
+        this.notifyAuthIfExpired(url, token, resp.responseCode, '');
+      }
+      if (
+        resp.responseCode >= 200 &&
+        resp.responseCode < 300 &&
+        resp.result instanceof ArrayBuffer &&
+        resp.result.byteLength > 0 &&
+        resp.result.byteLength <= maxBytes
+      ) {
+        return resp.result as ArrayBuffer;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      client.destroy();
+    }
+  }
+
+  /**
+   * 流式下载同源二进制响应并直接落盘至沙盒临时文件（支持 `POST /api/v1/storage/download` 大体积音视频零内存膨胀缓存）。
+   */
+  async downloadToFile(
+    url: string,
+    method: string,
+    token: string,
+    body: string,
+    destPath: string
+  ): Promise<boolean> {
+    if (!this.isSameOriginUrl(url) || !destPath) {
+      return false;
+    }
+    let fileHandle: fileIo.File | null = null;
+    try {
+      fileHandle = fileIo.openSync(
+        destPath,
+        fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC | fileIo.OpenMode.READ_WRITE
+      );
+    } catch {
+      return false;
+    }
+
+    const client = http.createHttp();
+    const header: Record<string, string> = {};
+    header['Accept'] = '*/*';
+    const upper = method.toUpperCase();
+    if (body.length > 0 || upper === 'POST' || upper === 'PUT') {
+      header['Content-Type'] = 'application/json; charset=utf-8';
+    }
+    if (token.length > 0) {
+      header['Authorization'] = `Bearer ${token}`;
+    }
+    const cookieStr = this.getCookieHeaderForUrl(url);
+    if (cookieStr.length > 0) {
+      header['Cookie'] = cookieStr;
+    }
+
+    let writtenBytes = 0;
+    let writeFailed = false;
+    let errTextSample = '';
+    const errDecoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
+
+    client.on('headersReceive', (hdr: Object) => {
+      this.captureSetCookies(url, hdr);
+    });
+    client.on('dataReceive', (buf: ArrayBuffer) => {
+      if (writeFailed || !fileHandle) {
+        return;
+      }
+      if (writtenBytes < 2048 && buf.byteLength <= 4096) {
+        try {
+          errTextSample += errDecoder.decodeToString(new Uint8Array(buf), { stream: true });
+        } catch {
+          // ignore binary decode
+        }
+      }
+      try {
+        fileIo.writeSync(fileHandle.fd, buf);
+        writtenBytes += buf.byteLength;
+      } catch {
+        writeFailed = true;
+      }
+    });
+
+    const streamOpts: http.HttpRequestOptions = {
+      method: upper === 'POST' ? http.RequestMethod.POST : http.RequestMethod.GET,
+      header: header,
+      extraData: body.length > 0 ? body : undefined,
+      connectTimeout: 20000,
+      readTimeout: 300000,
+      usingCache: false
+    };
+    if (this.allowSelfSigned) {
+      streamOpts.remoteValidation = 'skip';
+    }
+
+    let ok = false;
+    try {
+      const code = await client.requestInStream(url, streamOpts);
+      if (code === 401 || code === 403) {
+        this.notifyAuthIfExpired(url, token, code, errTextSample);
+      }
+      ok = !writeFailed && code >= 200 && code < 300 && writtenBytes > 0;
+    } catch {
+      ok = false;
+    } finally {
+      try {
+        client.off('headersReceive');
+        client.off('dataReceive');
+      } catch {
+        // ignore listener cleanup
+      }
+      client.destroy();
+      if (fileHandle) {
+        try {
+          fileIo.closeSync(fileHandle.fd);
+        } catch {
+          // ignore close error
+        }
+      }
+      if (!ok) {
+        try {
+          fileIo.unlinkSync(destPath);
+        } catch {
+          // ignore unlink error
+        }
+      }
+    }
+    return ok;
   }
 
   /** 上传 Multipart 二进制文件（同源凭据守卫）。 */

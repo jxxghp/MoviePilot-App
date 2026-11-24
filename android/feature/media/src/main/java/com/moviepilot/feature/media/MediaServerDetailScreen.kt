@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.rounded.Check
@@ -43,11 +44,14 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Subtitles
+import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -55,6 +59,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -102,13 +107,18 @@ import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeEpisodeShelfSkeleton
+import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.NativeMediaDetailSkeleton
 import com.moviepilot.designsystem.NativePosterShelfSkeleton
 import com.moviepilot.designsystem.NativeSectionHeader
 import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
+import com.moviepilot.designsystem.PlaybackPreferencesStore
 import com.moviepilot.designsystem.ProvideSkeletonShimmer
 import com.moviepilot.feature.subscribe.SubscribeFilesSheet
+import com.moviepilot.media.ChineseSubtitleMatcher
+import com.moviepilot.media.ExternalPlayerLauncher
 import com.moviepilot.media.MediaPlaybackRequest
+import com.moviepilot.media.QueueTrackSpec
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaLibraryStatusDto
@@ -215,9 +225,17 @@ fun MediaServerDetailScreen(
     var selectedSeasonNum by remember(screenKey) { mutableStateOf<Int?>(null) }
     var episodes by remember(screenKey) { mutableStateOf<List<MediaServerBrowseItemDto>>(emptyList()) }
     var selectedEpisodeId by remember(screenKey) { mutableStateOf<String?>(null) }
+    var previewedEpisodeId by remember(screenKey) { mutableStateOf<String?>(null) }
     var episodeFallbackSources by remember(screenKey) { mutableStateOf<List<MediaServerSourceDto>>(emptyList()) }
     var selectedSourceIndex by remember(screenKey) { mutableIntStateOf(0) }
+    var selectedPrePlayAudioOrdinal by remember(screenKey) { mutableIntStateOf(0) }
+    var selectedPrePlaySubtitleIdx by remember(screenKey) { mutableIntStateOf(0) }
+    var showVersionPickerSheet by remember { mutableStateOf(false) }
+    var showPrePlayAudioSheet by remember { mutableStateOf(false) }
+    var showPrePlaySubtitleSheet by remember { mutableStateOf(false) }
     var similarItems by remember(screenKey) { mutableStateOf<List<MediaCardItem>>(emptyList()) }
+    val playbackPrefs = remember(context) { PlaybackPreferencesStore(context) }
+    val episodesRowState = rememberLazyListState()
 
     var expandOverview by remember(screenKey) { mutableStateOf(false) }
     var isLoading by remember(screenKey) { mutableStateOf(true) }
@@ -276,6 +294,7 @@ fun MediaServerDetailScreen(
         if (currentDetail == null || currentDetail.mediaSources.isNotEmpty() || epItemId.isNullOrBlank()) return
         val epDetail = repository.fetchMediaServerItemDetail(epItemId, srv, enrichMetadata = false)
         if (epDetail != null && epDetail.mediaSources.isNotEmpty()) {
+            previewedEpisodeId = epItemId
             episodeFallbackSources = epDetail.mediaSources
             selectedSourceIndex = 0
         }
@@ -299,14 +318,17 @@ fun MediaServerDetailScreen(
         }
 
         val activeSrv = fetched.server.ifBlank { server }
-        val isSeries = fetched.itemType.equals("Series", ignoreCase = true) ||
+        val isMusicAlbumItem = fetched.itemType.equals("MusicAlbum", ignoreCase = true) ||
+            fetched.mediaType.equals("MusicAlbum", ignoreCase = true)
+        val isEpisodeItem = fetched.itemType.equals("Episode", ignoreCase = true)
+        val isSeries = !isMusicAlbumItem && (fetched.itemType.equals("Series", ignoreCase = true) ||
             (MoviePilotRepository.isTvType(fetched.mediaType) &&
-                !fetched.itemType.equals("Episode", ignoreCase = true) &&
-                !fetched.itemType.equals("Season", ignoreCase = true))
+                !isEpisodeItem &&
+                !fetched.itemType.equals("Season", ignoreCase = true)))
         val isSeason = fetched.itemType.equals("Season", ignoreCase = true)
 
         isLoadingSimilar = similarItems.isEmpty()
-        isLoadingEpisodes = (isSeries || isSeason) && episodes.isEmpty()
+        isLoadingEpisodes = (isSeries || isSeason || isMusicAlbumItem) && episodes.isEmpty()
         detail = fetched
         isLoading = false
 
@@ -319,7 +341,33 @@ fun MediaServerDetailScreen(
                 }
             }
 
-            if (isSeries || isSeason) {
+            if (isMusicAlbumItem) {
+                launch {
+                    try {
+                        val tracks = repository.fetchMediaServerSeasonEpisodes(
+                            seriesId = fetched.itemId,
+                            server = activeSrv,
+                            seasonId = null,
+                            seasonNumber = null,
+                        )
+                        episodes = tracks
+                        selectedEpisodeId = tracks.firstOrNull()?.itemId
+                    } finally {
+                        isLoadingEpisodes = false
+                    }
+                }
+            } else if (isEpisodeItem && !fetched.seriesId.isNullOrBlank()) {
+                launch {
+                    val siblingEps = repository.fetchMediaServerSeasonEpisodes(
+                        seriesId = fetched.seriesId!!,
+                        server = activeSrv,
+                        seasonId = fetched.seasonId,
+                        seasonNumber = fetched.seasonNumber,
+                    )
+                    episodes = siblingEps
+                    selectedEpisodeId = fetched.itemId
+                }
+            } else if (isSeries || isSeason) {
                 launch {
                     try {
                         val seriesTargetId = if (isSeason) {
@@ -347,7 +395,8 @@ fun MediaServerDetailScreen(
                             seasonNumber = sNum,
                         )
                         episodes = fetchedEps
-                        val firstEp = fetchedEps.firstOrNull { !it.played } ?: fetchedEps.firstOrNull()
+                        val smartIdx = MoviePilotRepository.smartNextPlayableEpisodeIndex(fetchedEps) ?: 0
+                        val firstEp = fetchedEps.getOrNull(smartIdx)
                         selectedEpisodeId = firstEp?.itemId
                         isLoadingEpisodes = false
                         loadEpisodeStreamPreviewIfNeeded(firstEp?.itemId, activeSrv, fetched)
@@ -383,7 +432,10 @@ fun MediaServerDetailScreen(
     }
 
     val d = detail
-    val isTv = d?.let { MoviePilotRepository.isTvType(it.mediaType.ifBlank { it.itemType }) } ?: false
+    val isMusicAlbum = d?.let {
+        it.itemType.equals("MusicAlbum", ignoreCase = true) || it.mediaType.equals("MusicAlbum", ignoreCase = true)
+    } ?: false
+    val isTv = d?.let { !isMusicAlbum && MoviePilotRepository.isTvType(it.mediaType.ifBlank { it.itemType }) } ?: false
     val activeServerName = d?.server?.ifBlank { server } ?: server
     val effectiveSources = remember(d?.mediaSources, episodeFallbackSources) {
         val own = d?.mediaSources.orEmpty()
@@ -392,6 +444,108 @@ fun MediaServerDetailScreen(
     val selectedSource = effectiveSources.getOrNull(selectedSourceIndex.coerceIn(0, (effectiveSources.size - 1).coerceAtLeast(0)))
     val primaryVideoTrack = remember(selectedSource) {
         selectedSource?.streams?.firstOrNull { it.type.equals("video", ignoreCase = true) }
+    }
+    val audioStreams = remember(selectedSource) {
+        selectedSource?.streams?.filter { it.type.equals("audio", ignoreCase = true) }.orEmpty()
+    }
+    val subtitleStreams = remember(selectedSource) {
+        selectedSource?.streams?.filter { it.type.equals("subtitle", ignoreCase = true) }.orEmpty()
+    }
+
+    // 当版本媒体源变更时，初始化默认音轨与（受播放偏好控制的）中文优先字幕预选项
+    LaunchedEffect(selectedSource?.id, audioStreams.size, subtitleStreams.size, playbackPrefs.preferChineseSub) {
+        selectedPrePlayAudioOrdinal = audioStreams.indexOfFirst { it.isDefault }.takeIf { it >= 0 } ?: 0
+        selectedPrePlaySubtitleIdx = if (subtitleStreams.isEmpty()) {
+            0
+        } else if (playbackPrefs.preferChineseSub) {
+            val bestZh = subtitleStreams.mapIndexed { idx, s ->
+                idx to ChineseSubtitleMatcher.scoreChineseSubtitle(
+                    language = s.language,
+                    label = s.displayTitle ?: s.title,
+                    isDefault = s.isDefault,
+                    isExternal = s.isExternal,
+                )
+            }.filter { it.second > 0 }.maxByOrNull { it.second }?.first
+            bestZh ?: subtitleStreams.indexOfFirst { it.isDefault }.takeIf { it >= 0 } ?: 0
+        } else {
+            subtitleStreams.indexOfFirst { it.isDefault }.takeIf { it >= 0 } ?: 0
+        }
+    }
+
+    // 横向剧集列表初始加载后自动平滑滚向智能续播集
+    LaunchedEffect(episodes.firstOrNull()?.itemId, episodes.size, isMusicAlbum) {
+        if (!isMusicAlbum && episodes.isNotEmpty()) {
+            val smartIdx = MoviePilotRepository.smartNextPlayableEpisodeIndex(episodes) ?: 0
+            if (smartIdx > 0 && smartIdx in episodes.indices) {
+                runCatching { episodesRowState.scrollToItem(smartIdx) }
+            }
+        }
+    }
+
+    fun formatAudioStreamSummary(tr: MediaServerStreamTrackDto, fallbackIndex: Int): String =
+        listOfNotNull(
+            tr.displayTitle?.takeIf { it.isNotBlank() } ?: tr.title?.takeIf { it.isNotBlank() },
+            tr.language?.takeIf { it.isNotBlank() && it != "und" },
+            tr.codec?.uppercase()?.takeIf { it.isNotBlank() },
+            tr.channelLayout?.takeIf { it.isNotBlank() } ?: tr.channels?.takeIf { it > 0 }?.let { "${it}ch" },
+        ).distinct().joinToString(" · ").ifBlank { "音轨 ${fallbackIndex + 1}" }
+
+    fun formatSubtitleStreamSummary(tr: MediaServerStreamTrackDto, fallbackIndex: Int): String {
+        val kindPrefix = if (tr.isExternal) "外挂" else "内嵌"
+        val core = listOfNotNull(
+            tr.displayTitle?.takeIf { it.isNotBlank() } ?: tr.title?.takeIf { it.isNotBlank() },
+            tr.language?.takeIf { it.isNotBlank() && it != "und" },
+        ).distinct().joinToString(" · ").ifBlank { "字幕 ${fallbackIndex + 1}" }
+        return "$kindPrefix · $core"
+    }
+
+    fun formatSourceSpecSummary(src: MediaServerSourceDto, fallbackIndex: Int): String {
+        val vTrack = src.streams.firstOrNull { it.type.equals("video", ignoreCase = true) }
+        val resLabel = when {
+            (vTrack?.width ?: 0) >= 3800 || (vTrack?.height ?: 0) >= 2100 -> "4K"
+            (vTrack?.width ?: 0) >= 1900 || (vTrack?.height ?: 0) >= 1000 -> "1080P"
+            (vTrack?.width ?: 0) >= 1200 || (vTrack?.height ?: 0) >= 700 -> "720P"
+            else -> vTrack?.formattedResolution
+        }
+        return listOfNotNull(
+            src.name.takeIf { it.isNotBlank() },
+            resLabel,
+            vTrack?.codec?.uppercase()?.takeIf { it.isNotBlank() },
+            vTrack?.videoRange?.takeIf { it.isNotBlank() },
+            src.container.uppercase().takeIf { it.isNotBlank() },
+            formatBytesSize(src.size),
+        ).distinct().joinToString(" · ").ifBlank { "版本 ${fallbackIndex + 1}" }
+    }
+
+    fun buildSeasonOrAlbumQueue(currentDetail: MediaServerItemDetailDto): List<MediaPlaybackRequest> {
+        if (episodes.isEmpty()) return emptyList()
+        val seriesPrefix = currentDetail.seriesName.ifBlank { currentDetail.title }
+        return episodes.mapIndexed { i, ep ->
+            val epNum = ep.episodeNumber ?: (i + 1)
+            val epSrv = ep.server.ifBlank { activeServerName }
+            val epTitle = if (isMusicAlbum) {
+                ep.title.ifBlank { "曲目 $epNum" }
+            } else {
+                "$seriesPrefix E%02d · ${ep.title.ifBlank { "第 $epNum 集" }}".format(epNum)
+            }
+            MediaPlaybackRequest(
+                url = "",
+                title = epTitle,
+                subtitle = if (isMusicAlbum) seriesPrefix else epSrv,
+                albumTitle = if (isMusicAlbum) currentDetail.title else "",
+                artworkUrl = ep.thumb ?: ep.backdrop ?: ep.poster ?: currentDetail.poster ?: fallbackPoster,
+                isAudio = isMusicAlbum,
+                itemId = ep.itemId,
+                server = epSrv,
+                serverType = currentDetail.serverType,
+                resumePositionMs = ep.resumePositionMs,
+                queueIndex = i,
+                lazySpec = QueueTrackSpec.MediaServerItem(
+                    itemId = ep.itemId,
+                    server = epSrv,
+                ),
+            )
+        }
     }
 
     val effectiveSubscribedSeasons = remember(subscribedSeasons, userSeasonOverrides.toMap()) {
@@ -411,27 +565,66 @@ fun MediaServerDetailScreen(
     val subscribedEmeraldBg = Color(0xFF1F9D55)
     val subscribedEmeraldBorder = if (colors.isDark) Color(0xFF34C759) else Color(0xFF1F9D55)
 
-    fun startStreamPlayback(targetItemId: String, titleFallback: String, subtitleFallback: String, artwork: String?, sourceId: String? = null) {
+    fun startStreamPlayback(
+        targetItemId: String,
+        titleFallback: String,
+        subtitleFallback: String,
+        artwork: String?,
+        sourceId: String? = null,
+        queue: List<MediaPlaybackRequest> = emptyList(),
+        queueIndex: Int = 0,
+        launchInExternalPlayer: Boolean = false,
+    ) {
         scope.launch {
             feedback = null
             val manifest = repository.fetchVideoStreamInfo(targetItemId, activeServerName.ifBlank { null }, sourceId)
             if (manifest != null) {
+                val forceAudio = isMusicAlbum || manifest.mediaType == "audio"
+                if (launchInExternalPlayer) {
+                    val ok = ExternalPlayerLauncher.launchExternalPlayerChooser(
+                        context = context,
+                        streamUrl = manifest.contentUrl,
+                        title = manifest.title.ifBlank { titleFallback },
+                        isAudio = forceAudio,
+                        headers = manifest.headers,
+                    )
+                    if (!ok) {
+                        feedbackIsError = true
+                        feedback = "未找到可用的外部播放器应用"
+                    }
+                    return@launch
+                }
                 val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                val preAudio = audioStreams.getOrNull(selectedPrePlayAudioOrdinal)
+                val disableSubs = subtitleStreams.isNotEmpty() && selectedPrePlaySubtitleIdx < 0
+                val preSub = if (!disableSubs) subtitleStreams.getOrNull(selectedPrePlaySubtitleIdx) else null
+
                 onPlayMedia(
                     MediaPlaybackRequest(
                         url = manifest.contentUrl,
-                        title = manifest.title.ifBlank { titleFallback },
+                        title = if (queue.isNotEmpty() && !isMusicAlbum) titleFallback else manifest.title.ifBlank { titleFallback },
                         subtitle = subtitleFallback,
+                        albumTitle = if (isMusicAlbum) (d?.title.orEmpty()) else "",
                         artworkUrl = artwork,
-                        isAudio = manifest.mediaType == "audio",
+                        isAudio = forceAudio,
                         lyricsLrc = lrc,
                         headers = manifest.headers,
                         itemId = manifest.itemId,
                         server = manifest.server.ifBlank { activeServerName },
+                        serverType = d?.serverType.orEmpty(),
+                        mediaSourceId = manifest.mediaSourceId ?: sourceId.orEmpty(),
                         resumePositionMs = manifest.resumePositionMs,
                         subtitles = manifest.subtitles.map {
                             SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
                         },
+                        queue = queue,
+                        queueIndex = queueIndex,
+                        externalPlayUrl = d?.playUrl,
+                        preferredAudioIndex = selectedPrePlayAudioOrdinal.takeIf { audioStreams.isNotEmpty() },
+                        preferredAudioLang = preAudio?.language ?: preAudio?.displayTitle,
+                        preferredSubtitleId = preSub?.subtitleId?.takeIf { it.isNotBlank() },
+                        preferredSubtitleLang = preSub?.language ?: preSub?.displayTitle ?: preSub?.title,
+                        disableSubtitles = disableSubs,
                     ),
                 )
             } else {
@@ -785,19 +978,35 @@ fun MediaServerDetailScreen(
                     }
 
                     if (d != null) {
-                        // 2. 主操作按钮行（立即播放 / 继续播放 + 权威订阅切换 + 多版本切换胶囊）
+                        // 2. 主操作按钮行（立即播放 / 继续播放 / 播放全部 + 权威订阅切换 + 外部播放器/客户端 + 播前选轨卡）
                         item(key = "ms_actions") {
                             val btnHeight = if (isCompactLandscape) 44.dp else 50.dp
-                            val targetPlayEp = if (episodes.isNotEmpty()) {
-                                episodes.firstOrNull { it.itemId == selectedEpisodeId }
-                                    ?: episodes.firstOrNull { !it.played }
-                                    ?: episodes.first()
+                            val smartEpIdx = remember(episodes) {
+                                MoviePilotRepository.smartNextPlayableEpisodeIndex(episodes) ?: 0
+                            }
+                            val targetPlayEpIdx = if (episodes.isNotEmpty()) {
+                                if (d.itemType.equals("Episode", ignoreCase = true)) {
+                                    episodes.indexOfFirst { it.itemId == d.itemId }.takeIf { it >= 0 } ?: smartEpIdx
+                                } else {
+                                    episodes.indexOfFirst { it.itemId == selectedEpisodeId }.takeIf { it >= 0 } ?: smartEpIdx
+                                }
+                            } else {
+                                0
+                            }
+                            val targetPlayEp = if (episodes.isNotEmpty() && !d.itemType.equals("Episode", ignoreCase = true)) {
+                                episodes.getOrNull(targetPlayEpIdx)
                             } else {
                                 null
                             }
                             val playTargetId = targetPlayEp?.itemId ?: d.itemId
                             val resumeMs = targetPlayEp?.resumePositionMs?.takeIf { it > 0L } ?: d.resumePositionMs
+                            val resolvedSourceId = if (targetPlayEp == null || targetPlayEp.itemId == previewedEpisodeId) {
+                                selectedSource?.id?.ifBlank { null }
+                            } else {
+                                null
+                            }
                             val playLabel = when {
+                                isMusicAlbum -> "播放全部"
                                 resumeMs > 0L -> "继续播放 · ${formatResumeClock(resumeMs)}"
                                 targetPlayEp != null && targetPlayEp.episodeNumber != null ->
                                     "播放 E%02d".format(targetPlayEp.episodeNumber)
@@ -814,15 +1023,24 @@ fun MediaServerDetailScreen(
                                 ) {
                                     Button(
                                         onClick = {
+                                            val queue = buildSeasonOrAlbumQueue(d)
+                                            val titleFallback = if (targetPlayEp != null && !isMusicAlbum) {
+                                                val epNum = targetPlayEp.episodeNumber ?: (targetPlayEpIdx + 1)
+                                                "${d.seriesName.ifBlank { d.title }} E%02d · ${targetPlayEp.title}".format(epNum)
+                                            } else {
+                                                targetPlayEp?.title?.ifBlank { d.title } ?: d.title
+                                            }
                                             startStreamPlayback(
                                                 targetItemId = playTargetId,
-                                                titleFallback = targetPlayEp?.title?.ifBlank { d.title } ?: d.title,
+                                                titleFallback = titleFallback,
                                                 subtitleFallback = listOfNotNull(
                                                     activeServerName.ifBlank { null },
                                                     d.year.ifBlank { null },
                                                 ).joinToString(" · "),
-                                                artwork = d.poster ?: fallbackPoster,
-                                                sourceId = if (targetPlayEp == null) selectedSource?.id?.ifBlank { null } else null,
+                                                artwork = targetPlayEp?.thumb ?: d.poster ?: fallbackPoster,
+                                                sourceId = resolvedSourceId,
+                                                queue = queue,
+                                                queueIndex = targetPlayEpIdx,
                                             )
                                         },
                                         colors = ButtonDefaults.buttonColors(
@@ -843,68 +1061,140 @@ fun MediaServerDetailScreen(
                                         )
                                     }
 
-                                    Button(
-                                        onClick = {
-                                            if (isCurrentSubscribed) {
-                                                showUnsubscribeDialog = true
-                                            } else {
-                                                scope.launch { handleSubscribeCurrent() }
-                                            }
-                                        },
-                                        enabled = !isMutatingSubscribe,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isCurrentSubscribed) subscribedEmeraldBg else colors.surfaceContainerHigh,
-                                            contentColor = if (isCurrentSubscribed) Color.White else colors.textPrimary,
-                                        ),
-                                        shape = CircleShape,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(btnHeight)
-                                            .then(
+                                    if (!isMusicAlbum) {
+                                        Button(
+                                            onClick = {
                                                 if (isCurrentSubscribed) {
-                                                    Modifier.border(0.8.dp, subscribedEmeraldBorder, CircleShape)
+                                                    showUnsubscribeDialog = true
                                                 } else {
-                                                    Modifier.border(0.8.dp, colors.chipBorder, CircleShape)
-                                                },
-                                            ),
-                                    ) {
-                                        Icon(
-                                            if (isCurrentSubscribed) Icons.Rounded.CheckCircle else Icons.Outlined.BookmarkBorder,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            text = when {
-                                                isCurrentSubscribed && isTv && effectiveSubscribedSeasons.size > 1 ->
-                                                    "已订阅 ${effectiveSubscribedSeasons.size} 季"
-                                                isCurrentSubscribed && isTv ->
-                                                    "第 ${if (currentSeasonNum in effectiveSubscribedSeasons) currentSeasonNum else (effectiveSubscribedSeasons.firstOrNull() ?: currentSeasonNum)} 季已订阅"
-                                                isCurrentSubscribed -> "已订阅"
-                                                isTv -> "订阅第 $currentSeasonNum 季"
-                                                else -> "添加订阅"
+                                                    scope.launch { handleSubscribeCurrent() }
+                                                }
                                             },
-                                            fontSize = if (isCompactLandscape) 13.5.sp else 14.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
+                                            enabled = !isMutatingSubscribe,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (isCurrentSubscribed) subscribedEmeraldBg else colors.surfaceContainerHigh,
+                                                contentColor = if (isCurrentSubscribed) Color.White else colors.textPrimary,
+                                            ),
+                                            shape = CircleShape,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(btnHeight)
+                                                .then(
+                                                    if (isCurrentSubscribed) {
+                                                        Modifier.border(0.8.dp, subscribedEmeraldBorder, CircleShape)
+                                                    } else {
+                                                        Modifier.border(0.8.dp, colors.chipBorder, CircleShape)
+                                                    },
+                                                ),
+                                        ) {
+                                            Icon(
+                                                if (isCurrentSubscribed) Icons.Rounded.CheckCircle else Icons.Outlined.BookmarkBorder,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = when {
+                                                    isCurrentSubscribed && isTv && effectiveSubscribedSeasons.size > 1 ->
+                                                        "已订阅 ${effectiveSubscribedSeasons.size} 季"
+                                                    isCurrentSubscribed && isTv ->
+                                                        "第 ${if (currentSeasonNum in effectiveSubscribedSeasons) currentSeasonNum else (effectiveSubscribedSeasons.firstOrNull() ?: currentSeasonNum)} 季已订阅"
+                                                    isCurrentSubscribed -> "已订阅"
+                                                    isTv -> "订阅第 $currentSeasonNum 季"
+                                                    else -> "添加订阅"
+                                                },
+                                                fontSize = if (isCompactLandscape) 13.5.sp else 14.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // 外部播放器与媒体服务器原生客户端快捷胶囊
+                                val nativeClientScheme = remember(d.serverType, activeServerName, playTargetId, d.playUrl) {
+                                    ExternalPlayerLauncher.buildMediaServerDeepLink(d.serverType, activeServerName, playTargetId, d.playUrl)
+                                }
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    NativeAdaptivePill(
+                                        title = "外部播放器",
+                                        selected = false,
+                                        icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                                        onClick = {
+                                            startStreamPlayback(
+                                                targetItemId = playTargetId,
+                                                titleFallback = targetPlayEp?.title?.ifBlank { d.title } ?: d.title,
+                                                subtitleFallback = activeServerName,
+                                                artwork = d.poster ?: fallbackPoster,
+                                                sourceId = resolvedSourceId,
+                                                launchInExternalPlayer = true,
+                                            )
+                                        },
+                                    )
+                                    if (!nativeClientScheme.isNullOrBlank() || !d.playUrl.isNullOrBlank()) {
+                                        NativeAdaptivePill(
+                                            title = "在 ${activeServerName.ifBlank { "媒体客户端" }} 打开",
+                                            selected = false,
+                                            icon = Icons.Rounded.Link,
+                                            onClick = {
+                                                val ok = ExternalPlayerLauncher.launchMediaServerClientOrFallback(
+                                                    context = context,
+                                                    serverType = d.serverType,
+                                                    serverName = activeServerName,
+                                                    itemId = playTargetId,
+                                                    playUrl = d.playUrl,
+                                                )
+                                                if (!ok) {
+                                                    feedbackIsError = true
+                                                    feedback = "本机暂未安装对应媒体客户端且无网页播放地址"
+                                                }
+                                            },
                                         )
                                     }
                                 }
 
-                                if (effectiveSources.size > 1) {
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        itemsIndexed(effectiveSources) { idx, src ->
-                                            val vTrack = src.streams.firstOrNull { it.type.equals("video", true) }
-                                            val label = buildList {
-                                                add(src.name.ifBlank { vTrack?.displayTitle ?: "版本 ${idx + 1}" })
-                                                formatBytesSize(src.size)?.let { add(it) }
-                                            }.joinToString(" · ")
-                                            NativeAdaptivePill(
-                                                title = label,
-                                                selected = selectedSourceIndex == idx,
-                                                onClick = { selectedSourceIndex = idx },
+                                // 播前版本 / 音轨 / 字幕选择器卡（1:1 对齐 iOS prePlayTrackSelectorCard）
+                                if (!isMusicAlbum && selectedSource != null) {
+                                    val curAudioLabel = audioStreams.getOrNull(selectedPrePlayAudioOrdinal)?.let {
+                                        formatAudioStreamSummary(it, selectedPrePlayAudioOrdinal)
+                                    } ?: "默认音轨"
+                                    val curSubtitleLabel = when {
+                                        selectedPrePlaySubtitleIdx < 0 -> "关闭字幕"
+                                        subtitleStreams.isNotEmpty() -> subtitleStreams.getOrNull(selectedPrePlaySubtitleIdx)?.let {
+                                            formatSubtitleStreamSummary(it, selectedPrePlaySubtitleIdx)
+                                        } ?: "默认字幕"
+                                        else -> "无字幕"
+                                    }
+                                    CinematicPanel(padding = 0.dp, showsShadow = false) {
+                                        Column {
+                                            PrePlaySelectorRow(
+                                                label = if (effectiveSources.size > 1) "版本" else "视频",
+                                                value = formatSourceSpecSummary(selectedSource, selectedSourceIndex),
+                                                interactive = effectiveSources.size > 1,
+                                                onClick = { showVersionPickerSheet = true },
                                             )
+                                            if (audioStreams.isNotEmpty()) {
+                                                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 16.dp))
+                                                PrePlaySelectorRow(
+                                                    label = "音轨",
+                                                    value = curAudioLabel,
+                                                    interactive = audioStreams.size > 1,
+                                                    onClick = { showPrePlayAudioSheet = true },
+                                                )
+                                            }
+                                            if (subtitleStreams.isNotEmpty()) {
+                                                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 16.dp))
+                                                PrePlaySelectorRow(
+                                                    label = "字幕",
+                                                    value = curSubtitleLabel,
+                                                    interactive = true,
+                                                    onClick = { showPrePlaySubtitleSheet = true },
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -961,16 +1251,26 @@ fun MediaServerDetailScreen(
                             }
                         }
 
-                        // 4. 剧集列表（分季胶囊 + 16:9 横版剧照横向滚动卡片，图2顶部区域）
+                        // 4. 剧集列表 / 音乐专辑曲目列表
                         if (seasons.isNotEmpty() || episodes.isNotEmpty() || isLoadingEpisodes) {
                             item(key = "ms_episodes") {
                                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    val sectionTitle = when {
+                                        isMusicAlbum -> "曲目列表"
+                                        d.itemType.equals("Episode", ignoreCase = true) -> "本季更多剧集"
+                                        else -> "剧集列表"
+                                    }
+                                    val sectionSub = if (!isLoadingEpisodes && episodes.isNotEmpty()) {
+                                        "共 ${episodes.size} ${if (isMusicAlbum) "首" else "集"}"
+                                    } else {
+                                        null
+                                    }
                                     NativeSectionHeader(
-                                        title = "剧集列表",
-                                        subtitle = if (!isLoadingEpisodes && episodes.isNotEmpty()) "共 ${episodes.size} 集" else null,
+                                        title = sectionTitle,
+                                        subtitle = sectionSub,
                                         modifier = Modifier.padding(horizontal = margin),
                                     )
-                                    if (seasons.size > 1) {
+                                    if (!isMusicAlbum && seasons.size > 1) {
                                         LazyRow(
                                             contentPadding = PaddingValues(horizontal = margin),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1005,7 +1305,8 @@ fun MediaServerDetailScreen(
                                                                         seasonNumber = sNum,
                                                                     )
                                                                     episodes = newEps
-                                                                    val firstEp = newEps.firstOrNull { !it.played } ?: newEps.firstOrNull()
+                                                                    val smartIdx = MoviePilotRepository.smartNextPlayableEpisodeIndex(newEps) ?: 0
+                                                                    val firstEp = newEps.getOrNull(smartIdx)
                                                                     selectedEpisodeId = firstEp?.itemId
                                                                     isLoadingEpisodes = false
                                                                     loadEpisodeStreamPreviewIfNeeded(firstEp?.itemId, activeServerName, d)
@@ -1027,14 +1328,78 @@ fun MediaServerDetailScreen(
                                             count = 4,
                                             contentPadding = PaddingValues(horizontal = margin),
                                         )
+                                    } else if (isMusicAlbum && episodes.isNotEmpty()) {
+                                        CinematicPanel(
+                                            padding = 0.dp,
+                                            showsShadow = false,
+                                            modifier = Modifier.padding(horizontal = margin),
+                                        ) {
+                                            Column {
+                                                episodes.forEachIndexed { idx, track ->
+                                                    val trackNum = track.episodeNumber ?: (idx + 1)
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .clickable {
+                                                                selectedEpisodeId = track.itemId
+                                                                val queue = buildSeasonOrAlbumQueue(d)
+                                                                startStreamPlayback(
+                                                                    targetItemId = track.itemId,
+                                                                    titleFallback = track.title.ifBlank { "曲目 $trackNum" },
+                                                                    subtitleFallback = d.seriesName.ifBlank { d.title },
+                                                                    artwork = track.thumb ?: track.poster ?: d.poster ?: fallbackPoster,
+                                                                    queue = queue,
+                                                                    queueIndex = idx,
+                                                                )
+                                                            }
+                                                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                    ) {
+                                                        Text(
+                                                            text = "%02d".format(trackNum),
+                                                            color = colors.textMuted,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            modifier = Modifier.width(26.dp),
+                                                        )
+                                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                            Text(
+                                                                text = track.title.ifBlank { "曲目 $trackNum" },
+                                                                color = colors.textPrimary,
+                                                                fontSize = 14.5.sp,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis,
+                                                            )
+                                                            formatDurationMinutes(track.durationMs)?.let { dur ->
+                                                                Text(dur, color = colors.textMuted, fontSize = 11.5.sp)
+                                                            }
+                                                        }
+                                                        Icon(
+                                                            Icons.Rounded.PlayCircle,
+                                                            contentDescription = "播放 ${track.title}",
+                                                            tint = colors.accent,
+                                                            modifier = Modifier.size(24.dp),
+                                                        )
+                                                    }
+                                                    if (idx < episodes.lastIndex) {
+                                                        HorizontalDivider(
+                                                            color = colors.divider,
+                                                            modifier = Modifier.padding(start = 54.dp, end = 16.dp),
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
                                     } else if (episodes.isNotEmpty()) {
                                         LazyRow(
+                                            state = episodesRowState,
                                             contentPadding = PaddingValues(horizontal = margin),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
                                             itemsIndexed(episodes, key = { idx, ep -> "ep_${ep.itemId}_$idx" }) { idx, ep ->
                                                 val epNum = ep.episodeNumber ?: (idx + 1)
-                                                // Emby / Jellyfin / Plex 将 16:9 单集剧照存放在 `ep.thumb`，严格遵循优先级：
                                                 val stillImage = ep.thumb ?: ep.backdrop ?: d.backdrop ?: ep.poster ?: d.poster
                                                 val isSelectedEp = ep.itemId == selectedEpisodeId
 
@@ -1046,11 +1411,15 @@ fun MediaServerDetailScreen(
                                                             scope.launch {
                                                                 loadEpisodeStreamPreviewIfNeeded(ep.itemId, activeServerName, d)
                                                             }
+                                                            val queue = buildSeasonOrAlbumQueue(d)
                                                             startStreamPlayback(
                                                                 targetItemId = ep.itemId,
                                                                 titleFallback = "${d.seriesName.ifBlank { d.title }} E%02d · ${ep.title}".format(epNum),
                                                                 subtitleFallback = activeServerName,
                                                                 artwork = stillImage,
+                                                                sourceId = if (ep.itemId == previewedEpisodeId) selectedSource?.id?.ifBlank { null } else null,
+                                                                queue = queue,
+                                                                queueIndex = idx,
                                                             )
                                                         },
                                                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1458,6 +1827,38 @@ fun MediaServerDetailScreen(
                 }
             }
             DropdownMenu(expanded = showTopMoreMenu, onDismissRequest = { showTopMoreMenu = false }) {
+                if (d != null) {
+                    DropdownMenuItem(
+                        text = { Text("外部播放器播放") },
+                        onClick = {
+                            showTopMoreMenu = false
+                            val ep = episodes.firstOrNull { it.itemId == selectedEpisodeId }
+                            val targetId = ep?.itemId ?: d.itemId
+                            startStreamPlayback(
+                                targetItemId = targetId,
+                                titleFallback = ep?.title?.ifBlank { d.title } ?: d.title,
+                                subtitleFallback = activeServerName,
+                                artwork = d.poster ?: fallbackPoster,
+                                sourceId = if (ep == null || ep.itemId == previewedEpisodeId) selectedSource?.id?.ifBlank { null } else null,
+                                launchInExternalPlayer = true,
+                            )
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("在 ${activeServerName.ifBlank { "客户端" }} 打开") },
+                        onClick = {
+                            showTopMoreMenu = false
+                            val ep = episodes.firstOrNull { it.itemId == selectedEpisodeId }
+                            ExternalPlayerLauncher.launchMediaServerClientOrFallback(
+                                context = context,
+                                serverType = d.serverType,
+                                serverName = activeServerName,
+                                itemId = ep?.itemId ?: d.itemId,
+                                playUrl = d.playUrl,
+                            )
+                        },
+                    )
+                }
                 if (d != null && (!d.tmdbId.isNullOrBlank() || !d.doubanId.isNullOrBlank())) {
                     DropdownMenuItem(
                         text = { Text("查看影视元数据页") },
@@ -1591,6 +1992,210 @@ fun MediaServerDetailScreen(
                 }
             },
         )
+    }
+
+    // 播前版本选择弹窗
+    if (showVersionPickerSheet && effectiveSources.size > 1) {
+        NativeGlassSheet(onDismissRequest = { showVersionPickerSheet = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("选择播放版本", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    itemsIndexed(effectiveSources) { idx, src ->
+                        val picked = idx == selectedSourceIndex
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (picked) colors.activeIndicator else colors.surfaceContainerLow)
+                                .clickable {
+                                    selectedSourceIndex = idx
+                                    showVersionPickerSheet = false
+                                }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = formatSourceSpecSummary(src, idx),
+                                color = colors.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = if (picked) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (picked) {
+                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+        }
+    }
+
+    // 播前音轨预选弹窗
+    if (showPrePlayAudioSheet && audioStreams.isNotEmpty()) {
+        NativeGlassSheet(onDismissRequest = { showPrePlayAudioSheet = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("预选播放音轨", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    itemsIndexed(audioStreams) { idx, tr ->
+                        val picked = idx == selectedPrePlayAudioOrdinal
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (picked) colors.activeIndicator else colors.surfaceContainerLow)
+                                .clickable {
+                                    selectedPrePlayAudioOrdinal = idx
+                                    showPrePlayAudioSheet = false
+                                }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = formatAudioStreamSummary(tr, idx),
+                                color = colors.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = if (picked) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (picked) {
+                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+        }
+    }
+
+    // 播前字幕预选弹窗
+    if (showPrePlaySubtitleSheet && subtitleStreams.isNotEmpty()) {
+        NativeGlassSheet(onDismissRequest = { showPrePlaySubtitleSheet = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("预选播放字幕", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item(key = "sub_off") {
+                        val offPicked = selectedPrePlaySubtitleIdx < 0
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (offPicked) colors.activeIndicator else colors.surfaceContainerLow)
+                                .clickable {
+                                    selectedPrePlaySubtitleIdx = -1
+                                    showPrePlaySubtitleSheet = false
+                                }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = "关闭字幕",
+                                color = colors.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = if (offPicked) FontWeight.Bold else FontWeight.Normal,
+                            )
+                            if (offPicked) {
+                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                    itemsIndexed(subtitleStreams) { idx, tr ->
+                        val picked = idx == selectedPrePlaySubtitleIdx
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (picked) colors.activeIndicator else colors.surfaceContainerLow)
+                                .clickable {
+                                    selectedPrePlaySubtitleIdx = idx
+                                    showPrePlaySubtitleSheet = false
+                                }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = formatSubtitleStreamSummary(tr, idx),
+                                color = colors.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = if (picked) FontWeight.Bold else FontWeight.Normal,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (picked) {
+                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrePlaySelectorRow(
+    label: String,
+    value: String,
+    interactive: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (interactive) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = label,
+            color = colors.textSecondary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Text(
+            text = value,
+            color = colors.textPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+        )
+        if (interactive) {
+            Icon(
+                imageVector = Icons.Rounded.UnfoldMore,
+                contentDescription = null,
+                tint = colors.textMuted,
+                modifier = Modifier.size(17.dp),
+            )
+        }
     }
 }
 

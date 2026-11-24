@@ -1,3 +1,5 @@
+import { image } from '@kit.ImageKit';
+import { util } from '@kit.ArkTS';
 import { RustCoreBridge } from '../bridge/RustCoreBridge';
 import { NativeRcpTransport, NativeHttpResponse, SseEventChunk } from '../network/NativeRcpTransport';
 import { NativeHuksStore } from '../security/NativeHuksStore';
@@ -374,6 +376,56 @@ export interface MpMusicAlbum {
   coverUrl: string;
   rating: number;
   source: string;
+  mediaSource?: string;
+  mediaId?: string;
+  albumId?: string;
+  releaseId?: string;
+  artistId?: string;
+}
+
+/** 音乐单曲曲目条目（`/api/v1/music/album/{id}`）。 */
+export interface MpMusicTrackItem {
+  id: string;
+  mediaSource: string;
+  mediaId: string;
+  title: string;
+  artist: string;
+  album: string;
+  trackNumber: number;
+  discNumber: number;
+  durationSec: number;
+  year: string;
+  coverUrl: string;
+}
+
+/** 音乐专辑详情模型（`/api/v1/music/album/{id}`）。 */
+export interface MpMusicAlbumDetail {
+  id: string;
+  mediaId: string;
+  releaseId: string;
+  title: string;
+  artist: string;
+  artistId: string;
+  albumType: string;
+  releaseDate: string;
+  year: string;
+  overview: string;
+  coverUrl: string;
+  mediaSource: string;
+  totalTracks: number;
+  tracks: MpMusicTrackItem[];
+}
+
+/** 音乐艺术家详情模型（`/api/v1/music/artist/{id}` & `/albums`）。 */
+export interface MpMusicArtistDetail {
+  id: string;
+  name: string;
+  country: string;
+  lifeSpan: string;
+  overview: string;
+  imageUrl: string;
+  mediaSource: string;
+  albums: MpMusicAlbum[];
 }
 
 export interface MpServiceConfig {
@@ -414,13 +466,36 @@ export interface MpFilterRuleGroup {
   ruleString: string;
 }
 
+/** 外挂或服务端代理字幕轨道模型（`/api/v1/mediaserver/stream-info`）。 */
+export interface MpExternalSubtitle {
+  index: number;
+  subtitleId: string;
+  label: string;
+  language: string;
+  format: string;
+  isExternal: boolean;
+  url: string;
+}
+
+/** 媒体播放流与鉴权头清单（严禁在 `contentUrl` 拼接 `?token=`，统一经 `headers` 同源携带 `Cookie` + `Authorization`）。 */
 export interface MpVideoStreamInfo {
   itemId: string;
   server: string;
   title: string;
   contentUrl: string;
+  strmUrl?: string;
+  proxyFallbackUrl?: string;
+  proxyFallbackHeaders?: Record<string, string>;
+  headers: Record<string, string>;
   mediaType: string;
+  artist: string;
+  album: string;
+  artworkUrl: string;
+  mediaSourceId: string;
   resumePositionMs: number;
+  durationMs: number;
+  subtitles: MpExternalSubtitle[];
+  lyricsUrl: string;
 }
 
 export interface MpManualTransferTargetHint {
@@ -625,7 +700,21 @@ export interface MpMediaServerStream {
   formattedBitrate: string;
 }
 
-/** 媒体服务器多版本媒体源模型。 */
+/** 播前音轨或字幕可选轨道项。 */
+export interface MpMediaTrackOption {
+  index: number;
+  ordinal: number;
+  type: string;
+  label: string;
+  language: string;
+  codec: string;
+  isDefault: boolean;
+  isForced: boolean;
+  isExternal: boolean;
+  subtitleId: string;
+}
+
+/** 媒体服务器多版本媒体源模型（附带预解析的播前可选音轨与字幕清单）。 */
 export interface MpMediaServerSource {
   id: string;
   name: string;
@@ -634,6 +723,21 @@ export interface MpMediaServerSource {
   bitrate: number;
   durationMs: number;
   streams: MpMediaServerStream[];
+  audioTracks: MpMediaTrackOption[];
+  subtitleTracks: MpMediaTrackOption[];
+}
+
+/** 媒体服务器播前源选择与音轨/字幕轨道信息（`fetchMediaServerPlaybackInfo`）。 */
+export interface MpPlaybackSource {
+  id: string;
+  name: string;
+  container: string;
+  sizeBytes: number;
+  bitrate: number;
+  durationMs: number;
+  streams: MpMediaServerStream[];
+  audioTracks: MpMediaTrackOption[];
+  subtitleTracks: MpMediaTrackOption[];
 }
 
 /** 媒体服务器演职员模型。 */
@@ -2791,51 +2895,268 @@ export class MoviePilotRepository {
   }
 
   /**
-   * 音乐榜单与专辑流（严格对齐 V3 真实端点）：
-   * - `douban`：`/api/v1/recommend/douban_music_hot`
-   * - `weekly` / `listenbrainz`：`/api/v1/recommend/listenbrainz_chart`
-   * - `hot` / `chart`：`/api/v1/music/explore?media_source=musicbrainz&mode=chart`
-   * - `new` / `fresh`：`/api/v1/music/explore?media_source=musicbrainz&mode=fresh`
+   * 音乐榜单与专辑流（严格对齐 V3 真实端点与兜底路由）：
+   * - `douban`：`/api/v1/recommend/music_douban`（回退 `douban_music_hot`）
+   * - `weekly` / `listenbrainz`：`/api/v1/recommend/music_weekly`（回退 `listenbrainz_chart`）
+   * - `hot` / `chart`：`/api/v1/music/explore?media_source=musicbrainz&mode=chart&entity=album&range_name=this_month`
+   * - `new` / `fresh`：`/api/v1/music/explore?media_source=musicbrainz&mode=fresh&days=14`
    */
   async fetchMusicFeed(feed: string = 'douban', page: number = 1): Promise<MpMusicAlbum[]> {
     const q: Record<string, string> = {};
     q['page'] = String(page);
-    let segs: string[] = ['recommend', 'douban_music_hot'];
-    if (feed === 'weekly' || feed === 'listenbrainz') {
-      segs = ['recommend', 'listenbrainz_chart'];
+    let segs: string[] = ['recommend', 'music_douban'];
+    let fallbackSegs: string[] = [];
+    if (feed === 'douban') {
+      fallbackSegs = ['recommend', 'douban_music_hot'];
+    } else if (feed === 'weekly' || feed === 'listenbrainz') {
+      segs = ['recommend', 'music_weekly'];
+      fallbackSegs = ['recommend', 'listenbrainz_chart'];
     } else if (feed === 'hot' || feed === 'chart') {
       segs = ['music', 'explore'];
       q['media_source'] = 'musicbrainz';
       q['mode'] = 'chart';
+      q['entity'] = 'album';
+      q['range_name'] = 'this_month';
+      q['count'] = '30';
     } else if (feed === 'new' || feed === 'fresh') {
       segs = ['music', 'explore'];
       q['media_source'] = 'musicbrainz';
       q['mode'] = 'fresh';
+      q['days'] = '14';
+      q['count'] = '30';
     }
-    const resp = await this.get(segs, q);
+    let resp = await this.get(segs, q);
+    if (resp.status !== 200 && fallbackSegs.length > 0) {
+      resp = await this.get(fallbackSegs, q);
+    }
     if (resp.status !== 200) { return []; }
     const arr = unwrapArray(parseJsonSafe(resp.body));
+    return this.parseMusicAlbumCards(arr, feed);
+  }
+
+  private parseMusicAlbumCards(arr: Object[], fallbackFeed: string): MpMusicAlbum[] {
     const out: MpMusicAlbum[] = [];
+    const seen = new Set<string>();
     for (let i = 0; i < arr.length; i++) {
       const r = asRec(arr[i]);
       if (!r) { continue; }
+      const title = strVal(r, 'title') || strVal(r, 'name');
+      if (!title) { continue; }
       const artistsArr = asArr(r['artists']);
       let firstArtist = '';
       if (artistsArr.length > 0) {
         const aRec = asRec(artistsArr[0]);
         firstArtist = aRec ? strVal(aRec, 'name') : String(artistsArr[0] ?? '');
       }
+      const artistIdsArr = asArr(r['artist_ids']);
+      const firstArtistId = artistIdsArr.length > 0 ? String(artistIdsArr[0] ?? '').trim() : strVal(r, 'artist_id');
+      const rawMediaSource = normalizeMediaSourceCode(strVal(r, 'media_source')) ||
+        (fallbackFeed === 'douban' ? 'doubanmusic' : 'musicbrainz');
+      const mediaId = stripKnownMediaPrefix(strVal(r, 'media_id') || strVal(r, 'douban_id') || strVal(r, 'id'));
+      const albumId = stripKnownMediaPrefix(strVal(r, 'album_id')) || mediaId;
+      const releaseId = strVal(r, 'musicbrainz_release_id').trim();
+      const uniqueKey = `${rawMediaSource}|${albumId || mediaId || title}_${i}`;
+      const dedupeKey = (albumId || mediaId).length > 0 ? `${rawMediaSource}|${albumId || mediaId}` : uniqueKey;
+      if (seen.has(dedupeKey)) { continue; }
+      seen.add(dedupeKey);
       out.push({
-        id: strVal(r, 'media_id') || strVal(r, 'id') || strVal(r, 'douban_id') || `music_${i}`,
-        title: strVal(r, 'title') || strVal(r, 'name'),
+        id: albumId || mediaId || `music_${i}`,
+        title: title,
         artist: strVal(r, 'artist') || firstArtist || strVal(r, 'singer') || strVal(r, 'subtitle'),
         year: strVal(r, 'year'),
-        coverUrl: this.resolveImageUrl(strVal(r, 'poster_path') || strVal(r, 'cover') || strVal(r, 'image')),
+        coverUrl: this.resolveImageUrl(
+          strVal(r, 'cover_url') || strVal(r, 'poster_path') || strVal(r, 'cover') || strVal(r, 'image')
+        ),
         rating: numVal(r, 'vote_average', numVal(r, 'rating', 0)),
-        source: feed
+        source: fallbackFeed,
+        mediaSource: rawMediaSource,
+        mediaId: mediaId,
+        albumId: albumId,
+        releaseId: releaseId,
+        artistId: firstArtistId
       });
     }
     return out;
+  }
+
+  /** 查询音乐专辑详情与完整曲目列表（`GET /api/v1/music/album/{id}`）。 */
+  async fetchMusicAlbumDetail(
+    albumId: string,
+    mediaSource: string = 'musicbrainz',
+    releaseId: string = ''
+  ): Promise<MpMusicAlbumDetail | null> {
+    const cleanId = stripKnownMediaPrefix(albumId);
+    if (!cleanId) { return null; }
+    const normSrc = normalizeMediaSourceCode(mediaSource) || 'musicbrainz';
+    const q: Record<string, string> = {
+      'media_source': normSrc
+    };
+    const cleanRelease = releaseId.trim();
+    if (
+      normSrc === 'musicbrainz' &&
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(cleanRelease)
+    ) {
+      q['musicbrainz_release_id'] = cleanRelease;
+    }
+    const resp = await this.get(['music', 'album', cleanId], q);
+    if (resp.status !== 200) { return null; }
+    const r = unwrapObject(parseJsonSafe(resp.body));
+    if (!r) { return null; }
+
+    const artistsArr = asArr(r['artists']);
+    let firstArtist = '';
+    if (artistsArr.length > 0) {
+      const aRec = asRec(artistsArr[0]);
+      firstArtist = aRec ? strVal(aRec, 'name') : String(artistsArr[0] ?? '');
+    }
+    const artistIdsArr = asArr(r['artist_ids']);
+    const firstArtistId = artistIdsArr.length > 0 ? String(artistIdsArr[0] ?? '').trim() : strVal(r, 'artist_id');
+    const resolvedArtist = strVal(r, 'artist') || firstArtist;
+    const resolvedTitle = strVal(r, 'title') || strVal(r, 'name', '音乐专辑');
+    const resolvedCover = this.resolveImageUrl(
+      strVal(r, 'cover_url') || strVal(r, 'poster_path') || strVal(r, 'cover') || strVal(r, 'image')
+    );
+    const resolvedSrc = normalizeMediaSourceCode(strVal(r, 'media_source')) || normSrc;
+    const resolvedMediaId = stripKnownMediaPrefix(strVal(r, 'media_id')) || cleanId;
+
+    const tracksRaw = asArr(r['tracks']);
+    const tracks: MpMusicTrackItem[] = [];
+    for (let i = 0; i < tracksRaw.length; i++) {
+      const tr = asRec(tracksRaw[i]);
+      if (!tr) { continue; }
+      const trArtists = asArr(tr['artists']);
+      let trFirstArtist = '';
+      if (trArtists.length > 0) {
+        const taRec = asRec(trArtists[0]);
+        trFirstArtist = taRec ? strVal(taRec, 'name') : String(trArtists[0] ?? '');
+      }
+      const trMediaSrc = normalizeMediaSourceCode(strVal(tr, 'media_source')) || resolvedSrc;
+      const trMediaId = stripKnownMediaPrefix(strVal(tr, 'media_id') || strVal(tr, 'id'));
+      tracks.push({
+        id: trMediaId || `${cleanId}_track_${i + 1}`,
+        mediaSource: trMediaSrc,
+        mediaId: trMediaId,
+        title: strVal(tr, 'title') || strVal(tr, 'name', `曲目 ${i + 1}`),
+        artist: strVal(tr, 'artist') || trFirstArtist || resolvedArtist,
+        album: resolvedTitle,
+        trackNumber: Math.round(numVal(tr, 'track_number', i + 1)),
+        discNumber: Math.round(numVal(tr, 'disc_number', 1)),
+        durationSec: Math.round(numVal(tr, 'duration', 0)),
+        year: strVal(tr, 'year') || strVal(r, 'year'),
+        coverUrl: this.resolveImageUrl(strVal(tr, 'cover_url') || strVal(tr, 'poster_path')) || resolvedCover
+      });
+    }
+
+    return {
+      id: cleanId,
+      mediaId: resolvedMediaId,
+      releaseId: strVal(r, 'musicbrainz_release_id', cleanRelease),
+      title: resolvedTitle,
+      artist: resolvedArtist,
+      artistId: firstArtistId,
+      albumType: strVal(r, 'album_type'),
+      releaseDate: strVal(r, 'release_date') || strVal(r, 'year'),
+      year: strVal(r, 'year'),
+      overview: strVal(r, 'overview'),
+      coverUrl: resolvedCover,
+      mediaSource: resolvedSrc,
+      totalTracks: Math.round(numVal(r, 'total_tracks', tracks.length)),
+      tracks: tracks
+    };
+  }
+
+  /** 查询音乐艺术家详情与其代表专辑列表（`GET /api/v1/music/artist/{id}` & `/albums`）。 */
+  async fetchMusicArtistDetail(
+    artistId: string,
+    mediaSource: string = 'musicbrainz'
+  ): Promise<MpMusicArtistDetail | null> {
+    const cleanId = stripKnownMediaPrefix(artistId);
+    if (!cleanId) { return null; }
+    const normSrc = normalizeMediaSourceCode(mediaSource) || 'musicbrainz';
+    const q: Record<string, string> = { 'media_source': normSrc };
+    const albumsQ: Record<string, string> = { 'media_source': normSrc, 'page': '1', 'count': '30' };
+    const results = await Promise.all([
+      this.get(['music', 'artist', cleanId], q),
+      this.get(['music', 'artist', cleanId, 'albums'], albumsQ)
+    ]);
+    const infoResp = results[0];
+    const albumsResp = results[1];
+    const infoRec = infoResp.status === 200 ? unwrapObject(parseJsonSafe(infoResp.body)) : null;
+    const albumsArr = albumsResp.status === 200 ? unwrapArray(parseJsonSafe(albumsResp.body)) : [];
+    if (!infoRec && albumsArr.length === 0) {
+      return null;
+    }
+    return {
+      id: cleanId,
+      name: strVal(infoRec, 'name') || strVal(infoRec, 'title', '艺术家'),
+      country: strVal(infoRec, 'area') || strVal(infoRec, 'country'),
+      lifeSpan: strVal(infoRec, 'life_span'),
+      overview: strVal(infoRec, 'overview'),
+      imageUrl: this.resolveImageUrl(
+        strVal(infoRec, 'image_url') || strVal(infoRec, 'poster_path') || strVal(infoRec, 'avatar')
+      ),
+      mediaSource: normSrc,
+      albums: this.parseMusicAlbumCards(albumsArr, normSrc)
+    };
+  }
+
+  /** 查询指定音乐专辑是否已订阅（`POST /api/v1/media/status`）。 */
+  async checkMusicAlbumSubscribed(mediaId: string, mediaSource: string = 'musicbrainz'): Promise<boolean> {
+    const cleanId = stripKnownMediaPrefix(mediaId);
+    if (!cleanId) { return false; }
+    const normSrc = normalizeMediaSourceCode(mediaSource) || 'musicbrainz';
+    const itemObj: Record<string, string> = {
+      'media_source': normSrc,
+      'media_id': cleanId,
+      'mtype': '音乐'
+    };
+    const resp = await this.postJson(['media', 'status'], JSON.stringify([itemObj]));
+    if (resp.status !== 200) { return false; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    if (arr.length === 0) { return false; }
+    const first = asRec(arr[0]);
+    return boolVal(first, 'subscribed', false);
+  }
+
+  /** 添加音乐专辑订阅（`POST /api/v1/subscribe/`）。 */
+  async subscribeMusicAlbum(album: MpMusicAlbumDetail): Promise<boolean> {
+    const cleanId = stripKnownMediaPrefix(album.mediaId || album.id);
+    if (!cleanId) { return false; }
+    const payload: Record<string, Object> = {
+      'name': album.title,
+      'type': '音乐',
+      'music_type': 'album',
+      'media_source': normalizeMediaSourceCode(album.mediaSource) || 'musicbrainz',
+      'media_id': cleanId
+    };
+    if (album.year.length > 0) {
+      payload['year'] = album.year;
+    }
+    if (album.totalTracks > 0) {
+      payload['total_tracks'] = album.totalTracks;
+    }
+    const resp = await this.postJson(['subscribe'], JSON.stringify(payload), true);
+    if (resp.status >= 200 && resp.status < 300) {
+      this.invalidateSubscriptionsCache();
+      return true;
+    }
+    return false;
+  }
+
+  /** 取消音乐专辑订阅（`DELETE /api/v1/subscribe/media/{id}`）。 */
+  async unsubscribeMusicAlbum(mediaId: string, mediaSource: string = 'musicbrainz'): Promise<boolean> {
+    const cleanId = stripKnownMediaPrefix(mediaId);
+    if (!cleanId) { return false; }
+    const q: Record<string, string> = {
+      'media_source': normalizeMediaSourceCode(mediaSource) || 'musicbrainz',
+      'mtype': '音乐'
+    };
+    const resp = await this.deleteReq(['subscribe', 'media', cleanId], q);
+    if (resp.status >= 200 && resp.status < 300) {
+      this.invalidateSubscriptionsCache();
+      return true;
+    }
+    return false;
   }
 
   /** 媒体库精细浏览（严格使用 `start_index` 与 `limit` 参数，完整保留 `serverItemId` 与 `serverName`）。 */
@@ -2872,51 +3193,405 @@ export class MoviePilotRepository {
     return out;
   }
 
+  /** 将相对路径规范化为同源绝对地址并执行 `RustCoreBridge.serverAddressContains` 严格同源守卫。 */
+  private resolveTrustedSameOriginUrl(rawUrl: string): string {
+    const trimmed = (rawUrl ?? '').trim();
+    if (!trimmed || !this.baseUrl) {
+      return '';
+    }
+    const candidate = (trimmed.startsWith('http://') || trimmed.startsWith('https://'))
+      ? trimmed
+      : `${this.baseUrl}${trimmed.startsWith('/') ? '' : '/'}${trimmed}`;
+    if (!RustCoreBridge.serverAddressContains(this.baseUrl, candidate)) {
+      return '';
+    }
+    return candidate;
+  }
+
   /**
-   * 查询媒体播放流地址（调用真实 `GET /api/v1/mediaserver/stream-info?itemid=...&server=...` 及 `/mediaserver/stream`）。
+   * 构造供 `AVPlayer.setMediaSource` 使用的同源鉴权请求头（`Cookie` + `Authorization`）：
+   * 仅当目标地址通过 `RustCoreBridge.serverAddressContains` 同源校验时附加凭据，绝不拼接 `?token=`。
+   */
+  buildPlaybackHeaders(targetUrl: string): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (!this.baseUrl || !targetUrl || !RustCoreBridge.serverAddressContains(this.baseUrl, targetUrl)) {
+      return headers;
+    }
+    const cookieHeader = this.transport.getCookieHeaderForUrl(targetUrl);
+    if (cookieHeader.length > 0) {
+      headers['Cookie'] = cookieHeader;
+    }
+    if (this.token.length > 0) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    return headers;
+  }
+
+  private inferSubtitleFormat(subtitleId: string, url: string): string {
+    const probe = `${subtitleId} ${url.split('?')[0]}`.toLowerCase();
+    if (probe.includes('.ass')) { return 'ass'; }
+    if (probe.includes('.ssa')) { return 'ssa'; }
+    if (probe.includes('.vtt')) { return 'vtt'; }
+    return 'srt';
+  }
+
+  private parseStreamManifestResponse(
+    r: Record<string, Object>,
+    fallbackItemId: string,
+    fallbackServer: string,
+    fallbackMediaSourceId: string
+  ): MpVideoStreamInfo | null {
+    let rawUrl = strVal(r, 'content_url') || strVal(r, 'url') || strVal(r, 'stream_url') || strVal(r, 'direct_url');
+    if (!rawUrl && this.baseUrl.length > 0) {
+      const sq: Record<string, string> = {};
+      const resolvedId = strVal(r, 'item_id', fallbackItemId);
+      sq['itemid'] = resolvedId;
+      if (fallbackServer.length > 0) { sq['server'] = fallbackServer; }
+      if (fallbackMediaSourceId.length > 0) { sq['media_source_id'] = fallbackMediaSourceId; }
+      rawUrl = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, ['mediaserver', 'stream'], sq);
+    }
+    const fullUrl = this.resolveTrustedSameOriginUrl(rawUrl);
+    if (!fullUrl) {
+      return null;
+    }
+    const rawStrm = strVal(r, 'strm_url');
+    const parsedStrm = rawStrm.length > 0 ? RustCoreBridge.parseStrmContent(rawStrm) : null;
+    const strmUrl = parsedStrm ? parsedStrm.url : '';
+    const strmDirectEnabled = AppStorage.get<boolean>('mp_playback_strm_direct') ?? true;
+    const useStrmDirect = strmDirectEnabled && strmUrl.length > 0;
+    const activeUrl = useStrmDirect ? strmUrl : fullUrl;
+    const sameOriginHeaders = this.buildPlaybackHeaders(fullUrl);
+    const activeHeaders = useStrmDirect ? this.buildPlaybackHeaders(strmUrl) : sameOriginHeaders;
+
+    const subtitles: MpExternalSubtitle[] = [];
+    const subsRaw = asArr(r['subtitles']);
+    for (let i = 0; i < subsRaw.length; i++) {
+      const sr = asRec(subsRaw[i]);
+      if (!sr) { continue; }
+      const subUrl = this.resolveTrustedSameOriginUrl(strVal(sr, 'url'));
+      if (!subUrl) { continue; }
+      const subId = strVal(sr, 'subtitle_id') || strVal(sr, 'id', `ext_${i}`);
+      const lang = strVal(sr, 'language');
+      const lbl = strVal(sr, 'title') || strVal(sr, 'display_title') || lang || `外挂字幕 ${i + 1}`;
+      subtitles.push({
+        index: i,
+        subtitleId: subId,
+        label: lbl,
+        language: lang,
+        format: strVal(sr, 'format') || this.inferSubtitleFormat(subId, subUrl),
+        isExternal: true,
+        url: subUrl
+      });
+    }
+
+    const rawLyrics = strVal(r, 'lyrics_url');
+    const lyricsUrl = rawLyrics.length > 0 ? this.resolveTrustedSameOriginUrl(rawLyrics) : '';
+    const artworkRaw = strVal(r, 'poster') || strVal(r, 'thumb') || strVal(r, 'artwork_url') || strVal(r, 'image');
+
+    return {
+      itemId: strVal(r, 'item_id', fallbackItemId),
+      server: strVal(r, 'server', fallbackServer),
+      title: strVal(r, 'title'),
+      contentUrl: activeUrl,
+      strmUrl: strmUrl.length > 0 ? strmUrl : undefined,
+      proxyFallbackUrl: (useStrmDirect && activeUrl !== fullUrl) ? fullUrl : undefined,
+      proxyFallbackHeaders: (useStrmDirect && activeUrl !== fullUrl) ? sameOriginHeaders : undefined,
+      headers: activeHeaders,
+      mediaType: strVal(r, 'media_type', 'video'),
+      artist: strVal(r, 'artist'),
+      album: strVal(r, 'album'),
+      artworkUrl: artworkRaw.length > 0 ? this.resolveImageUrl(artworkRaw) : '',
+      mediaSourceId: strVal(r, 'media_source_id', fallbackMediaSourceId),
+      resumePositionMs: Math.max(0, Math.round(numVal(r, 'resume_position_ms', numVal(r, 'position_ms', 0)))),
+      durationMs: Math.max(0, Math.round(numVal(r, 'duration_ms', 0))),
+      subtitles: subtitles,
+      lyricsUrl: lyricsUrl
+    };
+  }
+
+  /**
+   * 查询媒体播放流地址与外挂字幕（`GET /api/v1/mediaserver/stream-info`）：
+   * - 捕获响应 `Set-Cookie` 中的 `resource_token`，不向 `contentUrl` 拼接 `?token=`；
+   * - 对 `content_url`、`subtitles[].url` 与 `lyrics_url` 全部执行 `RustCoreBridge.serverAddressContains` 同源校验。
    */
   async fetchVideoStreamInfo(itemId: string, server: string = '', mediaSourceId: string = ''): Promise<MpVideoStreamInfo | null> {
     const cleanId = itemId.trim();
     if (!cleanId) { return null; }
     const q: Record<string, string> = {};
     q['itemid'] = cleanId;
-    q['item_id'] = cleanId;
-    if (server.length > 0) { q['server'] = server; }
-    if (mediaSourceId.length > 0) { q['media_source_id'] = mediaSourceId; }
+    if (server.trim().length > 0) { q['server'] = server.trim(); }
+    if (mediaSourceId.trim().length > 0) { q['media_source_id'] = mediaSourceId.trim(); }
     const resp = await this.get(['mediaserver', 'stream-info'], q);
     if (resp.status !== 200) { return null; }
     const r = unwrapObject(parseJsonSafe(resp.body));
     if (!r) { return null; }
-    let rawUrl = strVal(r, 'url') || strVal(r, 'stream_url') || strVal(r, 'content_url') || strVal(r, 'direct_url');
-    if (!rawUrl && this.baseUrl.length > 0) {
-      const sq: Record<string, string> = {};
-      const resolvedId = strVal(r, 'item_id', cleanId);
-      sq['itemid'] = resolvedId;
-      if (server.length > 0) { sq['server'] = server; }
-      if (mediaSourceId.length > 0) { sq['media_source_id'] = mediaSourceId; }
-      if (this.token.length > 0) { sq['token'] = this.token; }
-      rawUrl = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, ['mediaserver', 'stream'], sq);
-    }
-    if (!rawUrl) { return null; }
-    let fullUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
-      ? rawUrl
-      : `${this.baseUrl}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
-    if (
-      this.token.length > 0 &&
-      this.baseUrl.length > 0 &&
-      RustCoreBridge.serverAddressContains(this.baseUrl, fullUrl) &&
-      !fullUrl.includes('token=')
-    ) {
-      fullUrl = `${fullUrl}${fullUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(this.token)}`;
-    }
-    return {
-      itemId: strVal(r, 'item_id', cleanId),
-      server: strVal(r, 'server', server),
-      title: strVal(r, 'title'),
-      contentUrl: fullUrl,
-      mediaType: strVal(r, 'media_type', 'video'),
-      resumePositionMs: Math.round(numVal(r, 'resume_position_ms', 0))
+    return this.parseStreamManifestResponse(r, cleanId, server.trim(), mediaSourceId.trim());
+  }
+
+  /**
+   * 匹配并获取媒体服务器中的音乐单曲音频流与 LRC 歌词（`POST /api/v1/mediaserver/stream-info/music`）。
+   */
+  async fetchMusicStreamInfo(
+    title: string,
+    artist: string = '',
+    album: string = '',
+    mediaSource: string = '',
+    mediaId: string = '',
+    trackNumber: number = 0
+  ): Promise<MpVideoStreamInfo | null> {
+    const cleanTitle = title.trim();
+    if (!cleanTitle) { return null; }
+    const normSrc = normalizeMediaSourceCode(mediaSource) || 'musicbrainz';
+    const cleanMediaId = stripKnownMediaPrefix(mediaId) || cleanTitle;
+    const payload: Record<string, Object> = {
+      'title': cleanTitle,
+      'media_source': normSrc,
+      'media_id': cleanMediaId
     };
+    if (artist.trim().length > 0) {
+      payload['artist'] = artist.trim();
+      payload['artists'] = [artist.trim()];
+    }
+    if (album.trim().length > 0) {
+      payload['album'] = album.trim();
+    }
+    if (trackNumber > 0) {
+      payload['track_number'] = Math.round(trackNumber);
+    }
+    let resp = await this.postJson(['mediaserver', 'stream-info', 'music'], JSON.stringify(payload));
+    if (resp.status === 422) {
+      const legacyPayload: Record<string, string> = { 'title': cleanTitle };
+      if (artist.trim().length > 0) { legacyPayload['artist'] = artist.trim(); }
+      if (album.trim().length > 0) { legacyPayload['album'] = album.trim(); }
+      resp = await this.postJson(['mediaserver', 'stream-info', 'music'], JSON.stringify(legacyPayload));
+    }
+    if (resp.status !== 200) { return null; }
+    const r = unwrapObject(parseJsonSafe(resp.body));
+    if (!r) { return null; }
+    const parsed = this.parseStreamManifestResponse(r, '', '', '');
+    if (parsed) {
+      parsed.mediaType = 'audio';
+      if (!parsed.title) { parsed.title = cleanTitle; }
+      if (!parsed.artist) { parsed.artist = artist.trim(); }
+      if (!parsed.album) { parsed.album = album.trim(); }
+    }
+    return parsed;
+  }
+
+  /**
+   * 异步回传当前播放进度与状态至媒体服务器（`POST /api/v1/mediaserver/progress`）。
+   * 自动跳过无 `server` 的外部直链、本机文件及 `file.` 短期流票据。
+   */
+  async reportMediaServerProgress(
+    itemId: string,
+    server: string,
+    mediaSourceId: string,
+    positionMs: number,
+    durationMs: number,
+    isPaused: boolean,
+    state: string
+  ): Promise<void> {
+    const cleanItem = itemId.trim();
+    const cleanSrv = server.trim();
+    if (
+      !cleanItem ||
+      !cleanSrv ||
+      cleanItem.startsWith('file.') ||
+      cleanItem.startsWith('file:') ||
+      cleanItem.startsWith('local:') ||
+      cleanItem.startsWith('external:')
+    ) {
+      return;
+    }
+    const payload: Record<string, Object> = {
+      'item_id': cleanItem,
+      'server': cleanSrv,
+      'position_ms': Math.max(0, Math.round(positionMs)),
+      'is_paused': isPaused,
+      'state': state === 'paused' || state === 'stopped' ? state : 'playing'
+    };
+    if (mediaSourceId.trim().length > 0) {
+      payload['media_source_id'] = mediaSourceId.trim();
+    }
+    if (durationMs > 0) {
+      payload['duration_ms'] = Math.round(durationMs);
+    }
+    try {
+      await this.postJson(['mediaserver', 'progress'], JSON.stringify(payload));
+    } catch {
+      // 进度回传失败静默忽略，不阻塞前台播放体验
+    }
+  }
+
+  /**
+   * 拉取同源外挂字幕（上限 16MB）或 LRC 歌词文本（上限 2MB），自动兼容 UTF-8 与 UTF-16 BOM 解码。
+   */
+  async fetchSubtitleOrLyricsText(url: string, isLyrics: boolean = false): Promise<string> {
+    const trusted = this.resolveTrustedSameOriginUrl(url);
+    if (!trusted) {
+      return '';
+    }
+    const maxBytes = isLyrics ? (2 * 1024 * 1024) : (16 * 1024 * 1024);
+    const buf = await this.transport.fetchBytesBounded(trusted, this.token, maxBytes);
+    if (!buf || buf.byteLength === 0) {
+      return '';
+    }
+    const bytes = new Uint8Array(buf);
+    try {
+      if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+        const dec16Le = util.TextDecoder.create('utf-16le', { ignoreBOM: true });
+        return dec16Le.decodeToString(bytes);
+      }
+      if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+        const dec16Be = util.TextDecoder.create('utf-16be', { ignoreBOM: true });
+        return dec16Be.decodeToString(bytes);
+      }
+      const dec8 = util.TextDecoder.create('utf-8', { ignoreBOM: true });
+      return dec8.decodeToString(bytes);
+    } catch {
+      try {
+        const fallbackDec = util.TextDecoder.create('utf-16le', { ignoreBOM: true });
+        return fallbackDec.decodeToString(bytes);
+      } catch {
+        return '';
+      }
+    }
+  }
+
+  /**
+   * 为本地存储（`storage === 'local'`）的音视频文件签发短期 Range 流票据（`POST /api/v1/mediaserver/stream-ticket`）。
+   */
+  async createLocalStreamTicket(filePath: string): Promise<string> {
+    const cleanPath = filePath.trim();
+    if (!cleanPath) {
+      return '';
+    }
+    const slashIdx = cleanPath.lastIndexOf('/');
+    const fileName = slashIdx >= 0 ? cleanPath.substring(slashIdx + 1) : cleanPath;
+    const dotIdx = fileName.lastIndexOf('.');
+    const ext = dotIdx >= 0 ? fileName.substring(dotIdx + 1) : '';
+    const mediaType = RustCoreBridge.detectPlayableMediaKind(cleanPath, true) === 'audio' ? 'audio' : 'video';
+    const fileItem: Record<string, string> = {
+      'storage': 'local',
+      'type': 'file',
+      'path': cleanPath,
+      'name': fileName,
+      'extension': ext
+    };
+    const payload: Record<string, Object> = {
+      'path': cleanPath,
+      'file': fileItem,
+      'media_type': mediaType
+    };
+    try {
+      const resp = await this.postJson(['mediaserver', 'stream-ticket'], JSON.stringify(payload));
+      if (resp.status < 200 || resp.status >= 300) {
+        return '';
+      }
+      const r = unwrapObject(parseJsonSafe(resp.body));
+      return strVal(r, 'item_id');
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * 通过 `POST /api/v1/storage/download` 下载本地或远端云盘（WebDAV/SMB/115/阿里云盘/Rclone）音视频至沙盒临时缓存。
+   * 返回落盘绝对路径，供 `AVPlayer.fdSrc` 本地打开并在关闭播放器时自动清理。
+   */
+  async downloadStorageFileToCache(
+    storage: string,
+    filePath: string,
+    fileName: string,
+    extension: string,
+    cacheDir: string
+  ): Promise<string> {
+    const cleanPath = filePath.trim();
+    const cleanDir = cacheDir.trim().replace(/\/+$/, '');
+    if (!cleanPath || !cleanDir || !this.baseUrl) {
+      return '';
+    }
+    const resolvedName = fileName.trim().length > 0
+      ? fileName.trim()
+      : (cleanPath.substring(cleanPath.lastIndexOf('/') + 1) || 'media');
+    let cleanExt = extension.trim().replace(/^\.+/, '');
+    if (!cleanExt) {
+      const dotIdx = resolvedName.lastIndexOf('.');
+      if (dotIdx > 0) {
+        cleanExt = resolvedName.substring(dotIdx + 1);
+      }
+    }
+    const safeExt = cleanExt.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() ||
+      (RustCoreBridge.detectPlayableMediaKind(resolvedName, false) === 'audio' ? 'mp3' : 'mp4');
+    const destPath = `${cleanDir}/mp_play_${Date.now()}.${safeExt}`;
+    const payload: Record<string, string> = {
+      'storage': storage.trim() || 'local',
+      'type': 'file',
+      'path': cleanPath,
+      'name': resolvedName,
+      'extension': cleanExt
+    };
+    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, ['storage', 'download']);
+    const ok = await this.transport.downloadToFile(url, 'POST', this.token, JSON.stringify(payload), destPath);
+    return ok ? destPath : '';
+  }
+
+  /**
+   * 通过当前实例受信任图片代理（`/api/v1/system/img/0?imgurl=...&cache=true`）拉取并降采样解码 `<= 512px` 封面 `PixelMap`，供 `AVSession` 锁屏播控中心展示。
+   */
+  async fetchArtworkPixelMap(artworkUrl: string): Promise<image.PixelMap | null> {
+    const raw = (artworkUrl ?? '').trim();
+    if (!raw || !this.baseUrl) {
+      return null;
+    }
+    const proxied = this.resolveImageUrl(raw);
+    const trusted = this.resolveTrustedSameOriginUrl(proxied);
+    if (!trusted) {
+      return null;
+    }
+    const bytes = await this.transport.fetchBytesBounded(trusted, this.token, 8 * 1024 * 1024);
+    if (!bytes || bytes.byteLength === 0) {
+      return null;
+    }
+    try {
+      const source = image.createImageSource(bytes);
+      if (!source) {
+        return null;
+      }
+      let decodeOpts: image.DecodingOptions = {
+        desiredSize: { width: 512, height: 512 }
+      };
+      try {
+        const info = await source.getImageInfo();
+        if (info && info.size && info.size.width > 0 && info.size.height > 0) {
+          const maxDim = Math.max(info.size.width, info.size.height);
+          if (maxDim > 512) {
+            const scale = 512 / maxDim;
+            decodeOpts = {
+              desiredSize: {
+                width: Math.max(1, Math.round(info.size.width * scale)),
+                height: Math.max(1, Math.round(info.size.height * scale))
+              }
+            };
+          } else {
+            decodeOpts = {
+              desiredSize: { width: info.size.width, height: info.size.height }
+            };
+          }
+        }
+      } catch {
+        // fallback to 512x512
+      }
+      const pm = await source.createPixelMap(decodeOpts);
+      try {
+        source.release();
+      } catch {
+        // ignore source release error
+      }
+      return pm;
+    } catch {
+      return null;
+    }
   }
 
   private parseMediaServerStream(raw: Object): MpMediaServerStream | null {
@@ -3063,6 +3738,58 @@ export class MoviePilotRepository {
         const parsedStream = this.parseMediaServerStream(streamsRaw[j]);
         if (parsedStream) { streams.push(parsedStream); }
       }
+      const audioTracks: MpMediaTrackOption[] = [];
+      const subtitleTracks: MpMediaTrackOption[] = [];
+      let audioOrd = 0;
+      let subOrd = 0;
+      for (let k = 0; k < streams.length; k++) {
+        const st = streams[k];
+        if (st.type === 'audio') {
+          const chTag = st.channelLayout || (st.channels > 0 ? `${st.channels}ch` : '');
+          const parts: string[] = [];
+          if (st.displayTitle.length > 0) {
+            parts.push(st.displayTitle);
+          } else {
+            if (st.title.length > 0) { parts.push(st.title); }
+            if (st.language.length > 0) { parts.push(st.language.toUpperCase()); }
+            if (st.codec.length > 0) { parts.push(st.codec.toUpperCase()); }
+            if (chTag.length > 0) { parts.push(chTag); }
+          }
+          audioTracks.push({
+            index: st.index,
+            ordinal: audioOrd++,
+            type: 'audio',
+            label: parts.length > 0 ? parts.join(' · ') : `音轨 ${audioOrd}`,
+            language: st.language,
+            codec: st.codec,
+            isDefault: st.isDefault,
+            isForced: st.isForced,
+            isExternal: st.isExternal,
+            subtitleId: ''
+          });
+        } else if (st.type === 'subtitle') {
+          const subParts: string[] = [];
+          if (st.displayTitle.length > 0) {
+            subParts.push(st.displayTitle);
+          } else {
+            if (st.title.length > 0) { subParts.push(st.title); }
+            if (st.language.length > 0) { subParts.push(st.language.toUpperCase()); }
+            if (st.codec.length > 0) { subParts.push(st.codec.toUpperCase()); }
+          }
+          subtitleTracks.push({
+            index: st.index,
+            ordinal: subOrd++,
+            type: 'subtitle',
+            label: subParts.length > 0 ? subParts.join(' · ') : `字幕 ${subOrd}`,
+            language: st.language,
+            codec: st.codec,
+            isDefault: st.isDefault,
+            isForced: st.isForced,
+            isExternal: st.isExternal || st.subtitleId.length > 0,
+            subtitleId: st.subtitleId
+          });
+        }
+      }
       mediaSources.push({
         id: strVal(sr, 'id', `src_${i}`),
         name: strVal(sr, 'name', `版本 ${i + 1}`),
@@ -3070,7 +3797,9 @@ export class MoviePilotRepository {
         sizeBytes: Math.round(numVal(sr, 'size', 0)),
         bitrate: Math.round(numVal(sr, 'bitrate', 0)),
         durationMs: Math.round(numVal(sr, 'duration_ms', 0)),
-        streams: streams
+        streams: streams,
+        audioTracks: audioTracks,
+        subtitleTracks: subtitleTracks
       });
     }
 
@@ -3129,6 +3858,32 @@ export class MoviePilotRepository {
       playUrl: strVal(r, 'play_url') || strVal(r, 'link'),
       canPlay: boolVal(r, 'can_play', false)
     };
+  }
+
+  /**
+   * 查询媒体服务器条目的播前多版本媒体源、音轨与字幕轨道清单。
+   */
+  async fetchMediaServerPlaybackInfo(itemId: string, server: string = ''): Promise<MpPlaybackSource[]> {
+    const detail = await this.fetchMediaServerDetail(itemId, server);
+    if (!detail) {
+      return [];
+    }
+    const sources: MpPlaybackSource[] = [];
+    for (let i = 0; i < detail.mediaSources.length; i++) {
+      const src = detail.mediaSources[i];
+      sources.push({
+        id: src.id,
+        name: src.name,
+        container: src.container,
+        sizeBytes: src.sizeBytes,
+        bitrate: src.bitrate,
+        durationMs: src.durationMs,
+        streams: src.streams,
+        audioTracks: src.audioTracks,
+        subtitleTracks: src.subtitleTracks
+      });
+    }
+    return sources;
   }
 
   /**

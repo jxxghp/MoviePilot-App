@@ -3,7 +3,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
+VERSION_FILE="$ROOT/VERSION_ANDROID"
+if [[ ! -f "$VERSION_FILE" ]]; then
+  VERSION_FILE="$ROOT/VERSION"
+fi
+VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
 OUT_DIR="${1:-$ROOT/artifacts}"
 mkdir -p "$OUT_DIR"
 OUT_DIR="$(cd "$OUT_DIR" && pwd)"

@@ -229,7 +229,7 @@ struct NativeSubscriptionsPage: View {
     return (activeCount, pausedCount, washingCount, totalEpisodes, completedEpisodes, lackEpisodes)
   }
 
-  /// 追剧总览英雄玻璃卡：基于真实订阅数据展示在追部数、总体集数进度条、分类分布胶囊与「追剧日历」直达入口。
+  /// 追剧总览英雄玻璃卡：基于真实订阅数据展示在追部数与总体集数完成进度（分类筛选由下方筛选栏承载，追剧日历与订阅广场由右上角导航图标进入）。
   private var subscriptionHeroCard: some View {
     let stats = overviewStats
     let accent = appearance.accentColor
@@ -237,9 +237,10 @@ struct NativeSubscriptionsPage: View {
       stats.totalEpisodes > 0
       ? min(max(Double(stats.completedEpisodes) / Double(stats.totalEpisodes), 0), 1)
       : 0
+    let completionPercent = Int((episodeFraction * 100).rounded())
 
     return CinematicPanel(padding: 16) {
-      VStack(alignment: .leading, spacing: 13) {
+      VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .top, spacing: 12) {
           VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -254,6 +255,12 @@ struct NativeSubscriptionsPage: View {
               }
               if stats.washingCount > 0 {
                 NativeAdaptiveBadge("洗版 \(stats.washingCount) 部", tint: NativeTheme.warning)
+              }
+              if stateFilter != .all || sortMode != .defaultOrder {
+                NativeAdaptiveBadge(
+                  stateFilter != .all ? stateFilter.rawValue : sortMode.rawValue,
+                  tint: NativeTheme.info
+                )
               }
             }
 
@@ -272,31 +279,17 @@ struct NativeSubscriptionsPage: View {
 
           Spacer(minLength: 6)
 
-          NavigationLink {
-            NativeCalendarPage(session: session)
-          } label: {
-            HStack(spacing: 5) {
-              Image(systemName: "calendar.badge.clock")
-                .font(.caption.weight(.semibold))
-              Text("追剧排期")
-                .font(.caption.weight(.semibold))
-              Image(systemName: "chevron.right")
-                .font(.system(size: 10, weight: .bold))
-                .opacity(0.75)
+          if stats.totalEpisodes > 0 {
+            VStack(alignment: .trailing, spacing: 2) {
+              Text("\(completionPercent)%")
+                .font(.system(size: 20, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(accent)
+              Text("集数进度")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
             }
-            .foregroundStyle(accent)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 7)
-            .background {
-              Capsule()
-                .fill(accent.opacity(colorScheme == .light ? 0.12 : 0.18))
-                .overlay {
-                  Capsule().strokeBorder(accent.opacity(0.32), lineWidth: 0.7)
-                }
-            }
+            .padding(.top, 2)
           }
-          .buttonStyle(.plain)
-          .accessibilityIdentifier("native-subscriptions-overview-calendar")
         }
 
         if stats.totalEpisodes > 0 {
@@ -325,62 +318,10 @@ struct NativeSubscriptionsPage: View {
           .frame(height: 6.5)
           .accessibilityHidden(true)
         }
-
-        HStack(spacing: 8) {
-          categoryBreakdownChip(
-            title: "电影", count: countFor(.movie), target: .movie, symbol: "film")
-          categoryBreakdownChip(title: "剧集", count: countFor(.tv), target: .tv, symbol: "tv")
-          categoryBreakdownChip(
-            title: "音乐", count: countFor(.music), target: .music, symbol: "music.note")
-          Spacer(minLength: 0)
-          if stateFilter != .all || sortMode != .defaultOrder {
-            NativeAdaptiveBadge(
-              stateFilter != .all ? stateFilter.rawValue : sortMode.rawValue,
-              tint: NativeTheme.info
-            )
-          }
-        }
       }
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("native-subscriptions-overview")
-  }
-
-  private func categoryBreakdownChip(
-    title: String, count: Int, target: Filter, symbol: String
-  ) -> some View {
-    let active = filter == target
-    return Button {
-      withAnimation(.easeOut(duration: 0.18)) {
-        filter = active ? .all : target
-      }
-    } label: {
-      HStack(spacing: 4) {
-        Image(systemName: symbol)
-          .font(.system(size: 10, weight: .semibold))
-        Text("\(title) \(count)")
-          .font(.caption2.monospacedDigit().weight(.semibold))
-      }
-      .foregroundStyle(active ? appearance.accentColor : .secondary)
-      .padding(.horizontal, 9)
-      .padding(.vertical, 4)
-      .background {
-        Capsule()
-          .fill(
-            active
-              ? appearance.accentColor.opacity(colorScheme == .light ? 0.12 : 0.18)
-              : NativeTheme.chipFill
-          )
-          .overlay {
-            Capsule()
-              .strokeBorder(
-                active ? appearance.accentColor.opacity(0.34) : NativeTheme.chipBorder,
-                lineWidth: 0.6
-              )
-          }
-      }
-    }
-    .buttonStyle(.plain)
   }
 
   /// 分类筛选胶囊栏 + 紧凑片名快速过滤框与状态排序菜单（宽屏单行并排，窄屏上下排布防挤压）。

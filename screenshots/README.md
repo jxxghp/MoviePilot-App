@@ -137,7 +137,7 @@
 | :---: | :---: | :---: |
 | ![Android订阅](android/07-subscribe-primary-tabs.jpg) | ![Android订阅编辑](android/07b-subscribe-editor.jpg) | ![Android更多中心](android/09-workspace-hub.jpg) |
 
-| 更多中心（追剧与系统诊断长方卡片） | 我的（顶部用户身份卡 + 仪表盘） | 自定义我的模块 |
+| 更多中心（追剧与系统诊断长方卡片） | 我的（身份卡 + 社区勋章） | 自定义我的模块 |
 | :---: | :---: | :---: |
 | ![Android更多下半部](android/09b-workspace-hub-bottom.jpg) | ![Android仪表盘](android/16-dashboard.jpg) | ![Android自定义我的模块](android/16b-dashboard-modules.jpg) |
 
@@ -208,13 +208,13 @@
 | :---: | :---: | :---: |
 | ![HarmonyOS整理历史](harmony/21-transfer-history.jpg) | ![HarmonyOS手动整理](harmony/22-manual-transfer.jpg) | ![HarmonyOS插件中心](harmony/23-plugins-center.jpg) |
 
-| 插件配置表单（原生渲染） | 插件数据页 | 我的（顶部用户身份卡 + 实时统计） |
+| 插件配置表单（原生渲染） | 插件数据页 | 我的（身份卡 + 社区勋章） |
 | :---: | :---: | :---: |
 | ![HarmonyOS插件配置](harmony/24-plugin-config-form.jpg) | ![HarmonyOS插件数据页](harmony/25-plugin-data-page.jpg) | ![HarmonyOS仪表盘](harmony/26-dashboard-top.jpg) |
 
 ### 3D 社区勋章、词表、设置与 AI 智能助手
 
-| 社区勋章墙 + 内存占用 | 3D 社区勋章检视与背面凹雕 | 编辑我的模块（8 模块开关排序） |
+| 我的（存储、下载与内存占用） | 3D 社区勋章检视与背面凹雕 | 编辑我的模块（8 模块开关排序） |
 | :---: | :---: | :---: |
 | ![HarmonyOS勋章与内存](harmony/27-dashboard-medals-memory.jpg) | ![HarmonyOS3D勋章](harmony/28-dashboard-3d-medal.jpg) | ![HarmonyOS编辑我的模块](harmony/30-dashboard-customize.jpg) |
 

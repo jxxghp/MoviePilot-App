@@ -30,7 +30,11 @@ import {
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
-import { HarmonyPlaybackRequest } from '@moviepilot/media_player';
+import {
+  HarmonyPlaybackRequest,
+  resolveLocalStrmFile,
+  buildPlaybackRequestFromStreamInfo
+} from '@moviepilot/media_player';
 
 const TRANSFER_MODES: string[][] = [
   ['', '自动'],
@@ -103,6 +107,7 @@ export struct HarmonyLibraryPage {
   @State private historyQuery: string = '';
   @State private loading: boolean = true;
   @State private notice: string = '';
+  @State private playingStoragePath: string = '';
 
   // 整理历史 4 模式删除弹窗状态
   @State private showDeleteHistorySheet: boolean = false;
@@ -156,6 +161,92 @@ export struct HarmonyLibraryPage {
 
   onBack: () => void = () => {};
   onPlayMedia: (req: HarmonyPlaybackRequest) => void = () => {};
+
+  private async playStorageFileItem(
+    storage: string,
+    filePath: string,
+    fileName: string,
+    sizeBytes: number
+  ): Promise<void> {
+    const cleanPath = filePath.trim();
+    const cleanStorage = (storage || 'local').trim();
+    const displayName = fileName.trim() || cleanPath.substring(cleanPath.lastIndexOf('/') + 1) || '存储媒体';
+    const kind = RustCoreBridge.detectPlayableMediaKind(displayName.includes('.') ? displayName : cleanPath);
+    if (!cleanPath || !kind || this.playingStoragePath.length > 0) {
+      return;
+    }
+    this.playingStoragePath = cleanPath;
+    const subLabel = sizeBytes > 0 ? `${cleanStorage} · ${formatByteSize(sizeBytes)}` : cleanStorage;
+    const repo = MoviePilotRepository.shared();
+
+    try {
+      if (cleanStorage === 'local') {
+        const ticketId = await repo.createLocalStreamTicket(cleanPath);
+        if (ticketId.length > 0) {
+          const stream = await repo.fetchVideoStreamInfo(ticketId, '');
+          if (stream && stream.contentUrl.length > 0) {
+            this.playingStoragePath = '';
+            this.notice = '';
+            this.onPlayMedia(buildPlaybackRequestFromStreamInfo(stream, displayName, subLabel));
+            return;
+          }
+        }
+      }
+
+      this.notice = '正在缓冲下载存储媒体文件…';
+      const dotIdx = displayName.lastIndexOf('.');
+      const ext = dotIdx >= 0 ? displayName.substring(dotIdx) : '';
+      const hostCtx = this.getUIContext().getHostContext();
+      const cacheDir = hostCtx ? hostCtx.cacheDir : '';
+      if (!cacheDir) {
+        this.playingStoragePath = '';
+        this.notice = '无法获取应用缓存目录';
+        return;
+      }
+      const cachedPath = await repo.downloadStorageFileToCache(
+        cleanStorage,
+        cleanPath,
+        displayName,
+        ext,
+        cacheDir
+      );
+      this.playingStoragePath = '';
+      if (cachedPath.length > 0) {
+        this.notice = '';
+        if (RustCoreBridge.isStrmPath(displayName) || RustCoreBridge.isStrmPath(cachedPath)) {
+          const strmSpec = resolveLocalStrmFile(cachedPath, true);
+          if (!strmSpec) {
+            this.notice = '无法解析 STRM 文件中的有效播放直链';
+            return;
+          }
+          const stem = displayName.replace(/\.strm$/i, '') || displayName;
+          this.onPlayMedia({
+            url: strmSpec.url,
+            headers: strmSpec.headers,
+            title: stem,
+            subtitle: subLabel,
+            isAudio: strmSpec.mediaKind === 'audio',
+            isSessionBound: false
+          });
+          return;
+        }
+        this.onPlayMedia({
+          url: cachedPath,
+          fdPath: cachedPath,
+          cleanupTempOnClose: true,
+          title: displayName,
+          subtitle: subLabel,
+          isAudio: kind === 'audio',
+          isSessionBound: true
+        });
+      } else {
+        this.notice = '存储媒体文件下载失败，请检查网络连接或存储配置';
+      }
+    } catch {
+      this.playingStoragePath = '';
+      this.notice = '启动存储媒体播放失败';
+    }
+  }
 
   aboutToAppear(): void {
     this.activeTabIdx = this.initialMode === 'history' ? 1 : 0;
@@ -950,24 +1041,15 @@ export struct HarmonyLibraryPage {
 
                       if (f.type !== 'dir' && RustCoreBridge.detectPlayableMediaKind(f.name).length > 0) {
                         NativeAdaptivePill({
-                          title: '播放媒体',
-                          selected: false,
+                          title: this.playingStoragePath === f.path ? '缓冲中…' : '播放',
+                          selected: this.playingStoragePath === f.path,
                           onTap: () => {
-                            const kind = RustCoreBridge.detectPlayableMediaKind(f.name);
-                            const repo = MoviePilotRepository.shared();
-                            const queryMap: Record<string, string> = {};
-                            queryMap['path'] = f.path;
-                            queryMap['storage'] = f.storage || this.activeStorage;
-                            if (repo.token.length > 0) {
-                              queryMap['token'] = repo.token;
-                            }
-                            const streamUrl = RustCoreBridge.buildV3EndpointUrl(repo.baseUrl, ['storage', 'download'], queryMap);
-                            this.onPlayMedia({
-                              url: streamUrl,
-                              title: f.name,
-                              subtitle: `${f.storage || this.activeStorage} · ${formatByteSize(f.sizeBytes)}`,
-                              isAudio: kind === 'audio'
-                            });
+                            this.playStorageFileItem(
+                              f.storage || this.activeStorage,
+                              f.path,
+                              f.name,
+                              f.sizeBytes
+                            ).catch(() => {});
                           }
                         })
                       }
@@ -986,6 +1068,13 @@ export struct HarmonyLibraryPage {
                     this.currentPath = f.path.endsWith('/') ? f.path : f.path + '/';
                     this.syncBackInterceptFlag();
                     this.loadData();
+                  } else if (RustCoreBridge.detectPlayableMediaKind(f.name).length > 0) {
+                    this.playStorageFileItem(
+                      f.storage || this.activeStorage,
+                      f.path,
+                      f.name,
+                      f.sizeBytes
+                    ).catch(() => {});
                   } else {
                     this.openManualTransfer(f, null, this.activeStorage, f.name, f.path);
                   }
@@ -1045,6 +1134,29 @@ export struct HarmonyLibraryPage {
                       }.width('100%')
 
                       Row({ space: 8 }) {
+                        if (h.status && h.dest.length > 0 && RustCoreBridge.detectPlayableMediaKind(h.dest).length > 0) {
+                          Row({ space: 4 }) {
+                            SymbolGlyph($r('sys.symbol.play_fill')).fontSize(12).fontColor([Color.White])
+                            Text(this.playingStoragePath === h.dest ? '缓冲中…' : '播放')
+                              .fontSize(12)
+                              .fontWeight(FontWeight.Bold)
+                              .fontColor(Color.White)
+                          }
+                          .padding({ left: 10, right: 11, top: 5, bottom: 5 })
+                          .borderRadius(12)
+                          .backgroundColor(this.accentHex)
+                          .onClick(() => {
+                            const slashIdx = h.dest.lastIndexOf('/');
+                            const destName = slashIdx >= 0 ? h.dest.substring(slashIdx + 1) : h.title;
+                            this.playStorageFileItem(
+                              h.destStorage || 'local',
+                              h.dest,
+                              destName || h.title,
+                              0
+                            ).catch(() => {});
+                          })
+                        }
+
                         Row({ space: 4 }) {
                           SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(12).fontColor([this.accentHex])
                           Text('重新整理').fontSize(12).fontWeight(FontWeight.Medium).fontColor(this.accentHex)

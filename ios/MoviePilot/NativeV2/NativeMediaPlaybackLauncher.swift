@@ -283,6 +283,50 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
           NativeSystemRouteHub.shared.postBanner(L10n.text("无法读取该本地音视频文件，请确认文件已下载到本机。"))
           return
         }
+        if PlayableMediaFormat.isStrmExtension(url.pathExtension) {
+          let strmData = try? Data(contentsOf: url, options: .mappedIfSafe)
+          lease.release()
+          if deleteAfterClose { try? FileManager.default.removeItem(at: url) }
+          guard
+            let strmData,
+            let spec = PlayableMediaFormat.parseStrmData(
+              strmData, fallbackFileName: url.lastPathComponent)
+          else {
+            NativeSystemRouteHub.shared.postBanner(
+              L10n.text("无法解析 STRM 文件中的有效 HTTP/HTTPS 播放直链。"))
+            return
+          }
+          let itemID = "external:\(spec.url.absoluteString)"
+          let manifest = MediaPlaybackManifest(
+            itemId: itemID,
+            server: nil,
+            title: title,
+            contentUrl: spec.url,
+            strmUrl: spec.url,
+            customHeaders: spec.headers,
+            mediaType: spec.kind.rawValue,
+            artist: nil,
+            album: nil,
+            subtitles: [],
+            lyricsUrl: nil
+          )
+          if let error = present(
+            manifest: manifest,
+            client: nil,
+            instanceID: MediaPlaybackViewController.externalPlaybackNamespace,
+            itemID: itemID,
+            title: title,
+            artworkURL: nil,
+            initialArtwork: nil,
+            queue: [],
+            queueIndex: 0,
+            deleteContentFileOnClose: false,
+            securityScopeLease: nil
+          ) {
+            NativeSystemRouteHub.shared.postBanner(error)
+          }
+          return
+        }
         let metadata: LocalAudioMetadata? =
           kind == .audio ? await Self.extractLocalAudioMetadata(from: url) : nil
         guard !Task.isCancelled else {

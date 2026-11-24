@@ -279,4 +279,43 @@ struct AppDeepLinkTests {
     pending.receive(.downloads, instanceID: nil, now: now)
     #expect(pending.resolve(for: "inst-a", now: now.addingTimeInterval(301)) == nil)
   }
+
+  @Test func strmExtensionAndDirectLinkParserHandlesCloudAndLocalStrm() {
+    #expect(PlayableMediaFormat.isPlayableExtension("strm"))
+    #expect(PlayableMediaFormat.isStrmExtension(".STRM"))
+    #expect(PlayableMediaFormat.kind(forPath: "/media/Movies/Avatar.strm") == .video)
+    #expect(PlayableMediaFormat.kind(forPath: "/media/Music/晴天.flac.strm") == .audio)
+
+    let localStrmURL = URL(fileURLWithPath: "/Users/test/Downloads/阿凡达.strm")
+    #expect(
+      AppDeepLink(url: localStrmURL)
+        == .playLocalFile(url: localStrmURL, title: "阿凡达", kind: .video))
+
+    let rawStrm = """
+      \u{feff}#EXTM3U
+      #EXTVLCOPT:http-user-agent=Mozilla/5.0 (115Browser)
+      #EXTVLCOPT:http-referrer=https://115.com/
+      https://openlist.example.test:5244/d/电影/阿凡达 [4K]/Avatar 100% Pure.mkv?sign=abc%2B1
+      """
+    let spec = PlayableMediaFormat.parseStrmContent(rawStrm, fallbackFileName: "Avatar.strm")
+    #expect(spec != nil)
+    #expect(
+      spec?.url.absoluteString
+        == "https://openlist.example.test:5244/d/%E7%94%B5%E5%BD%B1/%E9%98%BF%E5%87%A1%E8%BE%BE%20%5B4K%5D/Avatar%20100%25%20Pure.mkv?sign=abc%2B1"
+    )
+    #expect(spec?.kind == .video)
+    #expect(spec?.headers["User-Agent"] == "Mozilla/5.0 (115Browser)")
+    #expect(spec?.headers["Referer"] == "https://115.com/")
+
+    let pipeAudio =
+      "http://192.168.1.20:5244/d/Music/Track 01.flac|User-Agent=Kodi%2F21.0&Cookie=sid%3Dxyz"
+    let audioSpec = PlayableMediaFormat.parseStrmContent(pipeAudio, fallbackFileName: "Track.strm")
+    #expect(audioSpec?.url.absoluteString == "http://192.168.1.20:5244/d/Music/Track%2001.flac")
+    #expect(audioSpec?.kind == .audio)
+    #expect(audioSpec?.headers["User-Agent"] == "Kodi/21.0")
+    #expect(audioSpec?.headers["Cookie"] == "sid=xyz")
+
+    #expect(PlayableMediaFormat.parseStrmContent("file:///etc/passwd") == nil)
+    #expect(PlayableMediaFormat.parseStrmContent("http://user:pass@192.168.1.1/a.mp4") == nil)
+  }
 }

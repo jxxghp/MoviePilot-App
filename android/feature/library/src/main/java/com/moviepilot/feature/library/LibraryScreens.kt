@@ -110,6 +110,7 @@ import com.moviepilot.designsystem.NativeSkeletonBlock
 import com.moviepilot.designsystem.ProvideSkeletonShimmer
 import com.moviepilot.designsystem.SkeletonCardStyle
 import com.moviepilot.designsystem.SkeletonSurfaceRole
+import com.moviepilot.media.LocalMediaMetadataExtractor
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.rustbridge.DirectoryConfigDto
 import com.moviepilot.rustbridge.ManualTransferPreviewItemDto
@@ -120,7 +121,9 @@ import com.moviepilot.rustbridge.StorageConfigDto
 import com.moviepilot.rustbridge.StorageFileDto
 import com.moviepilot.rustbridge.TransferHistoryDto
 import com.moviepilot.rustbridge.TransferQueueItemDto
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
@@ -164,23 +167,17 @@ fun FileManagerScreen(
         currentPath = currentPath.trimEnd('/').substringBeforeLast('/', "").ifBlank { "/" }
     }
 
-    // Android Storage Access Framework 本机音视频文件选择器
+    // Android Storage Access Framework 本机音视频文件选择器（提取真实曲名、艺人、专辑与内嵌封面）
     val openLocalMediaLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? ->
         if (uri != null) {
-            val resolvedName = resolveDisplayName(context, uri)
-            val mime = context.contentResolver.getType(uri).orEmpty()
-            val isAudio = mime.startsWith("audio/") ||
-                RustCoreBridge.detectMediaKind(resolvedName, false) == "audio"
-            onPlayMedia(
-                MediaPlaybackRequest(
-                    url = uri.toString(),
-                    title = resolvedName,
-                    subtitle = if (isAudio) "本机音乐" else "本机视频",
-                    isAudio = isAudio,
-                ),
-            )
+            scope.launch {
+                val request = withContext(Dispatchers.IO) {
+                    LocalMediaMetadataExtractor.buildLocalPlaybackRequest(context, uri)
+                }
+                onPlayMedia(request)
+            }
         }
     }
 
@@ -201,19 +198,23 @@ fun FileManagerScreen(
             val cacheDir = File(context.cacheDir, "mp_storage_playback").apply { mkdirs() }
             val safeName = file.name.replace(Regex("[^a-zA-Z0-9._\\-\\u4e00-\\u9fa5]"), "_")
             val destFile = File(cacheDir, "${file.path.hashCode()}_$safeName")
-            val downloaded = repository.downloadStorageFileToCache(
+            val resolved = repository.resolveStoragePlayback(
                 storage = activeStorage,
                 path = file.path,
                 destFile = destFile,
+                fallbackKind = playableKind,
             )
             downloadingFileName = null
-            if (downloaded != null && downloaded.exists()) {
+            if (resolved != null) {
                 onPlayMedia(
                     MediaPlaybackRequest(
-                        url = Uri.fromFile(downloaded).toString(),
-                        title = file.name,
+                        url = resolved.url,
+                        title = if (resolved.isStrmDirect) file.name.substringBeforeLast('.').ifBlank { file.name } else file.name,
                         subtitle = "${file.storage} · ${file.path}",
-                        isAudio = playableKind == "audio",
+                        isAudio = resolved.isAudio,
+                        streamHeaders = resolved.streamHeaders,
+                        isSessionBound = !resolved.isStrmDirect,
+                        tempFilePath = resolved.tempFilePath,
                     ),
                 )
             } else {
@@ -1035,8 +1036,10 @@ fun TransferHistoryScreen(
     repository: MoviePilotRepository,
     initialSearch: String = "",
     onBack: () -> Unit,
+    onPlayMedia: ((MediaPlaybackRequest) -> Unit)? = null,
 ) {
     val colors = LocalMoviePilotColors.current
+    val context = LocalContext.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val scope = rememberCoroutineScope()
@@ -1052,8 +1055,50 @@ fun TransferHistoryScreen(
     var isLoadingQueue by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
     var isDeleting by remember { mutableStateOf(false) }
+    var downloadingRecordId by remember { mutableStateOf<Int?>(null) }
     var deleteTarget by remember { mutableStateOf<TransferHistoryDto?>(null) }
     var retransferTarget by remember { mutableStateOf<TransferHistoryDto?>(null) }
+
+    fun playTransferredDestination(rec: TransferHistoryDto, playableKind: String) {
+        val playCallback = onPlayMedia ?: return
+        if (downloadingRecordId != null) return
+        scope.launch {
+            downloadingRecordId = rec.id
+            val fileName = rec.dest.substringAfterLast('/').ifBlank { rec.title }
+            val safeName = fileName.replace(Regex("[^a-zA-Z0-9._\\-\\u4e00-\\u9fa5]"), "_")
+            val cacheDir = File(context.cacheDir, "mp_storage_playback").apply { mkdirs() }
+            val destFile = File(cacheDir, "${rec.dest.hashCode()}_$safeName")
+            val targetStorage = rec.destStorage.ifBlank { "local" }
+            val resolved = repository.resolveStoragePlayback(
+                storage = targetStorage,
+                path = rec.dest,
+                destFile = destFile,
+                fallbackKind = playableKind,
+            )
+            downloadingRecordId = null
+            if (resolved != null) {
+                val displayTitle = listOfNotNull(
+                    rec.title.ifBlank { fileName.substringBeforeLast('.').ifBlank { fileName } },
+                    rec.seasons.ifBlank { null },
+                    rec.episodes.ifBlank { null },
+                ).joinToString(" ")
+                playCallback(
+                    MediaPlaybackRequest(
+                        url = resolved.url,
+                        title = displayTitle,
+                        subtitle = "$targetStorage · ${rec.dest}",
+                        artworkUrl = rec.image,
+                        isAudio = resolved.isAudio,
+                        streamHeaders = resolved.streamHeaders,
+                        isSessionBound = !resolved.isStrmDirect,
+                        tempFilePath = resolved.tempFilePath,
+                    ),
+                )
+            } else {
+                snackbar?.showSnackbar("无法从目标存储拉取「$fileName」，请检查文件是否存在")
+            }
+        }
+    }
 
     suspend fun reloadHistory() {
         val (total, fetched) = repository.fetchTransferHistory(search)
@@ -1167,6 +1212,11 @@ fun TransferHistoryScreen(
                         }
                         items(filtered, key = { it.id }) { rec ->
                         var rowMenuOpen by remember { mutableStateOf(false) }
+                        val destPlayableKind = remember(rec.status, rec.dest) {
+                            if (rec.status && rec.dest.isNotBlank()) RustCoreBridge.detectMediaKind(rec.dest, false) else null
+                        }
+                        val canPlayDest = destPlayableKind != null && onPlayMedia != null
+                        val isDownloadingThis = downloadingRecordId == rec.id
                         CinematicPanel(
                             padding = 14.dp,
                             cornerRadius = 22.dp,
@@ -1207,6 +1257,16 @@ fun TransferHistoryScreen(
                                                     Icon(Icons.Rounded.MoreVert, contentDescription = "更多操作", tint = colors.textMuted, modifier = Modifier.size(18.dp))
                                                 }
                                                 DropdownMenu(expanded = rowMenuOpen, onDismissRequest = { rowMenuOpen = false }) {
+                                                    if (canPlayDest) {
+                                                        DropdownMenuItem(
+                                                            text = { Text("本地播放") },
+                                                            leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null) },
+                                                            onClick = {
+                                                                rowMenuOpen = false
+                                                                playTransferredDestination(rec, destPlayableKind!!)
+                                                            },
+                                                        )
+                                                    }
                                                     DropdownMenuItem(
                                                         text = { Text("重新手动识别整理") },
                                                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, contentDescription = null) },
@@ -1233,7 +1293,17 @@ fun TransferHistoryScreen(
                                                 if (rec.date.isNotBlank()) add(rec.date.take(16))
                                             }.joinToString(" · ")
                                             if (meta.isNotBlank()) {
-                                                Text(meta, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text(meta, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                            }
+                                            if (canPlayDest) {
+                                                Spacer(Modifier.weight(1f))
+                                                NativeAdaptivePill(
+                                                    title = if (isDownloadingThis) "拉取中…" else "本地播放",
+                                                    selected = true,
+                                                    icon = Icons.Rounded.PlayArrow,
+                                                    tint = colors.accent,
+                                                    onClick = { playTransferredDestination(rec, destPlayableKind!!) },
+                                                )
                                             }
                                         }
                                         if (!rec.status && !rec.errmsg.isNullOrBlank()) {

@@ -126,6 +126,7 @@ import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
 import com.moviepilot.designsystem.ProvideSkeletonShimmer
 import com.moviepilot.designsystem.nativePosterGridSkeletonItems
 import com.moviepilot.media.MediaPlaybackRequest
+import com.moviepilot.media.QueueTrackSpec
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.ContinueWatchingItem
 import com.moviepilot.rustbridge.DiscoverSessionSnapshot
@@ -202,6 +203,7 @@ fun DiscoverScreen(
     onOpenMedia: (MediaCardItem) -> Unit,
     onOpenExplore: (String) -> Unit,
     onOpenMusic: () -> Unit,
+    onOpenMusicAlbum: ((MusicAlbumDto) -> Unit)? = null,
     onOpenMediaLibrary: (MediaServerLibraryDto) -> Unit = {},
     onPlayMedia: (MediaPlaybackRequest) -> Unit,
 ) {
@@ -665,7 +667,9 @@ fun DiscoverScreen(
                                                                             isAudio = manifest.mediaType == "audio",
                                                                             headers = manifest.headers,
                                                                             itemId = manifest.itemId,
-                                                                            server = manifest.server,
+                                                                            server = manifest.server.ifBlank { cw.server },
+                                                                            serverType = cw.serverType,
+                                                                            mediaSourceId = manifest.mediaSourceId.orEmpty(),
                                                                             resumePositionMs = manifest.resumePositionMs,
                                                                             subtitles = manifest.subtitles.map {
                                                                                 SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
@@ -676,8 +680,12 @@ fun DiscoverScreen(
                                                                     onOpenMedia(
                                                                         MediaCardItem(
                                                                             title = cw.title,
+                                                                            type = cw.type,
                                                                             posterPath = cw.image,
                                                                             backdropPath = cw.image,
+                                                                            serverItemId = cw.id.takeIf { it.isNotBlank() },
+                                                                            serverName = cw.server.takeIf { it.isNotBlank() },
+                                                                            serverType = cw.serverType.takeIf { it.isNotBlank() },
                                                                             inLibrary = true,
                                                                         ),
                                                                     )
@@ -902,7 +910,9 @@ fun DiscoverScreen(
                                                 Column(
                                                     modifier = Modifier
                                                         .width(side)
-                                                        .clickable { selectedAlbum = album },
+                                                        .clickable {
+                                                            if (onOpenMusicAlbum != null) onOpenMusicAlbum(album) else selectedAlbum = album
+                                                        },
                                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                                 ) {
                                                     Box(
@@ -1498,6 +1508,7 @@ fun ExploreScreen(
     initialSource: String = "tmdb_movies",
     onBack: (() -> Unit)? = null,
     onOpenMedia: (MediaCardItem) -> Unit,
+    onOpenMusicAlbum: ((MusicAlbumDto) -> Unit)? = null,
     onPlayAudio: (MediaPlaybackRequest) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
@@ -1675,7 +1686,10 @@ fun ExploreScreen(
                                 headline = "精选音乐",
                                 subtitle = "今日热门榜单与无损专辑推荐",
                                 artworkUrls = musicAlbums.take(3).map { it.coverUrl },
-                                onPlayClick = { selectedAlbum = musicAlbums.first() },
+                                onPlayClick = {
+                                    val first = musicAlbums.first()
+                                    if (onOpenMusicAlbum != null) onOpenMusicAlbum(first) else selectedAlbum = first
+                                },
                                 modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
                             )
                         }
@@ -1684,7 +1698,9 @@ fun ExploreScreen(
                         CinematicPanel(
                             padding = 10.dp,
                             cornerRadius = 20.dp,
-                            modifier = Modifier.clickable { selectedAlbum = album },
+                            modifier = Modifier.clickable {
+                                if (onOpenMusicAlbum != null) onOpenMusicAlbum(album) else selectedAlbum = album
+                            },
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Box(
@@ -1946,7 +1962,7 @@ fun ExploreScreen(
  * 全局搜索页（Material 3 Expressive 染色顶栏 + 分类胶囊页签 + 28dp 圆角内容区）：
  * 顶部大胶囊搜索框 + 搜索前紧贴输入框展示「热门搜索」推荐词流（避免放在空白页底部）+ 严格“仅媒体库直放”策略。
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun GlobalSearchScreen(
     repository: MoviePilotRepository,
@@ -1955,13 +1971,14 @@ fun GlobalSearchScreen(
     onBack: () -> Unit,
     onOpenMedia: (MediaCardItem) -> Unit,
     onOpenPerson: (com.moviepilot.rustbridge.MediaPersonDto) -> Unit = {},
+    onOpenMusicAlbum: ((MusicAlbumDto) -> Unit)? = null,
     onPlayLibraryItem: (MediaPlaybackRequest) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
-    val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val columns = AdaptiveDeviceLayout.posterGridColumns()
+    val musicCols = AdaptiveDeviceLayout.squareGridColumns()
     val scope = rememberCoroutineScope()
 
     var query by remember { mutableStateOf(initialQuery) }
@@ -1969,6 +1986,8 @@ fun GlobalSearchScreen(
     var results by remember { mutableStateOf<List<MediaCardItem>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     var playError by remember { mutableStateOf<String?>(null) }
+    var seriesPickerTarget by remember { mutableStateOf<MediaCardItem?>(null) }
+    var resolvingMusicId by remember { mutableStateOf<String?>(null) }
 
     val kinds = listOf(
         "media" to "媒体",
@@ -1980,12 +1999,68 @@ fun GlobalSearchScreen(
     val quickTags = listOf("奥德赛", "钢铁侠", "超感神探", "庆余年", "星际穿越", "沙丘", "三体")
 
     LaunchedEffect(query, kind) {
+        playError = null
         if (query.isNotBlank()) {
             isSearching = true
             results = repository.searchMedia(query, kind, 1)
             isSearching = false
         } else {
             results = emptyList()
+        }
+    }
+
+    fun buildMusicSearchQueue(): List<MediaPlaybackRequest> =
+        results.mapIndexed { idx, entry ->
+            MediaPlaybackRequest(
+                url = "",
+                title = entry.title,
+                subtitle = entry.subtitle.orEmpty(),
+                albumTitle = entry.title,
+                artworkUrl = entry.posterPath,
+                isAudio = true,
+                queueIndex = idx,
+                lazySpec = QueueTrackSpec.MusicQuery(
+                    title = entry.title,
+                    artist = entry.subtitle?.takeIf { it.isNotBlank() },
+                    album = null,
+                ),
+            )
+        }
+
+    fun playMusicResultAt(index: Int) {
+        val item = results.getOrNull(index) ?: return
+        if (resolvingMusicId != null) return
+        scope.launch {
+            resolvingMusicId = item.resolvedId
+            playError = null
+            val manifest = repository.fetchMusicStreamInfo(
+                title = item.title,
+                artist = item.subtitle?.takeIf { it.isNotBlank() },
+                album = null,
+            )
+            resolvingMusicId = null
+            if (manifest != null) {
+                val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                val queue = buildMusicSearchQueue()
+                onPlayLibraryItem(
+                    MediaPlaybackRequest(
+                        url = manifest.contentUrl,
+                        title = manifest.title.ifBlank { item.title },
+                        subtitle = item.subtitle.orEmpty(),
+                        artworkUrl = item.posterPath,
+                        isAudio = true,
+                        lyricsLrc = lrc,
+                        headers = manifest.headers,
+                        itemId = manifest.itemId,
+                        server = manifest.server,
+                        mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                        queue = queue,
+                        queueIndex = index,
+                    ),
+                )
+            } else {
+                playError = "媒体服务器暂未匹配到「${item.title}」的可播放音频"
+            }
         }
     }
 
@@ -2028,7 +2103,16 @@ fun GlobalSearchScreen(
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            playError?.let { err ->
+                Text(
+                    text = err,
+                    color = colors.warning,
+                    fontSize = 12.5.sp,
+                    modifier = Modifier.padding(horizontal = margin, vertical = 6.dp),
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
             if (isSearching) {
                 if (kind == "person") {
                     NativePersonGridSkeleton(
@@ -2038,7 +2122,7 @@ fun GlobalSearchScreen(
                     )
                 } else {
                     NativePosterGridSkeleton(
-                        columns = if (kind == "music") AdaptiveDeviceLayout.squareGridColumns() else columns,
+                        columns = if (kind == "music") musicCols else columns,
                         aspectRatio = if (kind == "music") 1f else 2f / 3f,
                         inPanel = kind == "music",
                         contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
@@ -2046,7 +2130,6 @@ fun GlobalSearchScreen(
                     )
                 }
             } else if (query.isBlank()) {
-                // 搜索前紧贴搜索框顶部排布「热门搜索」建议词流，自然清爽
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -2130,7 +2213,87 @@ fun GlobalSearchScreen(
                         }
                     }
                 }
+            } else if (kind == "music") {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(musicCols),
+                    contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    itemsIndexed(results, key = { idx, it -> "${it.resolvedId}_$idx" }) { idx, item ->
+                        val albumSeed = MusicAlbumDto(
+                            id = item.mediaId ?: item.resolvedId,
+                            albumId = item.mediaId ?: item.resolvedId,
+                            title = item.title,
+                            artist = item.subtitle.orEmpty(),
+                            year = item.year,
+                            coverUrl = item.posterPath,
+                            source = item.source.ifBlank { "musicbrainz" },
+                            voteAverage = item.voteAverage,
+                            overview = item.overview,
+                        )
+                        CinematicPanel(
+                            padding = 10.dp,
+                            cornerRadius = 18.dp,
+                            modifier = Modifier.clickable {
+                                if (onOpenMusicAlbum != null && !item.mediaId.isNullOrBlank()) {
+                                    onOpenMusicAlbum(albumSeed)
+                                } else {
+                                    playMusicResultAt(idx)
+                                }
+                            },
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(13.dp))
+                                        .background(Brush.linearGradient(listOf(colors.accent.copy(alpha = 0.55f), Color(0xFF281F3D)))),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = Color.White.copy(alpha = 0.72f), modifier = Modifier.size(38.dp))
+                                    if (!item.posterPath.isNullOrBlank()) {
+                                        AsyncImage(model = item.posterPath, contentDescription = item.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(7.dp)
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.65f))
+                                            .clickable { playMusicResultAt(idx) },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.PlayArrow,
+                                            contentDescription = "播放 ${item.title}",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                                Text(item.title, color = colors.textPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                val sub = listOfNotNull(item.subtitle?.takeIf { it.isNotBlank() }, item.year.takeIf { it.isNotBlank() }).joinToString(" · ")
+                                if (sub.isNotBlank()) {
+                                    Text(
+                                        text = if (resolvingMusicId == item.resolvedId) "正在匹配音轨…" else sub,
+                                        color = if (resolvingMusicId == item.resolvedId) colors.accent else colors.textSecondary,
+                                        fontSize = 11.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
+                val audioLibItems = remember(results, kind) {
+                    if (kind == "library") results.filter { it.type == "音乐" } else emptyList()
+                }
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columns),
                     contentPadding = PaddingValues(start = margin, end = margin, bottom = bottomOverlayInset + 24.dp),
@@ -2146,7 +2309,56 @@ fun GlobalSearchScreen(
                             voteAverage = item.voteAverage,
                             inLibrary = item.inLibrary || kind == "library",
                             onClick = {
-                                if (kind == "library" && !item.serverItemId.isNullOrBlank() && !item.serverName.isNullOrBlank()) {
+                                val hasServerTarget = !item.serverItemId.isNullOrBlank() && !item.serverName.isNullOrBlank()
+                                if (kind == "library" && MoviePilotRepository.isTvType(item.type) && (hasServerTarget || !item.mediaId.isNullOrBlank())) {
+                                    seriesPickerTarget = item.copy(
+                                        serverItemId = item.serverItemId ?: item.mediaId,
+                                    )
+                                } else if (kind == "library" && item.type == "音乐") {
+                                    scope.launch {
+                                        playError = null
+                                        val itemId = item.serverItemId ?: item.mediaId.orEmpty()
+                                        val srv = item.serverName
+                                        val manifest = if (itemId.isNotBlank()) repository.fetchVideoStreamInfo(itemId, srv) else null
+                                        if (manifest != null) {
+                                            val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                            val audioQueue = audioLibItems.mapIndexed { qIdx, aItem ->
+                                                val aId = aItem.serverItemId ?: aItem.mediaId.orEmpty()
+                                                val aSrv = aItem.serverName ?: manifest.server
+                                                MediaPlaybackRequest(
+                                                    url = "",
+                                                    title = aItem.title,
+                                                    subtitle = aItem.subtitle ?: aSrv,
+                                                    artworkUrl = aItem.posterPath,
+                                                    isAudio = true,
+                                                    itemId = aId,
+                                                    server = aSrv,
+                                                    queueIndex = qIdx,
+                                                    lazySpec = QueueTrackSpec.MediaServerItem(aId, aSrv),
+                                                )
+                                            }
+                                            val curQIdx = audioLibItems.indexOfFirst { it.resolvedId == item.resolvedId }.coerceAtLeast(0)
+                                            onPlayLibraryItem(
+                                                MediaPlaybackRequest(
+                                                    url = manifest.contentUrl,
+                                                    title = manifest.title.ifBlank { item.title },
+                                                    subtitle = item.subtitle ?: manifest.server,
+                                                    artworkUrl = item.posterPath,
+                                                    isAudio = true,
+                                                    lyricsLrc = lrc,
+                                                    headers = manifest.headers,
+                                                    itemId = manifest.itemId,
+                                                    server = manifest.server,
+                                                    mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                                                    queue = audioQueue,
+                                                    queueIndex = curQIdx,
+                                                ),
+                                            )
+                                        } else {
+                                            onOpenMedia(item)
+                                        }
+                                    }
+                                } else if (kind == "library" && hasServerTarget) {
                                     onOpenMedia(item)
                                 } else if (kind == "library") {
                                     scope.launch {
@@ -2165,6 +2377,7 @@ fun GlobalSearchScreen(
                                                     headers = manifest.headers,
                                                     itemId = manifest.itemId,
                                                     server = manifest.server,
+                                                    mediaSourceId = manifest.mediaSourceId.orEmpty(),
                                                     resumePositionMs = manifest.resumePositionMs,
                                                     subtitles = manifest.subtitles.map {
                                                         SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
@@ -2185,13 +2398,27 @@ fun GlobalSearchScreen(
             }
         }
     }
+
+    seriesPickerTarget?.let { target ->
+        QuickSeriesEpisodePickerSheet(
+            cardItem = target,
+            repository = repository,
+            onDismiss = { seriesPickerTarget = null },
+            onOpenDetail = { onOpenMedia(target) },
+            onPlayEpisode = onPlayLibraryItem,
+        )
+    }
 }
 
-/** 独立音乐发现入口（与 Explore 内音乐 Tab 共享数据源，支持深链直达）。 */
+/**
+ * 独立音乐探索页（对应 `moviepilot://music`，完整支持豆瓣音乐 / 本周榜单 / 热门专辑 / 近期新发四大榜单与专辑详情直达）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MusicDiscoveryScreen(
     onBack: () -> Unit,
     onPlayAudio: (MediaPlaybackRequest) -> Unit,
+    onOpenAlbum: ((MusicAlbumDto) -> Unit)? = null,
     repository: MoviePilotRepository? = null,
 ) {
     val colors = LocalMoviePilotColors.current
@@ -2199,106 +2426,219 @@ fun MusicDiscoveryScreen(
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val cols = AdaptiveDeviceLayout.squareGridColumns()
     val scope = rememberCoroutineScope()
-    var albums by remember { mutableStateOf<List<MusicAlbumDto>>(emptyList()) }
-    var isLoading by remember(repository) { mutableStateOf(repository != null) }
+
+    val feeds = remember {
+        listOf(
+            "douban" to "豆瓣音乐",
+            "weekly" to "本周榜单",
+            "popular" to "热门专辑",
+            "latest" to "近期新发",
+        )
+    }
+    var selectedFeedKey by rememberSaveable { mutableStateOf("douban") }
+    var filterKeyword by rememberSaveable { mutableStateOf("") }
+    var albums by remember(selectedFeedKey) {
+        mutableStateOf(repository?.cachedExplore?.get("music|$selectedFeedKey")?.musicAlbums.orEmpty())
+    }
+    var isLoading by remember(repository, selectedFeedKey) {
+        mutableStateOf(repository != null && albums.isEmpty())
+    }
+    var isRefreshing by remember { mutableStateOf(false) }
     var resolvingAlbumId by remember { mutableStateOf<String?>(null) }
     var tip by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(repository) {
-        if (repository != null) {
-            isLoading = true
-            albums = repository.fetchMusicFeed("douban", 1)
+    suspend fun loadFeed(force: Boolean) {
+        if (repository == null) {
             isLoading = false
-        } else {
-            isLoading = false
+            isRefreshing = false
+            return
         }
+        val cacheKey = "music|$selectedFeedKey"
+        if (!force) {
+            val cached = repository.cachedExplore[cacheKey]?.musicAlbums
+            if (!cached.isNullOrEmpty()) {
+                albums = cached
+                isLoading = false
+                isRefreshing = false
+                return
+            }
+        }
+        if (albums.isEmpty()) isLoading = true
+        val fetched = repository.fetchMusicFeed(selectedFeedKey, 1)
+        albums = fetched
+        repository.cachedExplore[cacheKey] = ExploreSessionSnapshot(
+            musicAlbums = fetched,
+            page = 1,
+            hasMore = false,
+        )
+        isLoading = false
+        isRefreshing = false
     }
 
-    ExpressiveTintedScaffold(title = "音乐发现", onBack = onBack) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            tip?.let { msg ->
-                Text(msg, color = colors.warning, fontSize = 12.sp, modifier = Modifier.padding(horizontal = margin, vertical = 8.dp))
+    LaunchedEffect(repository, selectedFeedKey) {
+        loadFeed(force = false)
+    }
+
+    val filteredAlbums = remember(albums, filterKeyword) {
+        val kw = filterKeyword.trim().lowercase()
+        if (kw.isEmpty()) {
+            albums
+        } else {
+            albums.filter {
+                it.title.lowercase().contains(kw) || it.artist.lowercase().contains(kw)
             }
-            if (isLoading && albums.isEmpty()) {
-                NativePosterGridSkeleton(
-                    columns = cols,
-                    aspectRatio = 1f,
-                    inPanel = true,
-                    contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = bottomOverlayInset + 24.dp),
-                    modifier = Modifier.weight(1f),
-                )
-            } else if (!isLoading && albums.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = margin, vertical = 20.dp), contentAlignment = Alignment.TopCenter) {
-                    CinematicPanel(padding = 24.dp, showsShadow = false) {
-                        Text("暂无推荐音乐专辑，请稍后再试。", color = colors.textSecondary, fontSize = 14.sp)
-                    }
-                }
-            } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(cols),
-                contentPadding = PaddingValues(start = margin, end = margin, top = 16.dp, bottom = bottomOverlayInset + 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-            items(albums) { album ->
-                val isResolvingThis = resolvingAlbumId == album.id
-                CinematicPanel(
-                    padding = 12.dp,
-                    cornerRadius = 18.dp,
-                    modifier = Modifier.clickable(enabled = resolvingAlbumId == null) {
-                        scope.launch {
-                            resolvingAlbumId = album.id
-                            tip = null
-                            val manifest = repository?.fetchMusicStreamInfo(album.title, album.artist.ifBlank { null }, album.title)
-                            resolvingAlbumId = null
-                            if (manifest != null) {
-                                val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
-                                onPlayAudio(
-                                    MediaPlaybackRequest(
-                                        url = manifest.contentUrl,
-                                        title = manifest.title.ifBlank { album.title },
-                                        subtitle = album.artist,
-                                        artworkUrl = album.coverUrl,
-                                        isAudio = true,
-                                        lyricsLrc = lrc,
-                                        headers = manifest.headers,
-                                        itemId = manifest.itemId,
-                                        server = manifest.server,
-                                    ),
-                                )
-                            } else {
-                                tip = "未在媒体服务器中匹配到「${album.title}」的音频文件"
-                            }
-                        }
-                    },
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Brush.linearGradient(listOf(colors.accent, colors.pink.copy(alpha = 0.7f)))),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = Color.White, modifier = Modifier.size(44.dp))
-                            if (!album.coverUrl.isNullOrBlank()) {
-                                AsyncImage(model = album.coverUrl, contentDescription = album.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                            }
-                        }
-                        Text(album.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            if (isResolvingThis) "正在匹配媒体库音轨…" else listOfNotNull(album.artist.ifBlank { null }, album.year.ifBlank { null }).joinToString(" · "),
-                            color = if (isResolvingThis) colors.accent else colors.textSecondary,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+        }
+    }
+    val feedIdx = feeds.indexOfFirst { it.first == selectedFeedKey }.coerceAtLeast(0)
+
+    ExpressiveTintedScaffold(
+        title = "音乐探索",
+        onBack = onBack,
+        headerExtra = {
+            ExpressivePillTabRow(
+                tabs = feeds.map { it.second },
+                selectedIndex = feedIdx,
+                onSelect = { idx -> selectedFeedKey = feeds[idx].first },
+                scrollable = true,
+                onTintedHeader = true,
+            )
+        },
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Spacer(Modifier.height(12.dp))
+            CinematicPanel(padding = 11.dp, cornerRadius = 22.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (filterKeyword.isEmpty()) Text("筛选专辑或艺人名称", color = colors.textMuted, fontSize = 14.sp)
+                        BasicTextField(
+                            value = filterKeyword,
+                            onValueChange = { filterKeyword = it },
+                            singleLine = true,
+                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 14.sp),
+                            cursorBrush = SolidColor(colors.accent),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                    if (filterKeyword.isNotEmpty()) {
+                        IconButton(onClick = { filterKeyword = "" }, modifier = Modifier.size(22.dp)) {
+                            Icon(Icons.Rounded.Close, contentDescription = "清除", tint = colors.textMuted, modifier = Modifier.size(15.dp))
+                        }
+                    }
                 }
             }
+
+            tip?.let { msg ->
+                Text(msg, color = colors.warning, fontSize = 12.sp, modifier = Modifier.padding(horizontal = margin, vertical = 6.dp))
             }
+
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    scope.launch { loadFeed(force = true) }
+                },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) {
+                if (isLoading && filteredAlbums.isEmpty()) {
+                    NativePosterGridSkeleton(
+                        columns = cols,
+                        aspectRatio = 1f,
+                        inPanel = true,
+                        contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = bottomOverlayInset + 24.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else if (!isLoading && filteredAlbums.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize().padding(horizontal = margin, vertical = 20.dp), contentAlignment = Alignment.TopCenter) {
+                        CinematicPanel(padding = 24.dp, showsShadow = false) {
+                            Text("暂无匹配的音乐专辑，可切换上方榜单或下拉刷新。", color = colors.textSecondary, fontSize = 14.sp)
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(cols),
+                        contentPadding = PaddingValues(start = margin, end = margin, top = 14.dp, bottom = bottomOverlayInset + 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(filteredAlbums, key = { "${it.source}_${it.id}_${it.title}" }) { album ->
+                            val isResolvingThis = resolvingAlbumId == album.id
+                            CinematicPanel(
+                                padding = 11.dp,
+                                cornerRadius = 18.dp,
+                                modifier = Modifier.clickable(enabled = resolvingAlbumId == null) {
+                                    if (onOpenAlbum != null) {
+                                        onOpenAlbum(album)
+                                    } else {
+                                        scope.launch {
+                                            resolvingAlbumId = album.id
+                                            tip = null
+                                            val manifest = repository?.fetchMusicStreamInfo(album.title, album.artist.ifBlank { null }, album.title)
+                                            resolvingAlbumId = null
+                                            if (manifest != null) {
+                                                val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                                onPlayAudio(
+                                                    MediaPlaybackRequest(
+                                                        url = manifest.contentUrl,
+                                                        title = manifest.title.ifBlank { album.title },
+                                                        subtitle = album.artist,
+                                                        albumTitle = album.title,
+                                                        artworkUrl = album.coverUrl,
+                                                        isAudio = true,
+                                                        lyricsLrc = lrc,
+                                                        headers = manifest.headers,
+                                                        itemId = manifest.itemId,
+                                                        server = manifest.server,
+                                                        mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                                                    ),
+                                                )
+                                            } else {
+                                                tip = "未在媒体服务器中匹配到「${album.title}」的音频文件"
+                                            }
+                                        }
+                                    }
+                                },
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(1f)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(Brush.linearGradient(listOf(colors.accent, colors.pink.copy(alpha = 0.7f)))),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = Color.White, modifier = Modifier.size(44.dp))
+                                        if (!album.coverUrl.isNullOrBlank()) {
+                                            AsyncImage(model = album.coverUrl, contentDescription = album.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                        }
+                                        if (album.voteAverage > 0.0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.Black.copy(alpha = 0.64f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                            ) {
+                                                Text("%.1f".format(album.voteAverage), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                    Text(album.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        if (isResolvingThis) "正在匹配媒体库音轨…" else listOfNotNull(album.artist.ifBlank { null }, album.year.ifBlank { null }).joinToString(" · "),
+                                        color = if (isResolvingThis) colors.accent else colors.textSecondary,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

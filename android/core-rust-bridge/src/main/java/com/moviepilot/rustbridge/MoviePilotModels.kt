@@ -564,13 +564,64 @@ data class MediaEpisodeDto(
 @Serializable
 data class MusicAlbumDto(
     val id: String = "",
+    val albumId: String = "",
+    val releaseId: String? = null,
     val title: String = "",
     val artist: String = "",
+    val artistId: String? = null,
     val year: String = "",
+    val albumType: String = "",
+    val totalTracks: Int = 0,
     val coverUrl: String? = null,
     val source: String = "douban",
     val voteAverage: Double = 0.0,
     val overview: String = "",
+) {
+    /** 用于查询 `/api/v1/music/album/{id}` 的首选专辑标识。 */
+    val lookupAlbumId: String
+        get() = albumId.ifBlank { id }
+}
+
+/** 音乐专辑单首曲目信息。 */
+@Serializable
+data class MusicTrackDto(
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
+    val discNumber: Int = 1,
+    val trackNumber: Int = 0,
+    val durationSeconds: Int = 0,
+)
+
+/** 音乐专辑完整详情（对应 `GET /api/v1/music/album/{id}`）。 */
+@Serializable
+data class MusicAlbumDetailDto(
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
+    val artists: List<String> = emptyList(),
+    val artistIds: List<String> = emptyList(),
+    val albumType: String = "",
+    val year: String = "",
+    val totalTracks: Int = 0,
+    val coverUrl: String? = null,
+    val overview: String = "",
+    val source: String = "musicbrainz",
+    val tracks: List<MusicTrackDto> = emptyList(),
+)
+
+/** 音乐艺术家资料与专辑作品（对应 `GET /api/v1/music/artist/{id}` 与 `/albums`）。 */
+@Serializable
+data class MusicArtistDetailDto(
+    val id: String = "",
+    val name: String = "",
+    val country: String = "",
+    val area: String = "",
+    val lifeSpan: String = "",
+    val imageUrl: String? = null,
+    val overview: String = "",
+    val source: String = "musicbrainz",
+    val albums: List<MusicAlbumDto> = emptyList(),
 )
 
 /** 社区工作流分享条目。 */
@@ -680,14 +731,28 @@ data class MediaStreamSubtitleDto(
 data class MediaPlaybackManifestDto(
     val itemId: String = "",
     val server: String = "",
+    @SerialName("media_source_id") val mediaSourceId: String? = null,
     val mediaType: String = "video",
     val title: String = "",
     val contentUrl: String = "",
+    val strmUrl: String? = null,
+    val proxyFallbackUrl: String? = null,
+    val originUrl: String = "",
     val subtitles: List<MediaStreamSubtitleDto> = emptyList(),
     val lyricsUrl: String? = null,
     val durationMs: Long = 0L,
     val resumePositionMs: Long = 0L,
     val headers: Map<String, String> = emptyMap(),
+    val sameOriginHeaders: Map<String, String> = emptyMap(),
+)
+
+/** 存储文件播放解析结果：普通文件返回本地缓存 URI，`.strm` 文件解析后返回客户端 HTTP(S) 直链与可选请求头。 */
+data class ResolvedStoragePlaybackDto(
+    val url: String,
+    val isAudio: Boolean,
+    val streamHeaders: Map<String, String> = emptyMap(),
+    val tempFilePath: String? = null,
+    val isStrmDirect: Boolean = false,
 )
 
 /** 订阅播映日历单日条目（对应 `GET /api/v1/subscribe/calendar`）。 */

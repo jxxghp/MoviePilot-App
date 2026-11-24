@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: '需要同版本重建或发布的 Release 标签（如 v2.0.2）'
+        description: '需要同版本重建或发布的 Release 标签（如 v2.0.3）'
         required: true
         type: string
-        default: v2.0.2
+        default: v2.0.3
       rebuild_existing:
         description: '若该标签 Release 已存在，确认覆盖更新其三端安装包与校验文件'
         required: true
@@ -28,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
+      android_version: ${{ steps.ver.outputs.android_version }}
+      harmony_version: ${{ steps.ver.outputs.harmony_version }}
       release_tag: ${{ steps.ver.outputs.release_tag }}
       old_tag_object: ${{ steps.ver.outputs.old_tag_object }}
     env:
@@ -52,6 +54,14 @@ jobs:
             echo "Tag version ($VER) does not match VERSION ($FILE_VER)." >&2
             exit 1
           fi
+          ANDROID_VER="$FILE_VER"
+          if [[ -f VERSION_ANDROID ]]; then
+            ANDROID_VER="$(tr -d '[:space:]' < VERSION_ANDROID)"
+          fi
+          HARMONY_VER="$FILE_VER"
+          if [[ -f VERSION_HARMONY ]]; then
+            HARMONY_VER="$(tr -d '[:space:]' < VERSION_HARMONY)"
+          fi
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             case "$GITHUB_REF" in
               refs/heads/v2|refs/heads/main|refs/heads/feat/multiplatform) ;;
@@ -70,6 +80,8 @@ jobs:
             fi
           fi
           echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "android_version=$ANDROID_VER" >> "$GITHUB_OUTPUT"
+          echo "harmony_version=$HARMONY_VER" >> "$GITHUB_OUTPUT"
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
       - name: Verify SSOT & Python tooling tests
         run: |
@@ -128,7 +140,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: android-release-assets
-          path: artifacts/MoviePilot-${{ needs.prepare.outputs.version }}-android-*.apk
+          path: artifacts/MoviePilot-${{ needs.prepare.outputs.android_version }}-android-*.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -157,7 +169,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: harmony-release-assets
-          path: artifacts/MoviePilot-${{ needs.prepare.outputs.version }}-harmony-*.hap
+          path: artifacts/MoviePilot-${{ needs.prepare.outputs.harmony_version }}-harmony-*.hap
           if-no-files-found: error
           retention-days: 7
 
@@ -171,6 +183,8 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
       RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      ANDROID_VERSION: ${{ needs.prepare.outputs.android_version }}
+      HARMONY_VERSION: ${{ needs.prepare.outputs.harmony_version }}
       OLD_TAG_OBJECT: ${{ needs.prepare.outputs.old_tag_object }}
       REBUILD_EXISTING: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_existing }}
     steps:
@@ -187,9 +201,9 @@ jobs:
         run: |
           ls -lh
           test -f "MoviePilot-${RELEASE_VERSION}-ios-unsigned.ipa"
-          test -f "MoviePilot-${RELEASE_VERSION}-android-arm64-v8a.apk"
-          test -f "MoviePilot-${RELEASE_VERSION}-android-universal.apk"
-          test -f "MoviePilot-${RELEASE_VERSION}-harmony-unsigned.hap"
+          test -f "MoviePilot-${ANDROID_VERSION}-android-arm64-v8a.apk"
+          test -f "MoviePilot-${ANDROID_VERSION}-android-universal.apk"
+          test -f "MoviePilot-${HARMONY_VERSION}-harmony-unsigned.hap"
           sha256sum MoviePilot-* > SHA256SUMS
           sha256sum -c SHA256SUMS
       - name: Create or update GitHub Release

@@ -1,3 +1,4 @@
+import { bundleManager } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { image } from '@kit.ImageKit';
 import {
@@ -38,6 +39,11 @@ import {
   HarmonySkeletonBlock,
   HarmonyCardGridSkeleton,
   HarmonyPluginSheetSkeleton,
+  PLAYBACK_SCALE_LABELS,
+  PLAYBACK_SCALE_MODES,
+  PLAYBACK_SPEED_LABELS,
+  PLAYBACK_SPEED_VALUES,
+  PlaybackPreferencesStore,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
@@ -656,6 +662,14 @@ export struct HarmonySettingsHubPage {
   @StorageLink(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT) showAiMascot: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
+  @StorageLink(PlaybackPreferencesStore.KEY_SCALE_MODE) playbackScaleMode: string = 'fit';
+  @StorageLink(PlaybackPreferencesStore.KEY_DEFAULT_SPEED) playbackDefaultSpeed: number = 1.0;
+  @StorageLink(PlaybackPreferencesStore.KEY_PREFER_ZH_SUB) playbackPreferZhSub: boolean = true;
+  @StorageLink(PlaybackPreferencesStore.KEY_AUTO_PIP) playbackAutoPip: boolean = true;
+  @StorageLink(PlaybackPreferencesStore.KEY_CELLULAR_WARN) playbackCellularWarn: boolean = false;
+  @StorageLink(PlaybackPreferencesStore.KEY_KEEP_MINI_BAR) playbackKeepMiniBar: boolean = true;
+  @StorageLink(PlaybackPreferencesStore.KEY_STRM_DIRECT) playbackStrmDirect: boolean = true;
+  @StorageProp('mp_open_settings_sheet') @Watch('onPendingSettingsSheetChanged') pendingSettingsSheet: string = '';
   @Prop serverUrl: string = '';
   @Prop userName: string = 'admin';
   @State private stats: MpDashboardStats = {
@@ -694,9 +708,6 @@ export struct HarmonySettingsHubPage {
   @State private activeMedalIdx: number = 0;
   @State private medalBusy: boolean = false;
   @State private medalNotice: string = '';
-  @State private playbackSpeedIdx: number = 1;
-  @State private playbackQualityIdx: number = 0;
-  @State private playbackPip: boolean = true;
 
   // 渠道授权状态
   @State private authCode: string = '';
@@ -757,6 +768,26 @@ export struct HarmonySettingsHubPage {
 
   aboutToAppear(): void {
     this.loadSettingsSummary();
+    this.consumePendingSettingsSheet();
+  }
+
+  onPendingSettingsSheetChanged(): void {
+    this.consumePendingSettingsSheet();
+  }
+
+  private consumePendingSettingsSheet(): void {
+    const req = (AppStorage.get<string>('mp_open_settings_sheet') ?? '').trim();
+    if (!req) {
+      return;
+    }
+    AppStorage.setOrCreate('mp_open_settings_sheet', '');
+    if (req === 'playback') {
+      this.showPlaybackSheet = true;
+    } else if (req === 'appearance') {
+      this.showAppearanceSheet = true;
+    } else if (req === 'users') {
+      this.showUsersSheet = true;
+    }
   }
 
   private persistAppearanceToDisk(): void {
@@ -2096,27 +2127,94 @@ export struct HarmonySettingsHubPage {
       })
       Scroll() {
         Column({ space: 14 }) {
-          Text('默认清晰度').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          Text('默认画面比例').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
           HarmonySegmentedSwitch({
-            options: ['自适应', '原画直出', '1080p'],
-            selectedIndex: this.playbackQualityIdx,
-            onSelect: (idx: number) => { this.playbackQualityIdx = idx; }
+            options: PLAYBACK_SCALE_LABELS,
+            selectedIndex: PlaybackPreferencesStore.scaleModeToIndex(this.playbackScaleMode),
+            onSelect: (idx: number) => {
+              const target = PLAYBACK_SCALE_MODES[Math.min(Math.max(0, idx), PLAYBACK_SCALE_MODES.length - 1)];
+              PlaybackPreferencesStore.setScaleMode(target);
+            }
           })
-          Text('默认倍速').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-          HarmonySegmentedSwitch({
-            options: ['0.75x', '1.0x', '1.25x', '1.5x'],
-            selectedIndex: this.playbackSpeedIdx,
-            onSelect: (idx: number) => { this.playbackSpeedIdx = idx; }
-          })
+
+          Text('默认播放倍速（仅作用于视频，音频固定 1.0x 起播）')
+            .fontSize(13)
+            .fontColor(mpSecondaryText(this.isDark))
+            .width('100%')
+          Scroll() {
+            Row({ space: 8 }) {
+              ForEach(PLAYBACK_SPEED_LABELS, (lbl: string, idx: number) => {
+                NativeAdaptivePill({
+                  title: lbl,
+                  selected: PlaybackPreferencesStore.speedToIndex(this.playbackDefaultSpeed) === idx,
+                  onTap: () => {
+                    const targetSpeed = PLAYBACK_SPEED_VALUES[Math.min(Math.max(0, idx), PLAYBACK_SPEED_VALUES.length - 1)];
+                    PlaybackPreferencesStore.setDefaultSpeed(targetSpeed);
+                  }
+                })
+              }, (lbl: string, idx: number) => `sp_${idx}_${lbl}_${this.playbackDefaultSpeed}`)
+            }
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .width('100%')
+
           CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
-            Row() {
-              Column({ space: 2 }) {
-                Text('画中画浮窗续播').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                Text('退至后台时自动切入小窗继续播放').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
-              }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-              Toggle({ type: ToggleType.Switch, isOn: this.playbackPip }).selectedColor(this.accentHex)
-                .onChange((v: boolean) => { this.playbackPip = v; })
-            }.width('100%')
+            Column({ space: 12 }) {
+              Row() {
+                Column({ space: 2 }) {
+                  Text('STRM 直链播放').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('开启后遇到 .strm 条目直接连接源站 HTTP(S) 直链，不可达时自动回退代理').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.playbackStrmDirect }).selectedColor(this.accentHex)
+                  .onChange((v: boolean) => { PlaybackPreferencesStore.setStrmDirect(v); })
+              }.width('100%')
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Row() {
+                Column({ space: 2 }) {
+                  Text('优先选择中文字幕').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('起播时自动优先匹配简繁中文字幕轨道').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.playbackPreferZhSub }).selectedColor(this.accentHex)
+                  .onChange((v: boolean) => { PlaybackPreferencesStore.setPreferZhSub(v); })
+              }.width('100%')
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Row() {
+                Column({ space: 2 }) {
+                  Text('画中画浮窗自动续播').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('视频播放时退至后台自动切入系统小窗继续播放').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.playbackAutoPip }).selectedColor(this.accentHex)
+                  .onChange((v: boolean) => { PlaybackPreferencesStore.setAutoPip(v); })
+              }.width('100%')
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Row() {
+                Column({ space: 2 }) {
+                  Text('移动网络播放前提醒').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('使用蜂窝数据播放远端音视频流前弹窗确认').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.playbackCellularWarn }).selectedColor(this.accentHex)
+                  .onChange((v: boolean) => { PlaybackPreferencesStore.setCellularWarn(v); })
+              }.width('100%')
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Row() {
+                Column({ space: 2 }) {
+                  Text('返回时收起为悬浮迷你播放条').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('音频播放界面按返回键收起至底栏迷你条不断流').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.playbackKeepMiniBar }).selectedColor(this.accentHex)
+                  .onChange((v: boolean) => { PlaybackPreferencesStore.setKeepMiniBar(v); })
+              }.width('100%')
+            }
+            .width('100%')
           }
         }
         .width('100%')
@@ -2464,7 +2562,11 @@ export struct HarmonySettingsHubPage {
                 Divider().color(HarmonyThemeColors.divider(this.isDark))
                 HarmonySettingsRow({
                   title: '播放偏好',
-                  sub: ['自适应', '原画', '1080p'][this.playbackQualityIdx],
+                  sub: PlaybackPreferencesStore.formatSettingsSummary(
+                    this.playbackScaleMode,
+                    this.playbackDefaultSpeed,
+                    this.playbackAutoPip
+                  ),
                   symbolName: 'sys.symbol.play_circle_fill',
                   symbolTint: '#5AC8FA',
                   onTap: () => { this.showPlaybackSheet = true; }
@@ -2515,7 +2617,7 @@ export struct HarmonySettingsHubPage {
                 .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '26' : '18'))
 
                 Text('客户端版本').fontSize(15).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
-                NativeAdaptiveBadge({ text: `v${RustCoreBridge.version()}`, tintHex: this.accentHex })
+                NativeAdaptiveBadge({ text: `v${resolveHarmonyAppVersion()}`, tintHex: this.accentHex })
               }.width('100%').padding({ left: 16, right: 16, top: 14, bottom: 14 })
               Divider().color(HarmonyThemeColors.divider(this.isDark))
               Row({ space: 12 }) {
@@ -2671,4 +2773,16 @@ export struct HarmonySettingsHubPage {
     .width('100%')
     .height('100%')
   }
+}
+
+function resolveHarmonyAppVersion(): string {
+  try {
+    const info = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+    if (info && typeof info.versionName === 'string' && info.versionName.length > 0) {
+      return info.versionName;
+    }
+  } catch {
+    // fallback
+  }
+  return '1.0.0';
 }

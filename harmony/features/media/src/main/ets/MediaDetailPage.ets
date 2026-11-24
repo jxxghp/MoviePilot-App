@@ -26,7 +26,10 @@ import {
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
-import { HarmonyPlaybackRequest } from '@moviepilot/media_player';
+import {
+  HarmonyPlaybackRequest,
+  buildPlaybackRequestFromStreamInfo
+} from '@moviepilot/media_player';
 
 /**
  * 鸿蒙沉浸式影视/剧集详情页：
@@ -753,12 +756,12 @@ export struct HarmonyMediaDetailPage {
                 try {
                   const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(streamTargetId, cur.serverName);
                   if (manifest && manifest.contentUrl.length > 0) {
-                    this.onPlayMedia({
-                      url: manifest.contentUrl,
-                      title: manifest.title || cur.title,
-                      subtitle: cur.subtitle || cur.year,
-                      isAudio: manifest.mediaType === 'audio'
-                    });
+                    this.onPlayMedia(buildPlaybackRequestFromStreamInfo(
+                      manifest,
+                      cur.title,
+                      cur.subtitle || cur.year,
+                      { overrideArtworkUrl: cur.posterUrl || cur.backdropUrl }
+                    ));
                     return;
                   }
                 } catch {

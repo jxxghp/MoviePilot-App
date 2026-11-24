@@ -12,18 +12,23 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.util.Rational
+import android.view.HapticFeedbackConstants
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -42,14 +47,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -58,6 +62,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.Check
@@ -77,6 +83,7 @@ import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
@@ -97,6 +104,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -117,16 +125,21 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.util.Consumer
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -145,6 +158,7 @@ import com.moviepilot.designsystem.LocalAppearanceStore
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.PlaybackPreferencesStore
+import com.moviepilot.rustbridge.NativeSecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -158,41 +172,117 @@ data class SubtitleTrackItem(
     val url: String,
 )
 
-/** 跨端统一音视频播放清单项（支持鉴权流、外挂字幕、LRC 同步歌词、进度续播与播放队列）。 */
+/** 播放队列延迟解析规格：支持已解析直链、音乐库元数据匹配及媒体服务器条目实时拉流。 */
+sealed interface QueueTrackSpec {
+    /** 已具备可播放 URL 的直链条目。 */
+    data class DirectUrl(val url: String) : QueueTrackSpec
+
+    /** 音乐曲目查询规格（按曲名/艺人/专辑向 `/api/v1/mediaserver/stream-info/music` 延迟匹配）。 */
+    data class MusicQuery(
+        val title: String,
+        val artist: String? = null,
+        val album: String? = null,
+    ) : QueueTrackSpec
+
+    /** 媒体服务器音视频条目规格（按 `itemId` 与 `server` 延迟调用 `/api/v1/mediaserver/stream-info`）。 */
+    data class MediaServerItem(
+        val itemId: String,
+        val server: String,
+        val mediaSourceId: String? = null,
+    ) : QueueTrackSpec
+}
+
+/** 跨端统一音视频播放清单项（支持鉴权流、外挂字幕、LRC 同步歌词、进度续播、延迟解析队列与播前选轨）。 */
 data class MediaPlaybackRequest(
     val url: String,
     val title: String,
     val subtitle: String = "",
+    val albumTitle: String = "",
     val artworkUrl: String? = null,
+    val artworkBytes: ByteArray? = null,
     val isAudio: Boolean = false,
     val lyricsLrc: String? = null,
     val headers: Map<String, String> = emptyMap(),
+    val sameOriginHeaders: Map<String, String> = emptyMap(),
+    val streamHeaders: Map<String, String> = emptyMap(),
+    val proxyFallbackUrl: String? = null,
+    val originUrl: String = "",
+    val allowSelfSignedTls: Boolean = false,
     val itemId: String = "",
     val server: String = "",
+    val serverType: String = "",
+    val mediaSourceId: String = "",
     val resumePositionMs: Long = 0L,
     val subtitles: List<SubtitleTrackItem> = emptyList(),
     val queue: List<MediaPlaybackRequest> = emptyList(),
     val queueIndex: Int = 0,
-)
+    val lazySpec: QueueTrackSpec? = null,
+    val isSessionBound: Boolean = true,
+    val tempFilePath: String? = null,
+    val externalPlayUrl: String? = null,
+    val preferredAudioLang: String? = null,
+    val preferredAudioIndex: Int? = null,
+    val preferredSubtitleId: String? = null,
+    val preferredSubtitleLang: String? = null,
+    val disableSubtitles: Boolean = false,
+) {
+    /** 用于本地续播存储的稳定资源标识（优先 `itemId`，无 `itemId` 时采用文件路径或流地址）。 */
+    val localResumeId: String
+        get() = itemId.ifBlank { tempFilePath?.takeIf { it.isNotBlank() } ?: url }
+}
 
 /** 简易 LRC 同步歌词行。 */
 data class LrcLine(val timeMs: Long, val text: String)
 
-/** 解析 LRC 同步歌词文本。 */
+private val LRC_TIMESTAMP_REGEX = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]""")
+private val LRC_OFFSET_REGEX = Regex("""^\[offset:([+-]?\d+)]$""", RegexOption.IGNORE_CASE)
+
+/**
+ * 解析 LRC 同步歌词文本：
+ * 完整支持单行多时间戳（如 `[00:12.34][01:45.67]副歌歌词`）、2~3 位毫秒及全局 `[offset:+/-ms]` 偏移标签。
+ */
 fun parseLrcLyrics(raw: String?): List<LrcLine> {
     if (raw.isNullOrBlank()) return emptyList()
-    val regex = Regex("""\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?](.*)""")
-    return raw.lines().mapNotNull { line ->
-        val m = regex.find(line.trim()) ?: return@mapNotNull null
-        val min = m.groupValues[1].toLongOrNull() ?: 0L
-        val sec = m.groupValues[2].toLongOrNull() ?: 0L
-        val frac = m.groupValues[3].padEnd(3, '0').take(3).toLongOrNull() ?: 0L
-        val txt = m.groupValues[4].trim()
-        if (txt.isEmpty()) null else LrcLine(min * 60_000 + sec * 1000 + frac, txt)
-    }.sortedBy { it.timeMs }
+    var globalOffsetMs = 0L
+    val parsed = mutableListOf<LrcLine>()
+    for (rawLine in raw.lines()) {
+        val trimmed = rawLine.trim()
+        if (trimmed.isEmpty()) continue
+        val offsetMatch = LRC_OFFSET_REGEX.matchEntire(trimmed)
+        if (offsetMatch != null) {
+            globalOffsetMs = offsetMatch.groupValues[1].toLongOrNull() ?: 0L
+            continue
+        }
+        val matches = LRC_TIMESTAMP_REGEX.findAll(trimmed).toList()
+        if (matches.isEmpty()) continue
+        // 仅提取行首连续的时间标签序列，保留歌词正文
+        var cursor = 0
+        val lineTimes = mutableListOf<Long>()
+        for (m in matches) {
+            if (m.range.first != cursor) break
+            val min = m.groupValues[1].toLongOrNull() ?: 0L
+            val sec = m.groupValues[2].toLongOrNull() ?: 0L
+            val fracRaw = m.groupValues[3]
+            val fracMs = if (fracRaw.isEmpty()) {
+                0L
+            } else {
+                fracRaw.padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+            }
+            lineTimes += (min * 60_000L + sec * 1_000L + fracMs + globalOffsetMs).coerceAtLeast(0L)
+            cursor = m.range.last + 1
+        }
+        if (lineTimes.isEmpty()) continue
+        val lyricText = trimmed.substring(cursor).trim()
+        if (lyricText.isEmpty()) continue
+        for (t in lineTimes) {
+            parsed += LrcLine(timeMs = t, text = lyricText)
+        }
+    }
+    return parsed.sortedBy { it.timeMs }
 }
 
-private fun formatDurationMs(ms: Long): String {
+/** 格式化毫秒时长为 `MM:SS` 或 `H:MM:SS`。 */
+fun formatDurationMs(ms: Long): String {
     val totalSec = (ms / 1000L).coerceAtLeast(0L)
     val h = totalSec / 3600
     val m = (totalSec % 3600) / 60
@@ -209,19 +299,31 @@ private fun subtitleMimeTypeForUrl(url: String): String {
     }
 }
 
-/** 根据请求创建带同源 Authorization/Cookie 头、解码偏好与外挂字幕配置的 ExoPlayer 实例。 */
+/**
+ * 根据播放清单构建完整配置的 `ExoPlayer`：
+ * - 使用 `OkHttpDataSource.Factory` 支持自签名 TLS 与跨源重定向自动剥离敏感凭据；
+ * - 启用 Media3 音频焦点托管（来电自动闪避/暂停）与拔出耳机自动暂停（`HandleAudioBecomingNoisy`）；
+ * - 注入系统锁屏/通知栏/蓝牙媒体元数据与外挂字幕；
+ * - 音频固定以 `1.0x` 原速启动，视频应用用户默认倍速与清晰度上限。
+ */
 @OptIn(UnstableApi::class)
-fun buildConfiguredExoPlayer(context: Context, request: MediaPlaybackRequest): ExoPlayer {
+fun buildConfiguredExoPlayer(
+    context: Context,
+    request: MediaPlaybackRequest,
+    resumePositionOverrideMs: Long? = null,
+): ExoPlayer {
     val prefs = PlaybackPreferencesStore(context)
-    val httpFactory = DefaultHttpDataSource.Factory()
-        .setAllowCrossProtocolRedirects(true)
-        .setConnectTimeoutMs(15_000)
-        .setReadTimeoutMs(30_000)
-        .apply {
-            if (request.headers.isNotEmpty()) {
-                setDefaultRequestProperties(request.headers)
-            }
-        }
+    val allowInsecureTls = request.allowSelfSignedTls ||
+        runCatching { NativeSecretStore(context).allowSelfSignedTls }.getOrDefault(false)
+    val effectiveOrigin = request.originUrl.ifBlank { request.url }
+    val effectiveOriginHeaders = request.sameOriginHeaders.ifEmpty { request.headers }
+    val httpFactory = PlaybackHttpDataSource.createFactory(
+        originUrl = effectiveOrigin,
+        headers = effectiveOriginHeaders,
+        allowSelfSignedTls = allowInsecureTls,
+        streamUrl = request.url,
+        streamHeaders = request.streamHeaders,
+    )
     val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
     val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
     val renderersFactory = DefaultRenderersFactory(context)
@@ -230,40 +332,77 @@ fun buildConfiguredExoPlayer(context: Context, request: MediaPlaybackRequest): E
             if (prefs.hwDecode) DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
             else DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER,
         )
-    val itemBuilder = MediaItem.Builder().setUri(Uri.parse(request.url))
+
+    val metadataBuilder = MediaMetadata.Builder()
+        .setTitle(request.title)
+        .setDisplayTitle(request.title)
+    if (request.subtitle.isNotBlank()) {
+        metadataBuilder.setArtist(request.subtitle)
+        metadataBuilder.setSubtitle(request.subtitle)
+    }
+    if (request.albumTitle.isNotBlank()) {
+        metadataBuilder.setAlbumTitle(request.albumTitle)
+    }
+    request.artworkBytes?.takeIf { it.isNotEmpty() }?.let { bytes ->
+        metadataBuilder.setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+    }
+    request.artworkUrl?.takeIf { it.isNotBlank() }?.let { art ->
+        metadataBuilder.setArtworkUri(Uri.parse(art))
+    }
+
+    val itemBuilder = MediaItem.Builder()
+        .setUri(Uri.parse(request.url))
+        .setMediaMetadata(metadataBuilder.build())
+
     if (request.subtitles.isNotEmpty()) {
         val subConfigs = request.subtitles.map { sub ->
-            MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub.url))
+            val builder = MediaItem.SubtitleConfiguration.Builder(Uri.parse(sub.url))
                 .setMimeType(subtitleMimeTypeForUrl(sub.url))
                 .setLanguage(sub.language.ifBlank { "und" })
                 .setLabel(sub.title.ifBlank { sub.language.ifBlank { "外挂字幕" } })
-                .build()
+            if (sub.id.isNotBlank()) {
+                builder.setId(sub.id)
+            }
+            builder.build()
         }
         itemBuilder.setSubtitleConfigurations(subConfigs)
     }
-    val defaultSpeedVal = prefs.defaultSpeed.coerceIn(0.5f, 3.0f)
+
+    val audioAttributes = AudioAttributes.Builder()
+        .setUsage(C.USAGE_MEDIA)
+        .setContentType(if (request.isAudio) C.AUDIO_CONTENT_TYPE_MUSIC else C.AUDIO_CONTENT_TYPE_MOVIE)
+        .build()
+
+    // 仅视频应用默认倍速偏好；音乐固定 1.0x 原速启动
+    val initialSpeed = if (request.isAudio) 1.0f else prefs.defaultSpeed.coerceIn(0.5f, 2.0f)
+    val effectiveStartMs = (resumePositionOverrideMs ?: request.resumePositionMs).coerceAtLeast(0L)
+
     return ExoPlayer.Builder(context, renderersFactory)
         .setMediaSourceFactory(mediaSourceFactory)
+        .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
+        .setHandleAudioBecomingNoisy(true)
         .build()
         .apply {
             setMediaItem(itemBuilder.build())
-            playbackParameters = PlaybackParameters(defaultSpeedVal)
-            when (prefs.defaultQuality) {
-                "720p", "流畅省流" -> {
-                    trackSelectionParameters = trackSelectionParameters
-                        .buildUpon()
-                        .setMaxVideoSize(1280, 720)
-                        .build()
-                }
-                "1080p" -> {
-                    trackSelectionParameters = trackSelectionParameters
-                        .buildUpon()
-                        .setMaxVideoSize(1920, 1080)
-                        .build()
+            playbackParameters = PlaybackParameters(initialSpeed)
+            if (!request.isAudio) {
+                when (prefs.defaultQuality) {
+                    "720p", "流畅省流" -> {
+                        trackSelectionParameters = trackSelectionParameters
+                            .buildUpon()
+                            .setMaxVideoSize(1280, 720)
+                            .build()
+                    }
+                    "1080p" -> {
+                        trackSelectionParameters = trackSelectionParameters
+                            .buildUpon()
+                            .setMaxVideoSize(1920, 1080)
+                            .build()
+                    }
                 }
             }
-            if (request.resumePositionMs > 0L) {
-                seekTo(request.resumePositionMs)
+            if (effectiveStartMs > 0L) {
+                seekTo(effectiveStartMs)
             }
             prepare()
             playWhenReady = true
@@ -345,7 +484,6 @@ private fun derivePaletteFromBitmap(bitmap: Bitmap): PlayerExpressivePalette? {
                 AndroidColor.colorToHSV(px, hsv)
                 val sat = hsv[1]
                 val v = hsv[2]
-                // 优先挑选色彩鲜明、明暗适中的主色相
                 val score = sat * (1f - abs(v - 0.55f))
                 if (sat > 0.22f && v > 0.16f && v < 0.94f && score > bestScore) {
                     bestScore = score
@@ -371,18 +509,21 @@ private fun derivePaletteFromBitmap(bitmap: Bitmap): PlayerExpressivePalette? {
 
 private data class ResolvedTrackChoice(
     val label: String,
+    val language: String?,
+    val trackId: String?,
     val group: Tracks.Group?,
     val trackIndex: Int,
     val selected: Boolean,
 )
 
+/** 支持的全量倍速档位（与播放偏好页一致）。 */
+val PLAYER_SUPPORTED_SPEEDS: List<Float> = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+
 /**
- * Material 3 Expressive 原生音视频播放器：
- * - **音频模式**：封面动态丝绒着色全屏画布、左上圆形下拉收起键 + 右上连体歌词/队列双钮、
- *   28dp 大圆角专辑主视觉、实时流动正弦波浪进度条（ExpressiveWavySlider）、形变方圆主播放键（播放呈 Squircle，暂停弹回正圆）、
- *   以及底部沉入式连体播控胶囊坞（随机 / 循环 / 倍速）；
- * - **视频模式**：全屏 Media3 ExoPlayer 硬件渲染、亮度/音量/进度手势与双击播控、右上画中画、横屏专属锁屏键，
- *   并同步采用波浪进度条、形变播控键与底部连体字幕/音轨/画面/倍速胶囊坞。
+ * Material 3 Expressive 原生全屏音视频播放器：
+ * - **音频模式**：动态丝绒封面着色、LRC 多时间戳同步歌词、3 秒上一曲规则、随机/循环与延迟解析队列、收起迷你条不误报停止；
+ * - **视频模式**：Media3 硬件/FFmpeg 渲染、4.5 秒控制栏自动隐藏与沉浸式系统栏、三分区双击快进快退/播控、长按 2.0x 触觉加速、
+ *   横竖屏双态锁屏、动态比例自动画中画（PiP）、中文字幕与播前选轨自动匹配、本地断点续播胶囊、5 秒片尾自动连播下一集玻璃卡片及外部播放器唤起。
  */
 @OptIn(UnstableApi::class)
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
@@ -390,6 +531,13 @@ private data class ResolvedTrackChoice(
 fun NativeMediaPlayerOverlay(
     request: MediaPlaybackRequest,
     sharedPlayer: ExoPlayer? = null,
+    instanceUrl: String = "",
+    audioShuffleEnabled: Boolean = false,
+    audioRepeatMode: Int = Player.REPEAT_MODE_OFF,
+    onUpdateAudioShuffle: ((Boolean) -> Unit)? = null,
+    onUpdateAudioRepeatMode: ((Int) -> Unit)? = null,
+    onAudioSkipPrevious: (() -> Unit)? = null,
+    onAudioSkipNext: (() -> Unit)? = null,
     onClose: () -> Unit,
     onMinimizeToMiniBar: (() -> Unit)? = null,
     onSwitchRequest: ((MediaPlaybackRequest) -> Unit)? = null,
@@ -404,39 +552,77 @@ fun NativeMediaPlayerOverlay(
     val compactHeight = cfg.screenHeightDp < 480
     val compactVideoHeight = isLandscape && cfg.screenHeightDp < 460
     val playbackPrefs = remember(context) { PlaybackPreferencesStore(context) }
+    val localHistoryStore = remember(context) { LocalPlaybackHistoryStore(context) }
+
+    val initialLocalSavedMs = remember(request.localResumeId, instanceUrl, request.server) {
+        localHistoryStore.readResumePositionMs(instanceUrl, request.server, request.localResumeId)
+    }
+    val bestInitialResumeMs = remember(initialLocalSavedMs, request.resumePositionMs) {
+        LocalPlaybackHistoryStore.resolveBestResumeMs(initialLocalSavedMs, request.resumePositionMs)
+    }
 
     val ownsPlayer = sharedPlayer == null
     val exoPlayer = remember(request.url, sharedPlayer) {
-        sharedPlayer ?: buildConfiguredExoPlayer(context, request)
+        sharedPlayer ?: buildConfiguredExoPlayer(
+            context = context,
+            request = request,
+            resumePositionOverrideMs = bestInitialResumeMs,
+        )
     }
 
-    val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+    val speeds = PLAYER_SUPPORTED_SPEEDS
     val resizeModes = listOf(
         AspectRatioFrameLayout.RESIZE_MODE_FIT to "自适应",
         AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "铺满裁剪",
         AspectRatioFrameLayout.RESIZE_MODE_FILL to "拉伸填充",
     )
 
-    var isPlaying by remember { mutableStateOf(true) }
-    var positionMs by remember { mutableLongStateOf(request.resumePositionMs) }
-    var durationMs by remember { mutableLongStateOf(1L) }
+    var isPlaying by remember(exoPlayer) { mutableStateOf(exoPlayer.isPlaying || exoPlayer.playWhenReady) }
+    var positionMs by remember(request.url) { mutableLongStateOf(bestInitialResumeMs.coerceAtLeast(exoPlayer.currentPosition.coerceAtLeast(0L))) }
+    var durationMs by remember(request.url) { mutableLongStateOf(exoPlayer.duration.coerceAtLeast(1L)) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var lastInteractionTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var isLocked by remember { mutableStateOf(false) }
-    var speedIndex by remember {
-        val defSpd = playbackPrefs.defaultSpeed
-        mutableIntStateOf(speeds.indexOfFirst { abs(it - defSpd) < 0.05f }.takeIf { it >= 0 } ?: 1)
+    var showRemainingTime by remember { mutableStateOf(false) }
+    var isLongPressBoost by remember { mutableStateOf(false) }
+
+    var speedIndex by remember(request.isAudio) {
+        val targetSpd = if (request.isAudio) 1.0f else playbackPrefs.defaultSpeed
+        val defaultIdx = speeds.indexOfFirst { abs(it - targetSpd) < 0.05f }.takeIf { it >= 0 }
+            ?: speeds.indexOf(1.0f).coerceAtLeast(0)
+        mutableIntStateOf(defaultIdx)
     }
     var resizeModeIndex by remember {
         mutableIntStateOf(playbackPrefs.defaultResizeMode.coerceIn(0, resizeModes.lastIndex))
     }
-    var shuffleEnabled by remember { mutableStateOf(false) }
-    var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
+    var localShuffle by remember { mutableStateOf(audioShuffleEnabled) }
+    var localRepeatMode by remember { mutableIntStateOf(audioRepeatMode) }
+    val effectiveShuffle = if (onUpdateAudioShuffle != null) audioShuffleEnabled else localShuffle
+    val effectiveRepeatMode = if (onUpdateAudioRepeatMode != null) audioRepeatMode else localRepeatMode
+
     var showLyricsView by remember { mutableStateOf(false) }
     var showQueueSheet by remember { mutableStateOf(false) }
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showAudioTrackSheet by remember { mutableStateOf(false) }
+    var showSpeedSheet by remember { mutableStateOf(false) }
     var hudMessage by remember { mutableStateOf<String?>(null) }
     var tracksVersion by remember { mutableIntStateOf(0) }
+
+    // 记录当前会话用户选定的音轨/字幕偏好，用于跨剧集连播时无损继承
+    var activePreferredAudioLang by remember(request.url) { mutableStateOf(request.preferredAudioLang) }
+    var activePreferredSubtitleLang by remember(request.url) { mutableStateOf(request.preferredSubtitleLang) }
+    var activeDisableSubtitles by remember(request.url) { mutableStateOf(request.disableSubtitles) }
+    var appliedInitialTracks by remember(request.url) { mutableStateOf(false) }
+
+    // 续播提示胶囊（> 30s 时展示 6 秒，支持一键从 00:00 重新开始）
+    var resumeBannerPositionMs by remember(request.url) {
+        mutableStateOf(bestInitialResumeMs.takeIf { it > LocalPlaybackHistoryStore.MIN_RESUME_POSITION_MS })
+    }
+    // 下一集自动连播倒计时与取消标记
+    var upNextCancelled by remember(request.url) { mutableStateOf(false) }
+    var autoAdvancedTriggered by remember(request.url) { mutableStateOf(false) }
+
+    var videoAspectRatio by remember { mutableStateOf(Rational(16, 9)) }
 
     val activity = context as? Activity
     val initialOrientation = remember(activity) {
@@ -447,16 +633,103 @@ fun NativeMediaPlayerOverlay(
         mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity?.isInPictureInPictureMode == true else false)
     }
 
-    // 锁屏状态下拦截系统返回手势并给出解锁提示；未锁屏时返回退出/最小化播放器
-    BackHandler(enabled = isLocked) {
-        controlsVisible = true
-        hudMessage = "屏幕已锁定，请先点击右侧锁图标解锁"
-    }
-    BackHandler(enabled = !isLocked) {
-        if (request.isAudio && onMinimizeToMiniBar != null) onMinimizeToMiniBar() else onClose()
+    val latestReportProgress by rememberUpdatedState(onReportProgress)
+    val latestSwitchRequest by rememberUpdatedState(onSwitchRequest)
+    val latestClose by rememberUpdatedState(onClose)
+
+    fun bumpInteraction() {
+        lastInteractionTick = System.currentTimeMillis()
     }
 
-    // 保持屏幕常亮、监听画中画模式，并在退出播放页时自动还原窗口亮度与屏幕方向
+    fun buildCarryOverEpisodeRequest(target: MediaPlaybackRequest, nextIndex: Int): MediaPlaybackRequest =
+        target.copy(
+            queue = request.queue,
+            queueIndex = nextIndex,
+            preferredAudioLang = activePreferredAudioLang,
+            preferredSubtitleLang = activePreferredSubtitleLang,
+            disableSubtitles = activeDisableSubtitles,
+        )
+
+    val hasPrevVideoEpisode = !request.isAudio && request.queue.size > 1 && request.queueIndex > 0
+    val hasNextVideoEpisode = !request.isAudio && request.queue.size > 1 && request.queueIndex + 1 < request.queue.size
+    val nextVideoEpisode = if (hasNextVideoEpisode) request.queue.getOrNull(request.queueIndex + 1) else null
+
+    fun closeVideoCleanly() {
+        if (ownsPlayer && !request.isAudio) {
+            val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
+            val dur = exoPlayer.duration.coerceAtLeast(0L)
+            localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
+            latestReportProgress?.invoke(pos, dur, true, "stopped")
+        }
+        latestClose()
+    }
+
+    fun switchVideoEpisode(nextIdx: Int) {
+        val target = request.queue.getOrNull(nextIdx) ?: return
+        if (ownsPlayer && !request.isAudio) {
+            val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
+            val dur = exoPlayer.duration.coerceAtLeast(0L)
+            localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
+            latestReportProgress?.invoke(pos, dur, true, "stopped")
+        }
+        latestSwitchRequest?.invoke(buildCarryOverEpisodeRequest(target, nextIdx))
+    }
+
+    val canMinimizeAudio = request.isAudio && playbackPrefs.keepMusicMiniBar && onMinimizeToMiniBar != null
+
+    // 锁屏状态下拦截系统返回手势并唤出解锁提示；未锁屏时按偏好最小化或关闭
+    BackHandler(enabled = isLocked) {
+        controlsVisible = true
+        bumpInteraction()
+        hudMessage = "屏幕已锁定，请点击右侧锁图标解锁"
+    }
+    BackHandler(enabled = !isLocked) {
+        if (canMinimizeAudio) {
+            onMinimizeToMiniBar?.invoke()
+        } else if (request.isAudio) {
+            onClose()
+        } else {
+            closeVideoCleanly()
+        }
+    }
+
+    // 续播胶囊 6 秒后自动淡出
+    LaunchedEffect(resumeBannerPositionMs) {
+        if (resumeBannerPositionMs != null) {
+            delay(6_000L)
+            resumeBannerPositionMs = null
+        }
+    }
+
+    val anySheetOpen = showQueueSheet || showSubtitleSheet || showAudioTrackSheet || showSpeedSheet
+    var draggingProgress by remember { mutableFloatStateOf(-1f) }
+
+    // 视频控制栏播放中 4.5 秒无操作自动隐藏
+    LaunchedEffect(request.isAudio, controlsVisible, isPlaying, draggingProgress < 0f, anySheetOpen, isLongPressBoost, lastInteractionTick) {
+        if (!request.isAudio && controlsVisible && isPlaying && draggingProgress < 0f && !anySheetOpen && !isLongPressBoost) {
+            delay(4_500L)
+            controlsVisible = false
+        }
+    }
+
+    // 视频沉浸式系统状态栏/导航栏联动隐藏，退出时完整还原
+    DisposableEffect(activity, hostView, request.isAudio, controlsVisible, isInPipMode) {
+        val window = activity?.window
+        val controller = if (window != null) WindowCompat.getInsetsController(window, hostView) else null
+        if (!request.isAudio && controller != null) {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (!controlsVisible && !isInPipMode) {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    // 保持屏幕常亮、监听画中画模式，并在退出播放页时还原窗口亮度、方向与 PiP 自动进入标志
     DisposableEffect(hostView, activity, request.isAudio) {
         val prevKeepScreenOn = hostView.keepScreenOn
         if (!request.isAudio) {
@@ -469,11 +742,20 @@ fun NativeMediaPlayerOverlay(
                 showSubtitleSheet = false
                 showAudioTrackSheet = false
                 showQueueSheet = false
+                showSpeedSheet = false
             }
         }
         compActivity?.addOnPictureInPictureModeChangedListener(pipListener)
         onDispose {
             compActivity?.removeOnPictureInPictureModeChangedListener(pipListener)
+            PlaybackPipBridge.onUserLeaveHintCallback = null
+            if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !request.isAudio) {
+                runCatching {
+                    activity.setPictureInPictureParams(
+                        PictureInPictureParams.Builder().setAutoEnterEnabled(false).build(),
+                    )
+                }
+            }
             hostView.keepScreenOn = prevKeepScreenOn
             if (activity != null) {
                 if (!request.isAudio) {
@@ -488,56 +770,277 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
+    // 动态同步 API 31+ setAutoEnterEnabled 与 API 29–30 onUserLeaveHint 自动画中画参数
+    LaunchedEffect(activity, request.isAudio, isPlaying, playbackPrefs.autoPip, videoAspectRatio) {
+        if (activity == null || request.isAudio) {
+            PlaybackPipBridge.onUserLeaveHintCallback = null
+            return@LaunchedEffect
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PlaybackPipBridge.onUserLeaveHintCallback = null
+            runCatching {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(videoAspectRatio)
+                    .setAutoEnterEnabled(isPlaying && playbackPrefs.autoPip)
+                    .build()
+                activity.setPictureInPictureParams(params)
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PlaybackPipBridge.onUserLeaveHintCallback = {
+                if (exoPlayer.isPlaying && playbackPrefs.autoPip && !activity.isInPictureInPictureMode) {
+                    runCatching {
+                        val params = PictureInPictureParams.Builder()
+                            .setAspectRatio(videoAspectRatio)
+                            .build()
+                        activity.enterPictureInPictureMode(params)
+                    }
+                }
+            }
+        }
+    }
+
+    // 视频独立播放器绑定系统 MediaSession 通知栏与蓝牙播控
+    DisposableEffect(exoPlayer, ownsPlayer, request.isAudio, request.queueIndex, request.queue.size) {
+        if (ownsPlayer && !request.isAudio) {
+            PlaybackServiceBridge.attachActivePlayer(
+                context = context,
+                exoPlayer = exoPlayer,
+                canSkipPrevious = { exoPlayer.currentPosition > 3_000L || hasPrevVideoEpisode },
+                canSkipNext = { hasNextVideoEpisode },
+                onSkipPrevious = {
+                    if (exoPlayer.currentPosition > 3_000L || !hasPrevVideoEpisode) {
+                        exoPlayer.seekTo(0L)
+                    } else {
+                        switchVideoEpisode(request.queueIndex - 1)
+                    }
+                },
+                onSkipNext = {
+                    if (hasNextVideoEpisode) {
+                        switchVideoEpisode(request.queueIndex + 1)
+                    }
+                },
+            )
+        }
+        onDispose {
+            if (ownsPlayer) {
+                PlaybackServiceBridge.detachIfMatching(exoPlayer)
+            }
+        }
+    }
+
     val lrcLines = remember(request.lyricsLrc) { parseLrcLyrics(request.lyricsLrc) }
     val lrcListState = rememberLazyListState()
 
-    DisposableEffect(exoPlayer) {
+    // 初始音轨/中文字幕偏好应用辅助方法
+    fun applyInitialTrackPreferencesIfReady(tracks: Tracks) {
+        if (request.isAudio || appliedInitialTracks) return
+        val hasMediaGroups = tracks.groups.any { it.type == C.TRACK_TYPE_VIDEO || it.type == C.TRACK_TYPE_AUDIO }
+        if (!hasMediaGroups) return
+        appliedInitialTracks = true
+
+        var paramsBuilder = exoPlayer.trackSelectionParameters.buildUpon()
+        var changed = false
+
+        // 1. 匹配预选音轨（按序号或语言标签）
+        val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        if (audioGroups.isNotEmpty()) {
+            val flattenedAudio = buildList {
+                audioGroups.forEach { grp ->
+                    for (i in 0 until grp.length) add(grp to i)
+                }
+            }
+            val matchedAudio: Pair<Tracks.Group, Int>? = when {
+                request.preferredAudioIndex != null && request.preferredAudioIndex in flattenedAudio.indices ->
+                    flattenedAudio[request.preferredAudioIndex]
+                !request.preferredAudioLang.isNullOrBlank() -> {
+                    val targetLang = request.preferredAudioLang.trim().lowercase()
+                    flattenedAudio.firstOrNull { (grp, idx) ->
+                        val fmt = grp.getTrackFormat(idx)
+                        fmt.language?.lowercase() == targetLang ||
+                            fmt.label?.lowercase()?.contains(targetLang) == true
+                    }
+                }
+                else -> null
+            }
+            if (matchedAudio != null) {
+                paramsBuilder = paramsBuilder.setOverrideForType(
+                    TrackSelectionOverride(matchedAudio.first.mediaTrackGroup, matchedAudio.second),
+                )
+                changed = true
+            }
+        }
+
+        // 2. 匹配预选字幕或自动启用中文字幕
+        val textGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        if (request.disableSubtitles) {
+            paramsBuilder = paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            changed = true
+        } else if (textGroups.isNotEmpty()) {
+            val flattenedSubs = buildList {
+                textGroups.forEach { grp ->
+                    for (i in 0 until grp.length) add(grp to i)
+                }
+            }
+            val explicitSub: Pair<Tracks.Group, Int>? = when {
+                !request.preferredSubtitleId.isNullOrBlank() -> {
+                    val targetId = request.preferredSubtitleId.trim()
+                    flattenedSubs.firstOrNull { (grp, idx) ->
+                        val fmt = grp.getTrackFormat(idx)
+                        fmt.id == targetId || fmt.id?.endsWith(":$targetId") == true || fmt.label == targetId
+                    }
+                }
+                !request.preferredSubtitleLang.isNullOrBlank() -> {
+                    val targetLang = request.preferredSubtitleLang.trim().lowercase()
+                    flattenedSubs.firstOrNull { (grp, idx) ->
+                        val fmt = grp.getTrackFormat(idx)
+                        fmt.language?.lowercase() == targetLang ||
+                            fmt.label?.lowercase()?.contains(targetLang) == true
+                    }
+                }
+                else -> null
+            }
+            val chosenSub = explicitSub ?: if (playbackPrefs.preferChineseSub) {
+                flattenedSubs
+                    .map { pair ->
+                        val fmt = pair.first.getTrackFormat(pair.second)
+                        val isDefault = (fmt.selectionFlags and C.SELECTION_FLAG_DEFAULT) != 0
+                        val isExternal = fmt.sampleMimeType == MimeTypes.APPLICATION_SUBRIP ||
+                            fmt.sampleMimeType == MimeTypes.TEXT_VTT ||
+                            fmt.sampleMimeType == MimeTypes.TEXT_SSA
+                        pair to ChineseSubtitleMatcher.scoreChineseSubtitle(
+                            language = fmt.language,
+                            label = fmt.label,
+                            isDefault = isDefault,
+                            isExternal = isExternal,
+                        )
+                    }
+                    .filter { it.second > 0 }
+                    .maxByOrNull { it.second }
+                    ?.first
+            } else {
+                null
+            }
+
+            if (chosenSub != null) {
+                paramsBuilder = paramsBuilder
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(
+                        TrackSelectionOverride(chosenSub.first.mediaTrackGroup, chosenSub.second),
+                    )
+                changed = true
+            }
+        }
+
+        if (changed) {
+            exoPlayer.trackSelectionParameters = paramsBuilder.build()
+            tracksVersion++
+        }
+    }
+
+    DisposableEffect(exoPlayer, ownsPlayer, request.url) {
+        var didFallbackToProxy = false
         val listener = object : Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val fallbackUrl = request.proxyFallbackUrl
+                if (
+                    ownsPlayer &&
+                    !didFallbackToProxy &&
+                    !fallbackUrl.isNullOrBlank() &&
+                    fallbackUrl != request.url &&
+                    exoPlayer.currentPosition <= 1_000L
+                ) {
+                    didFallbackToProxy = true
+                    val curMeta = exoPlayer.currentMediaItem?.mediaMetadata ?: MediaMetadata.EMPTY
+                    val curSubs = exoPlayer.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
+                    val fallbackItem = MediaItem.Builder()
+                        .setUri(Uri.parse(fallbackUrl))
+                        .setMediaMetadata(curMeta)
+                        .setSubtitleConfigurations(curSubs)
+                        .build()
+                    exoPlayer.setMediaItem(fallbackItem)
+                    exoPlayer.prepare()
+                    exoPlayer.playWhenReady = true
+                }
+            }
+
             override fun onTracksChanged(tracks: Tracks) {
                 tracksVersion++
+                applyInitialTrackPreferencesIfReady(tracks)
             }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    videoAspectRatio = PlaybackPipBridge.computeClampedPipAspectRatio(videoSize.width, videoSize.height)
+                }
+            }
+
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
-                onReportProgress?.invoke(
-                    exoPlayer.currentPosition.coerceAtLeast(0L),
-                    exoPlayer.duration.coerceAtLeast(0L),
-                    !playing,
-                    if (playing) "playing" else "paused",
-                )
+                if (ownsPlayer) {
+                    val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
+                    val dur = exoPlayer.duration.coerceAtLeast(0L)
+                    localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
+                    latestReportProgress?.invoke(
+                        pos,
+                        dur,
+                        !playing,
+                        if (playing) "playing" else "paused",
+                    )
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED && ownsPlayer && !request.isAudio) {
+                    localHistoryStore.clearResumePosition(instanceUrl, request.server, request.localResumeId)
+                    if (hasNextVideoEpisode && !upNextCancelled && !autoAdvancedTriggered) {
+                        autoAdvancedTriggered = true
+                        switchVideoEpisode(request.queueIndex + 1)
+                    } else {
+                        latestReportProgress?.invoke(
+                            exoPlayer.duration.coerceAtLeast(0L),
+                            exoPlayer.duration.coerceAtLeast(0L),
+                            true,
+                            "stopped",
+                        )
+                    }
+                }
             }
         }
         exoPlayer.addListener(listener)
+        if (exoPlayer.currentTracks.groups.isNotEmpty()) {
+            applyInitialTrackPreferencesIfReady(exoPlayer.currentTracks)
+        }
         onDispose {
-            onReportProgress?.invoke(
-                exoPlayer.currentPosition.coerceAtLeast(0L),
-                exoPlayer.duration.coerceAtLeast(0L),
-                true,
-                "stopped",
-            )
             exoPlayer.removeListener(listener)
+            // 仅在播放器归属当前页面时释放并记录本地断点；共享后台音乐播放器交由根壳协调器托管（绝不误发 stopped）
             if (ownsPlayer) {
+                val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
+                val dur = exoPlayer.duration.coerceAtLeast(0L)
+                localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
                 exoPlayer.release()
             }
         }
     }
 
-    LaunchedEffect(exoPlayer) {
+    // 400ms 刷新界面进度，视频独立播放器每 15 秒（37 * 400ms ≈ 14.8s）同步一次服务端与本地续播进度
+    LaunchedEffect(exoPlayer, ownsPlayer) {
         var tick = 0
         while (true) {
             isPlaying = exoPlayer.isPlaying
             positionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             durationMs = exoPlayer.duration.coerceAtLeast(1L)
             tick++
-            if (tick % 25 == 0 && durationMs > 1L) {
-                onReportProgress?.invoke(positionMs, durationMs, !isPlaying, if (isPlaying) "playing" else "paused")
+            if (ownsPlayer && tick % 37 == 0 && durationMs > 1L) {
+                localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, positionMs, durationMs)
+                latestReportProgress?.invoke(positionMs, durationMs, !isPlaying, if (isPlaying) "playing" else "paused")
             }
-            delay(400)
+            delay(400L)
         }
     }
 
     LaunchedEffect(hudMessage) {
         if (hudMessage != null) {
-            delay(1400)
+            delay(1400L)
             hudMessage = null
         }
     }
@@ -555,7 +1058,7 @@ fun NativeMediaPlayerOverlay(
         val list = mutableListOf<ResolvedTrackChoice>()
         val tracks = exoPlayer.currentTracks
         val isTextDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-        list += ResolvedTrackChoice("关闭字幕", null, -1, isTextDisabled)
+        list += ResolvedTrackChoice("关闭字幕", null, null, null, -1, isTextDisabled)
         tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.forEachIndexed { gIdx, grp ->
             for (i in 0 until grp.length) {
                 val fmt = grp.getTrackFormat(i)
@@ -563,7 +1066,14 @@ fun NativeMediaPlayerOverlay(
                     fmt.label?.takeIf { it.isNotBlank() },
                     fmt.language?.takeIf { it.isNotBlank() && it != "und" },
                 ).joinToString(" · ").ifBlank { "字幕轨道 ${gIdx + 1}" }
-                list += ResolvedTrackChoice(label, grp, i, !isTextDisabled && grp.isTrackSelected(i))
+                list += ResolvedTrackChoice(
+                    label = label,
+                    language = fmt.language,
+                    trackId = fmt.id,
+                    group = grp,
+                    trackIndex = i,
+                    selected = !isTextDisabled && grp.isTrackSelected(i),
+                )
             }
         }
         list
@@ -579,43 +1089,161 @@ fun NativeMediaPlayerOverlay(
                     fmt.language?.takeIf { it.isNotBlank() && it != "und" },
                     ch,
                 ).joinToString(" · ").ifBlank { "音轨 ${gIdx + 1}" }
-                list += ResolvedTrackChoice(label, grp, i, grp.isTrackSelected(i))
+                list += ResolvedTrackChoice(
+                    label = label,
+                    language = fmt.language,
+                    trackId = fmt.id,
+                    group = grp,
+                    trackIndex = i,
+                    selected = grp.isTrackSelected(i),
+                )
             }
         }
         list
     }
 
     val progress = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-    var draggingProgress by remember { mutableFloatStateOf(-1f) }
     val displayPositionMs = if (draggingProgress >= 0f) (draggingProgress * durationMs).toLong() else positionMs
+    val rightDurationLabel = if (showRemainingTime && durationMs > 1_000L) {
+        "-${formatDurationMs((durationMs - displayPositionMs).coerceAtLeast(0L))}"
+    } else {
+        formatDurationMs(durationMs)
+    }
+
+    @Composable
+    fun ResumeFromHistoryBanner(modifier: Modifier = Modifier) {
+        val savedMs = resumeBannerPositionMs ?: return
+        Surface(
+            shape = CircleShape,
+            color = Color(0xDD171B26),
+            modifier = modifier
+                .border(0.8.dp, Color.White.copy(alpha = 0.18f), CircleShape),
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Rounded.Replay, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
+                Text(
+                    text = "已从 ${formatDurationMs(savedMs)} 继续播放",
+                    color = Color.White,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Surface(
+                    onClick = {
+                        exoPlayer.seekTo(0L)
+                        localHistoryStore.clearResumePosition(instanceUrl, request.server, request.localResumeId)
+                        resumeBannerPositionMs = null
+                        hudMessage = "已从头开始播放"
+                    },
+                    shape = CircleShape,
+                    color = colors.accent,
+                ) {
+                    Text(
+                        text = "从头开始",
+                        color = colors.primaryButtonFg,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+                IconButton(onClick = { resumeBannerPositionMs = null }, modifier = Modifier.size(22.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭提示", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun SpeedSelectorBottomSheet() {
+        if (!showSpeedSheet) return
+        NativeGlassSheet(onDismissRequest = { showSpeedSheet = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("选择播放倍速", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    itemsIndexed(speeds) { idx, spd ->
+                        val selected = idx == speedIndex
+                        val label = if (abs(spd - 1.0f) < 0.01f) "1.0x（正常原速）" else "${spd}x"
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (selected) colors.activeIndicator else colors.surfaceContainerLow)
+                                .clickable {
+                                    speedIndex = idx
+                                    exoPlayer.playbackParameters = PlaybackParameters(spd)
+                                    hudMessage = "倍速：${spd}x"
+                                    showSpeedSheet = false
+                                }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = label,
+                                color = colors.textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                            if (selected) {
+                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+        }
+    }
 
     if (request.isAudio) {
         // ═══════════════════════════════════════════════════════════════
-        // Material 3 Expressive 音频全屏播放页（横屏自动切换左封面右播控双栏，杜绝短高度挤压）
+        // Material 3 Expressive 音频全屏播放页（横屏自动切换左封面右播控双栏）
         // ═══════════════════════════════════════════════════════════════
+        val defaultAudioSpeedIdx = speeds.indexOf(1.0f).coerceAtLeast(0)
         val audioDockActions = listOf(
             ExpressiveDockAction(
                 icon = Icons.Rounded.Shuffle,
                 contentDescription = "随机播放",
-                active = shuffleEnabled,
+                active = effectiveShuffle,
                 onClick = {
-                    shuffleEnabled = !shuffleEnabled
-                    exoPlayer.shuffleModeEnabled = shuffleEnabled
-                    hudMessage = if (shuffleEnabled) "已开启随机播放" else "已关闭随机播放"
+                    val nextVal = !effectiveShuffle
+                    if (onUpdateAudioShuffle != null) {
+                        onUpdateAudioShuffle(nextVal)
+                    } else {
+                        localShuffle = nextVal
+                    }
+                    exoPlayer.shuffleModeEnabled = nextVal
+                    hudMessage = if (nextVal) "已开启随机播放" else "已关闭随机播放"
                 },
             ),
             ExpressiveDockAction(
-                icon = if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                icon = if (effectiveRepeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                 contentDescription = "循环模式",
-                active = repeatMode != Player.REPEAT_MODE_OFF,
+                active = effectiveRepeatMode != Player.REPEAT_MODE_OFF,
                 onClick = {
-                    repeatMode = when (repeatMode) {
+                    val nextMode = when (effectiveRepeatMode) {
                         Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
                         Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
                         else -> Player.REPEAT_MODE_OFF
                     }
-                    exoPlayer.repeatMode = repeatMode
-                    hudMessage = when (repeatMode) {
+                    if (onUpdateAudioRepeatMode != null) {
+                        onUpdateAudioRepeatMode(nextMode)
+                    } else {
+                        localRepeatMode = nextMode
+                    }
+                    exoPlayer.repeatMode = if (nextMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                    hudMessage = when (nextMode) {
                         Player.REPEAT_MODE_ALL -> "列表循环"
                         Player.REPEAT_MODE_ONE -> "单曲循环"
                         else -> "顺序播放"
@@ -625,13 +1253,8 @@ fun NativeMediaPlayerOverlay(
             ExpressiveDockAction(
                 icon = Icons.Rounded.Speed,
                 contentDescription = "播放倍速",
-                active = speedIndex != 1,
-                onClick = {
-                    speedIndex = (speedIndex + 1) % speeds.size
-                    val spd = speeds[speedIndex]
-                    exoPlayer.playbackParameters = PlaybackParameters(spd)
-                    hudMessage = "倍速：${spd}x"
-                },
+                active = speedIndex != defaultAudioSpeedIdx,
+                onClick = { showSpeedSheet = true },
             ),
         )
 
@@ -644,7 +1267,7 @@ fun NativeMediaPlayerOverlay(
             ) {
                 Surface(
                     onClick = {
-                        if (onMinimizeToMiniBar != null) onMinimizeToMiniBar() else onClose()
+                        if (canMinimizeAudio) onMinimizeToMiniBar?.invoke() else onClose()
                     },
                     shape = CircleShape,
                     color = playerPalette.dock,
@@ -652,10 +1275,10 @@ fun NativeMediaPlayerOverlay(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Rounded.KeyboardArrowDown,
-                            contentDescription = "收起至迷你播放条",
+                            imageVector = if (canMinimizeAudio) Icons.Rounded.KeyboardArrowDown else Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = if (canMinimizeAudio) "收起至迷你播放条" else "关闭播放器",
                             tint = Color.White,
-                            modifier = Modifier.size(if (compact) 22.dp else 26.dp),
+                            modifier = Modifier.size(if (compact) 22.dp else 24.dp),
                         )
                     }
                 }
@@ -698,12 +1321,17 @@ fun NativeMediaPlayerOverlay(
             ) {
                 Surface(
                     onClick = {
-                        if (request.queue.size > 1 && onSwitchRequest != null) {
+                        // 对齐 iOS 3 秒上一曲规则：超过 3 秒回到本曲开头，3 秒内切上一首
+                        if (exoPlayer.currentPosition > 3_000L) {
+                            exoPlayer.seekTo(0L)
+                            hudMessage = "已回到本曲开头"
+                        } else if (onAudioSkipPrevious != null && request.queue.size > 1) {
+                            onAudioSkipPrevious()
+                        } else if (request.queue.size > 1 && onSwitchRequest != null) {
                             val prevIdx = (request.queueIndex - 1 + request.queue.size) % request.queue.size
                             onSwitchRequest(request.queue[prevIdx].copy(queue = request.queue, queueIndex = prevIdx))
                         } else {
-                            exoPlayer.seekTo((exoPlayer.currentPosition - 15_000L).coerceAtLeast(0L))
-                            hudMessage = "快退 15 秒"
+                            exoPlayer.seekTo(0L)
                         }
                     },
                     shape = CircleShape,
@@ -712,7 +1340,7 @@ fun NativeMediaPlayerOverlay(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (request.queue.size > 1) Icons.Rounded.SkipPrevious else Icons.Rounded.Replay10,
+                            imageVector = Icons.Rounded.SkipPrevious,
                             contentDescription = "上一首",
                             tint = Color.White,
                             modifier = Modifier.size(sideIconSz),
@@ -734,7 +1362,9 @@ fun NativeMediaPlayerOverlay(
 
                 Surface(
                     onClick = {
-                        if (request.queue.size > 1 && onSwitchRequest != null) {
+                        if (onAudioSkipNext != null && request.queue.size > 1) {
+                            onAudioSkipNext()
+                        } else if (request.queue.size > 1 && onSwitchRequest != null) {
                             val nextIdx = (request.queueIndex + 1) % request.queue.size
                             onSwitchRequest(request.queue[nextIdx].copy(queue = request.queue, queueIndex = nextIdx))
                         } else {
@@ -772,7 +1402,6 @@ fun NativeMediaPlayerOverlay(
                     horizontalArrangement = Arrangement.spacedBy(22.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 左栏：等比方形专辑主视觉封面
                     BoxWithConstraints(
                         modifier = Modifier
                             .weight(0.44f)
@@ -811,7 +1440,6 @@ fun NativeMediaPlayerOverlay(
                         }
                     }
 
-                    // 右栏：紧凑顶栏 + 曲名/同步歌词舞台 + 内联波浪进度条 + 播控与功能胶囊坞
                     Column(
                         modifier = Modifier
                             .weight(0.56f)
@@ -933,7 +1561,12 @@ fun NativeMediaPlayerOverlay(
                                 inactiveColor = Color.White.copy(alpha = 0.24f),
                                 modifier = Modifier.weight(1f).height(28.dp),
                             )
-                            Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.72f), fontSize = 11.5.sp)
+                            Text(
+                                text = rightDurationLabel,
+                                color = Color.White.copy(alpha = 0.72f),
+                                fontSize = 11.5.sp,
+                                modifier = Modifier.clickable { showRemainingTime = !showRemainingTime },
+                            )
                         }
 
                         AudioTransportRow(compact = compactHeight)
@@ -961,7 +1594,6 @@ fun NativeMediaPlayerOverlay(
 
                     Spacer(Modifier.height(22.dp))
 
-                    // 中央舞台：28dp 大圆角专辑主视觉 ↔ 交互式同步歌词视图
                     AnimatedContent(
                         targetState = showLyricsView,
                         transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(180)) },
@@ -1114,7 +1746,12 @@ fun NativeMediaPlayerOverlay(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
-                        Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                        Text(
+                            text = rightDurationLabel,
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable { showRemainingTime = !showRemainingTime },
+                        )
                     }
 
                     Spacer(Modifier.height(22.dp))
@@ -1136,6 +1773,13 @@ fun NativeMediaPlayerOverlay(
                     Spacer(Modifier.height(8.dp))
                 }
             }
+
+            ResumeFromHistoryBanner(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                    .padding(top = if (compactHeight) 50.dp else 64.dp),
+            )
 
             hudMessage?.let { msg ->
                 Box(
@@ -1160,19 +1804,19 @@ fun NativeMediaPlayerOverlay(
                         .padding(horizontal = 20.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    val list = if (request.queue.isNotEmpty()) request.queue else listOf(request)
                     Text(
-                        text = "播放队列 (${request.queue.size.coerceAtLeast(1)})",
+                        text = "播放队列 (${list.size})",
                         color = colors.textPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    val list = if (request.queue.isNotEmpty()) request.queue else listOf(request)
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         itemsIndexed(list) { idx, track ->
-                            val current = idx == request.queueIndex || track.url == request.url
+                            val current = idx == request.queueIndex
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1208,31 +1852,77 @@ fun NativeMediaPlayerOverlay(
                 }
             }
         }
+        SpeedSelectorBottomSheet()
         return
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Material 3 Expressive 全屏视频播放器（保留完整手势/PiP/横屏锁屏 + 波浪条/形变键/胶囊坞）
+    // Material 3 Expressive 全屏视频播放器
     // ═══════════════════════════════════════════════════════════════
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
     var dragSeekDeltaMs by remember { mutableLongStateOf(0L) }
+    val defaultVideoSpeedIdx = speeds.indexOf(1.0f).coerceAtLeast(0)
+
+    val remainingMs = (durationMs - positionMs).coerceAtLeast(0L)
+    val showUpNextCard = !isInPipMode &&
+        hasNextVideoEpisode &&
+        nextVideoEpisode != null &&
+        !upNextCancelled &&
+        durationMs > 10_000L &&
+        (progress >= 0.93f || remainingMs in 1L..3_500L)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(isLocked) {
+            .pointerInput(isLocked, speedIndex) {
                 detectTapGestures(
-                    onTap = { controlsVisible = !controlsVisible },
-                    onDoubleTap = {
-                        if (!isLocked) {
-                            if (exoPlayer.isPlaying) {
-                                exoPlayer.pause()
-                                hudMessage = "已暂停"
-                            } else {
-                                exoPlayer.play()
-                                hudMessage = "继续播放"
+                    onPress = {
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            if (isLongPressBoost) {
+                                isLongPressBoost = false
+                                exoPlayer.playbackParameters = PlaybackParameters(speeds[speedIndex])
                             }
+                        }
+                    },
+                    onLongPress = {
+                        if (!isLocked) {
+                            isLongPressBoost = true
+                            hostView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                            exoPlayer.playbackParameters = PlaybackParameters(2.0f)
+                        }
+                    },
+                    onTap = {
+                        controlsVisible = !controlsVisible
+                        if (controlsVisible) bumpInteraction()
+                    },
+                    onDoubleTap = { offset ->
+                        if (!isLocked) {
+                            val w = size.width.toFloat().coerceAtLeast(1f)
+                            when {
+                                offset.x < w * 0.30f -> {
+                                    val target = (exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L)
+                                    exoPlayer.seekTo(target)
+                                    hudMessage = "快退 10 秒"
+                                }
+                                offset.x > w * 0.70f -> {
+                                    val target = (exoPlayer.currentPosition + 10_000L).coerceAtMost(durationMs)
+                                    exoPlayer.seekTo(target)
+                                    hudMessage = "快进 10 秒"
+                                }
+                                else -> {
+                                    if (exoPlayer.isPlaying) {
+                                        exoPlayer.pause()
+                                        hudMessage = "已暂停"
+                                    } else {
+                                        exoPlayer.play()
+                                        hudMessage = "继续播放"
+                                    }
+                                }
+                            }
+                            bumpInteraction()
                         }
                     },
                 )
@@ -1255,6 +1945,7 @@ fun NativeMediaPlayerOverlay(
                                 }
                                 dragSeekDeltaMs = 0L
                                 mode = 0
+                                bumpInteraction()
                             },
                             onDragCancel = {
                                 dragSeekDeltaMs = 0L
@@ -1273,7 +1964,6 @@ fun NativeMediaPlayerOverlay(
                             }
                             when (mode) {
                                 1 -> {
-                                    val activity = context as? Activity
                                     if (activity != null) {
                                         val lp = activity.window.attributes
                                         val cur = if (lp.screenBrightness < 0f) 0.5f else lp.screenBrightness
@@ -1330,8 +2020,21 @@ fun NativeMediaPlayerOverlay(
 
         val safePlayerInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
 
+        // 长按 2.0x 悬浮加速胶囊 / 续播提示胶囊 / 操作 HUD
         if (!isInPipMode) {
-            hudMessage?.let { msg ->
+            if (isLongPressBoost) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                        .padding(top = if (compactVideoHeight) 48.dp else 62.dp)
+                        .clip(CircleShape)
+                        .background(colors.accent.copy(alpha = 0.92f))
+                        .padding(horizontal = 18.dp, vertical = 7.dp),
+                ) {
+                    Text("2.0x 倍速播放中", color = colors.primaryButtonFg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            } else if (hudMessage != null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -1341,17 +2044,25 @@ fun NativeMediaPlayerOverlay(
                         .background(Color.Black.copy(alpha = 0.72f))
                         .padding(horizontal = 16.dp, vertical = 7.dp),
                 ) {
-                    Text(msg, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(hudMessage.orEmpty(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
+            } else if (resumeBannerPositionMs != null) {
+                ResumeFromHistoryBanner(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                        .padding(top = if (compactVideoHeight) 52.dp else 66.dp),
+                )
             }
         }
 
-        // 横屏锁定/解锁纯图标按钮（居中靠右，自动避让右侧三键导航栏与摄像头挖孔）
-        if (!isInPipMode && isLandscape && controlsVisible) {
+        // 屏幕锁定/解锁按钮：横竖屏双态均在点击屏幕后可见，确保竖屏锁定后随时可解锁
+        if (!isInPipMode && controlsVisible) {
             Surface(
                 onClick = {
                     val nextLocked = !isLocked
                     isLocked = nextLocked
+                    bumpInteraction()
                     if (activity != null) {
                         if (nextLocked) {
                             preLockOrientation = activity.requestedOrientation
@@ -1375,14 +2086,14 @@ fun NativeMediaPlayerOverlay(
                     Icon(
                         imageVector = if (isLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
                         contentDescription = if (isLocked) "解锁屏幕" else "锁定屏幕",
-                        tint = Color.White,
+                        tint = if (isLocked) colors.accent else Color.White,
                     )
                 }
             }
         }
 
         if (!isInPipMode && controlsVisible && !isLocked) {
-            // 顶部栏：圆形返回 + 标题 + 横竖屏切换圆钮 + 右上角画中画圆钮（完整避让顶栏与左右挖孔）
+            // 顶部栏：圆形返回 + 标题 + 外部播放器 + 横竖屏切换 + 画中画
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1391,10 +2102,10 @@ fun NativeMediaPlayerOverlay(
                     .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                     .padding(horizontal = 16.dp, vertical = if (compactVideoHeight) 8.dp else 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Surface(
-                    onClick = onClose,
+                    onClick = { closeVideoCleanly() },
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.45f),
                     modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
@@ -1403,17 +2114,54 @@ fun NativeMediaPlayerOverlay(
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
                     }
                 }
-                Text(
-                    text = request.title,
-                    color = Color.White,
-                    fontSize = if (compactVideoHeight) 15.sp else 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = request.title,
+                        color = Color.White,
+                        fontSize = if (compactVideoHeight) 14.5.sp else 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (request.subtitle.isNotBlank() && !compactVideoHeight) {
+                        Text(
+                            text = request.subtitle,
+                            color = Color.White.copy(alpha = 0.68f),
+                            fontSize = 11.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 Surface(
                     onClick = {
+                        bumpInteraction()
+                        exoPlayer.pause()
+                        val ok = ExternalPlayerLauncher.launchExternalPlayerChooser(
+                            context = context,
+                            streamUrl = request.url,
+                            title = request.title,
+                            isAudio = false,
+                            headers = request.headers,
+                        )
+                        if (!ok) hudMessage = "未找到可用的外部播放器"
+                    },
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.45f),
+                    modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                            contentDescription = "外部播放器",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                Surface(
+                    onClick = {
+                        bumpInteraction()
                         if (activity != null) {
                             if (isLandscape) {
                                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -1439,10 +2187,12 @@ fun NativeMediaPlayerOverlay(
                 Surface(
                     onClick = {
                         if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            val params = PictureInPictureParams.Builder()
-                                .setAspectRatio(Rational(16, 9))
-                                .build()
-                            activity.enterPictureInPictureMode(params)
+                            runCatching {
+                                val params = PictureInPictureParams.Builder()
+                                    .setAspectRatio(videoAspectRatio)
+                                    .build()
+                                activity.enterPictureInPictureMode(params)
+                            }
                         }
                     },
                     shape = CircleShape,
@@ -1455,54 +2205,103 @@ fun NativeMediaPlayerOverlay(
                 }
             }
 
-            // 中央 Expressive 形变播放/暂停 + 快退/快进圆钮
+            // 中央 Expressive 形变播放/暂停 + 上一集/快退/快进/下一集圆钮
             Row(
                 modifier = Modifier.align(Alignment.Center),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (compactVideoHeight) 18.dp else 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (compactVideoHeight) 14.dp else 18.dp),
             ) {
+                if (request.queue.size > 1) {
+                    Surface(
+                        onClick = {
+                            if (hasPrevVideoEpisode) {
+                                switchVideoEpisode(request.queueIndex - 1)
+                            }
+                        },
+                        enabled = hasPrevVideoEpisode,
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = if (hasPrevVideoEpisode) 0.48f else 0.22f),
+                        modifier = Modifier.size(if (compactVideoHeight) 42.dp else 46.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Rounded.SkipPrevious,
+                                contentDescription = "上一集",
+                                tint = Color.White.copy(alpha = if (hasPrevVideoEpisode) 1f else 0.38f),
+                                modifier = Modifier.size(if (compactVideoHeight) 22.dp else 24.dp),
+                            )
+                        }
+                    }
+                }
+
                 Surface(
                     onClick = {
+                        bumpInteraction()
                         exoPlayer.seekTo((exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L))
-                        hudMessage = "-10s"
+                        hudMessage = "快退 10 秒"
                     },
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.48f),
-                    modifier = Modifier.size(if (compactVideoHeight) 48.dp else 54.dp),
+                    modifier = Modifier.size(if (compactVideoHeight) 46.dp else 54.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Replay10, contentDescription = "快退10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 24.dp else 26.dp))
+                        Icon(Icons.Rounded.Replay10, contentDescription = "快退10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 23.dp else 26.dp))
                     }
                 }
 
                 ExpressiveMorphingPlayButton(
                     isPlaying = isPlaying,
                     onClick = {
+                        bumpInteraction()
                         if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
                     },
                     containerColor = colors.accent,
                     contentColor = colors.primaryButtonFg,
-                    width = if (compactVideoHeight) 70.dp else 76.dp,
-                    height = if (compactVideoHeight) 60.dp else 68.dp,
-                    iconSize = if (compactVideoHeight) 32.dp else 34.dp,
+                    width = if (compactVideoHeight) 68.dp else 76.dp,
+                    height = if (compactVideoHeight) 58.dp else 68.dp,
+                    iconSize = if (compactVideoHeight) 30.dp else 34.dp,
                 )
 
                 Surface(
                     onClick = {
+                        bumpInteraction()
                         exoPlayer.seekTo((exoPlayer.currentPosition + 10_000L).coerceAtMost(durationMs))
-                        hudMessage = "+10s"
+                        hudMessage = "快进 10 秒"
                     },
                     shape = CircleShape,
                     color = Color.Black.copy(alpha = 0.48f),
-                    modifier = Modifier.size(if (compactVideoHeight) 48.dp else 54.dp),
+                    modifier = Modifier.size(if (compactVideoHeight) 46.dp else 54.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Forward10, contentDescription = "快进10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 24.dp else 26.dp))
+                        Icon(Icons.Rounded.Forward10, contentDescription = "快进10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 23.dp else 26.dp))
+                    }
+                }
+
+                if (request.queue.size > 1) {
+                    Surface(
+                        onClick = {
+                            if (hasNextVideoEpisode) {
+                                switchVideoEpisode(request.queueIndex + 1)
+                            }
+                        },
+                        enabled = hasNextVideoEpisode,
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = if (hasNextVideoEpisode) 0.48f else 0.22f),
+                        modifier = Modifier.size(if (compactVideoHeight) 42.dp else 46.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Rounded.SkipNext,
+                                contentDescription = "下一集",
+                                tint = Color.White.copy(alpha = if (hasNextVideoEpisode) 1f else 0.38f),
+                                modifier = Modifier.size(if (compactVideoHeight) 22.dp else 24.dp),
+                            )
+                        }
                     }
                 }
             }
 
-            // 底部波浪进度条 + 连体播控胶囊坞（短屏横屏时间戳同行内联，避免与中央播放键重叠）
+            // 底部波浪进度条 + 连体播控胶囊坞
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1521,11 +2320,15 @@ fun NativeMediaPlayerOverlay(
                         Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 11.5.sp)
                         ExpressiveWavySlider(
                             value = if (draggingProgress >= 0f) draggingProgress else progress,
-                            onValueChange = { draggingProgress = it },
+                            onValueChange = {
+                                draggingProgress = it
+                                bumpInteraction()
+                            },
                             onValueChangeFinished = {
                                 if (draggingProgress >= 0f) {
                                     exoPlayer.seekTo((draggingProgress * durationMs).toLong())
                                     draggingProgress = -1f
+                                    bumpInteraction()
                                 }
                             },
                             isPlaying = isPlaying,
@@ -1533,16 +2336,28 @@ fun NativeMediaPlayerOverlay(
                             inactiveColor = Color.White.copy(alpha = 0.28f),
                             modifier = Modifier.weight(1f).height(28.dp),
                         )
-                        Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.68f), fontSize = 11.5.sp)
+                        Text(
+                            text = rightDurationLabel,
+                            color = Color.White.copy(alpha = 0.68f),
+                            fontSize = 11.5.sp,
+                            modifier = Modifier.clickable {
+                                showRemainingTime = !showRemainingTime
+                                bumpInteraction()
+                            },
+                        )
                     }
                 } else {
                     ExpressiveWavySlider(
                         value = if (draggingProgress >= 0f) draggingProgress else progress,
-                        onValueChange = { draggingProgress = it },
+                        onValueChange = {
+                            draggingProgress = it
+                            bumpInteraction()
+                        },
                         onValueChangeFinished = {
                             if (draggingProgress >= 0f) {
                                 exoPlayer.seekTo((draggingProgress * durationMs).toLong())
                                 draggingProgress = -1f
+                                bumpInteraction()
                             }
                         },
                         isPlaying = isPlaying,
@@ -1554,44 +2369,81 @@ fun NativeMediaPlayerOverlay(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 12.sp)
-                        Text(formatDurationMs(durationMs), color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp)
+                        Text(
+                            text = rightDurationLabel,
+                            color = Color.White.copy(alpha = 0.68f),
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable {
+                                showRemainingTime = !showRemainingTime
+                                bumpInteraction()
+                            },
+                        )
                     }
                 }
-                ExpressiveGroupedActionDock(
-                    actions = listOf(
+
+                val dockActions = buildList {
+                    if (request.queue.size > 1) {
+                        add(
+                            ExpressiveDockAction(
+                                icon = Icons.AutoMirrored.Rounded.FormatListBulleted,
+                                contentDescription = "选集",
+                                active = showQueueSheet,
+                                onClick = {
+                                    bumpInteraction()
+                                    showQueueSheet = true
+                                },
+                            ),
+                        )
+                    }
+                    add(
                         ExpressiveDockAction(
                             icon = Icons.Rounded.ClosedCaption,
                             contentDescription = "字幕",
                             active = subtitleChoices.any { it.group != null && it.selected },
-                            onClick = { showSubtitleSheet = true },
+                            onClick = {
+                                bumpInteraction()
+                                showSubtitleSheet = true
+                            },
                         ),
+                    )
+                    add(
                         ExpressiveDockAction(
                             icon = Icons.Rounded.GraphicEq,
                             contentDescription = "音轨",
                             active = false,
-                            onClick = { showAudioTrackSheet = true },
+                            onClick = {
+                                bumpInteraction()
+                                showAudioTrackSheet = true
+                            },
                         ),
+                    )
+                    add(
                         ExpressiveDockAction(
                             icon = Icons.Rounded.AspectRatio,
                             contentDescription = "画面填充",
                             active = resizeModeIndex != 0,
                             onClick = {
+                                bumpInteraction()
                                 resizeModeIndex = (resizeModeIndex + 1) % resizeModes.size
                                 hudMessage = "画面：${resizeModes[resizeModeIndex].second}"
                             },
                         ),
+                    )
+                    add(
                         ExpressiveDockAction(
                             icon = Icons.Rounded.Speed,
                             contentDescription = "播放倍速",
-                            active = speedIndex != 1,
+                            active = speedIndex != defaultVideoSpeedIdx,
                             onClick = {
-                                speedIndex = (speedIndex + 1) % speeds.size
-                                val spd = speeds[speedIndex]
-                                exoPlayer.playbackParameters = PlaybackParameters(spd)
-                                hudMessage = "倍速：${spd}x"
+                                bumpInteraction()
+                                showSpeedSheet = true
                             },
                         ),
-                    ),
+                    )
+                }
+
+                ExpressiveGroupedActionDock(
+                    actions = dockActions,
                     dockColor = Color(0xCC12151E),
                     buttonColor = Color.White.copy(alpha = 0.12f),
                     activeButtonColor = colors.accent,
@@ -1599,6 +2451,144 @@ fun NativeMediaPlayerOverlay(
                     activeIconColor = colors.primaryButtonFg,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+        }
+
+        // 片尾「即将播放下一集」磨砂玻璃卡片（>= 93% 或剩余 <= 3.5 秒自动浮现，支持立即连播与取消）
+        AnimatedVisibility(
+            visible = showUpNextCard,
+            enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 2 },
+            exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { it / 2 },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.End))
+                .padding(end = 20.dp, bottom = if (controlsVisible) (if (compactVideoHeight) 110.dp else 148.dp) else 28.dp),
+        ) {
+            nextVideoEpisode?.let { nextEp ->
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xE0161A26),
+                    shadowElevation = 12.dp,
+                    modifier = Modifier
+                        .widthIn(max = 320.dp)
+                        .border(0.9.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp)),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = "即将播放下一集 · ${nextEp.title}",
+                            color = Color.White,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Surface(
+                                onClick = {
+                                    autoAdvancedTriggered = true
+                                    switchVideoEpisode(request.queueIndex + 1)
+                                },
+                                shape = CircleShape,
+                                color = colors.accent,
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = colors.primaryButtonFg, modifier = Modifier.size(16.dp))
+                                    Text("立即播放", color = colors.primaryButtonFg, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Surface(
+                                onClick = { upNextCancelled = true },
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = 0.14f),
+                            ) {
+                                Text(
+                                    text = "取消",
+                                    color = Color.White.copy(alpha = 0.90f),
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 视频选集面板
+    if (showQueueSheet && !request.isAudio) {
+        NativeGlassSheet(onDismissRequest = { showQueueSheet = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val list = request.queue.ifEmpty { listOf(request) }
+                Text(
+                    text = "选集 (${list.size})",
+                    color = colors.textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    itemsIndexed(list) { idx, ep ->
+                        val current = idx == request.queueIndex
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (current) colors.activeIndicator else colors.surfaceContainerLow)
+                                .clickable {
+                                    showQueueSheet = false
+                                    if (!current) {
+                                        switchVideoEpisode(idx)
+                                    }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                text = "E%02d".format(idx + 1),
+                                color = if (current) colors.accent else colors.textMuted,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = ep.title,
+                                    color = colors.textPrimary,
+                                    fontSize = 14.5.sp,
+                                    fontWeight = if (current) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (ep.subtitle.isNotBlank()) {
+                                    Text(ep.subtitle, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1)
+                                }
+                            }
+                            if (current) {
+                                Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
             }
         }
     }
@@ -1624,9 +2614,13 @@ fun NativeMediaPlayerOverlay(
                                     val builder = exoPlayer.trackSelectionParameters.buildUpon()
                                     if (choice.group == null) {
                                         builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                                        activeDisableSubtitles = true
+                                        activePreferredSubtitleLang = null
                                     } else {
                                         builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                                             .setOverrideForType(TrackSelectionOverride(choice.group.mediaTrackGroup, choice.trackIndex))
+                                        activeDisableSubtitles = false
+                                        activePreferredSubtitleLang = choice.language ?: choice.label
                                     }
                                     exoPlayer.trackSelectionParameters = builder.build()
                                     tracksVersion++
@@ -1675,6 +2669,7 @@ fun NativeMediaPlayerOverlay(
                                                 .buildUpon()
                                                 .setOverrideForType(TrackSelectionOverride(grp.mediaTrackGroup, choice.trackIndex))
                                                 .build()
+                                            activePreferredAudioLang = choice.language ?: choice.label
                                             tracksVersion++
                                             hudMessage = "音轨：${choice.label}"
                                         }
@@ -1696,6 +2691,8 @@ fun NativeMediaPlayerOverlay(
             }
         }
     }
+
+    SpeedSelectorBottomSheet()
 }
 
 /**

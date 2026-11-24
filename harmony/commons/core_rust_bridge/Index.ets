@@ -3,7 +3,8 @@ export {
   NativeCoreModule,
   MedalPalette,
   SubscribeProgress,
-  CronSummary
+  CronSummary,
+  ParsedStrmStream
 } from './src/main/ets/bridge/RustCoreBridge';
 
 export {
@@ -56,10 +57,14 @@ export {
   MpSchedulerItem,
   MpSimpleSettingItem,
   MpMusicAlbum,
+  MpMusicTrackItem,
+  MpMusicAlbumDetail,
+  MpMusicArtistDetail,
   MpServiceConfig,
   MpDirectoryConfig,
   MpStorageConfig,
   MpFilterRuleGroup,
+  MpExternalSubtitle,
   MpVideoStreamInfo,
   MpManualTransferTargetHint,
   MpManualTransferHistoryHint,
@@ -83,7 +88,9 @@ export {
   MpSubscribeFilesInfo,
   MpTmdbEpisodeItem,
   MpMediaServerStream,
+  MpMediaTrackOption,
   MpMediaServerSource,
+  MpPlaybackSource,
   MpMediaServerPerson,
   MpMediaServerEpisode,
   MpMediaServerDetail,

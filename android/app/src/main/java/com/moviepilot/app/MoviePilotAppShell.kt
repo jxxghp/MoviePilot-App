@@ -1,5 +1,12 @@
 package com.moviepilot.app
 
+import android.app.Activity
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.Uri
+import android.os.Build
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -29,9 +36,12 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -43,6 +53,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -50,6 +61,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.util.Consumer
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
@@ -63,6 +76,7 @@ import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.MainTab
 import com.moviepilot.designsystem.MoviePilotBottomNavigationBar
+import com.moviepilot.designsystem.PlaybackPreferencesStore
 import com.moviepilot.feature.agent.AgentChatScreen
 import com.moviepilot.feature.auth.LoginScreen
 import com.moviepilot.feature.auth.ServerConnectionScreen
@@ -77,6 +91,8 @@ import com.moviepilot.feature.discover.DiscoverScreen
 import com.moviepilot.feature.discover.ExploreScreen
 import com.moviepilot.feature.discover.GlobalSearchScreen
 import com.moviepilot.feature.discover.MediaServerLibraryScreen
+import com.moviepilot.feature.discover.MusicAlbumDetailScreen
+import com.moviepilot.feature.discover.MusicArtistDetailScreen
 import com.moviepilot.feature.discover.MusicDiscoveryScreen
 import com.moviepilot.feature.download.DownloadsScreen
 import com.moviepilot.feature.download.ResourceSearchScreen
@@ -104,14 +120,19 @@ import com.moviepilot.feature.subscribe.SubscriptionsScreen
 import com.moviepilot.medal3d.CommunityProfile
 import com.moviepilot.medal3d.NativeCommunityMedalShowcaseOverlay
 import com.moviepilot.media.FloatingMiniMusicBar
+import com.moviepilot.media.LocalPlaybackHistoryStore
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.NativeMediaPlayerOverlay
+import com.moviepilot.media.PlaybackServiceBridge
+import com.moviepilot.media.QueueTrackSpec
+import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.media.buildConfiguredExoPlayer
 import com.moviepilot.pluginhost.clearIsolatedPluginWebViewSession
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaPersonDto
 import com.moviepilot.rustbridge.MediaServerLibraryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
+import com.moviepilot.rustbridge.MusicAlbumDto
 import com.moviepilot.rustbridge.PluginItemDto
 import com.moviepilot.rustbridge.RustCoreBridge
 import com.moviepilot.rustbridge.SessionState
@@ -119,13 +140,18 @@ import com.moviepilot.rustbridge.WorkflowItemDto
 import com.moviepilot.rustcore.PermissionsFfi
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
+import kotlin.random.Random
 
-/** 主壳路由目的栈条目（覆盖全部业务页面、分类探索、媒体库、独立人物页、独立消息页、渠道授权、插件宿主与全部设置模块）。 */
+/** 主壳路由目的栈条目（覆盖全部业务页面、分类探索、媒体库、音乐专辑/艺人页、人物页、消息页、渠道授权、插件宿主与全部设置模块）。 */
 sealed interface AppRoute {
     data object TabRoot : AppRoute
     data class Explore(val source: String = "tmdb_movies") : AppRoute
@@ -142,6 +168,12 @@ sealed interface AppRoute {
     data class MediaServerLibrary(val library: MediaServerLibraryDto) : AppRoute
     data object Messages : AppRoute
     data object Music : AppRoute
+    data class MusicAlbumDetail(val album: MusicAlbumDto) : AppRoute
+    data class MusicArtistDetail(
+        val artistId: String,
+        val artistName: String,
+        val source: String = "musicbrainz",
+    ) : AppRoute
     data class Subscriptions(val category: String? = null) : AppRoute
     data object Calendar : AppRoute
     data object SubscribeCommunity : AppRoute
@@ -199,7 +231,11 @@ private fun checkRoutePermission(route: AppRoute, perms: PermissionsFfi): String
         is AppRoute.History,
         -> if (perms.manage) null else "当前账号无下载与文件整理权限"
 
-        is AppRoute.Explore -> if (perms.discovery) null else "当前账号无探索与发现权限"
+        is AppRoute.Explore,
+        AppRoute.Music,
+        is AppRoute.MusicAlbumDetail,
+        is AppRoute.MusicArtistDetail,
+        -> if (perms.discovery) null else "当前账号无探索与发现权限"
 
         is AppRoute.Resources -> if (perms.search) null else "当前账号无站点资源搜索权限"
 
@@ -212,13 +248,21 @@ private fun checkRoutePermission(route: AppRoute, perms: PermissionsFfi): String
     }
 }
 
+private fun isMeteredCellularOnly(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+    val net = cm.activeNetwork ?: return false
+    val caps = cm.getNetworkCapabilities(net) ?: return false
+    return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+        !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+        !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+}
+
 /**
- * MoviePilot Android Material Design 3 根容器：
- * 1. 维护 4 个一级 Tab（发现、订阅、我的、更多）各自独立的子路由栈（`tabStacks`）并配合 `rememberSaveableStateHolder` 保活滚动位置与视图状态；
- * 2. 窄屏提供 4+1 分离式实时磨砂玻璃胶囊底栏（左侧 4 主 Tab + 右侧独立圆形「搜索」按钮），宽屏（`>= 600dp`）常驻左侧 `FloatingNavigationRail`；
- * 3. 支持 `NeedsLogin` -> `Authenticated` 跨登录态保留并自动重放 `incomingDeepLink`；
- * 4. 全局拦截 RBAC 管理员/子权限越权路由，并在登出或 401 会话过期时自动清理隔离插件 WebView 会话；
- * 5. 动态计算底部覆盖层安全内边距（`LocalBottomOverlayInset`），兼顾未登录本地音频悬浮迷你播控条。
+ * MoviePilot Android Material Design 3 根容器与全局播放协调器：
+ * 1. 维护 4 个一级 Tab 各自独立的子路由栈（`tabStacks`）并配合 `rememberSaveableStateHolder` 保活状态；
+ * 2. 窄屏提供 4+1 分离式磨砂玻璃底栏，宽屏常驻左侧 `FloatingNavigationRail`；
+ * 3. 全局托管后台音乐 `ExoPlayer`、Media3 系统媒体通知栏/锁屏会话、延迟解析队列自动连播、15 秒持续进度上报（最小化至迷你条绝不误报 `stopped`）与受管缓存清理；
+ * 4. 在 401 会话过期、主动登出与实例切换时自动终止会话绑定播放并保留本机离线媒体播放。
  */
 @Composable
 fun MoviePilotRootShell(
@@ -234,6 +278,7 @@ fun MoviePilotRootShell(
     },
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val colors = LocalMoviePilotColors.current
     val appearanceStore = LocalAppearanceStore.current
     val scope = rememberCoroutineScope()
@@ -242,6 +287,7 @@ fun MoviePilotRootShell(
     val snackbarHostState = remember { SnackbarHostState() }
     val shellHazeState = remember { HazeState() }
     val saveableStateHolder = rememberSaveableStateHolder()
+    val localHistoryStore = remember(context) { LocalPlaybackHistoryStore(context) }
     val medalJson = remember { Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true } }
 
     var allowSelfSignedTls by remember { mutableStateOf(repository.secretStore.allowSelfSignedTls) }
@@ -264,7 +310,53 @@ fun MoviePilotRootShell(
     var bgAudioRequest by remember { mutableStateOf<MediaPlaybackRequest?>(null) }
     var bgAudioPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     var bgAudioPlaying by remember { mutableStateOf(false) }
+    var audioShuffleEnabled by rememberSaveable { mutableStateOf(false) }
+    var audioRepeatMode by rememberSaveable { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
+    var pendingCellularRequest by remember { mutableStateOf<MediaPlaybackRequest?>(null) }
+    var cellularConfirmedInSession by rememberSaveable { mutableStateOf(false) }
     var activeMedalShowcase by remember { mutableStateOf<Pair<CommunityProfile, String>?>(null) }
+
+    var isInPipMode by remember(activity) {
+        mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity?.isInPictureInPictureMode == true else false)
+    }
+    DisposableEffect(activity) {
+        val comp = activity as? ComponentActivity
+        val pipListener = Consumer<PictureInPictureModeChangedInfo> { info ->
+            isInPipMode = info.isInPictureInPictureMode
+        }
+        comp?.addOnPictureInPictureModeChangedListener(pipListener)
+        onDispose {
+            comp?.removeOnPictureInPictureModeChangedListener(pipListener)
+        }
+    }
+
+    val activeInstanceUrl = when (val cur = session) {
+        is SessionState.Authenticated -> cur.serverUrl
+        is SessionState.NeedsLogin -> cur.serverUrl
+        SessionState.Unconnected -> ""
+    }
+
+    // 启动时清扫上次异常退出遗留的远程存储播放临时缓存文件
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val dir = File(context.cacheDir, "mp_storage_playback")
+            if (dir.isDirectory) {
+                dir.listFiles()?.forEach { f -> runCatching { f.delete() } }
+            }
+        }
+    }
+
+    fun deleteTempFileIfUnused(tempPath: String?, keepPaths: Set<String?> = emptySet()) {
+        if (tempPath.isNullOrBlank() || tempPath in keepPaths) return
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val f = File(tempPath)
+                if (f.isFile && f.canonicalPath.startsWith(context.cacheDir.canonicalPath)) {
+                    f.delete()
+                }
+            }
+        }
+    }
 
     val activeStack = tabStacks[selectedTab].orEmpty()
     val currentRoute: AppRoute = activeStack.lastOrNull()?.route ?: AppRoute.TabRoot
@@ -346,53 +438,363 @@ fun MoviePilotRootShell(
         }
     }
 
-    fun releaseBackgroundAudio() {
-        bgAudioPlayer?.release()
+    fun reportAudioProgressAsync(req: MediaPlaybackRequest?, posMs: Long, durMs: Long, isPaused: Boolean, state: String) {
+        val r = req ?: return
+        if (r.itemId.isBlank() || r.server.isBlank()) return
+        scope.launch {
+            repository.reportMediaPlaybackProgress(
+                itemId = r.itemId,
+                server = r.server,
+                positionMs = posMs,
+                durationMs = durMs,
+                isPaused = isPaused,
+                state = state,
+                mediaSourceId = r.mediaSourceId.ifBlank { null },
+            )
+        }
+    }
+
+    fun releaseBackgroundAudio(reportStopped: Boolean = true) {
+        val prevPlayer = bgAudioPlayer
+        val prevReq = bgAudioRequest
+        if (prevPlayer != null && prevReq != null) {
+            val pos = prevPlayer.currentPosition.coerceAtLeast(0L)
+            val dur = prevPlayer.duration.coerceAtLeast(0L)
+            localHistoryStore.recordPlaybackProgress(activeInstanceUrl, prevReq.server, prevReq.localResumeId, pos, dur)
+            if (reportStopped) {
+                reportAudioProgressAsync(prevReq, pos, dur, isPaused = true, state = "stopped")
+            }
+        }
+        PlaybackServiceBridge.detachIfMatching(prevPlayer)
+        prevPlayer?.release()
         bgAudioPlayer = null
         bgAudioRequest = null
         bgAudioPlaying = false
+        deleteTempFileIfUnused(prevReq?.tempFilePath, keepPaths = setOf(activePlayerRequest?.tempFilePath))
     }
 
-    fun startPlayback(req: MediaPlaybackRequest) {
-        if (req.isAudio) {
-            if (bgAudioRequest?.url != req.url || bgAudioPlayer == null) {
-                bgAudioPlayer?.release()
-                val player = buildConfiguredExoPlayer(context, req)
-                player.addListener(object : Player.Listener {
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        bgAudioPlaying = isPlaying
-                    }
-                })
-                bgAudioPlayer = player
-                bgAudioRequest = req
-                bgAudioPlaying = true
-            } else {
-                bgAudioPlayer?.playWhenReady = true
+    fun stopSessionBoundPlayback() {
+        if (bgAudioRequest?.isSessionBound == true) {
+            releaseBackgroundAudio(reportStopped = false)
+        }
+        val activeReq = activePlayerRequest
+        if (activeReq != null && activeReq.isSessionBound) {
+            activePlayerRequest = null
+            deleteTempFileIfUnused(activeReq.tempFilePath, keepPaths = setOf(bgAudioRequest?.tempFilePath))
+        }
+    }
+
+    suspend fun resolvePlayableRequest(rawReq: MediaPlaybackRequest): MediaPlaybackRequest? {
+        if (rawReq.url.isNotBlank()) {
+            val resolvedOrigin = rawReq.originUrl.ifBlank { activeInstanceUrl.ifBlank { rawReq.url } }
+            val resolvedSameOriginHeaders = rawReq.sameOriginHeaders.ifEmpty {
+                if (activeInstanceUrl.isNotBlank()) repository.buildPlaybackHeaders(activeInstanceUrl) else rawReq.headers
             }
-            activePlayerRequest = req
-        } else {
-            bgAudioPlayer?.pause()
-            activePlayerRequest = req
+            val inferredFallback = rawReq.proxyFallbackUrl ?: run {
+                if (
+                    rawReq.isSessionBound &&
+                    rawReq.itemId.isNotBlank() &&
+                    !rawReq.itemId.startsWith("file:") &&
+                    !rawReq.itemId.startsWith("local:") &&
+                    !rawReq.itemId.startsWith("external:") &&
+                    activeInstanceUrl.isNotBlank() &&
+                    !RustCoreBridge.containsUrl(activeInstanceUrl, rawReq.url)
+                ) {
+                    val q = buildList {
+                        add("itemid" to rawReq.itemId)
+                        if (rawReq.server.isNotBlank()) add("server" to rawReq.server)
+                        if (rawReq.mediaSourceId.isNotBlank()) add("media_source_id" to rawReq.mediaSourceId)
+                    }
+                    runCatching { RustCoreBridge.buildEndpointUrl(activeInstanceUrl, listOf("mediaserver", "stream"), q) }.getOrNull()
+                } else {
+                    null
+                }
+            }
+            return rawReq.copy(
+                originUrl = resolvedOrigin,
+                sameOriginHeaders = resolvedSameOriginHeaders,
+                proxyFallbackUrl = inferredFallback,
+                allowSelfSignedTls = rawReq.allowSelfSignedTls || repository.secretStore.allowSelfSignedTls,
+            )
+        }
+        return when (val spec = rawReq.lazySpec) {
+            is QueueTrackSpec.DirectUrl -> rawReq.copy(
+                url = spec.url,
+                originUrl = rawReq.originUrl.ifBlank { activeInstanceUrl.ifBlank { spec.url } },
+                sameOriginHeaders = rawReq.sameOriginHeaders.ifEmpty {
+                    if (activeInstanceUrl.isNotBlank()) repository.buildPlaybackHeaders(activeInstanceUrl) else rawReq.headers
+                },
+                allowSelfSignedTls = rawReq.allowSelfSignedTls || repository.secretStore.allowSelfSignedTls,
+            )
+
+            is QueueTrackSpec.MusicQuery -> {
+                val manifest = repository.fetchMusicStreamInfo(
+                    title = spec.title,
+                    artist = spec.artist,
+                    album = spec.album,
+                ) ?: return null
+                val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                rawReq.copy(
+                    url = manifest.contentUrl,
+                    title = manifest.title.ifBlank { rawReq.title },
+                    isAudio = true,
+                    lyricsLrc = lrc,
+                    headers = manifest.headers,
+                    sameOriginHeaders = manifest.sameOriginHeaders,
+                    proxyFallbackUrl = manifest.proxyFallbackUrl,
+                    originUrl = manifest.originUrl.ifBlank { activeInstanceUrl.ifBlank { manifest.contentUrl } },
+                    allowSelfSignedTls = repository.secretStore.allowSelfSignedTls,
+                    itemId = manifest.itemId,
+                    server = manifest.server,
+                    mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                )
+            }
+
+            is QueueTrackSpec.MediaServerItem -> {
+                val manifest = repository.fetchVideoStreamInfo(
+                    itemId = spec.itemId,
+                    server = spec.server.ifBlank { null },
+                    mediaSourceId = spec.mediaSourceId,
+                ) ?: return null
+                val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                rawReq.copy(
+                    url = manifest.contentUrl,
+                    title = rawReq.title.ifBlank { manifest.title },
+                    isAudio = rawReq.isAudio || manifest.mediaType == "audio",
+                    lyricsLrc = lrc,
+                    headers = manifest.headers,
+                    sameOriginHeaders = manifest.sameOriginHeaders,
+                    proxyFallbackUrl = manifest.proxyFallbackUrl,
+                    originUrl = manifest.originUrl.ifBlank { activeInstanceUrl.ifBlank { manifest.contentUrl } },
+                    allowSelfSignedTls = repository.secretStore.allowSelfSignedTls,
+                    itemId = manifest.itemId,
+                    server = manifest.server.ifBlank { spec.server },
+                    mediaSourceId = manifest.mediaSourceId ?: spec.mediaSourceId.orEmpty(),
+                    resumePositionMs = manifest.resumePositionMs.takeIf { it > 0L } ?: rawReq.resumePositionMs,
+                    subtitles = manifest.subtitles.map {
+                        SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
+                    },
+                )
+            }
+
+            null -> null
+        }
+    }
+
+    val latestAudioShuffle by rememberUpdatedState(audioShuffleEnabled)
+    val latestAudioRepeat by rememberUpdatedState(audioRepeatMode)
+    val latestBgAudioReq by rememberUpdatedState(bgAudioRequest)
+    val latestActivePlayerReq by rememberUpdatedState(activePlayerRequest)
+
+    // 前向声明供监听器与队列控制复用
+    var startPlaybackInternalRef: ((MediaPlaybackRequest, Boolean) -> Unit)? = null
+
+    fun advanceAudioTrack(forward: Boolean, autoEnded: Boolean = false) {
+        val cur = latestBgAudioReq ?: return
+        val queue = cur.queue
+        val player = bgAudioPlayer
+
+        if (!forward && player != null && player.currentPosition > 3_000L) {
+            player.seekTo(0L)
+            return
+        }
+        if (autoEnded && latestAudioRepeat == Player.REPEAT_MODE_ONE && player != null) {
+            player.seekTo(0L)
+            player.play()
+            return
+        }
+        if (queue.size <= 1) {
+            if (autoEnded && latestAudioRepeat == Player.REPEAT_MODE_ALL && player != null) {
+                player.seekTo(0L)
+                player.play()
+            }
+            return
+        }
+
+        scope.launch {
+            val maxTries = minOf(queue.size, 6)
+            var candidateIdx = cur.queueIndex
+            for (attempt in 0 until maxTries) {
+                candidateIdx = when {
+                    latestAudioShuffle && queue.size > 1 -> {
+                        val others = queue.indices.filter { it != candidateIdx }
+                        others.random(Random.Default)
+                    }
+                    forward -> {
+                        val next = candidateIdx + 1
+                        if (next >= queue.size) {
+                            if (!autoEnded || latestAudioRepeat == Player.REPEAT_MODE_ALL) 0 else return@launch
+                        } else {
+                            next
+                        }
+                    }
+                    else -> (candidateIdx - 1 + queue.size) % queue.size
+                }
+
+                val nextCandidate = queue[candidateIdx].copy(queue = queue, queueIndex = candidateIdx)
+                val resolved = resolvePlayableRequest(nextCandidate)
+                if (resolved != null) {
+                    val keepFullscreen = latestActivePlayerReq?.isAudio == true
+                    startPlaybackInternalRef?.invoke(resolved, keepFullscreen)
+                    return@launch
+                }
+            }
+            snackbarHostState.showSnackbar("队列中后续曲目暂未在媒体服务器中找到音频流")
+        }
+    }
+
+    fun attachAudioMediaSession(player: ExoPlayer, req: MediaPlaybackRequest) {
+        PlaybackServiceBridge.attachActivePlayer(
+            context = context,
+            exoPlayer = player,
+            canSkipPrevious = { true },
+            canSkipNext = { req.queue.size > 1 || latestAudioRepeat != Player.REPEAT_MODE_OFF },
+            onSkipPrevious = { advanceAudioTrack(forward = false, autoEnded = false) },
+            onSkipNext = { advanceAudioTrack(forward = true, autoEnded = false) },
+        )
+    }
+
+    fun executeStartPlayback(rawReq: MediaPlaybackRequest, expandOverlay: Boolean = true) {
+        scope.launch {
+            val req = resolvePlayableRequest(rawReq)
+            if (req == null) {
+                snackbarHostState.showSnackbar("暂无法解析「${rawReq.title}」的可播放流")
+                return@launch
+            }
+            if (req.isAudio) {
+                val prevReq = bgAudioRequest
+                val prevPlayer = bgAudioPlayer
+                if (prevReq?.url != req.url || prevPlayer == null) {
+                    if (prevPlayer != null && prevReq != null) {
+                        val prevPos = prevPlayer.currentPosition.coerceAtLeast(0L)
+                        val prevDur = prevPlayer.duration.coerceAtLeast(0L)
+                        localHistoryStore.recordPlaybackProgress(activeInstanceUrl, prevReq.server, prevReq.localResumeId, prevPos, prevDur)
+                        reportAudioProgressAsync(prevReq, prevPos, prevDur, isPaused = true, state = "stopped")
+                        PlaybackServiceBridge.detachIfMatching(prevPlayer)
+                        prevPlayer.release()
+                        deleteTempFileIfUnused(prevReq.tempFilePath, keepPaths = setOf(req.tempFilePath))
+                    }
+                    val savedMs = localHistoryStore.readResumePositionMs(activeInstanceUrl, req.server, req.localResumeId)
+                    val bestMs = LocalPlaybackHistoryStore.resolveBestResumeMs(savedMs, req.resumePositionMs)
+                    val player = buildConfiguredExoPlayer(context, req, resumePositionOverrideMs = bestMs).apply {
+                        shuffleModeEnabled = audioShuffleEnabled
+                        repeatMode = if (audioRepeatMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                    }
+                    player.addListener(object : Player.Listener {
+                        override fun onIsPlayingChanged(isPlaying: Boolean) {
+                            bgAudioPlaying = isPlaying
+                            val curReq = latestBgAudioReq ?: req
+                            val pos = player.currentPosition.coerceAtLeast(0L)
+                            val dur = player.duration.coerceAtLeast(0L)
+                            localHistoryStore.recordPlaybackProgress(activeInstanceUrl, curReq.server, curReq.localResumeId, pos, dur)
+                            reportAudioProgressAsync(
+                                req = curReq,
+                                posMs = pos,
+                                durMs = dur,
+                                isPaused = !isPlaying,
+                                state = if (isPlaying) "playing" else "paused",
+                            )
+                        }
+
+                        override fun onPlaybackStateChanged(playbackState: Int) {
+                            if (playbackState == Player.STATE_ENDED) {
+                                val curReq = latestBgAudioReq ?: req
+                                localHistoryStore.clearResumePosition(activeInstanceUrl, curReq.server, curReq.localResumeId)
+                                reportAudioProgressAsync(
+                                    req = curReq,
+                                    posMs = player.duration.coerceAtLeast(0L),
+                                    durMs = player.duration.coerceAtLeast(0L),
+                                    isPaused = true,
+                                    state = "stopped",
+                                )
+                                advanceAudioTrack(forward = true, autoEnded = true)
+                            }
+                        }
+                    })
+                    bgAudioPlayer = player
+                    bgAudioRequest = req
+                    bgAudioPlaying = true
+                    attachAudioMediaSession(player, req)
+                } else {
+                    prevPlayer.playWhenReady = true
+                    bgAudioRequest = req
+                    attachAudioMediaSession(prevPlayer, req)
+                }
+                if (expandOverlay) {
+                    val prevOverlay = activePlayerRequest
+                    activePlayerRequest = req
+                    if (prevOverlay != null && !prevOverlay.isAudio) {
+                        deleteTempFileIfUnused(prevOverlay.tempFilePath, keepPaths = setOf(req.tempFilePath))
+                    }
+                } else if (activePlayerRequest?.isAudio == true) {
+                    activePlayerRequest = req
+                }
+            } else {
+                bgAudioPlayer?.pause()
+                val prevOverlay = activePlayerRequest
+                activePlayerRequest = req
+                if (prevOverlay != null && prevOverlay.tempFilePath != req.tempFilePath) {
+                    deleteTempFileIfUnused(prevOverlay.tempFilePath, keepPaths = setOf(req.tempFilePath, bgAudioRequest?.tempFilePath))
+                }
+            }
+        }
+    }
+
+    startPlaybackInternalRef = { nextReq, expand -> executeStartPlayback(nextReq, expandOverlay = expand) }
+
+    fun startPlayback(req: MediaPlaybackRequest) {
+        val isRemoteStream = req.url.startsWith("http://", ignoreCase = true) ||
+            req.url.startsWith("https://", ignoreCase = true) ||
+            req.lazySpec != null
+        val prefs = PlaybackPreferencesStore(context)
+        if (isRemoteStream && prefs.cellularWarn && !cellularConfirmedInSession && isMeteredCellularOnly(context)) {
+            pendingCellularRequest = req
+            return
+        }
+        executeStartPlayback(req, expandOverlay = true)
+    }
+
+    // 根壳层持续 15 秒音频进度上报（无论全屏、收起至悬浮迷你播控条还是切至系统后台均不中断）
+    LaunchedEffect(bgAudioPlayer, bgAudioRequest) {
+        val player = bgAudioPlayer ?: return@LaunchedEffect
+        val req = bgAudioRequest ?: return@LaunchedEffect
+        while (true) {
+            delay(15_000L)
+            val pos = player.currentPosition.coerceAtLeast(0L)
+            val dur = player.duration.coerceAtLeast(0L)
+            val playing = player.isPlaying
+            if (dur > 1_000L) {
+                localHistoryStore.recordPlaybackProgress(activeInstanceUrl, req.server, req.localResumeId, pos, dur)
+                reportAudioProgressAsync(
+                    req = req,
+                    posMs = pos,
+                    durMs = dur,
+                    isPaused = !playing,
+                    state = if (playing) "playing" else "paused",
+                )
+            }
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
+            PlaybackServiceBridge.releaseAll()
             bgAudioPlayer?.release()
         }
     }
 
-    // 监听从已认证态退出（含 401 自动登出）：清理所有 Tab 栈、状态持有器与隔离插件 WebView 会话
+    // 监听从已认证态退出（含 401 自动登出）：终止会话绑定播放，保留本机离线播放，并清理导航栈与隔离插件 WebView 会话
     var wasAuthenticated by remember { mutableStateOf(session is SessionState.Authenticated) }
     LaunchedEffect(session is SessionState.Authenticated) {
         val nowAuth = session is SessionState.Authenticated
         if (wasAuthenticated && !nowAuth) {
+            stopSessionBoundPlayback()
             clearAllNavigationAndWebSession()
         }
         wasAuthenticated = nowAuth
     }
 
-    // Android 系统 Back 返回键 / 边缘侧滑统一接管（按播放器 -> 勋章 -> 切换服务覆盖层 -> 当前 Tab 子栈 -> Discover 根 Tab 顺序回退）
+    // Android 系统 Back 返回键 / 边缘侧滑统一接管
     val canHandleBack = activePlayerRequest != null ||
         activeMedalShowcase != null ||
         isSwitchingServer ||
@@ -400,7 +802,17 @@ fun MoviePilotRootShell(
 
     BackHandler(enabled = canHandleBack) {
         when {
-            activePlayerRequest != null -> activePlayerRequest = null
+            activePlayerRequest != null -> {
+                val cur = activePlayerRequest!!
+                val keepMini = PlaybackPreferencesStore(context).keepMusicMiniBar
+                if (cur.isAudio && keepMini) {
+                    activePlayerRequest = null
+                } else {
+                    if (cur.isAudio) releaseBackgroundAudio()
+                    else deleteTempFileIfUnused(cur.tempFilePath, keepPaths = setOf(bgAudioRequest?.tempFilePath))
+                    activePlayerRequest = null
+                }
+            }
             activeMedalShowcase != null -> activeMedalShowcase = null
             isSwitchingServer -> isSwitchingServer = false
             activeStack.isNotEmpty() -> popRoute()
@@ -427,6 +839,8 @@ fun MoviePilotRootShell(
     // 处理经 Rust 解析的 moviepilot:// 深度链接；未登录时保留业务 DeepLink，待登录完成后自动重放
     LaunchedEffect(incomingDeepLink, authKey) {
         if (!incomingDeepLink.isNullOrBlank()) {
+            val rawUri = runCatching { Uri.parse(incomingDeepLink) }.getOrNull()
+            val queryTitleHint = rawUri?.getQueryParameter("title")?.takeIf { it.isNotBlank() }
             val parsedJson = RustCoreBridge.parseDeepLink(incomingDeepLink)
             val obj = parsedJson?.takeIf { it.isNotBlank() }?.let {
                 runCatching { Json.parseToJsonElement(it).jsonObject }.getOrNull()
@@ -440,8 +854,11 @@ fun MoviePilotRootShell(
                     startPlayback(
                         MediaPlaybackRequest(
                             url = url,
-                            title = obj["title"]?.jsonPrimitive?.content?.takeIf { it != "null" } ?: "外部直链播放",
+                            title = obj["title"]?.jsonPrimitive?.content?.takeIf { it != "null" && it.isNotBlank() }
+                                ?: queryTitleHint
+                                ?: "外部直链播放",
                             isAudio = obj["media_kind"]?.jsonPrimitive?.content == "audio",
+                            isSessionBound = false,
                         ),
                     )
                 }
@@ -449,7 +866,7 @@ fun MoviePilotRootShell(
                 return@LaunchedEffect
             }
 
-            // 其余业务路由需等待会话进入 Authenticated 后再导航并消费，确保 NeedsLogin -> Authenticated 无损重放
+            // 其余业务路由与媒体库/存储深链播放需等待会话进入 Authenticated 后再执行
             val activeSession = session as? SessionState.Authenticated ?: return@LaunchedEffect
             if (!AndroidPushProvider.matchesServerOrigin(incomingDeepLinkOrigin, activeSession.serverUrl)) {
                 snackbarHostState.showSnackbar("这条通知属于其他实例或账号，请切换服务后查看消息中心")
@@ -461,6 +878,64 @@ fun MoviePilotRootShell(
             activeMedalShowcase = null
             if (obj != null) {
                 when (kind) {
+                    "playMediaServerItem" -> {
+                        val itemId = obj["item_id"]?.jsonPrimitive?.content?.takeIf { it != "null" && it.isNotBlank() }.orEmpty()
+                        val server = obj["server"]?.jsonPrimitive?.content?.takeIf { it != "null" && it.isNotBlank() }
+                        if (itemId.isNotBlank()) {
+                            val manifest = repository.fetchVideoStreamInfo(itemId, server)
+                            if (manifest != null) {
+                                val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                                startPlayback(
+                                    MediaPlaybackRequest(
+                                        url = manifest.contentUrl,
+                                        title = manifest.title.ifBlank { queryTitleHint ?: "媒体库播放" },
+                                        subtitle = manifest.server.ifBlank { server.orEmpty() },
+                                        isAudio = manifest.mediaType == "audio",
+                                        lyricsLrc = lrc,
+                                        headers = manifest.headers,
+                                        itemId = manifest.itemId,
+                                        server = manifest.server.ifBlank { server.orEmpty() },
+                                        mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                                        resumePositionMs = manifest.resumePositionMs,
+                                        subtitles = manifest.subtitles.map {
+                                            SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
+                                        },
+                                        isSessionBound = true,
+                                    ),
+                                )
+                            } else {
+                                snackbarHostState.showSnackbar("无法拉取媒体服务器条目（$itemId）播放流")
+                            }
+                        }
+                    }
+
+                    "playStorageFile" -> {
+                        val storage = obj["storage"]?.jsonPrimitive?.content?.takeIf { it != "null" && it.isNotBlank() } ?: "local"
+                        val path = obj["path"]?.jsonPrimitive?.content?.takeIf { it != "null" && it.isNotBlank() }.orEmpty()
+                        if (path.isNotBlank()) {
+                            val fileName = path.substringAfterLast('/').ifBlank { queryTitleHint ?: "存储媒体" }
+                            val safeName = fileName.replace(Regex("[^a-zA-Z0-9._\\-\\u4e00-\\u9fa5]"), "_")
+                            val cacheDir = File(context.cacheDir, "mp_storage_playback").apply { mkdirs() }
+                            val destFile = File(cacheDir, "${path.hashCode()}_$safeName")
+                            val resolved = repository.resolveStoragePlayback(storage, path, destFile)
+                            if (resolved != null) {
+                                startPlayback(
+                                    MediaPlaybackRequest(
+                                        url = resolved.url,
+                                        title = queryTitleHint ?: fileName.substringBeforeLast('.').ifBlank { fileName },
+                                        subtitle = "$storage · $path",
+                                        isAudio = resolved.isAudio,
+                                        streamHeaders = resolved.streamHeaders,
+                                        isSessionBound = !resolved.isStrmDirect,
+                                        tempFilePath = resolved.tempFilePath,
+                                    ),
+                                )
+                            } else {
+                                snackbarHostState.showSnackbar("无法从存储（$storage）拉取媒体文件")
+                            }
+                        }
+                    }
+
                     "discover" -> pushRoute(AppRoute.TabRoot, MainTab.Discover)
                     "explore" -> {
                         val src = obj["source"]?.jsonPrimitive?.content?.takeIf { it != "null" && it.isNotBlank() } ?: "tmdb_movies"
@@ -559,9 +1034,9 @@ fun MoviePilotRootShell(
 
     val authSession = session as? SessionState.Authenticated
     val isTopLevelTab = currentRoute == AppRoute.TabRoot
-    val showWideRail = isWideCanvas && authSession != null && !isSwitchingServer && activeMedalShowcase == null && activePlayerRequest == null
-    val showBottomNav = authSession != null && !isSwitchingServer && isTopLevelTab && !isWideCanvas && activeMedalShowcase == null && activePlayerRequest == null
-    val showMiniMusicBar = bgAudioRequest != null && !isSwitchingServer && activeMedalShowcase == null && activePlayerRequest == null
+    val showWideRail = isWideCanvas && authSession != null && !isSwitchingServer && activeMedalShowcase == null && activePlayerRequest == null && !isInPipMode
+    val showBottomNav = authSession != null && !isSwitchingServer && isTopLevelTab && !isWideCanvas && activeMedalShowcase == null && activePlayerRequest == null && !isInPipMode
+    val showMiniMusicBar = bgAudioRequest != null && !isSwitchingServer && activeMedalShowcase == null && activePlayerRequest == null && !isInPipMode
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomOverlayInset = when {
@@ -578,18 +1053,19 @@ fun MoviePilotRootShell(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.fillMaxSize()) {
-                // 1. 宽屏（>= 600dp）常驻左侧 NavigationRail（跨一级 Tab 与全部深层子路由可见，自带左侧刘海与上下系统栏避让）
-                if (showWideRail && authSession != null) {
+                // 1. 宽屏（>= 600dp）常驻左侧 NavigationRail
+                if (showWideRail) {
+                    val authed = authSession!!
                     FloatingNavigationRail(
                         selectedTab = selectedTab,
                         onTabClick = ::onTabBarClick,
                         onSearchClick = { pushRoute(AppRoute.GlobalSearch()) },
-                        userAvatarUrl = repository.resolveImageUrl(authSession.identity.avatar),
-                        userInitial = authSession.identity.name.ifBlank { "M" },
+                        userAvatarUrl = repository.resolveImageUrl(authed.identity.avatar),
+                        userInitial = authed.identity.name.ifBlank { "M" },
                     )
                 }
 
-                // 2. 主内容与底部浮层区域（自动避让右侧或双侧系统导航栏与摄像头挖孔）
+                // 2. 主内容与底部浮层区域
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -600,7 +1076,6 @@ fun MoviePilotRootShell(
                                 .only(if (showWideRail) WindowInsetsSides.End else WindowInsetsSides.Horizontal),
                         ),
                 ) {
-                    // 主背景流光 + 业务页面内容层（挂载 shellHazeState 为底部 4+1 磨砂玻璃胶囊提供实时背板模糊采样）
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -631,7 +1106,7 @@ fun MoviePilotRootShell(
                                                 } else {
                                                     val connectRes = repository.connectServer(rawUrl)
                                                     if (connectRes.isSuccess) {
-                                                        releaseBackgroundAudio()
+                                                        stopSessionBoundPlayback()
                                                         clearAllNavigationAndWebSession()
                                                         isSwitchingServer = false
                                                     }
@@ -647,7 +1122,7 @@ fun MoviePilotRootShell(
                                         ) {
                                             isSwitchingServer = false
                                         } else {
-                                            releaseBackgroundAudio()
+                                            stopSessionBoundPlayback()
                                             clearAllNavigationAndWebSession()
                                             repository.selectSavedServer(entry)
                                             isSwitchingServer = false
@@ -703,6 +1178,7 @@ fun MoviePilotRootShell(
                                                         onOpenMedia = ::openMediaSmart,
                                                         onOpenExplore = { src -> pushRoute(AppRoute.Explore(src)) },
                                                         onOpenMusic = { pushRoute(AppRoute.Music) },
+                                                        onOpenMusicAlbum = { album -> pushRoute(AppRoute.MusicAlbumDetail(album)) },
                                                         onOpenMediaLibrary = { lib -> pushRoute(AppRoute.MediaServerLibrary(lib)) },
                                                         onPlayMedia = ::startPlayback,
                                                     )
@@ -750,6 +1226,7 @@ fun MoviePilotRootShell(
                                                     initialSource = route.source,
                                                     onBack = ::popRoute,
                                                     onOpenMedia = ::openMediaSmart,
+                                                    onOpenMusicAlbum = { album -> pushRoute(AppRoute.MusicAlbumDetail(album)) },
                                                     onPlayAudio = ::startPlayback,
                                                 )
 
@@ -773,7 +1250,7 @@ fun MoviePilotRootShell(
                                                     permissions = s.permissions,
                                                     onSwitchServer = { isSwitchingServer = true },
                                                     onLogout = {
-                                                        releaseBackgroundAudio()
+                                                        stopSessionBoundPlayback()
                                                         clearAllNavigationAndWebSession()
                                                         repository.logout()
                                                     },
@@ -785,6 +1262,7 @@ fun MoviePilotRootShell(
                                                     onBack = ::popRoute,
                                                     onOpenMedia = ::openMediaSmart,
                                                     onOpenPerson = { pushRoute(AppRoute.PersonDetail(it)) },
+                                                    onOpenMusicAlbum = { album -> pushRoute(AppRoute.MusicAlbumDetail(album)) },
                                                     onPlayLibraryItem = ::startPlayback,
                                                 )
                                                 is AppRoute.MediaDetail -> MediaDetailScreen(
@@ -837,7 +1315,26 @@ fun MoviePilotRootShell(
                                                 AppRoute.Music -> MusicDiscoveryScreen(
                                                     onBack = ::popRoute,
                                                     onPlayAudio = ::startPlayback,
+                                                    onOpenAlbum = { album -> pushRoute(AppRoute.MusicAlbumDetail(album)) },
                                                     repository = repository,
+                                                )
+                                                is AppRoute.MusicAlbumDetail -> MusicAlbumDetailScreen(
+                                                    seed = route.album,
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                    onOpenArtist = { artistId, artistName, src ->
+                                                        pushRoute(AppRoute.MusicArtistDetail(artistId, artistName, src))
+                                                    },
+                                                    onPlayAudio = ::startPlayback,
+                                                    canSubscribe = s.permissions.admin || s.permissions.subscribe,
+                                                )
+                                                is AppRoute.MusicArtistDetail -> MusicArtistDetailScreen(
+                                                    artistId = route.artistId,
+                                                    artistName = route.artistName,
+                                                    source = route.source,
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                    onOpenAlbum = { album -> pushRoute(AppRoute.MusicAlbumDetail(album)) },
                                                 )
                                                 is AppRoute.Subscriptions -> SubscriptionsScreen(
                                                     repository = repository,
@@ -864,7 +1361,7 @@ fun MoviePilotRootShell(
                                                 is AppRoute.Resources -> ResourceSearchScreen(repository, route.keyword, onBack = ::popRoute)
                                                 AppRoute.Downloads -> DownloadsScreen(repository, onBack = ::popRoute)
                                                 is AppRoute.Files -> FileManagerScreen(repository, route.storage, route.path, onBack = ::popRoute, onPlayMedia = ::startPlayback)
-                                                is AppRoute.History -> TransferHistoryScreen(repository, route.search, onBack = ::popRoute)
+                                                is AppRoute.History -> TransferHistoryScreen(repository, route.search, onBack = ::popRoute, onPlayMedia = ::startPlayback)
                                                 AppRoute.Workflows -> WorkflowsScreen(
                                                     repository = repository,
                                                     onBack = ::popRoute,
@@ -916,8 +1413,8 @@ fun MoviePilotRootShell(
                         }
                     }
 
-                    // 3. 一级主 Tab 右下角 AI 助手入口（受外观开关控制，自动避让底部 4+1 导航栏与悬浮迷你播控条）
-                    if (authSession != null && !isSwitchingServer && isTopLevelTab && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null) {
+                    // 3. 一级主 Tab 右下角 AI 助手入口
+                    if (authSession != null && !isSwitchingServer && isTopLevelTab && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null && !isInPipMode) {
                         val mascotBottom = when {
                             isWideCanvas && showMiniMusicBar -> 92.dp
                             isWideCanvas -> 24.dp
@@ -933,7 +1430,7 @@ fun MoviePilotRootShell(
                         )
                     }
 
-                    // 4. 底部悬浮区域：迷你音乐播控条（含未登录本地音频，宽屏限宽 560dp）+ 手机态 4+1 分离式磨砂玻璃胶囊底栏
+                    // 4. 底部悬浮区域：迷你音乐播控条（PiP 小窗模式下自动隐藏）+ 手机态 4+1 磨砂玻璃胶囊底栏
                     if (showMiniMusicBar || showBottomNav) {
                         Column(
                             modifier = Modifier
@@ -952,11 +1449,7 @@ fun MoviePilotRootShell(
                                             }
                                         },
                                         onNext = {
-                                            if (req.queue.size > 1) {
-                                                val nextIdx = (req.queueIndex + 1) % req.queue.size
-                                                startPlayback(req.queue[nextIdx].copy(queue = req.queue, queueIndex = nextIdx))
-                                                activePlayerRequest = null
-                                            }
+                                            advanceAudioTrack(forward = true, autoEnded = false)
                                         },
                                         onExpand = { activePlayerRequest = req },
                                         onClose = { releaseBackgroundAudio() },
@@ -970,19 +1463,20 @@ fun MoviePilotRootShell(
                                 }
                             }
 
-                            if (showBottomNav && authSession != null) {
+                            if (showBottomNav) {
+                                val authed = authSession!!
                                 MoviePilotBottomNavigationBar(
                                     selectedTab = selectedTab,
                                     onTabClick = ::onTabBarClick,
                                     onSearchClick = { pushRoute(AppRoute.GlobalSearch()) },
-                                    userAvatarUrl = repository.resolveImageUrl(authSession.identity.avatar),
-                                    userInitial = authSession.identity.name.ifBlank { "M" },
+                                    userAvatarUrl = repository.resolveImageUrl(authed.identity.avatar),
+                                    userInitial = authed.identity.name.ifBlank { "M" },
                                 )
                             }
                         }
                     }
 
-                    // 5. Android Material 3 全局非阻塞 Snackbar 宿主（宽屏限宽 560dp）
+                    // 5. Android Material 3 全局非阻塞 Snackbar 宿主
                     SnackbarHost(
                         hostState = snackbarHostState,
                         modifier = Modifier
@@ -1019,13 +1513,29 @@ fun MoviePilotRootShell(
                 )
             }
 
-            // 7. 全屏原生音视频播放器覆盖层（音频直连后台共享 ExoPlayer；自动同步媒体服务器播放进度）
+            // 7. 全屏原生音视频播放器覆盖层（音频复用根壳共享 ExoPlayer；视频独立释放并在退出后恢复后台音频会话）
             activePlayerRequest?.let { req ->
                 NativeMediaPlayerOverlay(
                     request = req,
                     sharedPlayer = if (req.isAudio && bgAudioRequest?.url == req.url) bgAudioPlayer else null,
+                    instanceUrl = activeInstanceUrl,
+                    audioShuffleEnabled = audioShuffleEnabled,
+                    audioRepeatMode = audioRepeatMode,
+                    onUpdateAudioShuffle = { audioShuffleEnabled = it },
+                    onUpdateAudioRepeatMode = { audioRepeatMode = it },
+                    onAudioSkipPrevious = { advanceAudioTrack(forward = false, autoEnded = false) },
+                    onAudioSkipNext = { advanceAudioTrack(forward = true, autoEnded = false) },
                     onClose = {
-                        if (req.isAudio) releaseBackgroundAudio()
+                        if (req.isAudio) {
+                            releaseBackgroundAudio()
+                        } else {
+                            deleteTempFileIfUnused(req.tempFilePath, keepPaths = setOf(bgAudioRequest?.tempFilePath))
+                            val resumeBgPlayer = bgAudioPlayer
+                            val resumeBgReq = bgAudioRequest
+                            if (resumeBgPlayer != null && resumeBgReq != null) {
+                                attachAudioMediaSession(resumeBgPlayer, resumeBgReq)
+                            }
+                        }
                         activePlayerRequest = null
                     },
                     onMinimizeToMiniBar = if (req.isAudio) {
@@ -1036,8 +1546,8 @@ fun MoviePilotRootShell(
                     } else {
                         null
                     },
-                    onSwitchRequest = { next -> startPlayback(next) },
-                    onReportProgress = if (req.itemId.isNotBlank() && req.server.isNotBlank()) {
+                    onSwitchRequest = { next -> executeStartPlayback(next, expandOverlay = true) },
+                    onReportProgress = if (!req.isAudio && req.itemId.isNotBlank() && req.server.isNotBlank()) {
                         { posMs, durMs, isPaused, state ->
                             scope.launch {
                                 repository.reportMediaPlaybackProgress(
@@ -1047,11 +1557,37 @@ fun MoviePilotRootShell(
                                     durationMs = durMs,
                                     isPaused = isPaused,
                                     state = state,
+                                    mediaSourceId = req.mediaSourceId.ifBlank { null },
                                 )
                             }
                         }
                     } else {
                         null
+                    },
+                )
+            }
+
+            // 8. 蜂窝移动数据网络播放确认对话框
+            pendingCellularRequest?.let { pendingReq ->
+                AlertDialog(
+                    onDismissRequest = { pendingCellularRequest = null },
+                    title = { Text("当前使用移动数据网络") },
+                    text = { Text("即将播放「${pendingReq.title}」，在线音视频流可能消耗较多移动数据流量，是否继续？") },
+                    dismissButton = {
+                        TextButton(onClick = { pendingCellularRequest = null }) {
+                            Text("取消")
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                pendingCellularRequest = null
+                                cellularConfirmedInSession = true
+                                executeStartPlayback(pendingReq, expandOverlay = true)
+                            },
+                        ) {
+                            Text("继续播放", color = colors.accent)
+                        }
                     },
                 )
             }

@@ -246,7 +246,7 @@ struct NativeSettingsHubPage: View {
       compactStatusCard(
         title: t("用户管理"),
         statusText: userCount.map { "\($0) \(t("位成员"))" } ?? t("权限角色"),
-        symbol: "person.2.fill",
+        symbol: "person.2",
         statusTint: NativeTheme.brand,
         id: "native-workspace-users"
       ) { onNavigate(.users) }
@@ -255,7 +255,7 @@ struct NativeSettingsHubPage: View {
         title: t("渠道授权"),
         statusText: pendingAuthCount > 0
           ? "\(pendingAuthCount) \(t("待审批"))" : "\(t("已授")) \(approvedAuthCount)",
-        symbol: "person.badge.key.fill",
+        symbol: "person.badge.key",
         statusTint: pendingAuthCount > 0 ? NativeTheme.warning : NativeTheme.success,
         id: "native-workspace-channel-auth"
       ) { onNavigate(.channelAuth) }
@@ -335,18 +335,18 @@ struct NativeSettingsHubPage: View {
     }
     return settingsGroup(t("基础"), footer: t("底层代理、并发与高级系统参数请在 Web 管理台配置。")) {
       navRow(
-        title: t("订阅与搜索"), subtitle: t("站点范围 · 规则组"), symbol: "magnifyingglass.circle.fill",
+        title: t("订阅与搜索"), subtitle: t("站点范围 · 规则组"), symbol: "magnifyingglass.circle",
         id: "native-settings-subscribe-search"
       ) { onNavigate(.subscribeSearchSettings) }
       settingsRowDivider
       navRow(
-        title: t("媒体数据源"), subtitle: t("搜索与元数据来源"), symbol: "globe.asia.australia.fill",
+        title: t("媒体数据源"), subtitle: t("搜索与元数据来源"), symbol: "globe.asia.australia",
         id: "native-settings-media-sources"
       ) { onNavigate(.mediaSourceSettings) }
       settingsRowDivider
       navRow(
         title: t("下载器"), subtitle: downloaderCount.map(countFmt) ?? t("新增与管理"),
-        symbol: "arrow.down.circle.fill",
+        symbol: "arrow.down.circle",
         id: "native-settings-downloaders"
       ) { onNavigate(.downloadersManage) }
       settingsRowDivider
@@ -357,12 +357,12 @@ struct NativeSettingsHubPage: View {
       ) { onNavigate(.mediaServersManage) }
       settingsRowDivider
       navRow(
-        title: t("整理与目录"), subtitle: t("目录映射与刮削"), symbol: "folder.fill.badge.gearshape",
+        title: t("整理与目录"), subtitle: t("目录映射与刮削"), symbol: "folder.badge.gearshape",
         id: "native-settings-hub-directories"
       ) { onNavigate(.systemModule(.directories)) }
       settingsRowDivider
       navRow(
-        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
+        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle",
         id: "native-settings-playback"
       ) { onNavigate(.playbackSettings) }
     }
@@ -371,7 +371,7 @@ struct NativeSettingsHubPage: View {
   private var memberPlaybackSection: some View {
     settingsGroup(t("播放")) {
       navRow(
-        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
+        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle",
         id: "native-settings-playback"
       ) { onNavigate(.playbackSettings) }
     }
@@ -394,7 +394,7 @@ struct NativeSettingsHubPage: View {
       if snapshot.user.isSuperuser {
         settingsRowDivider
         navRow(
-          title: t("服务端通知渠道"), subtitle: t("消息推送配置"), symbol: "bell.badge.fill",
+          title: t("服务端通知渠道"), subtitle: t("消息推送配置"), symbol: "bell.badge",
           id: "native-settings-hub-notifications"
         ) { onNavigate(.systemModule(.notifications)) }
       }
@@ -423,12 +423,12 @@ struct NativeSettingsHubPage: View {
   private var appearanceAndDeviceSection: some View {
     settingsGroup(t("外观与本机")) {
       navRow(
-        title: t("主题与外观"), subtitle: appearance.summaryText, symbol: "paintpalette.fill",
+        title: t("主题与外观"), subtitle: appearance.summaryText, symbol: "paintpalette",
         id: "native-settings-hub-appearance"
       ) { onNavigate(.appearance) }
       settingsRowDivider
       navRow(
-        title: t("桌面小组件"), subtitle: t("实例与刷新"), symbol: "rectangle.3.group.fill",
+        title: t("桌面小组件"), subtitle: t("实例与刷新"), symbol: "rectangle.3.group",
         id: "native-settings-hub-widgets"
       ) { showsWidgetSettings = true }
       settingsRowDivider
@@ -469,7 +469,7 @@ struct NativeSettingsHubPage: View {
       navRow(
         title: t("本地缓存清理"),
         subtitle: cacheClearedNotice ? t("已清理") : Self.formatBytes(Double(cacheBytes)),
-        symbol: "internaldrive.fill",
+        symbol: "internaldrive",
         id: "native-settings-clear-cache"
       ) { showsClearCacheConfirm = true }
     }
@@ -481,7 +481,7 @@ struct NativeSettingsHubPage: View {
     let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
     return settingsGroup(t("服务与账号")) {
       navRow(
-        title: t("切换服务"), subtitle: host, symbol: "arrow.left.arrow.right.circle.fill",
+        title: t("切换服务"), subtitle: host, symbol: "arrow.left.arrow.right.circle",
         id: "native-v2-switch"
       ) { onSwitchServer() }
       settingsRowDivider
@@ -2733,6 +2733,7 @@ struct NativePlaybackPreferencesPage: View {
   @AppStorage("nativeV2.playback.aspectFill") private var aspectFill = false
   @AppStorage("nativeV2.playback.defaultRate") private var defaultRate = 1.0
   @AppStorage("nativeV2.playback.preferChineseSub") private var preferChineseSub = true
+  @AppStorage("nativeV2.playback.strmDirectPlay") private var strmDirectPlay = true
   @AppStorage("nativeV2.playback.cellularWarn") private var cellularWarn = false
   @AppStorage("nativeV2.playback.keepMusicMiniBar") private var keepMusicMiniBar = true
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -2774,6 +2775,12 @@ struct NativePlaybackPreferencesPage: View {
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
+                CinematicFormDivider()
+                Toggle("STRM 直链播放", isOn: $strmDirectPlay)
+                  .font(.body).tint(appearance.accentColor)
+                  .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
+                  .accessibilityIdentifier("native-playback-strm-direct")
                 CinematicFormDivider()
                 Toggle("优先选择中文字幕", isOn: $preferChineseSub)
                   .font(.body).tint(appearance.accentColor)

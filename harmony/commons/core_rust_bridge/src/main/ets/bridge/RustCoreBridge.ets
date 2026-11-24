@@ -12,6 +12,7 @@ export interface NativeCoreModule {
   buildV3EndpointUrl?(baseUrl: string, segments: string[], queryJson: string, trailingSlash: boolean): string;
   parseDeepLinkJson(rawUrl: string): string;
   detectPlayableMediaKind(pathOrExt: string, includeStreaming: boolean): string;
+  parseStrmJson?(rawText: string, fallbackFileName: string): string;
   parseAgentMarkdownJson(markdown: string): string;
   filterAndGroupResources(resourcesJson: string, criteriaJson: string): string;
   decodeJwtClaimsJson(token: string, nowEpochSecs: number): string;
@@ -51,6 +52,12 @@ export interface CronSummary {
   isValidFiveField: boolean;
 }
 
+export interface ParsedStrmStream {
+  url: string;
+  headers: Record<string, string>;
+  mediaKind: string;
+}
+
 /** 鸿蒙 Rust 共享业务内核统一入口（优先直接调用原生 .so NAPI）。 */
 export class RustCoreBridge {
   private static nativeLib: NativeCoreModule | null = nativeCore as NativeCoreModule;
@@ -76,7 +83,7 @@ export class RustCoreBridge {
     } catch {
       // fallback
     }
-    return '2.0.2';
+    return '2.0.3';
   }
 
   /** 规范化 MoviePilot 实例地址（拒绝内嵌凭据并保留反代子路径）。 */
@@ -201,18 +208,158 @@ export class RustCoreBridge {
     } catch {
       // fallback
     }
-    const parts = pathOrExt.toLowerCase().split('.');
-    const ext = parts.length > 1 ? parts[parts.length - 1] : '';
+    const clean = pathOrExt.trim().toLowerCase();
+    const parts = clean.split('.');
+    const ext = parts.length > 1 ? parts[parts.length - 1] : clean.replace(/^\.+/, '');
+    if (ext === 'strm') {
+      if (parts.length > 2 && ['mp3', 'flac', 'm4a', 'aac', 'wav', 'ogg', 'opus', 'alac', 'ape'].includes(parts[parts.length - 2])) {
+        return 'audio';
+      }
+      return 'video';
+    }
     if (['mp3', 'flac', 'm4a', 'aac', 'wav', 'ogg', 'opus', 'alac', 'ape'].includes(ext)) {
       return 'audio';
     }
-    if (['mp4', 'mkv', 'mov', 'avi', 'ts', 'm2ts', 'webm', 'flv', 'wmv'].includes(ext)) {
+    if (['mp4', 'mkv', 'mov', 'avi', 'ts', 'm2ts', 'webm', 'flv', 'wmv', 'strm'].includes(ext)) {
       return 'video';
     }
     if (includeStreaming && ['m3u8', 'mpd'].includes(ext)) {
       return 'video';
     }
     return '';
+  }
+
+  /** 判断文件名或路径是否为 `.strm` 直链描述文件。 */
+  static isStrmPath(pathOrName: string): boolean {
+    const clean = (pathOrName ?? '').trim().replace(/^\.+/, '').toLowerCase();
+    if (!clean) {
+      return false;
+    }
+    const dotIdx = clean.lastIndexOf('.');
+    const ext = dotIdx >= 0 ? clean.substring(dotIdx + 1) : clean;
+    return ext === 'strm';
+  }
+
+  /** 解析 `.strm` 文本，提取客户端 HTTP(S) 直链、可选播放器请求头及音视频模式。 */
+  static parseStrmContent(rawText: string, fallbackFileName: string = ''): ParsedStrmStream | null {
+    if (!rawText || rawText.length > 65536 || rawText.indexOf('\u0000') >= 0) {
+      return null;
+    }
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.parseStrmJson) {
+        const rawJson = RustCoreBridge.nativeLib.parseStrmJson(rawText, fallbackFileName);
+        if (rawJson && rawJson.length > 0) {
+          const parsed = JSON.parse(rawJson) as Record<string, Object>;
+          const url = typeof parsed['url'] === 'string' ? (parsed['url'] as string) : '';
+          const mediaKind = typeof parsed['mediaKind'] === 'string' ? (parsed['mediaKind'] as string) : 'video';
+          const headers: Record<string, string> = {};
+          if (parsed['headers'] && typeof parsed['headers'] === 'object') {
+            const hdrObj = parsed['headers'] as Record<string, string>;
+            const keys = Object.keys(hdrObj);
+            for (let i = 0; i < keys.length; i++) {
+              const k = keys[i];
+              if (typeof hdrObj[k] === 'string' && hdrObj[k].length > 0) {
+                headers[k] = hdrObj[k];
+              }
+            }
+          }
+          if (url.length > 0) {
+            return { url: url, headers: headers, mediaKind: mediaKind };
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+    const headers: Record<string, string> = {};
+    const body = rawText.startsWith('\uFEFF') ? rawText.substring(1) : rawText;
+    const lines = body.split(/\r?\n/);
+    let targetLine = '';
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) {
+        continue;
+      }
+      if (line.startsWith('#')) {
+        const rest = line.substring(1).trim();
+        if (rest.toLowerCase().startsWith('extvlcopt:')) {
+          const kv = rest.substring(10).trim();
+          const eq = kv.indexOf('=');
+          if (eq > 0) {
+            const k = kv.substring(0, eq).trim().toLowerCase();
+            const v = kv.substring(eq + 1).trim();
+            if (v.length > 0 && !/[\r\n]/.test(v)) {
+              if (k === 'http-user-agent') { headers['User-Agent'] = v; }
+              else if (k === 'http-referrer' || k === 'http-referer') { headers['Referer'] = v; }
+              else if (k === 'http-cookie') { headers['Cookie'] = v; }
+            }
+          }
+        }
+        continue;
+      }
+      if (!targetLine) {
+        targetLine = line;
+      }
+    }
+    if (!targetLine) {
+      return null;
+    }
+    const pipeIdx = targetLine.indexOf('|');
+    const urlPart = (pipeIdx >= 0 ? targetLine.substring(0, pipeIdx) : targetLine).trim();
+    const pipePart = pipeIdx >= 0 ? targetLine.substring(pipeIdx + 1).trim() : '';
+    if (pipePart.length > 0) {
+      const pairs = pipePart.split('&');
+      for (let i = 0; i < pairs.length; i++) {
+        const eq = pairs[i].indexOf('=');
+        if (eq > 0) {
+          const k = pairs[i].substring(0, eq).trim().toLowerCase();
+          let v = pairs[i].substring(eq + 1).trim();
+          try { v = decodeURIComponent(v); } catch { /* keep raw */ }
+          if (v.length > 0 && !/[\r\n]/.test(v)) {
+            if (k === 'user-agent') { headers['User-Agent'] = v; }
+            else if (k === 'referer' || k === 'referrer') { headers['Referer'] = v; }
+            else if (k === 'cookie') { headers['Cookie'] = v; }
+            else if (k === 'origin') { headers['Origin'] = v; }
+            else if (k === 'authorization') { headers['Authorization'] = v; }
+          }
+        }
+      }
+    }
+    const normalized = RustCoreBridge.normalizeStrmHttpUrl(urlPart);
+    if (!normalized) {
+      return null;
+    }
+    const pathPart = normalized.split('?')[0];
+    const kind = (!RustCoreBridge.isStrmPath(pathPart) ? RustCoreBridge.detectPlayableMediaKind(pathPart, true) : '') ||
+      (fallbackFileName ? RustCoreBridge.detectPlayableMediaKind(fallbackFileName, true) : '') ||
+      'video';
+    return { url: normalized, headers: headers, mediaKind: kind };
+  }
+
+  /** 规范化并校验单条 HTTP(S) 直链地址（拒绝内嵌账号密码，编码未转义空格与中文）。 */
+  static normalizeStrmHttpUrl(raw: string): string {
+    const trimmed = (raw ?? '').trim().split('|')[0].trim();
+    const sep = trimmed.indexOf('://');
+    if (sep <= 0) {
+      return '';
+    }
+    const scheme = trimmed.substring(0, sep).toLowerCase();
+    if (scheme !== 'http' && scheme !== 'https') {
+      return '';
+    }
+    const rest = trimmed.substring(sep + 3);
+    let authEnd = rest.length;
+    const slashIdx = rest.indexOf('/');
+    const qIdx = rest.indexOf('?');
+    if (slashIdx >= 0 && slashIdx < authEnd) { authEnd = slashIdx; }
+    if (qIdx >= 0 && qIdx < authEnd) { authEnd = qIdx; }
+    const authority = rest.substring(0, authEnd);
+    if (!authority || authority.includes('@')) {
+      return '';
+    }
+    const pathAndQuery = rest.substring(authEnd).split('#')[0];
+    const encoded = encodeURI(pathAndQuery).replace(/\[/g, '%5B').replace(/\]/g, '%5D');
+    return `${scheme}://${authority}${encoded}`;
   }
 
   static parseAgentMarkdownJson(markdown: string): string {

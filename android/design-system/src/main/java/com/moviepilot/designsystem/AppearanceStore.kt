@@ -725,6 +725,22 @@ class PlaybackPreferencesStore(context: Context?) {
     var defaultResizeMode by mutableStateOf(prefs?.getInt(KEY_RESIZE_MODE, 0) ?: 0)
         private set
 
+    /** 视频播放时优先自动匹配并启用内嵌或外挂中文字幕。 */
+    var preferChineseSub by mutableStateOf(prefs?.getBoolean(KEY_PREFER_CHINESE_SUB, true) ?: true)
+        private set
+
+    /** 使用蜂窝移动数据网络播放远程流媒体前弹出流量确认提醒。 */
+    var cellularWarn by mutableStateOf(prefs?.getBoolean(KEY_CELLULAR_WARN, false) ?: false)
+        private set
+
+    /** 音频全屏页按返回键时收起并保留底部悬浮迷你音乐播控条（关闭则直接停止退出）。 */
+    var keepMusicMiniBar by mutableStateOf(prefs?.getBoolean(KEY_KEEP_MUSIC_MINI_BAR, true) ?: true)
+        private set
+
+    /** 遇到 `.strm` 条目时优先由客户端直接请求源直链，不可达时再回退服务端代理流。 */
+    var strmDirectPlay by mutableStateOf(prefs?.getBoolean(KEY_STRM_DIRECT_PLAY, true) ?: true)
+        private set
+
     fun updateHwDecode(enabled: Boolean) {
         hwDecode = enabled
         prefs?.edit()?.putBoolean(KEY_HW_DECODE, enabled)?.apply()
@@ -750,6 +766,30 @@ class PlaybackPreferencesStore(context: Context?) {
         prefs?.edit()?.putInt(KEY_RESIZE_MODE, modeIndex)?.apply()
     }
 
+    /** 更新中文字幕优先偏好。 */
+    fun updatePreferChineseSub(enabled: Boolean) {
+        preferChineseSub = enabled
+        prefs?.edit()?.putBoolean(KEY_PREFER_CHINESE_SUB, enabled)?.apply()
+    }
+
+    /** 更新移动数据网络播放提醒开关。 */
+    fun updateCellularWarn(enabled: Boolean) {
+        cellularWarn = enabled
+        prefs?.edit()?.putBoolean(KEY_CELLULAR_WARN, enabled)?.apply()
+    }
+
+    /** 更新音频返回保留迷你播控条开关。 */
+    fun updateKeepMusicMiniBar(enabled: Boolean) {
+        keepMusicMiniBar = enabled
+        prefs?.edit()?.putBoolean(KEY_KEEP_MUSIC_MINI_BAR, enabled)?.apply()
+    }
+
+    /** 更新 STRM 客户端直链播放优先开关。 */
+    fun updateStrmDirectPlay(enabled: Boolean) {
+        strmDirectPlay = enabled
+        prefs?.edit()?.putBoolean(KEY_STRM_DIRECT_PLAY, enabled)?.apply()
+    }
+
     val summaryText: String
         get() {
             val spdText = if (defaultSpeed % 1f == 0f) String.format("%.1fx", defaultSpeed) else "${defaultSpeed}x"
@@ -763,6 +803,10 @@ class PlaybackPreferencesStore(context: Context?) {
         const val KEY_QUALITY = "default_quality"
         const val KEY_SPEED = "default_speed"
         const val KEY_RESIZE_MODE = "default_resize_mode"
+        const val KEY_PREFER_CHINESE_SUB = "prefer_chinese_sub"
+        const val KEY_CELLULAR_WARN = "cellular_warn"
+        const val KEY_KEEP_MUSIC_MINI_BAR = "keep_music_mini_bar"
+        const val KEY_STRM_DIRECT_PLAY = "strm_direct_play"
     }
 }
 

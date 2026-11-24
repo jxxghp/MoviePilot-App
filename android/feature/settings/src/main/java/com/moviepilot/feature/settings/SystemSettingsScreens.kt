@@ -2352,7 +2352,16 @@ fun PlaybackPreferencesScreen(onBack: () -> Unit) {
     val bottomOverlayInset = LocalBottomOverlayInset.current
 
     val qualities = remember { listOf("自适应原画", "4K 原盘", "1080p", "720p") }
-    val speeds = remember { listOf(0.75f to "0.75x", 1.0f to "1.0x", 1.25f to "1.25x", 1.5f to "1.5x", 2.0f to "2.0x") }
+    val speeds = remember {
+        listOf(
+            0.5f to "0.5x",
+            0.75f to "0.75x",
+            1.0f to "1.0x",
+            1.25f to "1.25x",
+            1.5f to "1.5x",
+            2.0f to "2.0x",
+        )
+    }
     val resizeModes = remember { listOf(0 to "等比适应", 1 to "裁切铺满", 2 to "拉伸全屏") }
 
     ExpressiveTintedScaffold(
@@ -2380,7 +2389,7 @@ fun PlaybackPreferencesScreen(onBack: () -> Unit) {
                         ) {
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text("硬件加速解码（MediaCodec）", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                Text("优先使用设备硬解 HEVC / AV1 / 杜比视界", color = colors.textMuted, fontSize = 12.sp)
+                                Text("优先使用设备硬解 HEVC / AV1 / 杜比视界，软解自动兜底", color = colors.textMuted, fontSize = 12.sp)
                             }
                             Switch(
                                 checked = store.hwDecode,
@@ -2396,11 +2405,75 @@ fun PlaybackPreferencesScreen(onBack: () -> Unit) {
                         ) {
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text("切后台自动画中画（PiP）", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                Text("支持小窗画中画浮窗无缝续播", color = colors.textMuted, fontSize = 12.sp)
+                                Text("视频播放中返回桌面时按画面比例自动进入悬浮小窗", color = colors.textMuted, fontSize = 12.sp)
                             }
                             Switch(
                                 checked = store.autoPip,
                                 onCheckedChange = { store.updateAutoPip(it) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                            )
+                        }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("STRM 直链播放", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                Text("开启后遇到 .strm 条目直接连接源站 HTTP(S) 直链，不可达时自动回退代理", color = colors.textMuted, fontSize = 12.sp)
+                            }
+                            Switch(
+                                checked = store.strmDirectPlay,
+                                onCheckedChange = { store.updateStrmDirectPlay(it) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                            )
+                        }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("优先匹配中文字幕", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                Text("自动检测并启用简体/繁体中文内嵌与外挂字幕轨道", color = colors.textMuted, fontSize = 12.sp)
+                            }
+                            Switch(
+                                checked = store.preferChineseSub,
+                                onCheckedChange = { store.updatePreferChineseSub(it) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                            )
+                        }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("移动数据网络播放提醒", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                Text("使用蜂窝移动数据在线播放音视频流前弹窗确认", color = colors.textMuted, fontSize = 12.sp)
+                            }
+                            Switch(
+                                checked = store.cellularWarn,
+                                onCheckedChange = { store.updateCellularWarn(it) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                            )
+                        }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("音乐返回保留迷你播控条", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                Text("音频全屏页按返回键收起为底部悬浮迷你条，关闭则直接停止", color = colors.textMuted, fontSize = 12.sp)
+                            }
+                            Switch(
+                                checked = store.keepMusicMiniBar,
+                                onCheckedChange = { store.updateKeepMusicMiniBar(it) },
                                 colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
                             )
                         }
@@ -2423,8 +2496,10 @@ fun PlaybackPreferencesScreen(onBack: () -> Unit) {
                             }
                         }
                         HorizontalDivider(color = colors.divider)
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("默认播放倍速", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("默认视频倍速", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text("仅对视频生效，音乐固定以 1.0x 原速启动", color = colors.textMuted, fontSize = 12.sp)
+                            Spacer(Modifier.height(2.dp))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 speeds.forEach { (spd, label) ->
                                     NativeAdaptivePill(

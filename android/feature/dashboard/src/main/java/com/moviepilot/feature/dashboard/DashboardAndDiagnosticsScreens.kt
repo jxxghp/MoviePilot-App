@@ -142,11 +142,16 @@ import java.time.format.DateTimeFormatter
 /** 「我的」仪表盘可编排模块项（支持开关显隐与顺序持久化）。 */
 private data class DashboardModuleToggle(val id: String, val title: String, val enabled: Boolean)
 
+/** 返回「我的」仪表盘默认模块编排顺序（`社区勋章` 置顶紧随用户身份卡之后，对齐 iOS 布局）。 */
+fun defaultDashboardModuleIds(): List<String> = defaultDashboardModules().map { it.id }
+
+private const val DASHBOARD_MODULES_PREFS_NAME = "mp_dashboard_modules_v4"
+
 private fun defaultDashboardModules(): List<DashboardModuleToggle> = listOf(
+    DashboardModuleToggle("community", "社区勋章", true),
     DashboardModuleToggle("media_stats", "媒体库统计", true),
     DashboardModuleToggle("storage", "存储空间", true),
     DashboardModuleToggle("downloader", "下载器", true),
-    DashboardModuleToggle("community", "社区勋章", true),
     DashboardModuleToggle("memory", "内存占用", true),
     DashboardModuleToggle("trend", "整理趋势", true),
     DashboardModuleToggle("bg_services", "后台服务", true),
@@ -155,7 +160,7 @@ private fun defaultDashboardModules(): List<DashboardModuleToggle> = listOf(
 
 private fun loadPersistedDashboardModules(context: Context): List<DashboardModuleToggle> {
     val defaults = defaultDashboardModules()
-    val raw = context.getSharedPreferences("mp_dashboard_modules_v3", Context.MODE_PRIVATE)
+    val raw = context.getSharedPreferences(DASHBOARD_MODULES_PREFS_NAME, Context.MODE_PRIVATE)
         .getString("modules_spec", null)
         ?.takeIf { it.isNotBlank() } ?: return defaults
     val byId = defaults.associateBy { it.id }
@@ -175,7 +180,7 @@ private fun loadPersistedDashboardModules(context: Context): List<DashboardModul
 
 private fun savePersistedDashboardModules(context: Context, list: List<DashboardModuleToggle>) {
     val encoded = list.joinToString(",") { "${it.id}:${if (it.enabled) "1" else "0"}" }
-    context.getSharedPreferences("mp_dashboard_modules_v3", Context.MODE_PRIVATE)
+    context.getSharedPreferences(DASHBOARD_MODULES_PREFS_NAME, Context.MODE_PRIVATE)
         .edit()
         .putString("modules_spec", encoded)
         .apply()

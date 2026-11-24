@@ -8,6 +8,7 @@ import {
   MpMediaServerPerson,
   MpMediaServerSource,
   MpMediaServerStream,
+  MpMediaTrackOption,
   MpRemoteImage,
   formatByteSize
 } from '@moviepilot/core_rust_bridge';
@@ -24,11 +25,18 @@ import {
   HarmonySkeletonHost,
   HarmonyEpisodeStripSkeleton,
   HarmonyMediaDetailBodySkeleton,
+  PlaybackPreferencesStore,
   mpPrimaryText,
   mpSecondaryText,
   mpMutedText
 } from '@moviepilot/design_system';
-import { HarmonyPlaybackRequest } from '@moviepilot/media_player';
+import {
+  HarmonyPlaybackRequest,
+  HarmonyQueueItem,
+  formatMediaDurationMs,
+  isChineseLanguageTrack,
+  buildPlaybackRequestFromStreamInfo
+} from '@moviepilot/media_player';
 
 interface ExternalLinkChipItem {
   id: string;
@@ -83,6 +91,8 @@ export struct HarmonyMediaServerDetailPage {
   @State private selectedEpisodeId: string = '';
   @State private fallbackEpisodeSources: MpMediaServerSource[] = [];
   @State private selectedSourceIdx: number = 0;
+  @State private selectedAudioOrd: number = 0;
+  @State private selectedSubKey: string = 'auto';
   @State private similarItems: MpMediaItem[] = [];
   @State private overviewExpanded: boolean = false;
   @State private scrollOffsetY: number = 0;
@@ -115,6 +125,8 @@ export struct HarmonyMediaServerDetailPage {
     this.selectedEpisodeId = '';
     this.fallbackEpisodeSources = [];
     this.selectedSourceIdx = 0;
+    this.selectedAudioOrd = 0;
+    this.selectedSubKey = 'auto';
     this.similarItems = [];
     this.overviewExpanded = false;
     this.subscribed = false;
@@ -159,6 +171,16 @@ export struct HarmonyMediaServerDetailPage {
     }
     const it = d.itemType.toLowerCase();
     return it === 'series' || it === 'season' || d.mediaType === '电视剧';
+  }
+
+  private isMusicAlbum(d: MpMediaServerDetail | null): boolean {
+    if (!d) {
+      const t = this.item.type.toLowerCase();
+      return t === 'musicalbum' || t === '音乐专辑';
+    }
+    const it = d.itemType.toLowerCase();
+    const mt = d.mediaType.toLowerCase();
+    return it === 'musicalbum' || it === 'music_album' || mt === '音乐专辑' || (it === 'folder' && mt === '音乐');
   }
 
   private buildSubscribeProxyItem(d: MpMediaServerDetail | null): MpMediaItem {
@@ -238,9 +260,10 @@ export struct HarmonyMediaServerDetailPage {
         return;
       }
       this.detail = fetched;
+      this.syncDefaultTrackSelections();
       this.loading = false;
 
-      // 1. 若为剧集或季，拉取季与分集卡片，并自动预取首集音视频轨道以展示「媒体信息」
+      // 1. 若为剧集、季或音乐专辑，拉取分集/子曲目列表，并自动预取首集音视频轨道以展示「媒体信息」
       const lowerType = fetched.itemType.toLowerCase();
       if (lowerType === 'series') {
         const loadedSeasons = await repo.fetchMediaServerSeasons(fetched.itemId, fetched.server);
@@ -270,6 +293,8 @@ export struct HarmonyMediaServerDetailPage {
           fetched.seasonNumber >= 0 ? fetched.seasonNumber : undefined,
           seq
         );
+      } else if (this.isMusicAlbum(fetched)) {
+        await this.loadSeasonEpisodes(fetched.itemId, fetched.server, '', undefined, seq);
       }
 
       // 2. 补全外部 ID（doubanId / imdbId / tmdbId）后并发查询订阅状态与类似作品
@@ -354,7 +379,8 @@ export struct HarmonyMediaServerDetailPage {
       if (expectedSeq !== this.loadSeq) { return; }
       this.episodes = eps;
       if (eps.length > 0) {
-        const preferredEp = eps.find((e: MpMediaServerEpisode) => !e.played) ?? eps[0];
+        const nextIdx = this.nextPlayableEpisodeIndex();
+        const preferredEp = eps[nextIdx];
         this.selectedEpisodeId = preferredEp.itemId;
         if (!this.detail || this.detail.mediaSources.length === 0) {
           this.loadEpisodeStreamPreview(preferredEp.itemId, server, expectedSeq);
@@ -374,10 +400,71 @@ export struct HarmonyMediaServerDetailPage {
       if (epDetail && epDetail.mediaSources.length > 0) {
         this.fallbackEpisodeSources = epDetail.mediaSources;
         this.selectedSourceIdx = 0;
+        this.syncDefaultTrackSelections();
       }
     } catch {
       // ignore episode stream preview failure
     }
+  }
+
+  private nextPlayableEpisodeIndex(): number {
+    if (this.episodes.length === 0) {
+      return 0;
+    }
+    const resumableIdx = this.episodes.findIndex(
+      (e: MpMediaServerEpisode) => !e.played && e.resumePositionMs > 30000
+    );
+    if (resumableIdx >= 0) {
+      return resumableIdx;
+    }
+    const unplayedIdx = this.episodes.findIndex((e: MpMediaServerEpisode) => !e.played);
+    return unplayedIdx >= 0 ? unplayedIdx : 0;
+  }
+
+  private syncDefaultTrackSelections(): void {
+    const src = this.activeSource();
+    if (!src) {
+      this.selectedAudioOrd = 0;
+      this.selectedSubKey = 'auto';
+      return;
+    }
+    const defAudio = src.audioTracks.findIndex((t: MpMediaTrackOption) => t.isDefault);
+    this.selectedAudioOrd = defAudio >= 0 ? defAudio : 0;
+
+    if (src.subtitleTracks.length === 0) {
+      this.selectedSubKey = 'auto';
+      return;
+    }
+    if (PlaybackPreferencesStore.getPreferZhSub()) {
+      const zhHit = src.subtitleTracks.find(
+        (t: MpMediaTrackOption) => isChineseLanguageTrack(t.language, t.label)
+      );
+      if (zhHit) {
+        this.selectedSubKey = `sub_${zhHit.ordinal}`;
+        return;
+      }
+    }
+    const defSub = src.subtitleTracks.find((t: MpMediaTrackOption) => t.isDefault);
+    this.selectedSubKey = defSub ? `sub_${defSub.ordinal}` : `sub_${src.subtitleTracks[0].ordinal}`;
+  }
+
+  private primaryPlayButtonLabel(): string {
+    if (this.isMusicAlbum(this.detail)) {
+      return '播放全部';
+    }
+    if (this.detail && this.isSeriesOrSeason(this.detail) && this.episodes.length > 0) {
+      const targetEp = this.episodes.find((e: MpMediaServerEpisode) => e.itemId === this.selectedEpisodeId)
+        ?? this.episodes[this.nextPlayableEpisodeIndex()];
+      const epTag = targetEp.episodeNumber > 0 ? ` E${String(targetEp.episodeNumber).padStart(2, '0')}` : '';
+      if (targetEp.resumePositionMs > 30000 && !targetEp.played) {
+        return `继续播放${epTag}`;
+      }
+      return `播放${epTag}`;
+    }
+    if (this.detail && this.detail.resumePositionMs > 30000) {
+      return '继续播放';
+    }
+    return '立即播放';
   }
 
   private activeMediaSources(): MpMediaServerSource[] {
@@ -396,19 +483,32 @@ export struct HarmonyMediaServerDetailPage {
 
   private async playTargetItem(overrideItemId?: string, overrideTitle?: string, overrideSubtitle?: string): Promise<void> {
     const srv = this.targetServer();
+    const isAlbum = this.isMusicAlbum(this.detail);
+    const isTv = this.isSeriesOrSeason(this.detail);
     let playId = overrideItemId ?? '';
     let playTitle = overrideTitle ?? (this.detail ? this.detail.title : this.item.title);
     let playSub = overrideSubtitle ?? (this.detail ? (this.detail.year || this.detail.server) : this.item.year);
+    let queueIndex = 0;
 
     if (!playId) {
-      if (this.detail && this.isSeriesOrSeason(this.detail) && this.episodes.length > 0) {
-        const chosen = this.episodes.find((e: MpMediaServerEpisode) => e.itemId === this.selectedEpisodeId)
-          ?? this.episodes.find((e: MpMediaServerEpisode) => !e.played)
-          ?? this.episodes[0];
+      if (this.detail && (isTv || isAlbum) && this.episodes.length > 0) {
+        const matchedIdx = this.episodes.findIndex((e: MpMediaServerEpisode) => e.itemId === this.selectedEpisodeId);
+        queueIndex = matchedIdx >= 0 ? matchedIdx : (isAlbum ? 0 : this.nextPlayableEpisodeIndex());
+        const chosen = this.episodes[queueIndex];
         playId = chosen.itemId;
-        playTitle = `${this.detail.title} · E${String(chosen.episodeNumber).padStart(2, '0')} ${chosen.title}`;
+        if (isAlbum) {
+          playTitle = chosen.title;
+          playSub = this.detail.subtitle || this.detail.title;
+        } else {
+          playTitle = `${this.detail.title} · E${String(chosen.episodeNumber).padStart(2, '0')} ${chosen.title}`;
+        }
       } else {
         playId = this.targetItemId();
+      }
+    } else if (this.episodes.length > 0) {
+      const idx = this.episodes.findIndex((e: MpMediaServerEpisode) => e.itemId === playId);
+      if (idx >= 0) {
+        queueIndex = idx;
       }
     }
     if (!playId) { return; }
@@ -416,15 +516,85 @@ export struct HarmonyMediaServerDetailPage {
     const src = this.activeSource();
     const mediaSourceId = (!overrideItemId && src) ? src.id : '';
 
+    let preferredAudioIndex: number | undefined = undefined;
+    let preferredAudioLang: string | undefined = undefined;
+    let preferredSubLang: string | undefined = undefined;
+    let selectedSubIdHint = '';
+    const disableSubtitles = this.selectedSubKey === 'off';
+
+    if (src) {
+      if (this.selectedAudioOrd >= 0 && this.selectedAudioOrd < src.audioTracks.length) {
+        preferredAudioIndex = this.selectedAudioOrd;
+        preferredAudioLang = src.audioTracks[this.selectedAudioOrd].language;
+      }
+      if (!disableSubtitles && this.selectedSubKey.startsWith('sub_')) {
+        const subOrd = parseInt(this.selectedSubKey.substring(4), 10);
+        if (Number.isFinite(subOrd) && subOrd >= 0 && subOrd < src.subtitleTracks.length) {
+          const st = src.subtitleTracks[subOrd];
+          preferredSubLang = st.language || st.label;
+          selectedSubIdHint = st.subtitleId;
+        }
+      }
+    }
+
+    const queue: HarmonyQueueItem[] = [];
+    if ((isTv || isAlbum) && this.episodes.length > 1) {
+      for (let i = 0; i < this.episodes.length; i++) {
+        const ep = this.episodes[i];
+        const epNumPrefix = (!isAlbum && ep.episodeNumber > 0)
+          ? `E${String(ep.episodeNumber).padStart(2, '0')} · `
+          : '';
+        queue.push({
+          itemId: ep.itemId,
+          title: `${epNumPrefix}${ep.title}`,
+          subtitle: this.detail ? this.detail.title : srv,
+          server: ep.server || srv,
+          artworkUrl: ep.thumbUrl || ep.posterUrl || (this.detail ? this.detail.posterUrl : ''),
+          artist: isAlbum && this.detail ? this.detail.subtitle : undefined,
+          album: isAlbum && this.detail ? this.detail.title : undefined,
+          trackNumber: ep.episodeNumber > 0 ? ep.episodeNumber : (i + 1),
+          durationMs: ep.durationMs,
+          resumePositionMs: ep.resumePositionMs
+        });
+      }
+    }
+
     try {
       const streamInfo = await MoviePilotRepository.shared().fetchVideoStreamInfo(playId, srv, mediaSourceId);
       if (streamInfo && streamInfo.contentUrl.length > 0) {
-        this.onPlayMedia({
-          url: streamInfo.contentUrl,
-          title: streamInfo.title || playTitle,
-          subtitle: playSub,
-          isAudio: streamInfo.mediaType === 'audio'
-        });
+        let preferredExternalSubUrl: string | undefined = undefined;
+        if (selectedSubIdHint.length > 0 && streamInfo.subtitles.length > 0) {
+          const hitExt = streamInfo.subtitles.find((s) => s.subtitleId === selectedSubIdHint);
+          if (hitExt) {
+            preferredExternalSubUrl = hitExt.url;
+          }
+        }
+        const chosenEp = (this.episodes.length > queueIndex && this.episodes[queueIndex].itemId === playId)
+          ? this.episodes[queueIndex]
+          : undefined;
+        const resumeOverride = chosenEp && chosenEp.resumePositionMs > 0
+          ? chosenEp.resumePositionMs
+          : (this.detail && !overrideItemId ? this.detail.resumePositionMs : 0);
+        const artworkOverride = (chosenEp && (chosenEp.thumbUrl || chosenEp.posterUrl))
+          ? (chosenEp.thumbUrl || chosenEp.posterUrl)
+          : (this.detail ? (this.detail.posterUrl || this.detail.backdropUrl) : this.item.posterUrl);
+
+        this.onPlayMedia(buildPlaybackRequestFromStreamInfo(
+          streamInfo,
+          playTitle,
+          playSub,
+          {
+            preferredAudioIndex: preferredAudioIndex,
+            preferredAudioLang: preferredAudioLang,
+            preferredSubLang: preferredSubLang,
+            preferredExternalSubUrl: preferredExternalSubUrl,
+            disableSubtitles: disableSubtitles,
+            queue: queue.length > 1 ? queue : undefined,
+            queueIndex: queue.length > 1 ? queueIndex : undefined,
+            overrideResumeMs: resumeOverride,
+            overrideArtworkUrl: artworkOverride
+          }
+        ));
         return;
       }
     } catch {
@@ -436,7 +606,7 @@ export struct HarmonyMediaServerDetailPage {
         url: fallbackPlayUrl,
         title: playTitle,
         subtitle: playSub,
-        isAudio: false
+        isAudio: isAlbum
       });
     } else {
       this.statusIsError = true;
@@ -651,8 +821,81 @@ export struct HarmonyMediaServerDetailPage {
   }
 
   @Builder
+  musicAlbumTracksSectionBuilder() {
+    if (this.isMusicAlbum(this.detail) && (this.episodes.length > 0 || this.loadingEpisodes)) {
+      Column({ space: 10 }) {
+        Row() {
+          Text('专辑曲目')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(mpPrimaryText(this.isDark))
+            .layoutWeight(1)
+          if (this.episodes.length > 0) {
+            Text(`共 ${this.episodes.length} 首`)
+              .fontSize(12)
+              .fontColor(mpSecondaryText(this.isDark))
+          }
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16 })
+
+        Column({ space: 8 }) {
+          ForEach(this.episodes, (tr: MpMediaServerEpisode, idx: number) => {
+            Row({ space: 12 }) {
+              Text(String(tr.episodeNumber > 0 ? tr.episodeNumber : (idx + 1)).padStart(2, '0'))
+                .fontSize(13)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.selectedEpisodeId === tr.itemId ? this.accentHex : mpSecondaryText(this.isDark))
+                .width(26)
+
+              Column({ space: 2 }) {
+                Text(tr.title)
+                  .fontSize(14.5)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(mpPrimaryText(this.isDark))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                if (tr.subtitle.length > 0) {
+                  Text(tr.subtitle)
+                    .fontSize(11.5)
+                    .fontColor(mpSecondaryText(this.isDark))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+
+              if (tr.durationMs > 0) {
+                Text(formatMediaDurationMs(tr.durationMs))
+                  .fontSize(11.5)
+                  .fontColor(mpSecondaryText(this.isDark))
+              }
+
+              SymbolGlyph($r('sys.symbol.play_circle'))
+                .fontSize(20)
+                .fontColor([this.accentHex])
+            }
+            .width('100%')
+            .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+            .borderRadius(14)
+            .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
+            .onClick(() => {
+              this.selectedEpisodeId = tr.itemId;
+              this.playTargetItem(tr.itemId, tr.title, this.detail ? this.detail.title : this.targetServer());
+            })
+          }, (tr: MpMediaServerEpisode, idx: number) => `ms_trk_${idx}_${tr.itemId}`)
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16 })
+      }
+      .width('100%')
+    }
+  }
+
+  @Builder
   episodesHorizontalSectionBuilder() {
-    if (this.seasons.length > 0 || this.episodes.length > 0 || this.loadingEpisodes) {
+    if (!this.isMusicAlbum(this.detail) && (this.seasons.length > 0 || this.episodes.length > 0 || this.loadingEpisodes)) {
       Column({ space: 12 }) {
         Row() {
           Text('剧集')
@@ -1183,7 +1426,7 @@ export struct HarmonyMediaServerDetailPage {
             Button() {
               Row({ space: 6 }) {
                 SymbolGlyph($r('sys.symbol.play_fill')).fontSize(16).fontColor([Color.White])
-                Text(this.detail && this.detail.resumePositionMs > 0 ? '继续播放' : '立即播放')
+                Text(this.primaryPlayButtonLabel())
                   .fontSize(15)
                   .fontWeight(FontWeight.Bold)
                   .fontColor(Color.White)
@@ -1202,9 +1445,59 @@ export struct HarmonyMediaServerDetailPage {
                     NativeAdaptivePill({
                       title: `${src.name || ('版本 ' + (idx + 1))}${src.sizeBytes > 0 ? ' · ' + formatByteSize(src.sizeBytes) : ''}`,
                       selected: this.selectedSourceIdx === idx,
-                      onTap: () => { this.selectedSourceIdx = idx; }
+                      onTap: () => {
+                        this.selectedSourceIdx = idx;
+                        this.syncDefaultTrackSelections();
+                      }
                     })
                   }, (src: MpMediaServerSource, idx: number) => `${src.id}_${idx}_${this.selectedSourceIdx === idx}`)
+                }
+              }
+              .scrollable(ScrollDirection.Horizontal)
+              .scrollBar(BarState.Off)
+              .width('100%')
+            }
+
+            if (this.activeSource() && this.activeSource()!.audioTracks.length > 1) {
+              Scroll() {
+                Row({ space: 8 }) {
+                  Text('音轨')
+                    .fontSize(12)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(mpSecondaryText(this.isDark))
+                  ForEach(this.activeSource()!.audioTracks, (aud: MpMediaTrackOption, aIdx: number) => {
+                    NativeAdaptivePill({
+                      title: aud.label,
+                      selected: this.selectedAudioOrd === aIdx,
+                      onTap: () => { this.selectedAudioOrd = aIdx; }
+                    })
+                  }, (aud: MpMediaTrackOption, aIdx: number) => `aud_opt_${aIdx}_${aud.index}_${this.selectedAudioOrd === aIdx}`)
+                }
+              }
+              .scrollable(ScrollDirection.Horizontal)
+              .scrollBar(BarState.Off)
+              .width('100%')
+            }
+
+            if (this.activeSource() && this.activeSource()!.subtitleTracks.length > 0) {
+              Scroll() {
+                Row({ space: 8 }) {
+                  Text('字幕')
+                    .fontSize(12)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(mpSecondaryText(this.isDark))
+                  NativeAdaptivePill({
+                    title: '关闭字幕',
+                    selected: this.selectedSubKey === 'off',
+                    onTap: () => { this.selectedSubKey = 'off'; }
+                  })
+                  ForEach(this.activeSource()!.subtitleTracks, (sub: MpMediaTrackOption, sIdx: number) => {
+                    NativeAdaptivePill({
+                      title: sub.label,
+                      selected: this.selectedSubKey === `sub_${sub.ordinal}`,
+                      onTap: () => { this.selectedSubKey = `sub_${sub.ordinal}`; }
+                    })
+                  }, (sub: MpMediaTrackOption, sIdx: number) => `sub_opt_${sIdx}_${sub.index}_${this.selectedSubKey}`)
                 }
               }
               .scrollable(ScrollDirection.Horizontal)
@@ -1340,7 +1633,8 @@ export struct HarmonyMediaServerDetailPage {
               .padding({ left: 16, right: 16 })
             }
 
-            // 4. 剧集列表（16:9 横版剧照横滑）
+            // 4. 剧集列表（16:9 横版剧照横滑）或音乐专辑曲目单
+            this.musicAlbumTracksSectionBuilder()
             this.episodesHorizontalSectionBuilder()
 
             // 5. 演职员表

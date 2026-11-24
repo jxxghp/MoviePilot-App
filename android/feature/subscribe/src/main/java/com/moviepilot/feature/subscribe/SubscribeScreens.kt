@@ -2091,7 +2091,9 @@ private fun LibraryFileEntryCard(
     onFeedback: (String) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var isDownloadingStorage by remember(lib.filePath) { mutableStateOf(false) }
     val resBadge = remember(lib.filePath) { detectResolutionBadge(lib.filePath) }
     val isServerBacked = !lib.server.isNullOrBlank()
     val entityKind = if (isServerBacked) "mediaserver" else "storage"
@@ -2099,6 +2101,9 @@ private fun LibraryFileEntryCard(
     val entityTitle = lib.server ?: lib.storage.ifBlank { "local" }
     val isHttpUrl = lib.filePath.startsWith("http://", ignoreCase = true) ||
         lib.filePath.startsWith("https://", ignoreCase = true)
+    val storagePlayableKind = remember(lib.filePath, isHttpUrl) {
+        if (lib.filePath.isNotBlank()) RustCoreBridge.detectMediaKind(lib.filePath, isHttpUrl) else null
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         FlowRow(
@@ -2186,6 +2191,7 @@ private fun LibraryFileEntryCard(
                                             headers = manifest.headers,
                                             itemId = manifest.itemId,
                                             server = manifest.server,
+                                            mediaSourceId = manifest.mediaSourceId.orEmpty(),
                                             resumePositionMs = manifest.resumePositionMs,
                                             subtitles = manifest.subtitles.map {
                                                 SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
@@ -2207,6 +2213,61 @@ private fun LibraryFileEntryCard(
                         onClick = { onOpenServerItem(lib.itemid!!, lib.server!!, fallbackTitle) },
                     )
                 }
+            } else if (lib.itemid.isNullOrBlank() && storagePlayableKind != null && onPlayMedia != null) {
+                // 当无媒体库 itemid 时，回退为远程存储下载缓存直放或 HTTP 直链播放
+                NativeAdaptivePill(
+                    title = if (isDownloadingStorage) "拉取中…" else "立即播放",
+                    selected = true,
+                    icon = Icons.Rounded.PlayArrow,
+                    tint = colors.accent,
+                    onClick = {
+                        if (isDownloadingStorage) return@NativeAdaptivePill
+                        if (isHttpUrl) {
+                            onPlayMedia(
+                                MediaPlaybackRequest(
+                                    url = lib.filePath,
+                                    title = fallbackTitle,
+                                    subtitle = entityTitle,
+                                    artworkUrl = artworkUrl,
+                                    isAudio = storagePlayableKind == "audio",
+                                    headers = repository.buildPlaybackHeaders(lib.filePath),
+                                ),
+                            )
+                        } else {
+                            scope.launch {
+                                isDownloadingStorage = true
+                                val targetStorage = lib.storage.ifBlank { "local" }
+                                val fileName = lib.filePath.substringAfterLast('/').ifBlank { fallbackTitle }
+                                val safeName = fileName.replace(Regex("[^a-zA-Z0-9._\\-\\u4e00-\\u9fa5]"), "_")
+                                val cacheDir = java.io.File(context.cacheDir, "mp_storage_playback").apply { mkdirs() }
+                                val destFile = java.io.File(cacheDir, "${lib.filePath.hashCode()}_$safeName")
+                                val resolved = repository.resolveStoragePlayback(
+                                    storage = targetStorage,
+                                    path = lib.filePath,
+                                    destFile = destFile,
+                                    fallbackKind = storagePlayableKind,
+                                )
+                                isDownloadingStorage = false
+                                if (resolved != null) {
+                                    onPlayMedia(
+                                        MediaPlaybackRequest(
+                                            url = resolved.url,
+                                            title = fallbackTitle.ifBlank { fileName.substringBeforeLast('.').ifBlank { fileName } },
+                                            subtitle = "$targetStorage · ${lib.filePath}",
+                                            artworkUrl = artworkUrl,
+                                            isAudio = resolved.isAudio,
+                                            streamHeaders = resolved.streamHeaders,
+                                            isSessionBound = !resolved.isStrmDirect,
+                                            tempFilePath = resolved.tempFilePath,
+                                        ),
+                                    )
+                                } else {
+                                    onFeedback("无法从存储（$targetStorage）拉取该媒体文件")
+                                }
+                            }
+                        }
+                    },
+                )
             }
         }
     }

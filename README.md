@@ -27,8 +27,8 @@ MoviePilot-App/
 
 - **地道原生视觉与交互**：
   - **iOS / iPadOS**：默认「深色 · 极简石墨」原生色板、iOS 26+ Liquid Glass 4+1 悬浮导航（发现、订阅、我的、更多 + 独立搜索）、iPad `sidebarAdaptable` 工作台与多列 Bento 栅格、SceneKit 3D 挤压社区勋章与背面三遍凹雕、MobileVLCKit + AVKit 全格式播放器与画中画、WidgetKit 多尺寸小组件与 APNs 推送。
-  - **Android**：Material 3 Expressive 视觉与 4+1 分体式悬浮/侧栏自适应导航（发现、订阅、我的、更多 + 独立搜索）、染色顶栏与统一大胶囊分页栏（`ExpressivePillTabRow`）、Material You 动态壁纸取色与 AMOLED 纯黑模式、OpenGL ES 3D 勋章实时网格挤压与背面雕刻、Media3 音视频播放与画中画、Jetpack Glance 桌面微件。
-  - **HarmonyOS NEXT**：HarmonyOS 动态光感材质（API 26 `ImmersiveMaterial` / 点光源自动分级回退）与 4+1 分体式悬浮导航、5 套鸿蒙色板、无遮挡渐进模糊沉浸顶栏、原生 `bindSheet` 多档半模态、一多自适应侧栏、3D 透视勋章与背面凹雕、常驻音频续播与 `FormExtensionAbility` 桌面卡片。
+  - **Android**：Material 3 Expressive 视觉与 4+1 分体式悬浮/侧栏自适应导航（发现、订阅、我的、更多 + 独立搜索）、染色顶栏与统一大胶囊分页栏（`ExpressivePillTabRow`）、Material You 动态壁纸取色与 AMOLED 纯黑模式、OpenGL ES 3D 勋章实时网格挤压与背面雕刻、Media3 + FFmpeg 全格式音视频播放与 `MediaSessionService` 锁屏播控 / 自动画中画、Jetpack Glance 桌面微件。
+  - **HarmonyOS NEXT**：HarmonyOS 动态光感材质（API 26 `ImmersiveMaterial` / 点光源自动分级回退）与 4+1 分体式悬浮导航、5 套鸿蒙色板、无遮挡渐进模糊沉浸顶栏、原生 `bindSheet` 多档半模态、一多自适应侧栏、3D 透视勋章与背面凹雕、`AVPlayer` + `PiPWindow` 画中画与 `AVSession` 后台长时音视频续播、`FormExtensionAbility` 桌面卡片。
 - **全场景品牌标识识别**：内置 36 枚高清品牌与服务 Logo（TMDB、豆瓣、Bangumi、MusicBrainz、Emby、Jellyfin、Plex、飞牛、绿联、极空间、qBittorrent、Transmission、rTorrent、微信、飞书、Telegram、钉钉、Slack、Discord、115、阿里云盘、Rclone、SMB 等），全面覆盖数据源、下载器、媒体服务器、通知渠道、存储目录及选择弹窗。
 - **Rust 共享核心（`shared/core-rust/`）**：
   - `mp-core-model`：实例地址规范化与同源边界校验、`moviepilot://` 全路由深度链接解析、音视频后缀判定、Agent Markdown AST 解析、订阅进度与 3D 勋章金属色板。
