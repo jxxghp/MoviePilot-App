@@ -47,6 +47,21 @@ final class InstanceStore {
   /// 仅清除当前选择，历史实例容器留存直到用户明确选择忘记。
   func deselect() { defaults.removeObject(forKey: selectedKey) }
 
+  /// 该实例上次选择的“保持登录”；从未记录时沿用登录页默认的开启状态。
+  func keepsSession(_ instanceID: UUID) -> Bool {
+    defaults.object(forKey: keepSessionKey(instanceID)) as? Bool ?? true
+  }
+
+  /// 只记录开关本身，不包含账号、地址或任何认证信息。
+  func setKeepsSession(_ enabled: Bool, for instanceID: UUID) {
+    defaults.set(enabled, forKey: keepSessionKey(instanceID))
+  }
+
+  /// 偏好按实例 UUID 分隔，键名不携带地址或账号。
+  private func keepSessionKey(_ instanceID: UUID) -> String {
+    "moviepilot.instance.keepSession.v1.\(instanceID.uuidString)"
+  }
+
   /// 与 WebKit 容器删除配合使用，移除指定实例的密码、令牌和配置。
   func forget(_ instance: SavedInstance) throws {
     let wasSelected = selected?.id == instance.id
@@ -54,6 +69,7 @@ final class InstanceStore {
     guard TokenStore().remove(instance.id) else { throw LoginCredentialError.unavailable }
     defaults.set(try JSONEncoder().encode(instances.filter { $0.id != instance.id }), forKey: key)
     if wasSelected { deselect() }
+    defaults.removeObject(forKey: keepSessionKey(instance.id))
     AccountAppearance.forget(instance.id)
     LanguagePreferences(defaults: .standard).forget(instance.id)
     WidgetService.shared.endSession(instanceId: instance.id, clear: true)
