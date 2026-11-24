@@ -39,8 +39,10 @@ struct NativeAppearanceSettingsPage: View {
         CinematicAmbientGradient()
         VStack(alignment: .leading, spacing: 12) {
           HStack(spacing: 10) {
-            Image(systemName: "sparkles.tv")
-              .font(.headline.weight(.semibold))
+            Image("DiscoverCards")
+              .resizable()
+              .scaledToFit()
+              .frame(width: 20, height: 20)
               .foregroundStyle(.white)
               .frame(width: 34, height: 34)
               .background(

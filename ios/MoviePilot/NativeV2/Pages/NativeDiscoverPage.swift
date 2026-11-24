@@ -1260,8 +1260,12 @@ struct NativeDiscoverPage: View {
           }
           .buttonStyle(.plain).accessibilityIdentifier("native-discover-retry")
         } else {
-          Label("还没有可展示的内容", systemImage: "sparkles.tv")
-            .font(.headline)
+          Label {
+            Text("还没有可展示的内容")
+          } icon: {
+            Image("DiscoverCardsOutline").resizable().scaledToFit().frame(width: 20, height: 20)
+          }
+          .font(.headline)
           if let onOpenSearch {
             Button(action: onOpenSearch) {
               Label("搜索媒体", systemImage: "magnifyingglass")

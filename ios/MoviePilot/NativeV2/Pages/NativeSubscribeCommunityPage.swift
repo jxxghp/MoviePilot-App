@@ -378,7 +378,7 @@ struct NativeSubscribeCommunityPage: View {
   private func emptyCard(title: String, subtitle: String) -> some View {
     CinematicPanel {
       VStack(spacing: 10) {
-        Image(systemName: "sparkles.rectangle.stack")
+        Image(systemName: "rectangle.stack")
           .font(.largeTitle)
           .foregroundStyle(.primary.opacity(0.55))
         Text(title).font(.headline)

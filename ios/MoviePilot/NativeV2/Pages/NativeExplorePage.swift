@@ -790,9 +790,9 @@ enum NativeExploreSourceKind: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .tmdbMovies: "film"
     case .tmdbTVs: "tv"
-    case .doubanMovies: "sparkles.tv"
+    case .doubanMovies: "film.stack"
     case .doubanTVs: "play.tv"
-    case .bangumi: "sparkles"
+    case .bangumi: "calendar"
     case .music: "music.note"
     }
   }
@@ -1096,17 +1096,8 @@ private struct NativeExploreSourceConfig: Identifiable, Codable, Equatable, Send
 
   static var defaults: [NativeExploreSourceConfig] {
     NativeExploreSourceKind.allCases.map { source in
-      let symbol: String =
-        switch source {
-        case .tmdbMovies: "film"
-        case .tmdbTVs: "tv"
-        case .doubanMovies: "sparkles.tv"
-        case .doubanTVs: "play.tv"
-        case .bangumi: "wand.and.stars"
-        case .music: "music.note"
-        }
-      return NativeExploreSourceConfig(
-        id: source.rawValue, title: source.title, symbol: symbol, enabled: true)
+      NativeExploreSourceConfig(
+        id: source.rawValue, title: source.title, symbol: source.symbol, enabled: true)
     }
   }
 

@@ -419,7 +419,7 @@ struct NativeFileManagerPage: View {
         Button {
           pendingTransfer = item
         } label: {
-          Label("整理", systemImage: "wand.and.stars")
+          Label("整理", systemImage: "tray.and.arrow.down")
         }
         Button {
           pendingRename = item
@@ -654,7 +654,7 @@ private struct NativeFileRenameSheet: View {
                     if isRecommending {
                       ProgressView().controlSize(.small)
                     } else {
-                      Image(systemName: "sparkles")
+                      Image(systemName: "text.viewfinder")
                     }
                     Text(isRecommending ? "正在智能识别命名…" : "智能识别推荐命名")
                   }
@@ -1052,7 +1052,7 @@ struct NativeManualTransferSheet: View {
         }
         if let matchedTargetHint, !matchedTargetHint.isEmpty {
           HStack(spacing: 5) {
-            Image(systemName: "sparkles")
+            Image(systemName: "checkmark.circle")
               .font(.caption2)
               .foregroundStyle(NativeTheme.success)
             Text("已自动匹配目录：\(matchedTargetHint)")
@@ -1485,7 +1485,7 @@ struct NativeManualTransferSheet: View {
           if isSubmitting {
             ProgressView().controlSize(.small).tint(.white)
           } else {
-            Image(systemName: "wand.and.stars")
+            Image(systemName: "tray.and.arrow.down")
           }
           Text(isSubmitting ? "正在整理…" : "开始整理")
         }

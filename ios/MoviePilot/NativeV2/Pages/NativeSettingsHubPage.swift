@@ -332,7 +332,7 @@ struct NativeSettingsHubPage: View {
       }
       settingsRowDivider
       HStack(spacing: 14) {
-        iconBadge("sparkles")
+        iconBadge("text.bubble")
         Text(t("悬浮智能助手"))
           .font(.body)
           .foregroundStyle(.primary)
