@@ -457,7 +457,8 @@ struct CinematicPanel<Content: View>: View {
           reduceTransparency: reduceTransparency,
           contrast: contrast,
           colorScheme: colorScheme,
-          accentColor: appearance.accentColor
+          accentColor: appearance.accentColor,
+          showsShadow: showsShadow
         )
       )
       .overlay(
@@ -466,10 +467,6 @@ struct CinematicPanel<Content: View>: View {
           lineWidth: contrast == .increased ? 1 : 0.7
         ).allowsHitTesting(false)
       )
-      .shadow(
-        color: showsShadow ? (isLight ? .black.opacity(0.055) : .black.opacity(0.08)) : .clear,
-        radius: showsShadow ? (isLight ? 8 : 10) : 0,
-        y: showsShadow ? (isLight ? 3 : 5) : 0)
   }
 
   /// 相关卡片、表单与状态面板采用相同的连续圆角。
@@ -479,26 +476,39 @@ struct CinematicPanel<Content: View>: View {
 }
 
 /// 正文以轻系统材质和主题强调色染色透出底色；支持深色暗透玻璃与浅色磨砂白玻璃。
+/// 投影只挂在背景里的单个填充形状上，而不是整张卡片内容上，避免滚动时逐帧离屏合成整棵子树。
 @MainActor
 private struct CinematicPanelSurface: ViewModifier {
   let reduceTransparency: Bool
   let contrast: ColorSchemeContrast
   let colorScheme: ColorScheme
   let accentColor: Color
+  let showsShadow: Bool
 
   @ViewBuilder
   func body(content: Content) -> some View {
     let shape = RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous)
     let isLight = colorScheme == .light
+    let increased = contrast == .increased
+    let shadowRadius: CGFloat = showsShadow ? (isLight ? 8 : 10) : 0
+    let shadowY: CGFloat = showsShadow ? (isLight ? 3 : 5) : 0
     if reduceTransparency {
-      content.background(
-        isLight ? Color(red: 0.97, green: 0.97, blue: 0.99) : CinematicStyle.solidSurface,
-        in: shape)
+      // 实底卡片本身不透明，投影颜色沿用原值。
+      content.background {
+        shape
+          .fill(isLight ? Color(red: 0.97, green: 0.97, blue: 0.99) : CinematicStyle.solidSurface)
+          .shadow(
+            color: shadowColor(isLight ? 0.055 : 0.08), radius: shadowRadius, y: shadowY)
+      }
     } else if isLight {
+      // 投影由半透明白色填充层投射，强度随投射层不透明度衰减；
+      // 颜色不透明度按改动前后截图实测校准，使投影深浅与原先整卡投影一致。
       content.background {
         ZStack {
-          shape.fill(.ultraThinMaterial).opacity(contrast == .increased ? 0.92 : 0.76)
-          shape.fill(Color.white.opacity(contrast == .increased ? 0.78 : 0.56))
+          shape.fill(.ultraThinMaterial).opacity(increased ? 0.92 : 0.76)
+          shape.fill(Color.white.opacity(increased ? 0.78 : 0.56))
+            .shadow(
+              color: shadowColor(increased ? 0.085 : 0.13), radius: shadowRadius, y: shadowY)
           shape.fill(
             LinearGradient(
               colors: [accentColor.opacity(0.05), .clear, accentColor.opacity(0.03)],
@@ -506,9 +516,11 @@ private struct CinematicPanelSurface: ViewModifier {
         }
       }
     } else {
+      // 深色下原系统材质仅 12% 不透明度，背后又是平滑渐变，模糊几乎不可见却要逐帧采样背景；
+      // 实测其提亮不足 1 个色阶，改为等效的极淡白色填充，不再产生背景模糊开销。
       content.background {
         ZStack {
-          shape.fill(.ultraThinMaterial).opacity(contrast == .increased ? 0.45 : 0.12)
+          shape.fill(Color.white.opacity(increased ? 0.014 : 0.004))
           shape.fill(
             LinearGradient(
               colors: [
@@ -516,10 +528,17 @@ private struct CinematicPanelSurface: ViewModifier {
                 accentColor.opacity(0.05),
                 Color(red: 0.70, green: 0.39, blue: 0.59).opacity(0.08),
               ],
-              startPoint: .topLeading, endPoint: .bottomTrailing))
+              startPoint: .topLeading, endPoint: .bottomTrailing)
+          )
+          .shadow(color: shadowColor(0.22), radius: shadowRadius, y: shadowY)
         }
       }
     }
+  }
+
+  /// 关闭投影时返回透明色，保持与原 `showsShadow` 语义一致。
+  private func shadowColor(_ opacity: Double) -> Color {
+    showsShadow ? .black.opacity(opacity) : .clear
   }
 }
 
