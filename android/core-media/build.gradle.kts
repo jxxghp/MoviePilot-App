@@ -28,4 +28,5 @@ dependencies {
     api(libs.media3.ui)
     api(libs.media3.session)
     implementation(libs.media3.ffmpeg.decoder)
+    implementation(libs.mpv.libmpv)
 }

@@ -89,6 +89,7 @@ object ExternalPlayerLauncher {
 
     /**
      * 拉起系统外部音视频播放器选择面板（兼容 VLC / MPV / MX Player 等通用 HTTP 请求头传递约定）。
+     * 安全红线：严禁把实例主 `Authorization` / `Cookie` / 媒体服务器直连令牌传递给第三方外部应用。
      */
     fun launchExternalPlayerChooser(
         context: Context,
@@ -98,6 +99,7 @@ object ExternalPlayerLauncher {
         headers: Map<String, String> = emptyMap(),
     ): Boolean {
         if (streamUrl.isBlank()) return false
+        val safeHeaders = PlaybackHttpDataSource.stripAllSensitiveHeaders(headers)
         return runCatching {
             val uri = Uri.parse(streamUrl)
             val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -107,10 +109,10 @@ object ExternalPlayerLauncher {
                 if (uri.scheme.equals("content", ignoreCase = true)) {
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                if (headers.isNotEmpty() && (uri.scheme == "http" || uri.scheme == "https")) {
-                    val flatHeaders = ArrayList<String>(headers.size * 2)
-                    val lineHeaders = ArrayList<String>(headers.size)
-                    headers.forEach { (k, v) ->
+                if (safeHeaders.isNotEmpty() && (uri.scheme == "http" || uri.scheme == "https")) {
+                    val flatHeaders = ArrayList<String>(safeHeaders.size * 2)
+                    val lineHeaders = ArrayList<String>(safeHeaders.size)
+                    safeHeaders.forEach { (k, v) ->
                         flatHeaders.add(k)
                         flatHeaders.add(v)
                         lineHeaders.add("$k: $v")

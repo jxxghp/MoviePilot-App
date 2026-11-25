@@ -367,4 +367,107 @@ class PlaybackParityTest {
             ),
         )
     }
+
+    @Test
+    fun multiEngineRouterAndPreferencesAndLoopbackProxySecurityContract() {
+        val prefs = PlaybackPreferencesStore(context = null)
+        assertEquals("auto", prefs.videoEngine)
+        assertEquals("hw_auto", prefs.decodeMode)
+        assertEquals("standard", prefs.bufferProfile)
+        assertEquals("surface", prefs.surfaceType)
+        assertFalse(prefs.audioNightMode)
+        assertFalse(prefs.ignoreAssStyle)
+        assertFalse(prefs.defaultExternalPlayer)
+
+        prefs.updateVideoEngine("enhanced")
+        prefs.updateDecodeMode("sw_force")
+        prefs.updateBufferProfile("large")
+        prefs.updateSurfaceType("texture")
+        prefs.updateAudioNightMode(true)
+        prefs.updateIgnoreAssStyle(true)
+        prefs.updateSubtitleScale(1.15f)
+        prefs.updateDefaultExternalPlayer(true)
+        assertEquals("enhanced", prefs.videoEngine)
+        assertEquals("sw_force", prefs.decodeMode)
+        assertFalse(prefs.hwDecode)
+        assertEquals("large", prefs.bufferProfile)
+        assertEquals("texture", prefs.surfaceType)
+        assertTrue(prefs.audioNightMode)
+        assertTrue(prefs.ignoreAssStyle)
+        assertTrue(prefs.defaultExternalPlayer)
+
+        // 1. 常规 MP4 自动模式走 Media3 原生并配置 MPV 回退
+        val mp4Plan = com.moviepilot.rustbridge.RustCoreBridge.resolvePlaybackEngine(
+            com.moviepilot.rustbridge.EngineResolutionInputDto(
+                platform = "android",
+                preferred = "auto",
+                urlOrFilename = "https://cdn.example.com/movie.mp4",
+            ),
+        )
+        assertEquals("native", mp4Plan.primary)
+        assertEquals("enhanced", mp4Plan.fallback)
+
+        // 2. MKV / ASS 特效字幕 / 强制软解自动切入 MPV 全能内核
+        val mkvPlan = com.moviepilot.rustbridge.RustCoreBridge.resolvePlaybackEngine(
+            com.moviepilot.rustbridge.EngineResolutionInputDto(
+                platform = "android",
+                preferred = "auto",
+                urlOrFilename = "https://cdn.example.com/anime.mkv",
+            ),
+        )
+        assertEquals("enhanced", mkvPlan.primary)
+        assertEquals("native", mkvPlan.fallback)
+
+        val swPlan = com.moviepilot.rustbridge.RustCoreBridge.resolvePlaybackEngine(
+            com.moviepilot.rustbridge.EngineResolutionInputDto(
+                platform = "android",
+                preferred = "auto",
+                decodeForceSoftware = true,
+                urlOrFilename = "https://cdn.example.com/movie.mp4",
+            ),
+        )
+        assertEquals("enhanced", swPlan.primary)
+
+        // 3. 外部播放器 URL 模板安全校验与敏感请求头剥离
+        assertNotNull(
+            com.moviepilot.rustbridge.RustCoreBridge.buildSafeExternalPlayerUrl(
+                "vlc-x-callback://x-callback-url/stream?url={url}&title={title}",
+                "https://cdn.example.com/demo.mkv",
+                "Demo",
+            ),
+        )
+        assertNull(
+            com.moviepilot.rustbridge.RustCoreBridge.buildSafeExternalPlayerUrl(
+                "javascript://alert(1)?url={url}",
+                "https://cdn.example.com/demo.mkv",
+                "Demo",
+            ),
+        )
+        val stripped = PlaybackHttpDataSource.stripAllSensitiveHeaders(
+            mapOf(
+                "Authorization" to "Bearer secret",
+                "Cookie" to "mp_token=secret",
+                "X-Emby-Token" to "emby-secret",
+                "User-Agent" to "MoviePilot/2.0",
+            ),
+        )
+        assertEquals(mapOf("User-Agent" to "MoviePilot/2.0"), stripped)
+
+        // 4. LoopbackAuthProxy 单会话随机令牌隔离：拒绝错误令牌并返回 403
+        val client = okhttp3.OkHttpClient()
+        val proxy = com.moviepilot.media.engine.LoopbackAuthProxy(
+            okHttpClient = client,
+            initialTargetUrl = "http://127.0.0.1:1/unreachable",
+        )
+        try {
+            val badReq = okhttp3.Request.Builder()
+                .url("http://127.0.0.1:${proxy.port}/wrong-token/stream")
+                .build()
+            client.newCall(badReq).execute().use { resp ->
+                assertEquals(403, resp.code)
+            }
+        } finally {
+            proxy.close()
+        }
+    }
 }

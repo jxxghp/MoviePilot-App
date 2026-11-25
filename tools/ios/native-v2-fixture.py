@@ -6,12 +6,13 @@ import base64
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from pathlib import Path
 import re
 import struct
 import threading
 import time
 import zlib
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 
 class NativeFixture(ThreadingHTTPServer):
@@ -164,6 +165,10 @@ class NativeHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         """仅处理状态、身份和测试计数读取。"""
+        self.dispatch()
+
+    def do_HEAD(self):
+        """处理媒体流预检与 Range 探测。"""
         self.dispatch()
 
     def do_POST(self):
@@ -377,6 +382,13 @@ class NativeHandler(BaseHTTPRequestHandler):
         parts = [unquote(segment) for segment in path.strip("/").split("/") if segment]
         name = parts[0] if parts else ""
         endpoint = "/".join(parts[1:])
+        if name in self.server.profiles and self.command in {"GET", "HEAD"}:
+            if endpoint == "api/v1/mediaserver/stream":
+                self.mediaserver_stream_endpoint(name)
+                return
+            if self.command == "GET" and endpoint == "api/v1/mediaserver/stream-info":
+                self.mediaserver_stream_info_endpoint(name)
+                return
         if name in self.server.profiles and self.command == "GET":
             if (
                 endpoint in self.business_endpoints()
@@ -2111,6 +2123,120 @@ class NativeHandler(BaseHTTPRequestHandler):
                 "people": people, "media_sources": sources, "can_play": True,
             }
         return []
+
+    _SAMPLE_MP4_CACHE = None
+
+    @classmethod
+    def _sample_mp4_bytes(cls):
+        if cls._SAMPLE_MP4_CACHE is None:
+            cls._SAMPLE_MP4_CACHE = (
+                Path(__file__).resolve().with_name("synthetic-sample.mp4").read_bytes()
+            )
+        return cls._SAMPLE_MP4_CACHE
+
+    def mediaserver_stream_info_endpoint(self, name):
+        """返回受控媒体播放清单并签发同源流 Cookie，供多内核实机播放验收使用。"""
+        query = parse_qs(urlsplit(self.path).query)
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/mediaserver/stream-info"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        if not self.permissions(mode)["discovery"]:
+            self.reply(403, {"success": False})
+            return
+        item_id = (query.get("itemid") or query.get("item_id") or ["ep-101"])[0]
+        server = (query.get("server") or ["Emby"])[0]
+        media_source_id = (query.get("media_source_id") or [""])[0]
+        params = [("itemid", item_id), ("server", server)]
+        if media_source_id:
+            params.append(("media_source_id", media_source_id))
+        content_url = (
+            f"http://127.0.0.1:{self.server.server_port}/{name}/api/v1/mediaserver/stream?"
+            + urlencode(params)
+        )
+        self.reply(
+            200,
+            {
+                "success": True,
+                "message": "",
+                "data": {
+                    "item_id": item_id,
+                    "server": server,
+                    "server_type": "emby",
+                    "title": "陌生新世界",
+                    "content_url": content_url,
+                    "media_type": "video",
+                    "media_source_id": media_source_id or "src-1080p",
+                    "play_session_id": f"sess-{item_id}",
+                    "progress_sync_mode": "proxy",
+                    "duration_ms": 40000,
+                    "resume_position_ms": 0,
+                    "subtitles": [],
+                },
+            },
+            headers={
+                "Set-Cookie": f"mp_media_token=synthetic-stream-{name}; Path=/; HttpOnly",
+            },
+        )
+
+    def mediaserver_stream_endpoint(self, name):
+        """按同源令牌或签发 Cookie 提供支持 HTTP Range 的合成 MP4 测试视频流。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"{self.command} api/v1/mediaserver/stream"] += 1
+            mode = profile["mode"]
+        expected_auth = f"Bearer synthetic-native-{name}"
+        expected_cookie = f"mp_media_token=synthetic-stream-{name}"
+        auth_ok = self.headers.get("Authorization") == expected_auth
+        cookie_ok = expected_cookie in (self.headers.get("Cookie") or "")
+        if mode == "expired" or not (auth_ok or cookie_ok):
+            self.reply(401, {"success": False})
+            return
+        payload = self._sample_mp4_bytes()
+        total = len(payload)
+        range_header = self.headers.get("Range")
+        start = 0
+        end = total - 1
+        status = 200
+        if range_header and range_header.startswith("bytes="):
+            spec = range_header[6:].split(",", 1)[0].strip()
+            if "-" in spec:
+                raw_start, raw_end = spec.split("-", 1)
+                try:
+                    if raw_start == "":
+                        suffix = int(raw_end)
+                        start = max(0, total - suffix)
+                    else:
+                        start = int(raw_start)
+                        if raw_end != "":
+                            end = min(total - 1, int(raw_end))
+                    if 0 <= start <= end < total:
+                        status = 206
+                    else:
+                        self.send_response(416)
+                        self.send_header("Content-Range", f"bytes */{total}")
+                        self.end_headers()
+                        return
+                except ValueError:
+                    status = 200
+                    start, end = 0, total - 1
+        chunk = payload[start : end + 1]
+        self.send_response(status)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "no-store")
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
+        self.send_header("Content-Length", str(len(chunk)))
+        self.end_headers()
+        if self.command == "GET":
+            try:
+                self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     @staticmethod
     def media(item_id, media_type):

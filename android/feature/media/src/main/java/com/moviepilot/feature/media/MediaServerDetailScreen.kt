@@ -589,7 +589,9 @@ fun MediaServerDetailScreen(
             val manifest = repository.fetchVideoStreamInfo(targetItemId, activeServerName.ifBlank { null }, sourceId)
             if (manifest != null) {
                 val forceAudio = isMusicAlbum || manifest.mediaType == "audio"
-                if (launchInExternalPlayer) {
+                val preferExternal = launchInExternalPlayer ||
+                    (!forceAudio && com.moviepilot.designsystem.PlaybackPreferencesStore(context).defaultExternalPlayer)
+                if (preferExternal) {
                     val ok = ExternalPlayerLauncher.launchExternalPlayerChooser(
                         context = context,
                         streamUrl = manifest.contentUrl,

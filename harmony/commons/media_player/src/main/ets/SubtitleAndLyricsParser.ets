@@ -1,3 +1,5 @@
+import { util } from '@kit.ArkTS';
+
 /** 单行 LRC 同步歌词时间轴节点。 */
 export interface LyricLineCue {
   timeMs: number;
@@ -9,6 +11,56 @@ export interface SubtitleCue {
   startMs: number;
   endMs: number;
   text: string;
+}
+
+/**
+ * 智能解码外挂字幕字节流（支持 UTF-8 BOM、UTF-16 LE/BE、严格 UTF-8 与 GBK/GB18030 中文回退，避免常见中文字幕乱码）。
+ */
+export function decodeSubtitleBytes(bytes: Uint8Array): string {
+  if (!bytes || bytes.byteLength === 0) {
+    return '';
+  }
+  if (bytes.byteLength >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+    try {
+      return util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes);
+    } catch {
+      // continue
+    }
+  }
+  if (bytes.byteLength >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+    try {
+      return util.TextDecoder.create('utf-16le', { ignoreBOM: true }).decodeToString(bytes);
+    } catch {
+      // continue
+    }
+  }
+  if (bytes.byteLength >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+    try {
+      return util.TextDecoder.create('utf-16be', { ignoreBOM: true }).decodeToString(bytes);
+    } catch {
+      // continue
+    }
+  }
+  try {
+    return util.TextDecoder.create('utf-8', { fatal: true, ignoreBOM: true }).decodeToString(bytes);
+  } catch {
+    // 非法 UTF-8 字节序列回退 GB18030 / GBK 解码
+  }
+  try {
+    return util.TextDecoder.create('gb18030', { ignoreBOM: true }).decodeToString(bytes);
+  } catch {
+    // continue
+  }
+  try {
+    return util.TextDecoder.create('gbk', { ignoreBOM: true }).decodeToString(bytes);
+  } catch {
+    // continue
+  }
+  try {
+    return util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes);
+  } catch {
+    return '';
+  }
 }
 
 function stripBomAndNormalizeLines(raw: string): string[] {

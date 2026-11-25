@@ -764,6 +764,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -782,6 +786,8 @@ internal interface IntegrityCheckingUniffiLib : Library {
     fun uniffi_moviepilot_core_checksum_func_analyze_cron_expression(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_apply_plugin_form_patch(
+): Short
+fun uniffi_moviepilot_core_checksum_func_build_external_player_url(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_build_v3_endpoint_url(
 ): Short
@@ -820,6 +826,8 @@ fun uniffi_moviepilot_core_checksum_func_plan_playback_routes_json(
 fun uniffi_moviepilot_core_checksum_func_plan_playback_sync_step_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_plan_plugin_form_json(
+): Short
+fun uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_server_address_contains(
 ): Short
@@ -892,6 +900,8 @@ fun uniffi_moviepilot_core_fn_func_analyze_cron_expression(`expr`: RustBuffer.By
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_apply_plugin_form_patch(`originalModelJson`: RustBuffer.ByValue,`patchJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_build_external_player_url(`template`: RustBuffer.ByValue,`mediaUrl`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_build_v3_endpoint_url(`baseUrl`: RustBuffer.ByValue,`pathSegments`: RustBuffer.ByValue,`queryJson`: RustBuffer.ByValue,`trailingSlash`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_classify_http_auth_status(`status`: Short,`bodyText`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -929,6 +939,8 @@ fun uniffi_moviepilot_core_fn_func_plan_playback_routes_json(`routesJson`: RustB
 fun uniffi_moviepilot_core_fn_func_plan_playback_sync_step_json(`stateJson`: RustBuffer.ByValue,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_plan_plugin_form_json(`documentJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_resolve_playback_engine_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_server_address_contains(`baseUrl`: RustBuffer.ByValue,`candidateUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
@@ -1064,6 +1076,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_apply_plugin_form_patch() != 44294.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_build_external_player_url() != 48700.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_build_v3_endpoint_url() != 39775.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1119,6 +1134,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_plan_plugin_form_json() != 32974.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json() != 50581.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_server_address_contains() != 32809.toShort()) {
@@ -2387,6 +2405,19 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 安全构造自定义外部播放器启动 URL（拒绝危险协议与内嵌凭据链接）。
+         */
+    @Throws(CoreFfiException::class) fun `buildExternalPlayerUrl`(`template`: kotlin.String, `mediaUrl`: kotlin.String, `title`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_build_external_player_url(
+        FfiConverterString.lower(`template`),FfiConverterString.lower(`mediaUrl`),FfiConverterString.lower(`title`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 基于实例根地址构造安全的 `/api/v1/...` 完整请求 URL。
          */
     @Throws(CoreFfiException::class) fun `buildV3EndpointUrl`(`baseUrl`: kotlin.String, `pathSegments`: List<kotlin.String>, `queryJson`: kotlin.String, `trailingSlash`: kotlin.Boolean): kotlin.String {
@@ -2618,6 +2649,19 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     uniffiRustCallWithError(CoreFfiException) { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_plan_plugin_form_json(
         FfiConverterString.lower(`documentJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 根据平台能力、用户内核偏好与媒体特征计算主播放内核及降级备选内核 JSON。
+         */
+    @Throws(CoreFfiException::class) fun `resolvePlaybackEngineJson`(`inputJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_resolve_playback_engine_json(
+        FfiConverterString.lower(`inputJson`),_status)
 }
     )
     }

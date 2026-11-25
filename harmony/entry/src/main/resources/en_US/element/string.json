@@ -37,6 +37,10 @@
       "value": "%s times"
     },
     {
+      "name": "mp_02e6ffb1",
+      "value": "Hardware Preferred"
+    },
+    {
       "name": "mp_03c62efa",
       "value": "Embedded · %s"
     },
@@ -55,6 +59,10 @@
     {
       "name": "mp_07c1bdfb",
       "value": "Refresh Account"
+    },
+    {
+      "name": "mp_08128200",
+      "value": "Only the enhanced engine supports software video decoding; the system native engine uses hardware video decode"
     },
     {
       "name": "mp_083cf2f6",
@@ -117,6 +125,10 @@
       "value": "This service is already set up. Please sign in."
     },
     {
+      "name": "mp_112c8584",
+      "value": "Enhanced Engine"
+    },
+    {
       "name": "mp_11d02415",
       "value": "Back"
     },
@@ -135,6 +147,10 @@
     {
       "name": "mp_15_3e0c2a0a",
       "value": "Every 15 minutes"
+    },
+    {
+      "name": "mp_15cdd697",
+      "value": "System Native"
     },
     {
       "name": "mp_163aec91",
@@ -343,6 +359,10 @@
     {
       "name": "mp_2e151582",
       "value": "Loading poster"
+    },
+    {
+      "name": "mp_2e728a38",
+      "value": "Subtitle Size"
     },
     {
       "name": "mp_2f752c00",
@@ -593,6 +613,10 @@
       "value": "Appearance & Device"
     },
     {
+      "name": "mp_4k_strm_7f4048a7",
+      "value": "Large (4K / STRM)"
+    },
+    {
       "name": "mp_50d42057",
       "value": "Pairing code copied. Paste it in the Home Screen notification page."
     },
@@ -639,6 +663,10 @@
     {
       "name": "mp_58ce18ea",
       "value": "Transfer & Directories"
+    },
+    {
+      "name": "mp_58d5873b",
+      "value": "Playback Engine"
     },
     {
       "name": "mp_5982c44c",
@@ -753,6 +781,10 @@
       "value": "Close"
     },
     {
+      "name": "mp_6c85e1de",
+      "value": "Decode Mode"
+    },
+    {
       "name": "mp_6d09dc34",
       "value": "Plugin Center"
     },
@@ -779,6 +811,10 @@
     {
       "name": "mp_7262b781",
       "value": "The page will open when ready. You can also retry now or change the server address."
+    },
+    {
+      "name": "mp_72ebb59c",
+      "value": "Engine: %s"
     },
     {
       "name": "mp_7328deeb",
@@ -859,6 +895,18 @@
     {
       "name": "mp_7ea6ff3e",
       "value": "Unable to load playback information. Check the library item and server connection."
+    },
+    {
+      "name": "mp_8150b51b",
+      "value": "Format unsupported by native engine; switched to enhanced engine"
+    },
+    {
+      "name": "mp_81c80048",
+      "value": "Playback Engine & Decoding"
+    },
+    {
+      "name": "mp_81d56e3e",
+      "value": "Network Buffer"
     },
     {
       "name": "mp_823f4d1e",
@@ -959,6 +1007,10 @@
     {
       "name": "mp_93bbc0cb",
       "value": "This account requires a verification method that is not yet available here."
+    },
+    {
+      "name": "mp_93e4284e",
+      "value": "Open in External Player"
     },
     {
       "name": "mp_940c8865",
@@ -1213,6 +1265,14 @@
       "value": "The instance AppPush channel uses %s. Use the same address or select Use instance settings before pairing."
     },
     {
+      "name": "mp_ass_43d9c16b",
+      "value": "Ignore ASS Subtitle Styles"
+    },
+    {
+      "name": "mp_avplayer_acd36c1d",
+      "value": "AVPlayer Native"
+    },
+    {
       "name": "mp_b2d4bcee",
       "value": "Playback unavailable"
     },
@@ -1231,6 +1291,10 @@
     {
       "name": "mp_b4672d23",
       "value": "Page status"
+    },
+    {
+      "name": "mp_b4a74a0e",
+      "value": "Switch Playback Engine"
     },
     {
       "name": "mp_b4d9b610",
@@ -1303,6 +1367,10 @@
     {
       "name": "mp_bde0b46a",
       "value": "Passwords are stored securely on this device only. Verification codes are never saved."
+    },
+    {
+      "name": "mp_be577c3b",
+      "value": "Auto (Recommended)"
     },
     {
       "name": "mp_be7f8395",
@@ -1419,6 +1487,10 @@
     {
       "name": "mp_d04f51a0",
       "value": "No matches. You can add the entered value."
+    },
+    {
+      "name": "mp_d0d89915",
+      "value": "Force Software"
     },
     {
       "name": "mp_d0ff6b41",
@@ -1633,6 +1705,10 @@
       "value": "Installed"
     },
     {
+      "name": "mp_ebf0f69d",
+      "value": "Video Surface"
+    },
+    {
       "name": "mp_ecdf2bcf",
       "value": "The system blocked this connection. Check the server address and network restrictions."
     },
@@ -1647,6 +1723,14 @@
     {
       "name": "mp_ed5e4c3e",
       "value": "Search “%s”"
+    },
+    {
+      "name": "mp_ed917b08",
+      "value": "Open in External Player by Default"
+    },
+    {
+      "name": "mp_edaa51e3",
+      "value": "Switched to %s"
     },
     {
       "name": "mp_ee561675",
@@ -1707,6 +1791,10 @@
     {
       "name": "mp_f40b79d7",
       "value": "Sites"
+    },
+    {
+      "name": "mp_f4cd7ee5",
+      "value": "Standard"
     },
     {
       "name": "mp_f526c899",
@@ -1821,6 +1909,10 @@
       "value": "Create Administrator"
     },
     {
+      "name": "mp_ffd10865",
+      "value": "Night Mode / Vocal Boost"
+    },
+    {
       "name": "mp_http_https_5ce090ea",
       "value": "HTTP and HTTPS are supported. Sign-in information is saved separately for each server."
     },
@@ -1853,12 +1945,24 @@
       "value": "Unable to establish a secure HTTPS connection. Check the server's TLS settings."
     },
     {
+      "name": "mp_ijk_dda147c6",
+      "value": "IJK Enhanced"
+    },
+    {
       "name": "mp_ipv6_local_ec409aad",
       "value": "This IPv6 address includes a network interface identifier that web pages cannot use. Use a .local hostname or another reachable address."
     },
     {
       "name": "mp_lrc_d90270cd",
       "value": "No matching LRC lyrics"
+    },
+    {
+      "name": "mp_media3_f7911ba3",
+      "value": "Media3 Native"
+    },
+    {
+      "name": "mp_mkv_d2679df8",
+      "value": "Use system native engine for fast, power-efficient standard playback; switch automatically to enhanced engine for MKV, surround audio, or rich subtitles"
     },
     {
       "name": "mp_moviepilot_00c24418",
@@ -1925,6 +2029,10 @@
       "value": "Touch and hold the Home Screen, choose Edit → Add Widget and search for MoviePilot. You can also add widgets from Lock Screen customization or Today View. Edit a widget to select its server and content."
     },
     {
+      "name": "mp_mpv_0f7c51b4",
+      "value": "MPV Enhanced"
+    },
+    {
       "name": "mp_plex_x_plex_token_4678f466",
       "value": "Plex Access Token (X-Plex-Token)"
     },
@@ -1939,6 +2047,18 @@
     {
       "name": "mp_strm_895f2616",
       "value": "STRM Direct"
+    },
+    {
+      "name": "mp_url_d8340907",
+      "value": "External Player URL Template"
+    },
+    {
+      "name": "mp_vlckit_42693cc8",
+      "value": "VLCKit Legacy"
+    },
+    {
+      "name": "mp_vlckit_b044dd97",
+      "value": "Legacy (VLCKit)"
     },
     {
       "name": "mp_web_7f1d362a",

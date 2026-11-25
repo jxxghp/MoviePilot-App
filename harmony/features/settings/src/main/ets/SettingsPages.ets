@@ -44,6 +44,14 @@ import {
   PLAYBACK_SCALE_MODES,
   PLAYBACK_SPEED_LABELS,
   PLAYBACK_SPEED_VALUES,
+  PLAYBACK_ENGINE_IDS,
+  PLAYBACK_ENGINE_LABELS,
+  PLAYBACK_DECODE_IDS,
+  PLAYBACK_DECODE_LABELS,
+  PLAYBACK_BUFFER_IDS,
+  PLAYBACK_BUFFER_LABELS,
+  PLAYBACK_SUBTITLE_SCALE_VALUES,
+  PLAYBACK_SUBTITLE_SCALE_LABELS,
   PlaybackPreferencesStore,
   mpPrimaryText,
   mpSecondaryText
@@ -671,6 +679,13 @@ export struct HarmonySettingsHubPage {
   @StorageLink(PlaybackPreferencesStore.KEY_KEEP_MINI_BAR) playbackKeepMiniBar: boolean = true;
   @StorageLink(PlaybackPreferencesStore.KEY_STRM_DIRECT) playbackStrmDirect: boolean = true;
   @StorageLink(PlaybackPreferencesStore.KEY_DIRECT_PLAY) playbackDirectPlay: boolean = true;
+  @StorageLink(PlaybackPreferencesStore.KEY_VIDEO_ENGINE) playbackVideoEngine: string = 'auto';
+  @StorageLink(PlaybackPreferencesStore.KEY_DECODE_MODE) playbackDecodeMode: string = 'hw_auto';
+  @StorageLink(PlaybackPreferencesStore.KEY_BUFFER_PROFILE) playbackBufferProfile: string = 'standard';
+  @StorageLink(PlaybackPreferencesStore.KEY_AUDIO_NIGHT_MODE) playbackAudioNightMode: boolean = false;
+  @StorageLink(PlaybackPreferencesStore.KEY_IGNORE_ASS_STYLE) playbackIgnoreAssStyle: boolean = false;
+  @StorageLink(PlaybackPreferencesStore.KEY_SUBTITLE_SCALE) playbackSubtitleScale: number = 1.0;
+  @StorageLink(PlaybackPreferencesStore.KEY_DEFAULT_EXTERNAL_PLAYER) playbackDefaultExternal: boolean = false;
   @StorageProp('mp_open_settings_sheet') @Watch('onPendingSettingsSheetChanged') pendingSettingsSheet: string = '';
   @Prop serverUrl: string = '';
   @Prop userName: string = 'admin';
@@ -2141,6 +2156,107 @@ export struct HarmonySettingsHubPage {
       })
       Scroll() {
         Column({ space: 14 }) {
+          Text('播放内核与解码').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+            Column({ space: 12 }) {
+              Text('播放内核').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).width('100%')
+              HarmonySegmentedSwitch({
+                options: PLAYBACK_ENGINE_LABELS,
+                selectedIndex: PlaybackPreferencesStore.videoEngineToIndex(this.playbackVideoEngine),
+                onSelect: (idx: number) => {
+                  const target = PLAYBACK_ENGINE_IDS[Math.min(Math.max(0, idx), PLAYBACK_ENGINE_IDS.length - 1)];
+                  PlaybackPreferencesStore.setVideoEngine(target);
+                }
+              })
+              Text(
+                this.playbackVideoEngine === 'native'
+                  ? '系统原生 AVPlayer，起播最快、省电且支持画中画小窗。'
+                  : (this.playbackVideoEngine === 'enhanced'
+                    ? '全能增强内核（IJK FFmpeg），原生补齐 MKV / TS / FLV 与 DTS / TrueHD / AC3 / EAC3 音轨及软解。'
+                    : '常规 MP4/HLS 与音乐走系统 AVPlayer 省电秒开；MKV、多声道原盘或强制软解自动切至 IJK 增强内核。')
+              )
+                .fontSize(11.5)
+                .fontColor(mpSecondaryText(this.isDark))
+                .width('100%')
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Text('解码模式').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).width('100%')
+              HarmonySegmentedSwitch({
+                options: PLAYBACK_DECODE_LABELS,
+                selectedIndex: this.playbackDecodeMode === 'sw_force' ? 1 : 0,
+                onSelect: (idx: number) => {
+                  const target = PLAYBACK_DECODE_IDS[idx === 1 ? 1 : 0];
+                  PlaybackPreferencesStore.setDecodeMode(target);
+                }
+              })
+              if (this.playbackVideoEngine === 'native' && this.playbackDecodeMode === 'sw_force') {
+                Text('仅 IJK 增强内核支持视频软解；当前已固定 AVPlayer，建议切换为自动选择或 IJK 增强内核。')
+                  .fontSize(11.5)
+                  .fontColor('#F59E0B')
+                  .width('100%')
+              }
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Text('网络缓冲').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).width('100%')
+              HarmonySegmentedSwitch({
+                options: PLAYBACK_BUFFER_LABELS,
+                selectedIndex: this.playbackBufferProfile === 'large' ? 1 : 0,
+                onSelect: (idx: number) => {
+                  const target = PLAYBACK_BUFFER_IDS[idx === 1 ? 1 : 0];
+                  PlaybackPreferencesStore.setBufferProfile(target);
+                }
+              })
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Text('字幕字号').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).width('100%')
+              HarmonySegmentedSwitch({
+                options: PLAYBACK_SUBTITLE_SCALE_LABELS,
+                selectedIndex: PlaybackPreferencesStore.subtitleScaleToIndex(this.playbackSubtitleScale),
+                onSelect: (idx: number) => {
+                  const target = PLAYBACK_SUBTITLE_SCALE_VALUES[Math.min(Math.max(0, idx), PLAYBACK_SUBTITLE_SCALE_VALUES.length - 1)];
+                  PlaybackPreferencesStore.setSubtitleScale(target);
+                }
+              })
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Row() {
+                Column({ space: 2 }) {
+                  Text('夜间模式 / 人声增强').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('增强人声对白清晰度，夜间观影更均衡').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.playbackAudioNightMode }).selectedColor(this.accentHex)
+                  .onChange((v: boolean) => { PlaybackPreferencesStore.setAudioNightMode(v); })
+              }.width('100%')
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Row() {
+                Column({ space: 2 }) {
+                  Text('忽略 ASS 字幕特效样式').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('剥离花字与定位特效，按统一清爽字体渲染').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.playbackIgnoreAssStyle }).selectedColor(this.accentHex)
+                  .onChange((v: boolean) => { PlaybackPreferencesStore.setIgnoreAssStyle(v); })
+              }.width('100%')
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Row() {
+                Column({ space: 2 }) {
+                  Text('默认调用外部播放器').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('播放无主凭据直链或本地文件时优先通过系统拉起外部应用').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.playbackDefaultExternal }).selectedColor(this.accentHex)
+                  .onChange((v: boolean) => { PlaybackPreferencesStore.setDefaultExternalPlayer(v); })
+              }.width('100%')
+            }
+            .width('100%')
+          }
+
           Text('默认画面比例').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
           HarmonySegmentedSwitch({
             options: PLAYBACK_SCALE_LABELS,

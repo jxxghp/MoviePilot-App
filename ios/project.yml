@@ -7,6 +7,9 @@ options:
 packages:
   MoviePilotCore:
     path: .
+  MPVKit:
+    url: https://github.com/mpvkit/MPVKit.git
+    exactVersion: 1.0.0
   VLCKit:
     url: https://github.com/videolan/vlckit.git
     revision: 3d0f0fa7031eab1a67c817c98a495e1c68fc998c
@@ -38,6 +41,9 @@ targets:
         product: MoviePilotSession
       - package: MoviePilotCore
         product: MoviePilotPluginForms
+      # MPVKit-GPL 静态依赖必须排在动态框架 VLCKit 之前，避免 libmpv 的 libplacebo/FFmpeg/libass 符号被 VLCKit 劫持导致 ABI 冲突崩溃。
+      - package: MPVKit
+        product: MPVKit-GPL
       - package: VLCKit
       - target: MoviePilotWidgets
         embed: true

@@ -4,6 +4,7 @@
 pub mod deep_link;
 pub mod markdown;
 pub mod medals;
+pub mod playback_engine;
 pub mod playback_route;
 pub mod playback_sync;
 pub mod server_address;
@@ -12,6 +13,10 @@ pub mod subscribe;
 pub use deep_link::{AppDeepLink, PlayableMediaFormat, PlayableMediaKind, StrmStreamSpec};
 pub use markdown::{AgentMarkdownParser, MarkdownBlock, MarkdownBlockKind};
 pub use medals::{CommunityMedalPalette, CommunityMedalsModel};
+pub use playback_engine::{
+    BufferProfile, DecodeMode, EngineResolutionInput, EngineResolutionPlan, PlatformKind,
+    PlaybackEngineChoice, PlaybackEngineRouter, ResolvedPlaybackEngine,
+};
 pub use playback_route::{
     DEFAULT_LAN_PREFERRED_MAX_LATENCY_MS, PlaybackRouteCandidate, PlaybackRouteKind,
     PlaybackRoutePlan, PlaybackRoutePlanner, PlaybackRoutePreference, RouteProbeOutcome,

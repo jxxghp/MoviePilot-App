@@ -2416,6 +2416,156 @@
       "zh-Hant": "背景中轉",
       "en": "Proxy"
     },
+    "播放内核与解码": {
+      "zh-Hans": "播放内核与解码",
+      "zh-Hant": "播放核心與解碼",
+      "en": "Playback Engine & Decoding"
+    },
+    "播放内核": {
+      "zh-Hans": "播放内核",
+      "zh-Hant": "播放核心",
+      "en": "Playback Engine"
+    },
+    "自动选择（推荐）": {
+      "zh-Hans": "自动选择（推荐）",
+      "zh-Hant": "自動選擇（推薦）",
+      "en": "Auto (Recommended)"
+    },
+    "系统原生内核": {
+      "zh-Hans": "系统原生内核",
+      "zh-Hant": "系統原生核心",
+      "en": "System Native"
+    },
+    "全能增强内核": {
+      "zh-Hans": "全能增强内核",
+      "zh-Hant": "全能增強核心",
+      "en": "Enhanced Engine"
+    },
+    "兼容内核（VLCKit）": {
+      "zh-Hans": "兼容内核（VLCKit）",
+      "zh-Hant": "相容核心（VLCKit）",
+      "en": "Legacy (VLCKit)"
+    },
+    "AVPlayer 原生": {
+      "zh-Hans": "AVPlayer 原生",
+      "zh-Hant": "AVPlayer 原生",
+      "en": "AVPlayer Native"
+    },
+    "MPV 全能": {
+      "zh-Hans": "MPV 全能",
+      "zh-Hant": "MPV 全能",
+      "en": "MPV Enhanced"
+    },
+    "VLCKit 兼容": {
+      "zh-Hans": "VLCKit 兼容",
+      "zh-Hant": "VLCKit 相容",
+      "en": "VLCKit Legacy"
+    },
+    "Media3 原生": {
+      "zh-Hans": "Media3 原生",
+      "zh-Hant": "Media3 原生",
+      "en": "Media3 Native"
+    },
+    "IJK 增强": {
+      "zh-Hans": "IJK 增强",
+      "zh-Hant": "IJK 增強",
+      "en": "IJK Enhanced"
+    },
+    "常规影片与音乐走系统原生内核省电秒开；MKV、多声道原盘或特效字幕自动切至全能内核": {
+      "zh-Hans": "常规影片与音乐走系统原生内核省电秒开；MKV、多声道原盘或特效字幕自动切至全能内核",
+      "zh-Hant": "一般影片與音樂走系統原生核心省電秒開；MKV、多聲道原盤或特效字幕自動切至全能核心",
+      "en": "Use system native engine for fast, power-efficient standard playback; switch automatically to enhanced engine for MKV, surround audio, or rich subtitles"
+    },
+    "解码模式": {
+      "zh-Hans": "解码模式",
+      "zh-Hant": "解碼模式",
+      "en": "Decode Mode"
+    },
+    "硬件解码优先": {
+      "zh-Hans": "硬件解码优先",
+      "zh-Hant": "硬體解碼優先",
+      "en": "Hardware Preferred"
+    },
+    "强制软件解码": {
+      "zh-Hans": "强制软件解码",
+      "zh-Hant": "強制軟體解碼",
+      "en": "Force Software"
+    },
+    "仅全能增强内核支持视频强制软解，系统原生内核仅支持硬解或音频软解": {
+      "zh-Hans": "仅全能增强内核支持视频强制软解，系统原生内核仅支持硬解或音频软解",
+      "zh-Hant": "僅全能增強核心支援視訊強制軟解，系統原生核心僅支援硬解或音訊軟解",
+      "en": "Only the enhanced engine supports software video decoding; the system native engine uses hardware video decode"
+    },
+    "网络缓冲": {
+      "zh-Hans": "网络缓冲",
+      "zh-Hant": "網路緩衝",
+      "en": "Network Buffer"
+    },
+    "标准缓冲": {
+      "zh-Hans": "标准缓冲",
+      "zh-Hant": "標準緩衝",
+      "en": "Standard"
+    },
+    "大缓冲（4K / STRM）": {
+      "zh-Hans": "大缓冲（4K / STRM）",
+      "zh-Hant": "大緩衝（4K / STRM）",
+      "en": "Large (4K / STRM)"
+    },
+    "夜间模式 / 人声增强": {
+      "zh-Hans": "夜间模式 / 人声增强",
+      "zh-Hant": "夜間模式 / 人聲增強",
+      "en": "Night Mode / Vocal Boost"
+    },
+    "忽略 ASS 字幕特效样式": {
+      "zh-Hans": "忽略 ASS 字幕特效样式",
+      "zh-Hant": "忽略 ASS 字幕特效樣式",
+      "en": "Ignore ASS Subtitle Styles"
+    },
+    "字幕字号": {
+      "zh-Hans": "字幕字号",
+      "zh-Hant": "字幕字號",
+      "en": "Subtitle Size"
+    },
+    "渲染视图": {
+      "zh-Hans": "渲染视图",
+      "zh-Hant": "渲染檢視",
+      "en": "Video Surface"
+    },
+    "切换播放内核": {
+      "zh-Hans": "切换播放内核",
+      "zh-Hant": "切換播放核心",
+      "en": "Switch Playback Engine"
+    },
+    "使用外部播放器打开": {
+      "zh-Hans": "使用外部播放器打开",
+      "zh-Hant": "使用外部播放器開啟",
+      "en": "Open in External Player"
+    },
+    "默认调用外部播放器": {
+      "zh-Hans": "默认调用外部播放器",
+      "zh-Hant": "預設呼叫外部播放器",
+      "en": "Open in External Player by Default"
+    },
+    "外部播放器 URL 模板": {
+      "zh-Hans": "外部播放器 URL 模板",
+      "zh-Hant": "外部播放器 URL 範本",
+      "en": "External Player URL Template"
+    },
+    "当前格式不兼容，已自动切换全能内核": {
+      "zh-Hans": "当前格式不兼容，已自动切换全能内核",
+      "zh-Hant": "目前格式不相容，已自動切換全能核心",
+      "en": "Format unsupported by native engine; switched to enhanced engine"
+    },
+    "已切换至 %@": {
+      "zh-Hans": "已切换至 %@",
+      "zh-Hant": "已切換至 %@",
+      "en": "Switched to %@"
+    },
+    "内核：%@": {
+      "zh-Hans": "内核：%@",
+      "zh-Hant": "核心：%@",
+      "en": "Engine: %@"
+    },
     "默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。": {
       "zh-Hans": "默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。",
       "zh-Hant": "預設使用 https://movie-pilot.org。更換服務中心時，實例的 AppPush 渠道也須使用相同地址。",

@@ -28,6 +28,31 @@ export interface NativeCoreModule {
   normalizePendingPlaybackStopsJson?(entriesJson: string, nowEpochMs: number): string;
   planPlaybackRoutesJson?(routesJson: string, prefsJson: string, probesJson: string): string;
   isSameHttpOrigin?(urlA: string, urlB: string): boolean;
+  resolvePlaybackEngineJson?(inputJson: string): string;
+  buildExternalPlayerUrl?(template: string, mediaUrl: string, title: string): string;
+}
+
+export interface EngineResolutionInput {
+  platform: string;
+  preferred: string;
+  is_audio: boolean;
+  decode_force_software: boolean;
+  has_enhanced_engine: boolean;
+  has_legacy_engine: boolean;
+  url_or_filename: string;
+  container?: string | null;
+  video_codec?: string | null;
+  audio_codec?: string | null;
+  has_ass_or_pgs_subtitle?: boolean;
+  ignore_ass_style?: boolean;
+  allow_self_signed_tls?: boolean;
+  is_hdr?: boolean;
+}
+
+export interface EngineResolutionPlan {
+  primary: string;
+  fallback?: string | null;
+  reason: string;
 }
 
 export interface PlaybackRouteCandidate {
@@ -965,5 +990,99 @@ export class RustCoreBridge {
       fallbacks: fallbacks,
       route_label_zh: label
     };
+  }
+
+  /** 调用 Rust 共享选核路由决定鸿蒙端主播放内核及起播失败回退内核。 */
+  static resolvePlaybackEngine(input: EngineResolutionInput): EngineResolutionPlan {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.resolvePlaybackEngineJson) {
+        const raw = RustCoreBridge.nativeLib.resolvePlaybackEngineJson(JSON.stringify(input));
+        if (raw && raw.length > 0) {
+          const parsed = JSON.parse(raw) as EngineResolutionPlan;
+          if (parsed && typeof parsed.primary === 'string' && parsed.primary.length > 0) {
+            return parsed;
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+    return RustCoreBridge.fallbackResolvePlaybackEngine(input);
+  }
+
+  /** 安全渲染外部播放器 URL 模板，拒绝危险协议与控制字符。 */
+  static buildExternalPlayerUrl(template: string, mediaUrl: string, title: string = ''): string {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.buildExternalPlayerUrl) {
+        const built = RustCoreBridge.nativeLib.buildExternalPlayerUrl(template, mediaUrl, title);
+        if (built && built.length > 0) {
+          return built;
+        }
+      }
+    } catch {
+      // fallback
+    }
+    const tmpl = (template ?? '').trim();
+    const media = (mediaUrl ?? '').trim();
+    if (!tmpl || !media || (!tmpl.includes('{url}') && !tmpl.includes('{raw_url}'))) {
+      return '';
+    }
+    const sep = tmpl.indexOf('://');
+    if (sep <= 0) {
+      return '';
+    }
+    const scheme = tmpl.substring(0, sep).toLowerCase();
+    if (scheme === 'javascript' || scheme === 'data' || scheme === 'file' || scheme === 'vbscript' || scheme === 'blob' || scheme === 'about') {
+      return '';
+    }
+    return tmpl
+      .replace(/\{url\}/g, encodeURIComponent(media))
+      .replace(/\{raw_url\}/g, media)
+      .replace(/\{title\}/g, encodeURIComponent((title ?? '').trim()));
+  }
+
+  private static fallbackResolvePlaybackEngine(input: EngineResolutionInput): EngineResolutionPlan {
+    const pref = (input.preferred ?? 'auto').toLowerCase();
+    const hasEnh = Boolean(input.has_enhanced_engine);
+    if (pref === 'native') {
+      return { primary: 'native', fallback: null, reason: 'user_pinned_native' };
+    }
+    if (pref === 'enhanced') {
+      return hasEnh
+        ? { primary: 'enhanced', fallback: 'native', reason: 'user_pinned_enhanced' }
+        : { primary: 'native', fallback: null, reason: 'enhanced_unavailable_fallback_native' };
+    }
+    const rawPath = (input.url_or_filename ?? '').trim().split('#')[0].split('?')[0].toLowerCase();
+    const slashIdx = rawPath.lastIndexOf('/');
+    const fileName = slashIdx >= 0 ? rawPath.substring(slashIdx + 1) : rawPath;
+    const dotIdx = fileName.lastIndexOf('.');
+    const ext = dotIdx > 0 ? fileName.substring(dotIdx + 1) : '';
+    const container = (input.container ?? '').trim().toLowerCase().replace(/^\.+/, '') || ext;
+    const audioCodec = (input.audio_codec ?? '').trim().toLowerCase();
+
+    if (input.is_audio) {
+      const exoticAudio = container === 'ape' || container === 'wv' || container === 'dsf' ||
+        container === 'dff' || container === 'wma' || container === 'opus' || container === 'ogg' ||
+        audioCodec === 'ape' || audioCodec === 'wavpack' || audioCodec === 'dsd' || audioCodec === 'wma';
+      if (exoticAudio && hasEnh) {
+        return { primary: 'enhanced', fallback: 'native', reason: 'auto_audio_exotic_enhanced' };
+      }
+      return { primary: 'native', fallback: hasEnh ? 'enhanced' : null, reason: 'auto_audio_native' };
+    }
+    if (input.decode_force_software && hasEnh) {
+      return { primary: 'enhanced', fallback: 'native', reason: 'auto_force_software_enhanced' };
+    }
+    if (input.has_ass_or_pgs_subtitle && !input.ignore_ass_style && hasEnh) {
+      return { primary: 'enhanced', fallback: 'native', reason: 'auto_ass_or_pgs_enhanced' };
+    }
+    const preferEnh = container === 'mkv' || container === 'avi' || container === 'rmvb' ||
+      container === 'rm' || container === 'wmv' || container === 'ts' || container === 'm2ts' ||
+      container === 'mts' || container === 'flv' || container === 'webm' || container === 'vob' ||
+      container === 'iso' || audioCodec === 'dts' || audioCodec === 'dca' || audioCodec === 'truehd' ||
+      audioCodec === 'mlp' || audioCodec === 'ac3' || audioCodec === 'eac3';
+    if (preferEnh && hasEnh) {
+      return { primary: 'enhanced', fallback: 'native', reason: 'auto_container_or_audio_enhanced' };
+    }
+    return { primary: 'native', fallback: hasEnh ? 'enhanced' : null, reason: 'auto_native_default' };
   }
 }

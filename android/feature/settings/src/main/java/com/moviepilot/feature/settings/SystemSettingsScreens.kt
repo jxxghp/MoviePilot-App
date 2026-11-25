@@ -2392,6 +2392,39 @@ fun PlaybackPreferencesScreen(
         )
     }
     val resizeModes = remember { listOf(0 to "等比适应", 1 to "裁切铺满", 2 to "拉伸全屏") }
+    val engineChoices = remember {
+        listOf(
+            Triple("auto", "自动选择（推荐）", "常规影片与音乐走 Media3 省电秒开；MKV、多声道原盘或特效字幕自动切换 MPV 全能内核"),
+            Triple("native", "系统原生（Media3）", "起播最快、最省电，原生支持画中画与 MediaCodec 硬解"),
+            Triple("enhanced", "全能增强（MPV）", "全格式直播，支持视频软解、完整 ASS 动漫特效与 PGS 蓝光字幕"),
+        )
+    }
+    val decodeChoices = remember {
+        listOf(
+            "hw_auto" to "硬件解码优先",
+            "sw_force" to "强制软件解码",
+        )
+    }
+    val bufferChoices = remember {
+        listOf(
+            "standard" to "标准",
+            "large" to "大缓冲（4K / STRM）",
+        )
+    }
+    val surfaceChoices = remember {
+        listOf(
+            "surface" to "SurfaceView（推荐）",
+            "texture" to "TextureView",
+        )
+    }
+    val subtitleScaleChoices = remember {
+        listOf(
+            0.85f to "小",
+            1.0f to "标准",
+            1.15f to "大",
+            1.3f to "特大",
+        )
+    }
 
     ExpressiveTintedScaffold(
         title = "播放偏好",
@@ -2408,6 +2441,122 @@ fun PlaybackPreferencesScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            item(key = "playback_engine_section") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "播放内核与解码",
+                        color = colors.textSecondary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                    CinematicPanel(padding = 16.dp) {
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("播放内核", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    engineChoices.forEach { (id, label, _) ->
+                                        NativeAdaptivePill(
+                                            title = label,
+                                            selected = store.videoEngine == id,
+                                            onClick = { store.updateVideoEngine(id) },
+                                        )
+                                    }
+                                }
+                                val currentEngineDesc = engineChoices.firstOrNull { it.first == store.videoEngine }?.third.orEmpty()
+                                if (currentEngineDesc.isNotBlank()) {
+                                    Text(currentEngineDesc, color = colors.textMuted, fontSize = 12.sp)
+                                }
+                            }
+                            HorizontalDivider(color = colors.divider)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("解码模式", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    decodeChoices.forEach { (id, label) ->
+                                        NativeAdaptivePill(
+                                            title = label,
+                                            selected = store.decodeMode == id,
+                                            onClick = { store.updateDecodeMode(id) },
+                                        )
+                                    }
+                                }
+                                if (store.videoEngine == "native" && store.decodeMode == "sw_force") {
+                                    Text(
+                                        "仅全能增强内核（MPV）支持视频软解；当前已固定系统原生内核，建议切为自动选择或全能增强内核。",
+                                        color = colors.warning,
+                                        fontSize = 12.sp,
+                                    )
+                                } else {
+                                    Text(
+                                        "遇到异常片源花屏或黑屏时可切换强制软件解码，自动模式下将优先交由 MPV 软解。",
+                                        color = colors.textMuted,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = colors.divider)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("网络缓冲", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    bufferChoices.forEach { (id, label) ->
+                                        NativeAdaptivePill(
+                                            title = label,
+                                            selected = store.bufferProfile == id,
+                                            onClick = { store.updateBufferProfile(id) },
+                                        )
+                                    }
+                                }
+                            }
+                            HorizontalDivider(color = colors.divider)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("渲染视图（Media3）", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    surfaceChoices.forEach { (id, label) ->
+                                        NativeAdaptivePill(
+                                            title = label,
+                                            selected = store.surfaceType == id,
+                                            onClick = { store.updateSurfaceType(id) },
+                                        )
+                                    }
+                                }
+                                Text(
+                                    "SurfaceView 功耗更低且支持 HDR 直通；折叠屏切换动画黑闪时可改用 TextureView。",
+                                    color = colors.textMuted,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            HorizontalDivider(color = colors.divider)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("字幕字号", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    subtitleScaleChoices.forEach { (scale, label) ->
+                                        NativeAdaptivePill(
+                                            title = label,
+                                            selected = kotlin.math.abs(store.subtitleScale - scale) < 0.03f,
+                                            onClick = { store.updateSubtitleScale(scale) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             item(key = "playback_switches") {
                 CinematicPanel(padding = 0.dp, showsShadow = false) {
                     Column {
@@ -2417,12 +2566,44 @@ fun PlaybackPreferencesScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text("硬件加速解码（MediaCodec）", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                Text("优先使用设备硬解 HEVC / AV1 / 杜比视界，软解自动兜底", color = colors.textMuted, fontSize = 12.sp)
+                                Text("夜间模式 / 人声增强", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                Text("开启轻量动态范围压缩，抬升人物对白并压低爆炸尖峰音量", color = colors.textMuted, fontSize = 12.sp)
                             }
                             Switch(
-                                checked = store.hwDecode,
-                                onCheckedChange = { store.updateHwDecode(it) },
+                                checked = store.audioNightMode,
+                                onCheckedChange = { store.updateAudioNightMode(it) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                            )
+                        }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("忽略 ASS 字幕特效样式", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                Text("剥离 ASS/SSA 字幕花字与定位特效，统一按简洁样式显示", color = colors.textMuted, fontSize = 12.sp)
+                            }
+                            Switch(
+                                checked = store.ignoreAssStyle,
+                                onCheckedChange = { store.updateIgnoreAssStyle(it) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                            )
+                        }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("默认调用外部播放器", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                Text("点播影片时优先唤起系统外部播放器列表（仅传递无主凭据安全地址）", color = colors.textMuted, fontSize = 12.sp)
+                            }
+                            Switch(
+                                checked = store.defaultExternalPlayer,
+                                onCheckedChange = { store.updateDefaultExternalPlayer(it) },
                                 colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
                             )
                         }

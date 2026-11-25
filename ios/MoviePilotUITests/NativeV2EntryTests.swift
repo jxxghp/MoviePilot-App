@@ -1797,6 +1797,187 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(strmToggle.value as? String, "1")
   }
 
+  /// 端到端验收多内核播放设置持久化、真实视频起播与三内核（AVPlayer / MPV / VLCKit）热切换。
+  func testNativePlaybackEngineSettingsAndMultiEngineSwitch() async throws {
+    try await configure("a", mode: "mediaserver", reset: true)
+    let app = try cleanPicker()
+    defer { app.terminate() }
+    connect("a", app: app)
+    enterCredentials("a", app: app)
+    tap(app.buttons["native-v2-login"], app: app)
+    XCTAssertTrue(tabButton("我的", app: app).waitForExistence(timeout: 15))
+
+    // 1. 进入设置 -> 播放偏好，校验「播放内核与解码」全部控件存在与交互持久化
+    openSettingsHub(app: app)
+    let playbackRow = app.buttons["native-settings-playback"]
+    reveal(playbackRow, app: app)
+    XCTAssertTrue(playbackRow.waitForExistence(timeout: 10))
+    tap(playbackRow, app: app)
+
+    let enginePicker = app.descendants(matching: .any)["native-playback-video-engine"].firstMatch
+    XCTAssertTrue(enginePicker.waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-playback-decode-mode"].firstMatch.exists)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-playback-buffer-profile"].firstMatch.exists)
+    let nightModeSwitch = app.switches["native-playback-audio-night-mode"]
+    XCTAssertTrue(nightModeSwitch.exists)
+    let ignoreAssSwitch = app.switches["native-playback-ignore-ass-style"]
+    XCTAssertTrue(ignoreAssSwitch.exists)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-playback-subtitle-scale"].firstMatch.exists)
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-playback-external-template"].firstMatch.exists)
+    XCTAssertEqual(app.webViews.count, 0)
+    capture("multi-engine-01-settings-top")
+
+    // 切换为「全能增强内核」并开启人声增强与忽略 ASS 样式，退出再进入验证持久化
+    tap(enginePicker, app: app)
+    let enhancedChoice = app.buttons["全能增强内核"].firstMatch
+    XCTAssertTrue(enhancedChoice.waitForExistence(timeout: 6))
+    enhancedChoice.tap()
+    if nightModeSwitch.value as? String != "1" {
+      tap(nightModeSwitch, app: app)
+    }
+    if ignoreAssSwitch.value as? String != "1" {
+      tap(ignoreAssSwitch, app: app)
+    }
+    try await Task.sleep(nanoseconds: 500_000_000)
+    capture("multi-engine-02-settings-configured")
+
+    let backBtn = app.navigationBars.buttons.element(boundBy: 0)
+    XCTAssertTrue(backBtn.waitForExistence(timeout: 6))
+    backBtn.tap()
+    XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 10))
+
+    reveal(playbackRow, app: app)
+    tap(playbackRow, app: app)
+    XCTAssertTrue(enginePicker.waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["全能增强内核"].exists || app.buttons["全能增强内核"].exists)
+    XCTAssertEqual(app.switches["native-playback-audio-night-mode"].value as? String, "1")
+    XCTAssertEqual(app.switches["native-playback-ignore-ass-style"].value as? String, "1")
+
+    // 恢复默认设置，再进入实机视频播放验证自动路由与播放器内三内核热切换
+    tap(app.switches["native-playback-audio-night-mode"], app: app)
+    tap(app.switches["native-playback-ignore-ass-style"], app: app)
+    tap(enginePicker, app: app)
+    let autoChoice = app.buttons["自动选择（推荐）"].firstMatch
+    XCTAssertTrue(autoChoice.waitForExistence(timeout: 6))
+    autoChoice.tap()
+    try await Task.sleep(nanoseconds: 300_000_000)
+
+    // 2. 从发现页媒体库进入剧 -> 季 -> 集并拉起真实多内核视频播放
+    let discoverTab = tabButton("发现", app: app)
+    XCTAssertTrue(discoverTab.waitForExistence(timeout: 10))
+    tap(discoverTab, app: app)
+
+    let providerCard = app.descendants(matching: .any)["native-discover-provider-library|lib-tv"]
+      .firstMatch
+    reveal(providerCard, app: app)
+    XCTAssertTrue(providerCard.waitForExistence(timeout: 15))
+    tap(providerCard, app: app)
+
+    let seriesCard = app.descendants(matching: .any)["native-mediaserver-item-series-100"]
+      .firstMatch
+    XCTAssertTrue(seriesCard.waitForExistence(timeout: 15))
+    tap(seriesCard, app: app)
+
+    let seasonCard = app.descendants(matching: .any)["native-mediaserver-season-season-1"]
+      .firstMatch
+    reveal(seasonCard, app: app)
+    XCTAssertTrue(seasonCard.waitForExistence(timeout: 10))
+    tap(seasonCard, app: app)
+
+    let ep1Row = app.descendants(matching: .any)["native-mediaserver-episode-row-ep-101"].firstMatch
+    reveal(ep1Row, app: app)
+    XCTAssertTrue(ep1Row.waitForExistence(timeout: 15))
+    tap(ep1Row, app: app)
+
+    let playBtn = app.buttons["native-mediaserver-detail-play"].firstMatch
+    XCTAssertTrue(playBtn.waitForExistence(timeout: 15))
+    tap(playBtn, app: app)
+
+    let engineBadge = app.staticTexts["playback-engine-badge"].firstMatch
+    XCTAssertTrue(engineBadge.waitForExistence(timeout: 15))
+    XCTAssertEqual(app.webViews.count, 0)
+    try await Task.sleep(nanoseconds: 1_800_000_000)
+    let initialEngineValue = (engineBadge.value as? String) ?? ""
+    XCTAssertFalse(initialEngineValue.isEmpty)
+    capture("multi-engine-03-player-initial")
+
+    // 3. 依次在播放器内一键热切换至 MPV 全能 -> VLCKit 兼容 -> AVPlayer 原生
+    let switchSequence: [(title: String, expectedValue: String, shot: String)] =
+      initialEngineValue == "enhanced"
+      ? [
+        ("VLCKit 兼容", "legacy", "multi-engine-04-engine-vlc"),
+        ("AVPlayer 原生", "native", "multi-engine-05-engine-avplayer"),
+        ("MPV 全能", "enhanced", "multi-engine-06-engine-mpv"),
+      ]
+      : [
+        ("MPV 全能", "enhanced", "multi-engine-04-engine-mpv"),
+        ("VLCKit 兼容", "legacy", "multi-engine-05-engine-vlc"),
+        ("AVPlayer 原生", "native", "multi-engine-06-engine-avplayer"),
+      ]
+
+    let centerCoord = app.windows.firstMatch.coordinate(
+      withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    for step in switchSequence {
+      let moreBtn = app.buttons["video-playback-more"].firstMatch
+      if !moreBtn.exists || !moreBtn.isHittable {
+        centerCoord.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      XCTAssertTrue(moreBtn.waitForExistence(timeout: 8))
+      moreBtn.tap()
+
+      let switchMenu = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "切换播放内核")
+      ).firstMatch
+      XCTAssertTrue(switchMenu.waitForExistence(timeout: 6))
+      XCTAssertTrue(
+        app.buttons.matching(
+          NSPredicate(format: "label BEGINSWITH %@", "使用外部播放器打开")
+        ).firstMatch.exists)
+      switchMenu.tap()
+
+      let targetItem = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", step.title)
+      ).firstMatch
+      XCTAssertTrue(targetItem.waitForExistence(timeout: 6))
+      targetItem.tap()
+
+      let switched = NSPredicate(format: "value == %@", step.expectedValue)
+      let exp = XCTNSPredicateExpectation(predicate: switched, object: engineBadge)
+      let result = await XCTWaiter().fulfillment(of: [exp], timeout: 10)
+      XCTAssertEqual(result, .completed, "Expected playback engine \(step.expectedValue)")
+      try await Task.sleep(nanoseconds: 1_800_000_000)
+      if !moreBtn.isHittable {
+        centerCoord.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      capture(step.shot)
+    }
+
+    // 4. 关闭播放器并校验流清单、流切片请求均由回环夹具正常响应，无意外请求
+    let closeBtn = app.buttons["video-playback-close"].firstMatch
+    if !closeBtn.exists || !closeBtn.isHittable {
+      centerCoord.tap()
+      try await Task.sleep(nanoseconds: 400_000_000)
+    }
+    XCTAssertTrue(closeBtn.waitForExistence(timeout: 8))
+    closeBtn.tap()
+    XCTAssertTrue(playBtn.waitForExistence(timeout: 10))
+
+    let counts = try await stats()
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/mediaserver/stream-info"] ?? 0, 1)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/mediaserver/stream"] ?? 0, 3)
+    XCTAssertTrue(
+      counts["unexpected", default: [:]].keys.allSatisfy {
+        !$0.contains("index.html") && !$0.contains("/assets/")
+      },
+      "Unexpected web requests: \(counts["unexpected"] ?? [:])")
+  }
+
   private func signInToNativeBusiness(
     _ profile: String = "a", mode: String = "ready", extra: [String] = []
   )

@@ -37,6 +37,10 @@
       "value": "%s 倍"
     },
     {
+      "name": "mp_02e6ffb1",
+      "value": "硬件解码优先"
+    },
+    {
       "name": "mp_03c62efa",
       "value": "内嵌 · %s"
     },
@@ -55,6 +59,10 @@
     {
       "name": "mp_07c1bdfb",
       "value": "刷新账号状态"
+    },
+    {
+      "name": "mp_08128200",
+      "value": "仅全能增强内核支持视频强制软解，系统原生内核仅支持硬解或音频软解"
     },
     {
       "name": "mp_083cf2f6",
@@ -117,6 +125,10 @@
       "value": "服务已初始化，请登录。"
     },
     {
+      "name": "mp_112c8584",
+      "value": "全能增强内核"
+    },
+    {
       "name": "mp_11d02415",
       "value": "返回"
     },
@@ -135,6 +147,10 @@
     {
       "name": "mp_15_3e0c2a0a",
       "value": "每 15 分钟"
+    },
+    {
+      "name": "mp_15cdd697",
+      "value": "系统原生内核"
     },
     {
       "name": "mp_163aec91",
@@ -343,6 +359,10 @@
     {
       "name": "mp_2e151582",
       "value": "海报加载中"
+    },
+    {
+      "name": "mp_2e728a38",
+      "value": "字幕字号"
     },
     {
       "name": "mp_2f752c00",
@@ -593,6 +613,10 @@
       "value": "外观与本机"
     },
     {
+      "name": "mp_4k_strm_7f4048a7",
+      "value": "大缓冲（4K / STRM）"
+    },
+    {
       "name": "mp_50d42057",
       "value": "绑定码已复制。请在主屏幕通知网页中粘贴。"
     },
@@ -639,6 +663,10 @@
     {
       "name": "mp_58ce18ea",
       "value": "整理与目录"
+    },
+    {
+      "name": "mp_58d5873b",
+      "value": "播放内核"
     },
     {
       "name": "mp_5982c44c",
@@ -753,6 +781,10 @@
       "value": "关闭"
     },
     {
+      "name": "mp_6c85e1de",
+      "value": "解码模式"
+    },
+    {
       "name": "mp_6d09dc34",
       "value": "插件中心"
     },
@@ -779,6 +811,10 @@
     {
       "name": "mp_7262b781",
       "value": "页面准备完成后会自动进入，也可以立即重试或切换服务地址。"
+    },
+    {
+      "name": "mp_72ebb59c",
+      "value": "内核：%s"
     },
     {
       "name": "mp_7328deeb",
@@ -859,6 +895,18 @@
     {
       "name": "mp_7ea6ff3e",
       "value": "无法读取播放信息，请确认影片仍在媒体库中并检查后台连接。"
+    },
+    {
+      "name": "mp_8150b51b",
+      "value": "当前格式不兼容，已自动切换全能内核"
+    },
+    {
+      "name": "mp_81c80048",
+      "value": "播放内核与解码"
+    },
+    {
+      "name": "mp_81d56e3e",
+      "value": "网络缓冲"
     },
     {
       "name": "mp_823f4d1e",
@@ -959,6 +1007,10 @@
     {
       "name": "mp_93bbc0cb",
       "value": "此账号需要尚未接入的验证方式。"
+    },
+    {
+      "name": "mp_93e4284e",
+      "value": "使用外部播放器打开"
     },
     {
       "name": "mp_940c8865",
@@ -1213,6 +1265,14 @@
       "value": "实例 AppPush 当前使用 %s。请在后台配置相同地址，或选择“使用实例配置”后绑定。"
     },
     {
+      "name": "mp_ass_43d9c16b",
+      "value": "忽略 ASS 字幕特效样式"
+    },
+    {
+      "name": "mp_avplayer_acd36c1d",
+      "value": "AVPlayer 原生"
+    },
+    {
       "name": "mp_b2d4bcee",
       "value": "播放暂不可用"
     },
@@ -1231,6 +1291,10 @@
     {
       "name": "mp_b4672d23",
       "value": "页面状态"
+    },
+    {
+      "name": "mp_b4a74a0e",
+      "value": "切换播放内核"
     },
     {
       "name": "mp_b4d9b610",
@@ -1303,6 +1367,10 @@
     {
       "name": "mp_bde0b46a",
       "value": "密码仅在本机安全保存，验证码不会保存。"
+    },
+    {
+      "name": "mp_be577c3b",
+      "value": "自动选择（推荐）"
     },
     {
       "name": "mp_be7f8395",
@@ -1419,6 +1487,10 @@
     {
       "name": "mp_d04f51a0",
       "value": "没有匹配项，可直接添加输入值。"
+    },
+    {
+      "name": "mp_d0d89915",
+      "value": "强制软件解码"
     },
     {
       "name": "mp_d0ff6b41",
@@ -1633,6 +1705,10 @@
       "value": "已安装"
     },
     {
+      "name": "mp_ebf0f69d",
+      "value": "渲染视图"
+    },
+    {
       "name": "mp_ecdf2bcf",
       "value": "系统阻止了此连接，请检查服务地址及设备的网络访问限制。"
     },
@@ -1647,6 +1723,14 @@
     {
       "name": "mp_ed5e4c3e",
       "value": "搜索“%s”"
+    },
+    {
+      "name": "mp_ed917b08",
+      "value": "默认调用外部播放器"
+    },
+    {
+      "name": "mp_edaa51e3",
+      "value": "已切换至 %s"
     },
     {
       "name": "mp_ee561675",
@@ -1707,6 +1791,10 @@
     {
       "name": "mp_f40b79d7",
       "value": "站点管理"
+    },
+    {
+      "name": "mp_f4cd7ee5",
+      "value": "标准缓冲"
     },
     {
       "name": "mp_f526c899",
@@ -1821,6 +1909,10 @@
       "value": "创建管理员"
     },
     {
+      "name": "mp_ffd10865",
+      "value": "夜间模式 / 人声增强"
+    },
+    {
       "name": "mp_http_https_5ce090ea",
       "value": "支持 HTTP 和 HTTPS。登录信息按服务分别保存。"
     },
@@ -1853,12 +1945,24 @@
       "value": "无法建立安全的 HTTPS 连接，请检查服务器的 TLS 配置。"
     },
     {
+      "name": "mp_ijk_dda147c6",
+      "value": "IJK 增强"
+    },
+    {
       "name": "mp_ipv6_local_ec409aad",
       "value": "此 IPv6 地址包含网卡标识，网页无法使用。请改用 .local 主机名或其他可访问的地址。"
     },
     {
       "name": "mp_lrc_d90270cd",
       "value": "暂无同名 LRC 歌词"
+    },
+    {
+      "name": "mp_media3_f7911ba3",
+      "value": "Media3 原生"
+    },
+    {
+      "name": "mp_mkv_d2679df8",
+      "value": "常规影片与音乐走系统原生内核省电秒开；MKV、多声道原盘或特效字幕自动切至全能内核"
     },
     {
       "name": "mp_moviepilot_00c24418",
@@ -1925,6 +2029,10 @@
       "value": "长按主屏幕空白处，选择“编辑”→“添加小组件”，搜索 MoviePilot。锁屏可在自定中添加；向右滑到今天视图，也可添加。编辑小组件可选择服务和内容。"
     },
     {
+      "name": "mp_mpv_0f7c51b4",
+      "value": "MPV 全能"
+    },
+    {
       "name": "mp_plex_x_plex_token_4678f466",
       "value": "Plex 访问令牌 (X-Plex-Token)"
     },
@@ -1939,6 +2047,18 @@
     {
       "name": "mp_strm_895f2616",
       "value": "STRM 直链"
+    },
+    {
+      "name": "mp_url_d8340907",
+      "value": "外部播放器 URL 模板"
+    },
+    {
+      "name": "mp_vlckit_42693cc8",
+      "value": "VLCKit 兼容"
+    },
+    {
+      "name": "mp_vlckit_b044dd97",
+      "value": "兼容内核（VLCKit）"
     },
     {
       "name": "mp_web_7f1d362a",

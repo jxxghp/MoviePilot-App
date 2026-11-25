@@ -1221,3 +1221,30 @@ data class WorkspaceSessionSnapshot(
     val libraries: List<MediaServerLibraryDto> = emptyList(),
     val recentTransfers: List<TransferHistoryDto> = emptyList(),
 )
+
+/** 多内核选核路由输入快照（与 Rust `EngineResolutionInput` 严格字段对齐）。 */
+@Serializable
+data class EngineResolutionInputDto(
+    val platform: String = "android",
+    val preferred: String = "auto",
+    @SerialName("is_audio") val isAudio: Boolean = false,
+    @SerialName("decode_force_software") val decodeForceSoftware: Boolean = false,
+    @SerialName("has_enhanced_engine") val hasEnhancedEngine: Boolean = true,
+    @SerialName("has_legacy_engine") val hasLegacyEngine: Boolean = false,
+    @SerialName("url_or_filename") val urlOrFilename: String = "",
+    val container: String? = null,
+    @SerialName("video_codec") val videoCodec: String? = null,
+    @SerialName("audio_codec") val audioCodec: String? = null,
+    @SerialName("has_ass_or_pgs_subtitle") val hasAssOrPgsSubtitle: Boolean = false,
+    @SerialName("ignore_ass_style") val ignoreAssStyle: Boolean = false,
+    @SerialName("allow_self_signed_tls") val allowSelfSignedTls: Boolean = false,
+    @SerialName("is_hdr") val isHdr: Boolean = false,
+)
+
+/** 多内核选核决策输出（与 Rust `EngineResolutionPlan` 严格字段对齐）。 */
+@Serializable
+data class EngineResolutionPlanDto(
+    val primary: String = "native",
+    val fallback: String? = null,
+    val reason: String = "auto_native_default",
+)

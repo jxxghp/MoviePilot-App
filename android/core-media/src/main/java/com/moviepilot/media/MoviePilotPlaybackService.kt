@@ -178,12 +178,12 @@ object PlaybackServiceBridge {
     private var controllerFuture: ListenableFuture<MediaController>? = null
 
     /**
-     * 将当前活跃的 `ExoPlayer` 绑定到系统 `MediaSession` 并唤醒 `MoviePilotPlaybackService` 前台通知。
+     * 将当前活跃的 `Player`（`ExoPlayer` 或 MPV `SimpleBasePlayer` 桥接器）绑定到系统 `MediaSession` 并唤醒前台通知。
      */
     @Synchronized
     fun attachActivePlayer(
         context: Context,
-        exoPlayer: ExoPlayer,
+        exoPlayer: Player,
         canSkipPrevious: () -> Boolean = { true },
         canSkipNext: () -> Boolean = { false },
         onSkipPrevious: () -> Unit = { exoPlayer.seekTo(0L) },
@@ -227,7 +227,7 @@ object PlaybackServiceBridge {
 
     /** 当关联的播放器真正关闭释放时，解绑并清理 `MediaSession` 与前台通知。 */
     @Synchronized
-    fun detachIfMatching(exoPlayer: ExoPlayer?) {
+    fun detachIfMatching(exoPlayer: Player?) {
         val current = mediaSession ?: return
         val unwrapped = (current.player as? QueueForwardingPlayer)?.wrappedPlayer ?: current.player
         if (exoPlayer == null || unwrapped === exoPlayer) {

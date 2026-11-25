@@ -16,6 +16,22 @@ export const PLAYBACK_SCALE_MODES: PlaybackScaleMode[] = ['fit', 'fill', 'stretc
 /** 视频画面比例展示文案。 */
 export const PLAYBACK_SCALE_LABELS: string[] = ['自适应', '铺满裁剪', '拉伸'];
 
+/** 鸿蒙端播放内核枚举值与标签。 */
+export const PLAYBACK_ENGINE_IDS: string[] = ['auto', 'native', 'enhanced'];
+export const PLAYBACK_ENGINE_LABELS: string[] = ['自动选择', 'AVPlayer', 'IJK 增强'];
+
+/** 鸿蒙端解码模式枚举值与标签。 */
+export const PLAYBACK_DECODE_IDS: string[] = ['hw_auto', 'sw_force'];
+export const PLAYBACK_DECODE_LABELS: string[] = ['硬解优先', '强制软解'];
+
+/** 鸿蒙端网络缓冲策略枚举值与标签。 */
+export const PLAYBACK_BUFFER_IDS: string[] = ['standard', 'large'];
+export const PLAYBACK_BUFFER_LABELS: string[] = ['标准', '大缓冲'];
+
+/** 鸿蒙端字幕字号缩放倍率与标签。 */
+export const PLAYBACK_SUBTITLE_SCALE_VALUES: number[] = [0.85, 1.0, 1.15, 1.3];
+export const PLAYBACK_SUBTITLE_SCALE_LABELS: string[] = ['小', '标准', '大', '特大'];
+
 interface ResumeRecordEntry {
   key: string;
   posMs: number;
@@ -37,6 +53,13 @@ export class PlaybackPreferencesStore {
   static readonly KEY_KEEP_MINI_BAR: string = 'mp_playback_keep_mini_bar';
   static readonly KEY_STRM_DIRECT: string = 'mp_playback_strm_direct';
   static readonly KEY_DIRECT_PLAY: string = 'mp_playback_direct_play';
+  static readonly KEY_VIDEO_ENGINE: string = 'mp_playback_video_engine';
+  static readonly KEY_DECODE_MODE: string = 'mp_playback_decode_mode';
+  static readonly KEY_BUFFER_PROFILE: string = 'mp_playback_buffer_profile';
+  static readonly KEY_AUDIO_NIGHT_MODE: string = 'mp_playback_audio_night_mode';
+  static readonly KEY_IGNORE_ASS_STYLE: string = 'mp_playback_ignore_ass_style';
+  static readonly KEY_SUBTITLE_SCALE: string = 'mp_playback_subtitle_scale';
+  static readonly KEY_DEFAULT_EXTERNAL_PLAYER: string = 'mp_playback_default_external';
 
   private static readonly PREF_FILE_NAME: string = 'mp_harmony_playback_prefs_v1';
   private static readonly KEY_RESUME_RECORDS: string = 'mp_playback_resume_records_v1';
@@ -60,6 +83,13 @@ export class PlaybackPreferencesStore {
     ensure<boolean>(PlaybackPreferencesStore.KEY_KEEP_MINI_BAR, true);
     ensure<boolean>(PlaybackPreferencesStore.KEY_STRM_DIRECT, true);
     ensure<boolean>(PlaybackPreferencesStore.KEY_DIRECT_PLAY, true);
+    ensure<string>(PlaybackPreferencesStore.KEY_VIDEO_ENGINE, 'auto');
+    ensure<string>(PlaybackPreferencesStore.KEY_DECODE_MODE, 'hw_auto');
+    ensure<string>(PlaybackPreferencesStore.KEY_BUFFER_PROFILE, 'standard');
+    ensure<boolean>(PlaybackPreferencesStore.KEY_AUDIO_NIGHT_MODE, false);
+    ensure<boolean>(PlaybackPreferencesStore.KEY_IGNORE_ASS_STYLE, false);
+    ensure<number>(PlaybackPreferencesStore.KEY_SUBTITLE_SCALE, 1.0);
+    ensure<boolean>(PlaybackPreferencesStore.KEY_DEFAULT_EXTERNAL_PLAYER, false);
   }
 
   /** 初始化沙盒 `Preferences` 句柄并将已保存的播放偏好与本地续播记录同步至内存与 `AppStorage`。 */
@@ -103,6 +133,39 @@ export class PlaybackPreferencesStore {
 
       const rawDirect = await p.get(PlaybackPreferencesStore.KEY_DIRECT_PLAY, true);
       AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_DIRECT_PLAY, Boolean(rawDirect));
+
+      const rawEngine = await p.get(PlaybackPreferencesStore.KEY_VIDEO_ENGINE, 'auto');
+      AppStorage.setOrCreate(
+        PlaybackPreferencesStore.KEY_VIDEO_ENGINE,
+        PlaybackPreferencesStore.normalizeVideoEngine(typeof rawEngine === 'string' ? rawEngine : 'auto')
+      );
+
+      const rawDecode = await p.get(PlaybackPreferencesStore.KEY_DECODE_MODE, 'hw_auto');
+      AppStorage.setOrCreate(
+        PlaybackPreferencesStore.KEY_DECODE_MODE,
+        rawDecode === 'sw_force' ? 'sw_force' : 'hw_auto'
+      );
+
+      const rawBuffer = await p.get(PlaybackPreferencesStore.KEY_BUFFER_PROFILE, 'standard');
+      AppStorage.setOrCreate(
+        PlaybackPreferencesStore.KEY_BUFFER_PROFILE,
+        rawBuffer === 'large' ? 'large' : 'standard'
+      );
+
+      const rawNight = await p.get(PlaybackPreferencesStore.KEY_AUDIO_NIGHT_MODE, false);
+      AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_AUDIO_NIGHT_MODE, Boolean(rawNight));
+
+      const rawIgnoreAss = await p.get(PlaybackPreferencesStore.KEY_IGNORE_ASS_STYLE, false);
+      AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_IGNORE_ASS_STYLE, Boolean(rawIgnoreAss));
+
+      const rawSubScale = await p.get(PlaybackPreferencesStore.KEY_SUBTITLE_SCALE, 1.0);
+      AppStorage.setOrCreate(
+        PlaybackPreferencesStore.KEY_SUBTITLE_SCALE,
+        PlaybackPreferencesStore.normalizeSubtitleScale(typeof rawSubScale === 'number' ? rawSubScale : Number(rawSubScale))
+      );
+
+      const rawExt = await p.get(PlaybackPreferencesStore.KEY_DEFAULT_EXTERNAL_PLAYER, false);
+      AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_DEFAULT_EXTERNAL_PLAYER, Boolean(rawExt));
 
       const rawResume = await p.get(PlaybackPreferencesStore.KEY_RESUME_RECORDS, '');
       if (typeof rawResume === 'string' && rawResume.length > 2) {
@@ -217,6 +280,116 @@ export class PlaybackPreferencesStore {
   static setDirectPlay(enabled: boolean): void {
     AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_DIRECT_PLAY, enabled);
     PlaybackPreferencesStore.putPrefBool(PlaybackPreferencesStore.KEY_DIRECT_PLAY, enabled);
+  }
+
+  static normalizeVideoEngine(raw: string): string {
+    if (raw === 'native' || raw === 'enhanced') {
+      return raw;
+    }
+    return 'auto';
+  }
+
+  static normalizeSubtitleScale(raw: number): number {
+    if (!Number.isFinite(raw) || raw < 0.7 || raw > 1.6) {
+      return 1.0;
+    }
+    let best = 1.0;
+    let minDiff = 999;
+    for (let i = 0; i < PLAYBACK_SUBTITLE_SCALE_VALUES.length; i++) {
+      const diff = Math.abs(PLAYBACK_SUBTITLE_SCALE_VALUES[i] - raw);
+      if (diff < minDiff) {
+        minDiff = diff;
+        best = PLAYBACK_SUBTITLE_SCALE_VALUES[i];
+      }
+    }
+    return best;
+  }
+
+  static videoEngineToIndex(engine: string): number {
+    if (engine === 'native') { return 1; }
+    if (engine === 'enhanced') { return 2; }
+    return 0;
+  }
+
+  static subtitleScaleToIndex(scale: number): number {
+    const norm = PlaybackPreferencesStore.normalizeSubtitleScale(scale);
+    for (let i = 0; i < PLAYBACK_SUBTITLE_SCALE_VALUES.length; i++) {
+      if (Math.abs(PLAYBACK_SUBTITLE_SCALE_VALUES[i] - norm) < 0.03) {
+        return i;
+      }
+    }
+    return 1;
+  }
+
+  static setVideoEngine(engine: string): void {
+    const norm = PlaybackPreferencesStore.normalizeVideoEngine(engine);
+    AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_VIDEO_ENGINE, norm);
+    PlaybackPreferencesStore.putPrefString(PlaybackPreferencesStore.KEY_VIDEO_ENGINE, norm);
+  }
+
+  static setDecodeMode(mode: string): void {
+    const norm = mode === 'sw_force' ? 'sw_force' : 'hw_auto';
+    AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_DECODE_MODE, norm);
+    PlaybackPreferencesStore.putPrefString(PlaybackPreferencesStore.KEY_DECODE_MODE, norm);
+  }
+
+  static setBufferProfile(profile: string): void {
+    const norm = profile === 'large' ? 'large' : 'standard';
+    AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_BUFFER_PROFILE, norm);
+    PlaybackPreferencesStore.putPrefString(PlaybackPreferencesStore.KEY_BUFFER_PROFILE, norm);
+  }
+
+  static setAudioNightMode(enabled: boolean): void {
+    AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_AUDIO_NIGHT_MODE, enabled);
+    PlaybackPreferencesStore.putPrefBool(PlaybackPreferencesStore.KEY_AUDIO_NIGHT_MODE, enabled);
+  }
+
+  static setIgnoreAssStyle(enabled: boolean): void {
+    AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_IGNORE_ASS_STYLE, enabled);
+    PlaybackPreferencesStore.putPrefBool(PlaybackPreferencesStore.KEY_IGNORE_ASS_STYLE, enabled);
+  }
+
+  static setSubtitleScale(scale: number): void {
+    const norm = PlaybackPreferencesStore.normalizeSubtitleScale(scale);
+    AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_SUBTITLE_SCALE, norm);
+    PlaybackPreferencesStore.putPrefNumber(PlaybackPreferencesStore.KEY_SUBTITLE_SCALE, norm);
+  }
+
+  static setDefaultExternalPlayer(enabled: boolean): void {
+    AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_DEFAULT_EXTERNAL_PLAYER, enabled);
+    PlaybackPreferencesStore.putPrefBool(PlaybackPreferencesStore.KEY_DEFAULT_EXTERNAL_PLAYER, enabled);
+  }
+
+  static getVideoEngine(): string {
+    const raw = AppStorage.get<string>(PlaybackPreferencesStore.KEY_VIDEO_ENGINE) ?? 'auto';
+    return PlaybackPreferencesStore.normalizeVideoEngine(raw);
+  }
+
+  static getDecodeMode(): string {
+    const raw = AppStorage.get<string>(PlaybackPreferencesStore.KEY_DECODE_MODE) ?? 'hw_auto';
+    return raw === 'sw_force' ? 'sw_force' : 'hw_auto';
+  }
+
+  static getBufferProfile(): string {
+    const raw = AppStorage.get<string>(PlaybackPreferencesStore.KEY_BUFFER_PROFILE) ?? 'standard';
+    return raw === 'large' ? 'large' : 'standard';
+  }
+
+  static getAudioNightMode(): boolean {
+    return AppStorage.get<boolean>(PlaybackPreferencesStore.KEY_AUDIO_NIGHT_MODE) ?? false;
+  }
+
+  static getIgnoreAssStyle(): boolean {
+    return AppStorage.get<boolean>(PlaybackPreferencesStore.KEY_IGNORE_ASS_STYLE) ?? false;
+  }
+
+  static getSubtitleScale(): number {
+    const raw = AppStorage.get<number>(PlaybackPreferencesStore.KEY_SUBTITLE_SCALE) ?? 1.0;
+    return PlaybackPreferencesStore.normalizeSubtitleScale(raw);
+  }
+
+  static getDefaultExternalPlayer(): boolean {
+    return AppStorage.get<boolean>(PlaybackPreferencesStore.KEY_DEFAULT_EXTERNAL_PLAYER) ?? false;
   }
 
   static getScaleMode(): PlaybackScaleMode {

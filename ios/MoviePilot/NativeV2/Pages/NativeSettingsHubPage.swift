@@ -2739,6 +2739,13 @@ struct NativePlaybackPreferencesPage: View {
   @AppStorage("nativeV2.playback.directPlay") private var directPlay = true
   @AppStorage("nativeV2.playback.cellularWarn") private var cellularWarn = false
   @AppStorage("nativeV2.playback.keepMusicMiniBar") private var keepMusicMiniBar = true
+  @AppStorage("nativeV2.playback.videoEngine") private var videoEngine = "auto"
+  @AppStorage("nativeV2.playback.decodeMode") private var decodeMode = "hw_auto"
+  @AppStorage("nativeV2.playback.bufferProfile") private var bufferProfile = "standard"
+  @AppStorage("nativeV2.playback.audioNightMode") private var audioNightMode = false
+  @AppStorage("nativeV2.playback.ignoreAssStyle") private var ignoreAssStyle = false
+  @AppStorage("nativeV2.playback.subtitleScale") private var subtitleScale = 1.0
+  @AppStorage("nativeV2.playback.externalPlayerTemplate") private var externalPlayerTemplate = ""
   @ObservedObject private var appearance = NativeAppearanceStore.shared
 
   @State private var accountBindings: [MediaServerAccountBindingDTO] = []
@@ -2753,6 +2760,115 @@ struct NativePlaybackPreferencesPage: View {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 22) {
+          VStack(alignment: .leading, spacing: 10) {
+            Text("播放内核与解码").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+              .padding(.horizontal, 8)
+            CinematicPanel(padding: 0) {
+              VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                  HStack(alignment: .center, spacing: 8) {
+                    Text("播放内核")
+                      .font(.body)
+                      .lineLimit(1)
+                      .fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 8)
+                    Picker("播放内核", selection: $videoEngine) {
+                      Text("自动选择（推荐）").tag("auto")
+                      Text("系统原生内核").tag("native")
+                      Text("全能增强内核").tag("enhanced")
+                      Text("兼容内核（VLCKit）").tag("legacy")
+                    }
+                    .pickerStyle(.menu)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .tint(appearance.accentColor)
+                    .accessibilityIdentifier("native-playback-video-engine")
+                  }
+                  Text("常规影片与音乐走系统原生内核省电秒开；MKV、多声道原盘或特效字幕自动切至全能内核")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
+                CinematicFormDivider()
+                VStack(alignment: .leading, spacing: 6) {
+                  HStack {
+                    Text("解码模式").font(.body)
+                    Spacer()
+                    Picker("解码模式", selection: $decodeMode) {
+                      Text("硬件解码优先").tag("hw_auto")
+                      Text("强制软件解码").tag("sw_force")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 210)
+                    .accessibilityIdentifier("native-playback-decode-mode")
+                  }
+                  if videoEngine == "native" && decodeMode == "sw_force" {
+                    Text("仅全能增强内核支持视频强制软解，系统原生内核仅支持硬解或音频软解")
+                      .font(.caption)
+                      .foregroundStyle(.orange)
+                  }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
+                CinematicFormDivider()
+                HStack {
+                  Text("网络缓冲").font(.body)
+                  Spacer()
+                  Picker("网络缓冲", selection: $bufferProfile) {
+                    Text("标准缓冲").tag("standard")
+                    Text("大缓冲（4K / STRM）").tag("large")
+                  }
+                  .pickerStyle(.menu)
+                  .tint(appearance.accentColor)
+                  .accessibilityIdentifier("native-playback-buffer-profile")
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
+                CinematicFormDivider()
+                Toggle("夜间模式 / 人声增强", isOn: $audioNightMode)
+                  .font(.body).tint(appearance.accentColor)
+                  .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
+                  .accessibilityIdentifier("native-playback-audio-night-mode")
+                CinematicFormDivider()
+                Toggle("忽略 ASS 字幕特效样式", isOn: $ignoreAssStyle)
+                  .font(.body).tint(appearance.accentColor)
+                  .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
+                  .accessibilityIdentifier("native-playback-ignore-ass-style")
+                CinematicFormDivider()
+                HStack {
+                  Text("字幕字号").font(.body)
+                  Spacer()
+                  Picker("字幕字号", selection: $subtitleScale) {
+                    Text("小 (0.85x)").tag(0.85)
+                    Text("标准 (1.0x)").tag(1.0)
+                    Text("大 (1.15x)").tag(1.15)
+                    Text("特大 (1.3x)").tag(1.3)
+                  }
+                  .pickerStyle(.menu)
+                  .tint(appearance.accentColor)
+                  .accessibilityIdentifier("native-playback-subtitle-scale")
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
+                CinematicFormDivider()
+                VStack(alignment: .leading, spacing: 6) {
+                  Text("外部播放器 URL 模板").font(.body)
+                  TextField("scheme://play?url={url}&title={title}", text: $externalPlayerTemplate)
+                    .font(.footnote.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("native-playback-external-template")
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
+              }
+            }
+          }
+
           VStack(alignment: .leading, spacing: 10) {
             Text("视频播放").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
               .padding(.horizontal, 8)

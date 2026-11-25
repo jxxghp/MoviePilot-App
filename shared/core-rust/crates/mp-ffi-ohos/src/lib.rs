@@ -3,10 +3,10 @@
 
 use mp_core_api::{ApiEndpoint, ResourceFilterCriteria, ResourceFilterEngine, ResourceItem};
 use mp_core_model::{
-    AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, PendingPlaybackStop,
-    PlayableMediaFormat, PlaybackProgressPlanner, PlaybackRouteCandidate, PlaybackRoutePlanner,
-    PlaybackRoutePreference, PlaybackSyncInput, PlaybackSyncState, RouteProbeOutcome,
-    ServerAddress, SubscribeProgressModel,
+    AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, EngineResolutionInput,
+    PendingPlaybackStop, PlayableMediaFormat, PlaybackEngineRouter, PlaybackProgressPlanner,
+    PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference, PlaybackSyncInput,
+    PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
 };
 use mp_core_plugin::{NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder};
 use mp_core_session::{NativePermissions, classify_auth_status, decode_jwt_claims};
@@ -206,6 +206,20 @@ pub mod bridge {
     pub fn is_same_http_origin(url_a: &str, url_b: &str) -> bool {
         PlaybackRoutePlanner::is_same_http_origin(url_a, url_b)
     }
+
+    pub fn resolve_playback_engine_json(input_json: &str) -> Result<String, String> {
+        let input: EngineResolutionInput =
+            serde_json::from_str(input_json).map_err(|e| e.to_string())?;
+        serde_json::to_string(&PlaybackEngineRouter::resolve(&input)).map_err(|e| e.to_string())
+    }
+
+    pub fn build_external_player_url(
+        template: &str,
+        media_url: &str,
+        title: &str,
+    ) -> Result<String, String> {
+        PlaybackEngineRouter::build_external_player_url(template, media_url, title)
+    }
 }
 
 #[cfg(target_env = "ohos")]
@@ -347,6 +361,21 @@ mod napi_exports {
     #[napi]
     pub fn is_same_http_origin(url_a: String, url_b: String) -> bool {
         bridge::is_same_http_origin(&url_a, &url_b)
+    }
+
+    #[napi]
+    pub fn resolve_playback_engine_json(input_json: String) -> Result<String> {
+        bridge::resolve_playback_engine_json(&input_json).map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn build_external_player_url(
+        template: String,
+        media_url: String,
+        title: String,
+    ) -> Result<String> {
+        bridge::build_external_player_url(&template, &media_url, &title)
+            .map_err(napi_ohos::Error::from_reason)
     }
 }
 

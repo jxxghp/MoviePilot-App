@@ -37,6 +37,10 @@
       "value": "%s 倍"
     },
     {
+      "name": "mp_02e6ffb1",
+      "value": "硬體解碼優先"
+    },
+    {
       "name": "mp_03c62efa",
       "value": "內嵌 · %s"
     },
@@ -55,6 +59,10 @@
     {
       "name": "mp_07c1bdfb",
       "value": "重新整理帳號狀態"
+    },
+    {
+      "name": "mp_08128200",
+      "value": "僅全能增強核心支援視訊強制軟解，系統原生核心僅支援硬解或音訊軟解"
     },
     {
       "name": "mp_083cf2f6",
@@ -117,6 +125,10 @@
       "value": "服務已初始化，請登入。"
     },
     {
+      "name": "mp_112c8584",
+      "value": "全能增強核心"
+    },
+    {
       "name": "mp_11d02415",
       "value": "返回"
     },
@@ -135,6 +147,10 @@
     {
       "name": "mp_15_3e0c2a0a",
       "value": "每 15 分鐘"
+    },
+    {
+      "name": "mp_15cdd697",
+      "value": "系統原生核心"
     },
     {
       "name": "mp_163aec91",
@@ -343,6 +359,10 @@
     {
       "name": "mp_2e151582",
       "value": "海報加載中"
+    },
+    {
+      "name": "mp_2e728a38",
+      "value": "字幕字號"
     },
     {
       "name": "mp_2f752c00",
@@ -593,6 +613,10 @@
       "value": "外觀與本機"
     },
     {
+      "name": "mp_4k_strm_7f4048a7",
+      "value": "大緩衝（4K / STRM）"
+    },
+    {
       "name": "mp_50d42057",
       "value": "綁定碼已複製。請在主屏幕通知網頁中粘貼。"
     },
@@ -639,6 +663,10 @@
     {
       "name": "mp_58ce18ea",
       "value": "整理與目錄"
+    },
+    {
+      "name": "mp_58d5873b",
+      "value": "播放核心"
     },
     {
       "name": "mp_5982c44c",
@@ -753,6 +781,10 @@
       "value": "關閉"
     },
     {
+      "name": "mp_6c85e1de",
+      "value": "解碼模式"
+    },
+    {
       "name": "mp_6d09dc34",
       "value": "插件中心"
     },
@@ -779,6 +811,10 @@
     {
       "name": "mp_7262b781",
       "value": "頁面準備完成後會自動進入，也可以立即重試或切換服務地址。"
+    },
+    {
+      "name": "mp_72ebb59c",
+      "value": "核心：%s"
     },
     {
       "name": "mp_7328deeb",
@@ -859,6 +895,18 @@
     {
       "name": "mp_7ea6ff3e",
       "value": "無法讀取播放資訊，請確認影片仍在媒體庫中並檢查後台連接。"
+    },
+    {
+      "name": "mp_8150b51b",
+      "value": "目前格式不相容，已自動切換全能核心"
+    },
+    {
+      "name": "mp_81c80048",
+      "value": "播放核心與解碼"
+    },
+    {
+      "name": "mp_81d56e3e",
+      "value": "網路緩衝"
     },
     {
       "name": "mp_823f4d1e",
@@ -959,6 +1007,10 @@
     {
       "name": "mp_93bbc0cb",
       "value": "此帳號需要尚未接入的驗證方式。"
+    },
+    {
+      "name": "mp_93e4284e",
+      "value": "使用外部播放器開啟"
     },
     {
       "name": "mp_940c8865",
@@ -1213,6 +1265,14 @@
       "value": "實例 AppPush 當前使用 %s。請在後台配置相同地址，或選擇“使用實例配置”後綁定。"
     },
     {
+      "name": "mp_ass_43d9c16b",
+      "value": "忽略 ASS 字幕特效樣式"
+    },
+    {
+      "name": "mp_avplayer_acd36c1d",
+      "value": "AVPlayer 原生"
+    },
+    {
       "name": "mp_b2d4bcee",
       "value": "播放暫不可用"
     },
@@ -1231,6 +1291,10 @@
     {
       "name": "mp_b4672d23",
       "value": "頁面狀態"
+    },
+    {
+      "name": "mp_b4a74a0e",
+      "value": "切換播放核心"
     },
     {
       "name": "mp_b4d9b610",
@@ -1303,6 +1367,10 @@
     {
       "name": "mp_bde0b46a",
       "value": "密碼僅在本機安全儲存，驗證碼不會儲存。"
+    },
+    {
+      "name": "mp_be577c3b",
+      "value": "自動選擇（推薦）"
     },
     {
       "name": "mp_be7f8395",
@@ -1419,6 +1487,10 @@
     {
       "name": "mp_d04f51a0",
       "value": "沒有符合項目，可直接新增輸入值。"
+    },
+    {
+      "name": "mp_d0d89915",
+      "value": "強制軟體解碼"
     },
     {
       "name": "mp_d0ff6b41",
@@ -1633,6 +1705,10 @@
       "value": "已安裝"
     },
     {
+      "name": "mp_ebf0f69d",
+      "value": "渲染檢視"
+    },
+    {
       "name": "mp_ecdf2bcf",
       "value": "系統阻止了此連接，請檢查服務地址及設備的網路訪問限制。"
     },
@@ -1647,6 +1723,14 @@
     {
       "name": "mp_ed5e4c3e",
       "value": "搜索“%s”"
+    },
+    {
+      "name": "mp_ed917b08",
+      "value": "預設呼叫外部播放器"
+    },
+    {
+      "name": "mp_edaa51e3",
+      "value": "已切換至 %s"
     },
     {
       "name": "mp_ee561675",
@@ -1707,6 +1791,10 @@
     {
       "name": "mp_f40b79d7",
       "value": "站點管理"
+    },
+    {
+      "name": "mp_f4cd7ee5",
+      "value": "標準緩衝"
     },
     {
       "name": "mp_f526c899",
@@ -1821,6 +1909,10 @@
       "value": "建立管理員"
     },
     {
+      "name": "mp_ffd10865",
+      "value": "夜間模式 / 人聲增強"
+    },
+    {
       "name": "mp_http_https_5ce090ea",
       "value": "支持 HTTP 和 HTTPS。登錄資訊按服務分別保存。"
     },
@@ -1853,12 +1945,24 @@
       "value": "無法建立安全的 HTTPS 連接，請檢查伺服器的 TLS 配置。"
     },
     {
+      "name": "mp_ijk_dda147c6",
+      "value": "IJK 增強"
+    },
+    {
       "name": "mp_ipv6_local_ec409aad",
       "value": "此 IPv6 地址包含網卡標識，網頁無法使用。請改用 .local 主機名或其他可訪問的地址。"
     },
     {
       "name": "mp_lrc_d90270cd",
       "value": "暫無同名 LRC 歌詞"
+    },
+    {
+      "name": "mp_media3_f7911ba3",
+      "value": "Media3 原生"
+    },
+    {
+      "name": "mp_mkv_d2679df8",
+      "value": "一般影片與音樂走系統原生核心省電秒開；MKV、多聲道原盤或特效字幕自動切至全能核心"
     },
     {
       "name": "mp_moviepilot_00c24418",
@@ -1925,6 +2029,10 @@
       "value": "長按主屏幕空白處，選擇“編輯”→“添加小組件”，搜索 MoviePilot。鎖屏可在自定中添加；向右滑到今天視圖，也可添加。編輯小組件可選擇服務和內容。"
     },
     {
+      "name": "mp_mpv_0f7c51b4",
+      "value": "MPV 全能"
+    },
+    {
       "name": "mp_plex_x_plex_token_4678f466",
       "value": "Plex 存取權杖 (X-Plex-Token)"
     },
@@ -1939,6 +2047,18 @@
     {
       "name": "mp_strm_895f2616",
       "value": "STRM 直連"
+    },
+    {
+      "name": "mp_url_d8340907",
+      "value": "外部播放器 URL 範本"
+    },
+    {
+      "name": "mp_vlckit_42693cc8",
+      "value": "VLCKit 相容"
+    },
+    {
+      "name": "mp_vlckit_b044dd97",
+      "value": "相容核心（VLCKit）"
     },
     {
       "name": "mp_web_7f1d362a",

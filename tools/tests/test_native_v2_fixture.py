@@ -164,3 +164,37 @@ class NativeFixtureTests(unittest.TestCase):
         self.assertEqual(status, 200)
         status, after = self.request(base + "media/status", query, token=tok)
         self.assertTrue(after["data"][0]["subscribed"])
+
+    def test_mediaserver_stream_info_and_range_stream(self):
+        """媒体流清单签发同源 Cookie，流接口严格校权并支持 206 Range 切片。"""
+        req = Request(
+            self.base + "/a/api/v1/mediaserver/stream-info?itemid=ep-101&server=Emby",
+            headers={"Authorization": "Bearer synthetic-native-a"},
+        )
+        with urlopen(req, timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+            cookie_header = resp.headers.get("Set-Cookie", "")
+            self.assertIn("mp_media_token=synthetic-stream-a", cookie_header)
+            manifest = json.load(resp)["data"]
+            self.assertEqual(manifest["item_id"], "ep-101")
+            stream_url = manifest["content_url"]
+
+        # 无凭据拒绝
+        with self.assertRaises(HTTPError) as ctx:
+            urlopen(Request(stream_url), timeout=5)
+        self.assertEqual(ctx.exception.code, 401)
+
+        # Cookie + Range 206 返回有效 MP4 头部
+        range_req = Request(
+            stream_url,
+            headers={
+                "Cookie": "mp_media_token=synthetic-stream-a",
+                "Range": "bytes=0-1023",
+            },
+        )
+        with urlopen(range_req, timeout=5) as stream_resp:
+            self.assertEqual(stream_resp.status, 206)
+            self.assertEqual(stream_resp.headers.get("Accept-Ranges"), "bytes")
+            chunk = stream_resp.read()
+            self.assertEqual(len(chunk), 1024)
+            self.assertIn(b"ftyp", chunk[:32])

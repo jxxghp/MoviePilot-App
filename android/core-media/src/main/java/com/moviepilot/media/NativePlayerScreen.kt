@@ -13,6 +13,8 @@ import android.net.Uri
 import android.os.Build
 import android.util.Rational
 import android.view.HapticFeedbackConstants
+import android.view.LayoutInflater
+import android.view.SurfaceView
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -77,6 +79,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
@@ -140,11 +143,13 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.SubtitleView
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -158,6 +163,11 @@ import com.moviepilot.designsystem.LocalAppearanceStore
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.PlaybackPreferencesStore
+import com.moviepilot.media.engine.AndroidPlaybackEngineRouter
+import com.moviepilot.media.engine.AudioNightModeEffect
+import com.moviepilot.media.engine.EngineTrackItem
+import com.moviepilot.media.engine.MpvPlaybackEngine
+import com.moviepilot.media.engine.ResolvedAndroidEngine
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.NativeSecretStore
 import com.moviepilot.rustbridge.PlaybackRouteDto
@@ -165,6 +175,7 @@ import com.moviepilot.rustbridge.PlaybackSyncSessionTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
@@ -324,6 +335,33 @@ private fun PlaybackRouteBadgePill(routeKind: String) {
     }
 }
 
+/** 播放顶栏轻量内核徽标（点击可一键热切 Media3 原生 / MPV 全能内核）。 */
+@Composable
+private fun PlaybackEngineBadgePill(
+    engine: ResolvedAndroidEngine,
+    onClick: () -> Unit,
+) {
+    val (bgColor, borderColor) = when (engine) {
+        ResolvedAndroidEngine.NATIVE -> Color(0xFF0D9488).copy(alpha = 0.28f) to Color(0xFF2DD4BF).copy(alpha = 0.52f)
+        ResolvedAndroidEngine.ENHANCED -> Color(0xFF6366F1).copy(alpha = 0.32f) to Color(0xFFA5B4FC).copy(alpha = 0.56f)
+    }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(999.dp),
+        color = bgColor,
+        modifier = Modifier.border(0.75.dp, borderColor, RoundedCornerShape(999.dp)),
+    ) {
+        Text(
+            text = engine.shortBadge,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+        )
+    }
+}
+
 private fun subtitleMimeTypeForUrl(url: String): String {
     val lower = url.substringBefore('?').lowercase()
     return when {
@@ -409,12 +447,24 @@ fun buildConfiguredExoPlayer(
         .setContentType(if (request.isAudio) C.AUDIO_CONTENT_TYPE_MUSIC else C.AUDIO_CONTENT_TYPE_MOVIE)
         .build()
 
+    val isLargeBuffer = prefs.bufferProfile == "large"
+    val loadControl = DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            if (isLargeBuffer) 30_000 else 15_000,
+            if (isLargeBuffer) 120_000 else 50_000,
+            if (isLargeBuffer) 4_000 else 2_500,
+            if (isLargeBuffer) 8_000 else 5_000,
+        )
+        .setPrioritizeTimeOverSizeThresholds(true)
+        .build()
+
     // 仅视频应用默认倍速偏好；音乐固定 1.0x 原速启动
     val initialSpeed = if (request.isAudio) 1.0f else prefs.defaultSpeed.coerceIn(0.5f, 2.0f)
     val effectiveStartMs = (resumePositionOverrideMs ?: request.resumePositionMs).coerceAtLeast(0L)
 
     return ExoPlayer.Builder(context, renderersFactory)
         .setMediaSourceFactory(mediaSourceFactory)
+        .setLoadControl(loadControl)
         .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
         .setHandleAudioBecomingNoisy(true)
         .build()
@@ -603,32 +653,71 @@ fun NativeMediaPlayerOverlay(
         AtomicReference(request.url to request.streamHeaders)
     }
     var currentRouteKind by remember(request.url) { mutableStateOf(request.activeRouteKind) }
-    val exoPlayer = remember(request.url, sharedPlayer) {
-        sharedPlayer ?: buildConfiguredExoPlayer(
-            context = context,
-            request = request,
-            resumePositionOverrideMs = bestInitialResumeMs,
-            activeStreamProvider = { activeStreamRouteRef.get() },
+    val enginePlan = remember(
+        request.url,
+        request.isAudio,
+        playbackPrefs.videoEngine,
+        playbackPrefs.decodeMode,
+        playbackPrefs.ignoreAssStyle,
+    ) {
+        AndroidPlaybackEngineRouter.resolvePlan(request, playbackPrefs)
+    }
+    var activeEngineKind by remember(request.url, ownsPlayer) {
+        mutableStateOf(
+            if (ownsPlayer && !request.isAudio) {
+                ResolvedAndroidEngine.fromId(enginePlan.primary)
+            } else {
+                ResolvedAndroidEngine.NATIVE
+            },
         )
     }
+    var engineCarryPositionMs by remember(request.url) { mutableLongStateOf(bestInitialResumeMs) }
+    val suppressStopForEngineSwitchRef = remember(request.url) { AtomicBoolean(false) }
+    var didAutoFallbackEngine by remember(request.url) { mutableStateOf(false) }
+    var showEngineSheet by remember { mutableStateOf(false) }
+    var mpvAudioTracks by remember(request.url, activeEngineKind) { mutableStateOf<List<EngineTrackItem>>(emptyList()) }
+    var mpvSubtitleTracks by remember(request.url, activeEngineKind) { mutableStateOf<List<EngineTrackItem>>(emptyList()) }
 
-    val speeds = PLAYER_SUPPORTED_SPEEDS
+    val isMpvActive = ownsPlayer && !request.isAudio && activeEngineKind == ResolvedAndroidEngine.ENHANCED
+    val exoPlayer: ExoPlayer? = remember(request.url, sharedPlayer, isMpvActive) {
+        if (isMpvActive) {
+            null
+        } else {
+            sharedPlayer ?: buildConfiguredExoPlayer(
+                context = context,
+                request = request,
+                resumePositionOverrideMs = engineCarryPositionMs,
+                activeStreamProvider = { activeStreamRouteRef.get() },
+            )
+        }
+    }
+    val nightModeEffect = remember(exoPlayer) { AudioNightModeEffect() }
+
+    val speeds = remember(isMpvActive) {
+        if (isMpvActive) listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f) else PLAYER_SUPPORTED_SPEEDS
+    }
     val resizeModes = listOf(
         AspectRatioFrameLayout.RESIZE_MODE_FIT to "自适应",
         AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "铺满裁剪",
         AspectRatioFrameLayout.RESIZE_MODE_FILL to "拉伸填充",
     )
 
-    var isPlaying by remember(exoPlayer) { mutableStateOf(exoPlayer.isPlaying || exoPlayer.playWhenReady) }
-    var positionMs by remember(request.url) { mutableLongStateOf(bestInitialResumeMs.coerceAtLeast(exoPlayer.currentPosition.coerceAtLeast(0L))) }
-    var durationMs by remember(request.url) { mutableLongStateOf(exoPlayer.duration.coerceAtLeast(1L)) }
+    var isPlaying by remember(exoPlayer, isMpvActive) {
+        mutableStateOf(exoPlayer?.let { it.isPlaying || it.playWhenReady } ?: true)
+    }
+    var positionMs by remember(request.url) {
+        mutableLongStateOf(bestInitialResumeMs.coerceAtLeast(exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L))
+    }
+    var durationMs by remember(request.url) {
+        mutableLongStateOf((exoPlayer?.duration ?: 1L).coerceAtLeast(1L))
+    }
     var controlsVisible by remember { mutableStateOf(true) }
     var lastInteractionTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var isLocked by remember { mutableStateOf(false) }
     var showRemainingTime by remember { mutableStateOf(false) }
     var isLongPressBoost by remember { mutableStateOf(false) }
 
-    var speedIndex by remember(request.isAudio) {
+    var speedIndex by remember(request.isAudio, isMpvActive) {
         val targetSpd = if (request.isAudio) 1.0f else playbackPrefs.defaultSpeed
         val defaultIdx = speeds.indexOfFirst { abs(it - targetSpd) < 0.05f }.takeIf { it >= 0 }
             ?: speeds.indexOf(1.0f).coerceAtLeast(0)
@@ -685,9 +774,77 @@ fun NativeMediaPlayerOverlay(
         mutableStateOf(false)
     }
 
+    val mpvFallbackRoutes = remember(request.url) {
+        ArrayDeque<PlaybackRouteDto>().apply {
+            request.fallbackRoutes.forEach { addLast(it) }
+            val legacyFallback = request.proxyFallbackUrl
+            if (!legacyFallback.isNullOrBlank() && legacyFallback != request.url && none { it.url == legacyFallback }) {
+                addLast(
+                    PlaybackRouteDto(
+                        kind = "mp_proxy",
+                        url = legacyFallback,
+                        priority = 100,
+                        requiresSameOriginAuth = true,
+                    ),
+                )
+            }
+        }
+    }
+
+    var mpvEngineHolder by remember(request.url) { mutableStateOf<MpvPlaybackEngine?>(null) }
+
+    fun activeCurrentPositionMs(): Long =
+        if (isMpvActive) (mpvEngineHolder?.positionMs ?: positionMs) else (exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: positionMs)
+
+    fun activeDurationMs(): Long =
+        if (isMpvActive) (mpvEngineHolder?.durationMs ?: durationMs) else (exoPlayer?.duration?.coerceAtLeast(0L) ?: durationMs)
+
+    fun activeIsPlaying(): Boolean =
+        if (isMpvActive) (mpvEngineHolder?.isPlaying ?: isPlaying) else (exoPlayer?.isPlaying == true)
+
+    fun activePlay() {
+        if (isMpvActive) mpvEngineHolder?.play() else exoPlayer?.play()
+    }
+
+    fun activePause() {
+        if (isMpvActive) mpvEngineHolder?.pause() else exoPlayer?.pause()
+    }
+
+    fun activeSeekTo(targetMs: Long) {
+        val clamped = targetMs.coerceAtLeast(0L)
+        if (isMpvActive) {
+            mpvEngineHolder?.seekTo(clamped)
+            positionMs = clamped
+        } else {
+            exoPlayer?.seekTo(clamped)
+        }
+    }
+
+    fun activeSetSpeed(spd: Float) {
+        if (isMpvActive) {
+            mpvEngineHolder?.setSpeed(spd)
+        } else {
+            exoPlayer?.playbackParameters = PlaybackParameters(spd)
+        }
+    }
+
+    /** 播放器内一键热切换内核：保留当前进度与 `play_session_id`，绝不向媒体服务器发送 `stopped`。 */
+    fun switchVideoEngine(target: ResolvedAndroidEngine, reasonNotice: String? = null) {
+        if (!ownsPlayer || request.isAudio || target == activeEngineKind) return
+        engineCarryPositionMs = activeCurrentPositionMs().coerceAtLeast(0L)
+        suppressStopForEngineSwitchRef.set(true)
+        activeEngineKind = target
+        hudMessage = reasonNotice ?: "已切换至 ${target.displayName}"
+    }
+
     fun resolveSelectedAudioIndex(): Int? {
+        if (isMpvActive) {
+            val idx = mpvAudioTracks.indexOfFirst { it.isSelected }
+            return if (idx >= 0) idx else null
+        }
+        val ep = exoPlayer ?: return null
         var ordinal = 0
-        for (grp in exoPlayer.currentTracks.groups) {
+        for (grp in ep.currentTracks.groups) {
             if (grp.type != C.TRACK_TYPE_AUDIO) continue
             for (i in 0 until grp.length) {
                 if (grp.isTrackSelected(i)) return ordinal
@@ -698,11 +855,16 @@ fun NativeMediaPlayerOverlay(
     }
 
     fun resolveSelectedSubtitleIndex(): Int? {
-        if (exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) {
+        if (isMpvActive) {
+            val idx = mpvSubtitleTracks.indexOfFirst { it.isSelected }
+            return if (idx >= 0) idx else -1
+        }
+        val ep = exoPlayer ?: return null
+        if (ep.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) {
             return -1
         }
         var ordinal = 0
-        for (grp in exoPlayer.currentTracks.groups) {
+        for (grp in ep.currentTracks.groups) {
             if (grp.type != C.TRACK_TYPE_TEXT) continue
             for (i in 0 until grp.length) {
                 if (grp.isTrackSelected(i)) return ordinal
@@ -719,9 +881,9 @@ fun NativeMediaPlayerOverlay(
         pausedOverride: Boolean? = null,
     ) {
         if (!ownsPlayer || request.isAudio) return
-        val pos = (posOverrideMs ?: exoPlayer.currentPosition).coerceAtLeast(0L)
-        val dur = (durOverrideMs ?: exoPlayer.duration).coerceAtLeast(0L)
-        val paused = pausedOverride ?: !exoPlayer.isPlaying
+        val pos = (posOverrideMs ?: activeCurrentPositionMs()).coerceAtLeast(0L)
+        val dur = (durOverrideMs ?: activeDurationMs()).coerceAtLeast(0L)
+        val paused = pausedOverride ?: !activeIsPlaying()
         val audioIdx = resolveSelectedAudioIndex()
         val subIdx = resolveSelectedSubtitleIndex()
         val decision = videoSyncTracker.step(
@@ -772,8 +934,8 @@ fun NativeMediaPlayerOverlay(
 
     fun closeVideoCleanly() {
         if (ownsPlayer && !request.isAudio) {
-            val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
-            val dur = exoPlayer.duration.coerceAtLeast(0L)
+            val pos = activeCurrentPositionMs().coerceAtLeast(0L)
+            val dur = activeDurationMs().coerceAtLeast(0L)
             localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
             dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
         }
@@ -783,12 +945,88 @@ fun NativeMediaPlayerOverlay(
     fun switchVideoEpisode(nextIdx: Int) {
         val target = request.queue.getOrNull(nextIdx) ?: return
         if (ownsPlayer && !request.isAudio) {
-            val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
-            val dur = exoPlayer.duration.coerceAtLeast(0L)
+            val pos = activeCurrentPositionMs().coerceAtLeast(0L)
+            val dur = activeDurationMs().coerceAtLeast(0L)
             localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
             dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
         }
         latestSwitchRequest?.invoke(buildCarryOverEpisodeRequest(target, nextIdx))
+    }
+
+    // 当切换为 MPV 全能内核时创建并托管 `MpvPlaybackEngine`
+    DisposableEffect(request.url, isMpvActive) {
+        if (!isMpvActive) {
+            mpvEngineHolder = null
+            return@DisposableEffect onDispose {}
+        }
+        val engine = MpvPlaybackEngine(
+            context = context,
+            request = request,
+            prefs = playbackPrefs,
+            initialStartPositionMs = engineCarryPositionMs,
+            activeStreamRouteRef = activeStreamRouteRef,
+            onStateSnapshot = { playing, pos, dur ->
+                isPlaying = playing
+                positionMs = pos.coerceAtLeast(0L)
+                if (dur > 0L) durationMs = dur
+                if (playing && !hasEmittedVideoStart && pos > 0L) {
+                    dispatchVideoSync("start", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = false)
+                }
+            },
+            onVideoSizeChanged = { w, h ->
+                videoAspectRatio = PlaybackPipBridge.computeClampedPipAspectRatio(w, h)
+            },
+            onTracksUpdated = { audio, subs ->
+                mpvAudioTracks = audio
+                mpvSubtitleTracks = subs
+                tracksVersion++
+            },
+            onEnded = {
+                localHistoryStore.clearResumePosition(instanceUrl, request.server, request.localResumeId)
+                val dur = activeDurationMs()
+                dispatchVideoSync("finish", posOverrideMs = dur, durOverrideMs = dur, pausedOverride = true)
+                if (hasNextVideoEpisode && !upNextCancelled && !autoAdvancedTriggered) {
+                    autoAdvancedTriggered = true
+                    switchVideoEpisode(request.queueIndex + 1)
+                }
+            },
+            onError = { _ ->
+                val curPos = activeCurrentPositionMs()
+                if (curPos <= 3_000L && mpvFallbackRoutes.isNotEmpty()) {
+                    val failedKind = currentRouteKind
+                    val failedUrl = activeStreamRouteRef.get().first
+                    if (failedKind == "server_lan" || failedKind == "server_wan") {
+                        repository?.playbackRouteResolver?.markRouteFailed(request.server, failedUrl)
+                    }
+                    while (mpvFallbackRoutes.isNotEmpty()) {
+                        val nextRoute = mpvFallbackRoutes.removeFirst()
+                        if (nextRoute.url.isBlank() || nextRoute.url == failedUrl) continue
+                        currentRouteKind = nextRoute.kind
+                        mpvEngineHolder?.reloadWithRoute(nextRoute.url, nextRoute.headers)
+                        return@MpvPlaybackEngine
+                    }
+                }
+                if (playbackPrefs.videoEngine == "auto" && !didAutoFallbackEngine && curPos <= 3_000L) {
+                    didAutoFallbackEngine = true
+                    switchVideoEngine(ResolvedAndroidEngine.NATIVE, "已自动切换至 Media3 原生内核")
+                }
+            },
+        )
+        engine.setResizeMode(resizeModeIndex)
+        mpvEngineHolder = engine
+        onDispose {
+            val isEngineSwitch = suppressStopForEngineSwitchRef.compareAndSet(true, false)
+            val pos = engine.positionMs.coerceAtLeast(0L)
+            val dur = engine.durationMs.coerceAtLeast(0L)
+            if (!isEngineSwitch) {
+                localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
+                dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
+            }
+            if (mpvEngineHolder === engine) {
+                mpvEngineHolder = null
+            }
+            engine.release()
+        }
     }
 
     val canMinimizeAudio = request.isAudio && playbackPrefs.keepMusicMiniBar && onMinimizeToMiniBar != null
@@ -817,7 +1055,7 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    val anySheetOpen = showQueueSheet || showSubtitleSheet || showAudioTrackSheet || showSpeedSheet
+    val anySheetOpen = showQueueSheet || showSubtitleSheet || showAudioTrackSheet || showSpeedSheet || showEngineSheet
     var draggingProgress by remember { mutableFloatStateOf(-1f) }
 
     // 视频控制栏播放中 4.5 秒无操作自动隐藏
@@ -859,6 +1097,7 @@ fun NativeMediaPlayerOverlay(
                 showAudioTrackSheet = false
                 showQueueSheet = false
                 showSpeedSheet = false
+                showEngineSheet = false
             }
         }
         compActivity?.addOnPictureInPictureModeChangedListener(pipListener)
@@ -903,7 +1142,7 @@ fun NativeMediaPlayerOverlay(
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             PlaybackPipBridge.onUserLeaveHintCallback = {
-                if (exoPlayer.isPlaying && playbackPrefs.autoPip && !activity.isInPictureInPictureMode) {
+                if (activeIsPlaying() && playbackPrefs.autoPip && !activity.isInPictureInPictureMode) {
                     runCatching {
                         val params = PictureInPictureParams.Builder()
                             .setAspectRatio(videoAspectRatio)
@@ -915,17 +1154,18 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    // 视频独立播放器绑定系统 MediaSession 通知栏与蓝牙播控
-    DisposableEffect(exoPlayer, ownsPlayer, request.isAudio, request.queueIndex, request.queue.size) {
-        if (ownsPlayer && !request.isAudio) {
+    // 视频独立播放器绑定系统 MediaSession 通知栏与蓝牙播控（Media3 与 MPV 均统一接入）
+    val sessionBridgePlayer: Player? = if (isMpvActive) mpvEngineHolder?.sessionPlayer else exoPlayer
+    DisposableEffect(sessionBridgePlayer, ownsPlayer, request.isAudio, request.queueIndex, request.queue.size) {
+        if (ownsPlayer && !request.isAudio && sessionBridgePlayer != null) {
             PlaybackServiceBridge.attachActivePlayer(
                 context = context,
-                exoPlayer = exoPlayer,
-                canSkipPrevious = { exoPlayer.currentPosition > 3_000L || hasPrevVideoEpisode },
+                exoPlayer = sessionBridgePlayer,
+                canSkipPrevious = { activeCurrentPositionMs() > 3_000L || hasPrevVideoEpisode },
                 canSkipNext = { hasNextVideoEpisode },
                 onSkipPrevious = {
-                    if (exoPlayer.currentPosition > 3_000L || !hasPrevVideoEpisode) {
-                        exoPlayer.seekTo(0L)
+                    if (activeCurrentPositionMs() > 3_000L || !hasPrevVideoEpisode) {
+                        activeSeekTo(0L)
                     } else {
                         switchVideoEpisode(request.queueIndex - 1)
                     }
@@ -938,8 +1178,8 @@ fun NativeMediaPlayerOverlay(
             )
         }
         onDispose {
-            if (ownsPlayer) {
-                PlaybackServiceBridge.detachIfMatching(exoPlayer)
+            if (ownsPlayer && sessionBridgePlayer != null) {
+                PlaybackServiceBridge.detachIfMatching(sessionBridgePlayer)
             }
         }
     }
@@ -949,12 +1189,13 @@ fun NativeMediaPlayerOverlay(
 
     // 初始音轨/中文字幕偏好应用辅助方法
     fun applyInitialTrackPreferencesIfReady(tracks: Tracks) {
+        val ep = exoPlayer ?: return
         if (request.isAudio || appliedInitialTracks) return
         val hasMediaGroups = tracks.groups.any { it.type == C.TRACK_TYPE_VIDEO || it.type == C.TRACK_TYPE_AUDIO }
         if (!hasMediaGroups) return
         appliedInitialTracks = true
 
-        var paramsBuilder = exoPlayer.trackSelectionParameters.buildUpon()
+        var paramsBuilder = ep.trackSelectionParameters.buildUpon()
         var changed = false
 
         // 1. 匹配预选音轨（按序号或语言标签）
@@ -1048,12 +1289,13 @@ fun NativeMediaPlayerOverlay(
         }
 
         if (changed) {
-            exoPlayer.trackSelectionParameters = paramsBuilder.build()
+            ep.trackSelectionParameters = paramsBuilder.build()
             tracksVersion++
         }
     }
 
     DisposableEffect(exoPlayer, ownsPlayer, request.url) {
+        val ep = exoPlayer ?: return@DisposableEffect onDispose {}
         val fallbackQueue = ArrayDeque<PlaybackRouteDto>().apply {
             request.fallbackRoutes.forEach { addLast(it) }
             val legacyFallback = request.proxyFallbackUrl
@@ -1068,9 +1310,35 @@ fun NativeMediaPlayerOverlay(
                 )
             }
         }
+        nightModeEffect.apply(ep.audioSessionId, playbackPrefs.audioNightMode)
         val listener = object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                nightModeEffect.apply(audioSessionId, playbackPrefs.audioNightMode)
+            }
+
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                if (!ownsPlayer || exoPlayer.currentPosition > 1_000L) return
+                if (!ownsPlayer || ep.currentPosition > 3_000L) return
+                val isDecoderOrFormatError = error.errorCode in setOf(
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                )
+                if (
+                    isDecoderOrFormatError &&
+                    !request.isAudio &&
+                    playbackPrefs.videoEngine == "auto" &&
+                    !didAutoFallbackEngine
+                ) {
+                    didAutoFallbackEngine = true
+                    switchVideoEngine(
+                        ResolvedAndroidEngine.ENHANCED,
+                        "当前格式不兼容，已自动切换全能内核",
+                    )
+                    return
+                }
                 val failedKind = currentRouteKind
                 val failedUrl = activeStreamRouteRef.get().first
                 if (failedKind == "server_lan" || failedKind == "server_wan") {
@@ -1081,17 +1349,24 @@ fun NativeMediaPlayerOverlay(
                     if (nextRoute.url.isBlank() || nextRoute.url == failedUrl) continue
                     activeStreamRouteRef.set(nextRoute.url to nextRoute.headers)
                     currentRouteKind = nextRoute.kind
-                    val curMeta = exoPlayer.currentMediaItem?.mediaMetadata ?: MediaMetadata.EMPTY
-                    val curSubs = exoPlayer.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
+                    val curMeta = ep.currentMediaItem?.mediaMetadata ?: MediaMetadata.EMPTY
+                    val curSubs = ep.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
                     val fallbackItem = MediaItem.Builder()
                         .setUri(Uri.parse(nextRoute.url))
                         .setMediaMetadata(curMeta)
                         .setSubtitleConfigurations(curSubs)
                         .build()
-                    exoPlayer.setMediaItem(fallbackItem)
-                    exoPlayer.prepare()
-                    exoPlayer.playWhenReady = true
+                    ep.setMediaItem(fallbackItem)
+                    ep.prepare()
+                    ep.playWhenReady = true
                     return
+                }
+                if (!request.isAudio && playbackPrefs.videoEngine == "auto" && !didAutoFallbackEngine) {
+                    didAutoFallbackEngine = true
+                    switchVideoEngine(
+                        ResolvedAndroidEngine.ENHANCED,
+                        "当前格式不兼容，已自动切换全能内核",
+                    )
                 }
             }
 
@@ -1128,8 +1403,8 @@ fun NativeMediaPlayerOverlay(
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
                 if (ownsPlayer && !request.isAudio) {
-                    val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
-                    val dur = exoPlayer.duration.coerceAtLeast(0L)
+                    val pos = ep.currentPosition.coerceAtLeast(0L)
+                    val dur = ep.duration.coerceAtLeast(0L)
                     localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
                     val trigger = when {
                         playing && !hasEmittedVideoStart -> "start"
@@ -1143,7 +1418,7 @@ fun NativeMediaPlayerOverlay(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED && ownsPlayer && !request.isAudio) {
                     localHistoryStore.clearResumePosition(instanceUrl, request.server, request.localResumeId)
-                    val dur = exoPlayer.duration.coerceAtLeast(0L)
+                    val dur = ep.duration.coerceAtLeast(0L)
                     dispatchVideoSync("finish", posOverrideMs = dur, durOverrideMs = dur, pausedOverride = true)
                     if (hasNextVideoEpisode && !upNextCancelled && !autoAdvancedTriggered) {
                         autoAdvancedTriggered = true
@@ -1152,32 +1427,36 @@ fun NativeMediaPlayerOverlay(
                 }
             }
         }
-        exoPlayer.addListener(listener)
-        if (exoPlayer.currentTracks.groups.isNotEmpty()) {
-            applyInitialTrackPreferencesIfReady(exoPlayer.currentTracks)
+        ep.addListener(listener)
+        if (ep.currentTracks.groups.isNotEmpty()) {
+            applyInitialTrackPreferencesIfReady(ep.currentTracks)
         }
         onDispose {
-            exoPlayer.removeListener(listener)
-            // 仅在播放器归属当前页面时释放并补齐幂等 stopped 与本地断点；共享后台音乐播放器交由根壳协调器托管
+            ep.removeListener(listener)
+            nightModeEffect.release()
+            // 仅在播放器归属当前页面时释放；内核热切换期间跳过 `stopped` 上报以保持媒体服务器会话连续
             if (ownsPlayer) {
-                val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
-                val dur = exoPlayer.duration.coerceAtLeast(0L)
-                localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
-                if (!request.isAudio) {
-                    dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
+                val isEngineSwitch = suppressStopForEngineSwitchRef.compareAndSet(true, false)
+                val pos = ep.currentPosition.coerceAtLeast(0L)
+                val dur = ep.duration.coerceAtLeast(0L)
+                if (!isEngineSwitch) {
+                    localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
+                    if (!request.isAudio) {
+                        dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
+                    }
                 }
-                exoPlayer.release()
+                ep.release()
             }
         }
     }
 
     // 400ms 刷新界面进度，每 3 轮（~1.2s）驱动一次共享状态机（播放 10s 心跳 / 暂停 12s 保活 / 15 分钟自动释放）
-    LaunchedEffect(exoPlayer, ownsPlayer, request.url) {
+    LaunchedEffect(exoPlayer, mpvEngineHolder, isMpvActive, ownsPlayer, request.url) {
         var tick = 0
         while (true) {
-            isPlaying = exoPlayer.isPlaying
-            positionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
-            durationMs = exoPlayer.duration.coerceAtLeast(1L)
+            isPlaying = activeIsPlaying()
+            positionMs = activeCurrentPositionMs().coerceAtLeast(0L)
+            durationMs = activeDurationMs().coerceAtLeast(1L)
             tick++
             if (ownsPlayer && !request.isAudio && durationMs > 1L) {
                 if (tick % 3 == 0) {
@@ -1207,10 +1486,26 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    val subtitleChoices = remember(tracksVersion, exoPlayer) {
+    val subtitleChoices = remember(tracksVersion, exoPlayer, mpvSubtitleTracks, isMpvActive) {
         val list = mutableListOf<ResolvedTrackChoice>()
-        val tracks = exoPlayer.currentTracks
-        val isTextDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+        if (isMpvActive) {
+            val anySelected = mpvSubtitleTracks.any { it.isSelected }
+            list += ResolvedTrackChoice("关闭字幕", null, null, null, -1, !anySelected)
+            mpvSubtitleTracks.forEachIndexed { idx, track ->
+                list += ResolvedTrackChoice(
+                    label = track.label,
+                    language = track.language,
+                    trackId = track.id,
+                    group = null,
+                    trackIndex = idx,
+                    selected = track.isSelected,
+                )
+            }
+            return@remember list
+        }
+        val ep = exoPlayer ?: return@remember list
+        val tracks = ep.currentTracks
+        val isTextDisabled = ep.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
         list += ResolvedTrackChoice("关闭字幕", null, null, null, -1, isTextDisabled)
         tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.forEachIndexed { gIdx, grp ->
             for (i in 0 until grp.length) {
@@ -1231,9 +1526,23 @@ fun NativeMediaPlayerOverlay(
         }
         list
     }
-    val audioChoices = remember(tracksVersion, exoPlayer) {
+    val audioChoices = remember(tracksVersion, exoPlayer, mpvAudioTracks, isMpvActive) {
         val list = mutableListOf<ResolvedTrackChoice>()
-        exoPlayer.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.forEachIndexed { gIdx, grp ->
+        if (isMpvActive) {
+            mpvAudioTracks.forEachIndexed { idx, track ->
+                list += ResolvedTrackChoice(
+                    label = track.label,
+                    language = track.language,
+                    trackId = track.id,
+                    group = null,
+                    trackIndex = idx,
+                    selected = track.isSelected,
+                )
+            }
+            return@remember list
+        }
+        val ep = exoPlayer ?: return@remember list
+        ep.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.forEachIndexed { gIdx, grp ->
             for (i in 0 until grp.length) {
                 val fmt = grp.getTrackFormat(i)
                 val ch = if (fmt.channelCount > 0) "${fmt.channelCount}ch" else null
@@ -1286,7 +1595,7 @@ fun NativeMediaPlayerOverlay(
                 )
                 Surface(
                     onClick = {
-                        exoPlayer.seekTo(0L)
+                        activeSeekTo(0L)
                         localHistoryStore.clearResumePosition(instanceUrl, request.server, request.localResumeId)
                         resumeBannerPositionMs = null
                         hudMessage = "已从头开始播放"
@@ -1334,7 +1643,7 @@ fun NativeMediaPlayerOverlay(
                                 .background(if (selected) colors.activeIndicator else colors.surfaceContainerLow)
                                 .clickable {
                                     speedIndex = idx
-                                    exoPlayer.playbackParameters = PlaybackParameters(spd)
+                                    activeSetSpeed(spd)
                                     hudMessage = "倍速：${spd}x"
                                     showSpeedSheet = false
                                 }
@@ -1351,6 +1660,68 @@ fun NativeMediaPlayerOverlay(
                             if (selected) {
                                 Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                             }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+        }
+    }
+
+    @Composable
+    fun EngineSelectorBottomSheet() {
+        if (!showEngineSheet || request.isAudio || !ownsPlayer) return
+        val options = listOf(
+            Triple(
+                ResolvedAndroidEngine.NATIVE,
+                "Media3 原生",
+                "系统硬解省电秒开，支持原生画中画与 SurfaceView/TextureView",
+            ),
+            Triple(
+                ResolvedAndroidEngine.ENHANCED,
+                "MPV 全能",
+                "libmpv 全格式内核，支持视频软解、完整 ASS 动漫特效与 PGS 蓝光字幕",
+            ),
+        )
+        NativeGlassSheet(onDismissRequest = { showEngineSheet = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("切换播放内核", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "切换时自动保留当前进度且不中断媒体服务器正在播放状态",
+                    color = colors.textSecondary,
+                    fontSize = 12.5.sp,
+                )
+                options.forEach { (kind, title, desc) ->
+                    val selected = activeEngineKind == kind
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (selected) colors.activeIndicator else colors.surfaceContainerLow)
+                            .clickable {
+                                showEngineSheet = false
+                                switchVideoEngine(kind)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                text = title,
+                                color = colors.textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            )
+                            Text(text = desc, color = colors.textSecondary, fontSize = 12.sp)
+                        }
+                        if (selected) {
+                            Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -1376,7 +1747,7 @@ fun NativeMediaPlayerOverlay(
                     } else {
                         localShuffle = nextVal
                     }
-                    exoPlayer.shuffleModeEnabled = nextVal
+                    exoPlayer?.shuffleModeEnabled = nextVal
                     hudMessage = if (nextVal) "已开启随机播放" else "已关闭随机播放"
                 },
             ),
@@ -1395,7 +1766,7 @@ fun NativeMediaPlayerOverlay(
                     } else {
                         localRepeatMode = nextMode
                     }
-                    exoPlayer.repeatMode = if (nextMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                    exoPlayer?.repeatMode = if (nextMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
                     hudMessage = when (nextMode) {
                         Player.REPEAT_MODE_ALL -> "列表循环"
                         Player.REPEAT_MODE_ONE -> "单曲循环"
@@ -1475,8 +1846,8 @@ fun NativeMediaPlayerOverlay(
                 Surface(
                     onClick = {
                         // 对齐 iOS 3 秒上一曲规则：超过 3 秒回到本曲开头，3 秒内切上一首
-                        if (exoPlayer.currentPosition > 3_000L) {
-                            exoPlayer.seekTo(0L)
+                        if (activeCurrentPositionMs() > 3_000L) {
+                            activeSeekTo(0L)
                             hudMessage = "已回到本曲开头"
                         } else if (onAudioSkipPrevious != null && request.queue.size > 1) {
                             onAudioSkipPrevious()
@@ -1484,7 +1855,7 @@ fun NativeMediaPlayerOverlay(
                             val prevIdx = (request.queueIndex - 1 + request.queue.size) % request.queue.size
                             onSwitchRequest(request.queue[prevIdx].copy(queue = request.queue, queueIndex = prevIdx))
                         } else {
-                            exoPlayer.seekTo(0L)
+                            activeSeekTo(0L)
                         }
                     },
                     shape = CircleShape,
@@ -1504,7 +1875,7 @@ fun NativeMediaPlayerOverlay(
                 ExpressiveMorphingPlayButton(
                     isPlaying = isPlaying,
                     onClick = {
-                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                        if (activeIsPlaying()) activePause() else activePlay()
                     },
                     containerColor = playerPalette.accent,
                     contentColor = playerPalette.onAccent,
@@ -1521,7 +1892,7 @@ fun NativeMediaPlayerOverlay(
                             val nextIdx = (request.queueIndex + 1) % request.queue.size
                             onSwitchRequest(request.queue[nextIdx].copy(queue = request.queue, queueIndex = nextIdx))
                         } else {
-                            exoPlayer.seekTo((exoPlayer.currentPosition + 15_000L).coerceAtMost(durationMs))
+                            activeSeekTo((activeCurrentPositionMs() + 15_000L).coerceAtMost(durationMs))
                             hudMessage = "快进 15 秒"
                         }
                     },
@@ -1681,7 +2052,7 @@ fun NativeMediaPlayerOverlay(
                                                     fontSize = if (active) (if (compactHeight) 17.sp else 20.sp) else 14.sp,
                                                     fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                                                     lineHeight = if (compactHeight) 22.sp else 26.sp,
-                                                    modifier = Modifier.clickable { exoPlayer.seekTo(line.timeMs) },
+                                                    modifier = Modifier.clickable { activeSeekTo(line.timeMs) },
                                                 )
                                             }
                                         }
@@ -1705,7 +2076,7 @@ fun NativeMediaPlayerOverlay(
                                 onValueChange = { draggingProgress = it },
                                 onValueChangeFinished = {
                                     if (draggingProgress >= 0f) {
-                                        exoPlayer.seekTo((draggingProgress * durationMs).toLong())
+                                        activeSeekTo((draggingProgress * durationMs).toLong())
                                         draggingProgress = -1f
                                     }
                                 },
@@ -1868,7 +2239,7 @@ fun NativeMediaPlayerOverlay(
                                                 fontSize = if (active) 21.sp else 16.sp,
                                                 fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                                                 lineHeight = 28.sp,
-                                                modifier = Modifier.clickable { exoPlayer.seekTo(line.timeMs) },
+                                                modifier = Modifier.clickable { activeSeekTo(line.timeMs) },
                                             )
                                         }
                                     }
@@ -1888,7 +2259,7 @@ fun NativeMediaPlayerOverlay(
                         onValueChange = { draggingProgress = it },
                         onValueChangeFinished = {
                             if (draggingProgress >= 0f) {
-                                exoPlayer.seekTo((draggingProgress * durationMs).toLong())
+                                activeSeekTo((draggingProgress * durationMs).toLong())
                                 draggingProgress = -1f
                             }
                         },
@@ -2040,7 +2411,7 @@ fun NativeMediaPlayerOverlay(
                         } finally {
                             if (isLongPressBoost) {
                                 isLongPressBoost = false
-                                exoPlayer.playbackParameters = PlaybackParameters(speeds[speedIndex])
+                                activeSetSpeed(speeds[speedIndex.coerceIn(0, speeds.lastIndex)])
                             }
                         }
                     },
@@ -2048,7 +2419,7 @@ fun NativeMediaPlayerOverlay(
                         if (!isLocked) {
                             isLongPressBoost = true
                             hostView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                            exoPlayer.playbackParameters = PlaybackParameters(2.0f)
+                            activeSetSpeed(2.0f)
                         }
                     },
                     onTap = {
@@ -2060,21 +2431,21 @@ fun NativeMediaPlayerOverlay(
                             val w = size.width.toFloat().coerceAtLeast(1f)
                             when {
                                 offset.x < w * 0.30f -> {
-                                    val target = (exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L)
-                                    exoPlayer.seekTo(target)
+                                    val target = (activeCurrentPositionMs() - 10_000L).coerceAtLeast(0L)
+                                    activeSeekTo(target)
                                     hudMessage = "快退 10 秒"
                                 }
                                 offset.x > w * 0.70f -> {
-                                    val target = (exoPlayer.currentPosition + 10_000L).coerceAtMost(durationMs)
-                                    exoPlayer.seekTo(target)
+                                    val target = (activeCurrentPositionMs() + 10_000L).coerceAtMost(durationMs)
+                                    activeSeekTo(target)
                                     hudMessage = "快进 10 秒"
                                 }
                                 else -> {
-                                    if (exoPlayer.isPlaying) {
-                                        exoPlayer.pause()
+                                    if (activeIsPlaying()) {
+                                        activePause()
                                         hudMessage = "已暂停"
                                     } else {
-                                        exoPlayer.play()
+                                        activePlay()
                                         hudMessage = "继续播放"
                                     }
                                 }
@@ -2097,8 +2468,8 @@ fun NativeMediaPlayerOverlay(
                             },
                             onDragEnd = {
                                 if (mode == 3 && dragSeekDeltaMs != 0L) {
-                                    val target = (exoPlayer.currentPosition + dragSeekDeltaMs).coerceIn(0L, durationMs)
-                                    exoPlayer.seekTo(target)
+                                    val target = (activeCurrentPositionMs() + dragSeekDeltaMs).coerceIn(0L, durationMs)
+                                    activeSeekTo(target)
                                 }
                                 dragSeekDeltaMs = 0L
                                 mode = 0
@@ -2156,24 +2527,58 @@ fun NativeMediaPlayerOverlay(
                 },
             ),
     ) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    keepScreenOn = true
-                    player = exoPlayer
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
+        if (isMpvActive) {
+            val activeMpv = mpvEngineHolder
+            if (activeMpv != null) {
+                AndroidView(
+                    factory = { ctx ->
+                        SurfaceView(ctx).apply {
+                            keepScreenOn = true
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            )
+                            holder.addCallback(activeMpv.createSurfaceCallback())
+                        }
+                    },
+                    update = { _ ->
+                        activeMpv.setResizeMode(resizeModeIndex)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        } else {
+            val useTexture = playbackPrefs.surfaceType == "texture"
+            AndroidView(
+                factory = { ctx ->
+                    val layoutId = if (useTexture) {
+                        R.layout.mp_player_view_texture
+                    } else {
+                        R.layout.mp_player_view_surface
+                    }
+                    (LayoutInflater.from(ctx).inflate(layoutId, null) as PlayerView).apply {
+                        useController = false
+                        keepScreenOn = true
+                        player = exoPlayer
+                        subtitleView?.setFractionalTextSize(
+                            SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * playbackPrefs.subtitleScale,
+                        )
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                    }
+                },
+                update = { pv ->
+                    if (pv.player !== exoPlayer) pv.player = exoPlayer
+                    pv.resizeMode = resizeModes[resizeModeIndex].first
+                    pv.subtitleView?.setFractionalTextSize(
+                        SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * playbackPrefs.subtitleScale,
                     )
-                }
-            },
-            update = { pv ->
-                if (pv.player !== exoPlayer) pv.player = exoPlayer
-                pv.resizeMode = resizeModes[resizeModeIndex].first
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         val safePlayerInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
 
@@ -2290,13 +2695,22 @@ fun NativeMediaPlayerOverlay(
                         )
                     }
                 }
+                if (ownsPlayer && !request.isAudio) {
+                    PlaybackEngineBadgePill(
+                        engine = activeEngineKind,
+                        onClick = {
+                            bumpInteraction()
+                            showEngineSheet = true
+                        },
+                    )
+                }
                 if (request.server.isNotBlank() && currentRouteKind.isNotBlank()) {
                     PlaybackRouteBadgePill(routeKind = currentRouteKind)
                 }
                 Surface(
                     onClick = {
                         bumpInteraction()
-                        exoPlayer.pause()
+                        activePause()
                         val ok = ExternalPlayerLauncher.launchExternalPlayerChooser(
                             context = context,
                             streamUrl = request.url,
@@ -2397,7 +2811,7 @@ fun NativeMediaPlayerOverlay(
                 Surface(
                     onClick = {
                         bumpInteraction()
-                        exoPlayer.seekTo((exoPlayer.currentPosition - 10_000L).coerceAtLeast(0L))
+                        activeSeekTo((activeCurrentPositionMs() - 10_000L).coerceAtLeast(0L))
                         hudMessage = "快退 10 秒"
                     },
                     shape = CircleShape,
@@ -2413,7 +2827,7 @@ fun NativeMediaPlayerOverlay(
                     isPlaying = isPlaying,
                     onClick = {
                         bumpInteraction()
-                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                        if (activeIsPlaying()) activePause() else activePlay()
                     },
                     containerColor = colors.accent,
                     contentColor = colors.primaryButtonFg,
@@ -2425,7 +2839,7 @@ fun NativeMediaPlayerOverlay(
                 Surface(
                     onClick = {
                         bumpInteraction()
-                        exoPlayer.seekTo((exoPlayer.currentPosition + 10_000L).coerceAtMost(durationMs))
+                        activeSeekTo((activeCurrentPositionMs() + 10_000L).coerceAtMost(durationMs))
                         hudMessage = "快进 10 秒"
                     },
                     shape = CircleShape,
@@ -2486,7 +2900,7 @@ fun NativeMediaPlayerOverlay(
                             },
                             onValueChangeFinished = {
                                 if (draggingProgress >= 0f) {
-                                    exoPlayer.seekTo((draggingProgress * durationMs).toLong())
+                                    activeSeekTo((draggingProgress * durationMs).toLong())
                                     draggingProgress = -1f
                                     bumpInteraction()
                                 }
@@ -2515,7 +2929,7 @@ fun NativeMediaPlayerOverlay(
                         },
                         onValueChangeFinished = {
                             if (draggingProgress >= 0f) {
-                                exoPlayer.seekTo((draggingProgress * durationMs).toLong())
+                                activeSeekTo((draggingProgress * durationMs).toLong())
                                 draggingProgress = -1f
                                 bumpInteraction()
                             }
@@ -2559,7 +2973,7 @@ fun NativeMediaPlayerOverlay(
                         ExpressiveDockAction(
                             icon = Icons.Rounded.ClosedCaption,
                             contentDescription = "字幕",
-                            active = subtitleChoices.any { it.group != null && it.selected },
+                            active = subtitleChoices.any { (it.group != null || it.trackId != null) && it.selected },
                             onClick = {
                                 bumpInteraction()
                                 showSubtitleSheet = true
@@ -2585,6 +2999,7 @@ fun NativeMediaPlayerOverlay(
                             onClick = {
                                 bumpInteraction()
                                 resizeModeIndex = (resizeModeIndex + 1) % resizeModes.size
+                                mpvEngineHolder?.setResizeMode(resizeModeIndex)
                                 hudMessage = "画面：${resizeModes[resizeModeIndex].second}"
                             },
                         ),
@@ -2600,6 +3015,19 @@ fun NativeMediaPlayerOverlay(
                             },
                         ),
                     )
+                    if (ownsPlayer) {
+                        add(
+                            ExpressiveDockAction(
+                                icon = Icons.Rounded.Memory,
+                                contentDescription = "切换播放内核",
+                                active = isMpvActive,
+                                onClick = {
+                                    bumpInteraction()
+                                    showEngineSheet = true
+                                },
+                            ),
+                        )
+                    }
                 }
 
                 ExpressiveGroupedActionDock(
@@ -2771,18 +3199,34 @@ fun NativeMediaPlayerOverlay(
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
                                 .clickable {
-                                    val builder = exoPlayer.trackSelectionParameters.buildUpon()
-                                    if (choice.group == null) {
-                                        builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                                        activeDisableSubtitles = true
-                                        activePreferredSubtitleLang = null
+                                    if (isMpvActive) {
+                                        if (choice.trackId == null) {
+                                            mpvEngineHolder?.disableSubtitles()
+                                            activeDisableSubtitles = true
+                                            activePreferredSubtitleLang = null
+                                        } else {
+                                            mpvEngineHolder?.selectSubtitleTrack(choice.trackId)
+                                            activeDisableSubtitles = false
+                                            activePreferredSubtitleLang = choice.language ?: choice.label
+                                        }
+                                        dispatchVideoSync("track_change")
                                     } else {
-                                        builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                                            .setOverrideForType(TrackSelectionOverride(choice.group.mediaTrackGroup, choice.trackIndex))
-                                        activeDisableSubtitles = false
-                                        activePreferredSubtitleLang = choice.language ?: choice.label
+                                        val ep = exoPlayer
+                                        if (ep != null) {
+                                            val builder = ep.trackSelectionParameters.buildUpon()
+                                            if (choice.group == null) {
+                                                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                                                activeDisableSubtitles = true
+                                                activePreferredSubtitleLang = null
+                                            } else {
+                                                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                                                    .setOverrideForType(TrackSelectionOverride(choice.group.mediaTrackGroup, choice.trackIndex))
+                                                activeDisableSubtitles = false
+                                                activePreferredSubtitleLang = choice.language ?: choice.label
+                                            }
+                                            ep.trackSelectionParameters = builder.build()
+                                        }
                                     }
-                                    exoPlayer.trackSelectionParameters = builder.build()
                                     tracksVersion++
                                     hudMessage = "字幕：${choice.label}"
                                     showSubtitleSheet = false
@@ -2824,14 +3268,26 @@ fun NativeMediaPlayerOverlay(
                                     .clip(RoundedCornerShape(16.dp))
                                     .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
                                     .clickable {
-                                        choice.group?.let { grp ->
-                                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                                                .buildUpon()
-                                                .setOverrideForType(TrackSelectionOverride(grp.mediaTrackGroup, choice.trackIndex))
-                                                .build()
-                                            activePreferredAudioLang = choice.language ?: choice.label
-                                            tracksVersion++
-                                            hudMessage = "音轨：${choice.label}"
+                                        if (isMpvActive) {
+                                            choice.trackId?.let { id ->
+                                                mpvEngineHolder?.selectAudioTrack(id)
+                                                activePreferredAudioLang = choice.language ?: choice.label
+                                                tracksVersion++
+                                                dispatchVideoSync("track_change")
+                                                hudMessage = "音轨：${choice.label}"
+                                            }
+                                        } else {
+                                            choice.group?.let { grp ->
+                                                exoPlayer?.let { ep ->
+                                                    ep.trackSelectionParameters = ep.trackSelectionParameters
+                                                        .buildUpon()
+                                                        .setOverrideForType(TrackSelectionOverride(grp.mediaTrackGroup, choice.trackIndex))
+                                                        .build()
+                                                    activePreferredAudioLang = choice.language ?: choice.label
+                                                    tracksVersion++
+                                                    hudMessage = "音轨：${choice.label}"
+                                                }
+                                            }
                                         }
                                         showAudioTrackSheet = false
                                     }
@@ -2853,6 +3309,7 @@ fun NativeMediaPlayerOverlay(
     }
 
     SpeedSelectorBottomSheet()
+    EngineSelectorBottomSheet()
 }
 
 /**

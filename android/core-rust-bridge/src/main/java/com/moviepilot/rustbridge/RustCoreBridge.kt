@@ -10,6 +10,7 @@ import com.moviepilot.rustcore.StrmStreamFfi
 import com.moviepilot.rustcore.SubscribeProgressFfi
 import com.moviepilot.rustcore.analyzeCronExpression
 import com.moviepilot.rustcore.applyPluginFormPatch
+import com.moviepilot.rustcore.buildExternalPlayerUrl
 import com.moviepilot.rustcore.buildV3EndpointUrl
 import com.moviepilot.rustcore.classifyHttpAuthStatus
 import com.moviepilot.rustcore.computeMedalPalette
@@ -29,6 +30,7 @@ import com.moviepilot.rustcore.parseStrmContent
 import com.moviepilot.rustcore.planPlaybackRoutesJson
 import com.moviepilot.rustcore.planPlaybackSyncStepJson
 import com.moviepilot.rustcore.planPluginFormJson
+import com.moviepilot.rustcore.resolvePlaybackEngineJson
 import com.moviepilot.rustcore.serverAddressContains
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -211,6 +213,89 @@ object RustCoreBridge {
     fun isSameHttpOriginUrl(urlA: String, urlB: String): Boolean {
         runCatching { isSameHttpOrigin(urlA, urlB) }.getOrNull()?.let { return it }
         return fallbackIsSameHttpOrigin(urlA, urlB)
+    }
+
+    /** 调用 Rust 共享选核路由决定主播放内核及起播失败回退内核（JVM 单测未加载 `.so` 时使用同构回退）。 */
+    fun resolvePlaybackEngine(input: EngineResolutionInputDto): EngineResolutionPlanDto {
+        val raw = runCatching {
+            resolvePlaybackEngineJson(syncJson.encodeToString(input))
+        }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<EngineResolutionPlanDto>(raw) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        return fallbackResolvePlaybackEngine(input)
+    }
+
+    /** 按安全模板渲染外部播放器拉起 URL，拒绝控制字符、危险协议或缺少 `{url}` 占位符的模板。 */
+    fun buildSafeExternalPlayerUrl(template: String, mediaUrl: String, title: String = ""): String? {
+        runCatching { buildExternalPlayerUrl(template, mediaUrl, title) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        return fallbackBuildExternalPlayerUrl(template, mediaUrl, title)
+    }
+
+    private fun fallbackResolvePlaybackEngine(input: EngineResolutionInputDto): EngineResolutionPlanDto {
+        val enhanced = input.hasEnhancedEngine
+        val legacy = input.hasLegacyEngine
+        when (input.preferred.lowercase()) {
+            "native" -> return EngineResolutionPlanDto("native", null, "user_pinned_native")
+            "enhanced" -> return if (enhanced) {
+                EngineResolutionPlanDto("enhanced", "native", "user_pinned_enhanced")
+            } else {
+                EngineResolutionPlanDto("native", null, "enhanced_unavailable_fallback_native")
+            }
+            "legacy" -> return when {
+                legacy -> EngineResolutionPlanDto("legacy", if (enhanced) "enhanced" else "native", "user_pinned_legacy")
+                enhanced -> EngineResolutionPlanDto("enhanced", "native", "legacy_unavailable_fallback_enhanced")
+                else -> EngineResolutionPlanDto("native", null, "legacy_unavailable_fallback_native")
+            }
+        }
+        val cleanPath = input.urlOrFilename.trim().substringBefore('#').substringBefore('?').lowercase()
+        val ext = cleanPath.substringAfterLast('/', cleanPath).substringAfterLast('.', "").takeIf { '.' in cleanPath.substringAfterLast('/', cleanPath) }.orEmpty()
+        val container = input.container?.trim()?.lowercase()?.trimStart('.')?.takeIf { it.isNotEmpty() } ?: ext
+        val audioCodec = input.audioCodec?.trim()?.lowercase().orEmpty()
+        if (input.isAudio) {
+            val exoticAudio = container in setOf("ape", "wv", "dsf", "dff", "wma", "opus", "ogg") ||
+                audioCodec in setOf("ape", "wavpack", "dsd", "wma", "dts", "truehd")
+            return if (exoticAudio && enhanced) {
+                EngineResolutionPlanDto("enhanced", "native", "auto_audio_exotic_enhanced")
+            } else {
+                EngineResolutionPlanDto("native", if (enhanced) "enhanced" else null, "auto_audio_native")
+            }
+        }
+        if (input.decodeForceSoftware && enhanced) {
+            return EngineResolutionPlanDto("enhanced", "native", "auto_force_software_enhanced")
+        }
+        if (input.hasAssOrPgsSubtitle && !input.ignoreAssStyle && enhanced) {
+            return EngineResolutionPlanDto("enhanced", "native", "auto_ass_or_pgs_enhanced")
+        }
+        val preferEnhanced = container in setOf("mkv", "avi", "rmvb", "rm", "wmv", "ts", "m2ts", "mts", "flv", "webm", "vob", "iso") ||
+            audioCodec in setOf("dts", "dca", "truehd", "mlp", "ac3", "eac3", "ac-3", "ec-3")
+        return if (preferEnhanced && enhanced) {
+            EngineResolutionPlanDto("enhanced", "native", "auto_container_or_audio_enhanced")
+        } else {
+            EngineResolutionPlanDto("native", if (enhanced) "enhanced" else null, "auto_native_default")
+        }
+    }
+
+    private fun fallbackBuildExternalPlayerUrl(template: String, mediaUrl: String, title: String): String? {
+        val tmpl = template.trim()
+        val media = mediaUrl.trim()
+        if (tmpl.isEmpty() || media.isEmpty()) return null
+        if (tmpl.any { it.isISOControl() } || media.any { it.isISOControl() }) return null
+        if (!tmpl.contains("{url}") && !tmpl.contains("{raw_url}")) return null
+        val scheme = tmpl.substringBefore("://", "").lowercase()
+        if (scheme.isEmpty() || scheme in setOf("javascript", "data", "file", "vbscript", "blob", "about")) return null
+        if (!scheme.first().isLetter() || scheme.any { !(it.isLetterOrDigit() || it == '+' || it == '-' || it == '.') }) return null
+        val encodedUrl = java.net.URLEncoder.encode(media, "UTF-8").replace("+", "%20")
+        val encodedTitle = java.net.URLEncoder.encode(title.trim(), "UTF-8").replace("+", "%20")
+        return tmpl
+            .replace("{url}", encodedUrl)
+            .replace("{raw_url}", media)
+            .replace("{title}", encodedTitle)
     }
 
     private fun fallbackIsSameHttpOrigin(urlA: String, urlB: String): Boolean {

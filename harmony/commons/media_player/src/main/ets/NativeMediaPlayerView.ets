@@ -8,6 +8,7 @@ import {
   PlaybackPreferencesStore
 } from '@moviepilot/design_system';
 import {
+  RustCoreBridge,
   MoviePilotRepository,
   MpRemoteImage,
   PlaybackRouteCandidate,
@@ -22,6 +23,7 @@ import {
   HarmonyRepeatMode,
   HarmonyPlaybackRequest,
   HARMONY_SPEED_ENUMS,
+  HARMONY_SPEED_VALUES,
   HARMONY_SPEED_LABELS,
   DEFAULT_AUDIO_SPEED_INDEX,
   BOOST_2X_SPEED_INDEX,
@@ -45,6 +47,14 @@ import {
   attachSourceToAvPlayer,
   closeLocalPlaybackFd
 } from './HarmonyAudioSession';
+import {
+  HarmonyEnhancedPlayerController,
+  EnhancedLoadConfig
+} from './engine/HarmonyEnhancedPlayerController';
+import {
+  launchHarmonyExternalPlayer,
+  resolveSafeExternalUri
+} from './engine/HarmonyExternalPlayerLauncher';
 
 export {
   HarmonyPlaybackRequest,
@@ -56,7 +66,7 @@ export {
   AudioStateListener
 };
 
-type PlayerSheetKind = 'none' | 'subtitles' | 'audioTracks' | 'speed' | 'queue';
+type PlayerSheetKind = 'none' | 'subtitles' | 'audioTracks' | 'speed' | 'queue' | 'engine';
 type PanGestureAxisMode = 'undecided' | 'scrub' | 'brightness' | 'volume';
 
 /**
@@ -73,12 +83,18 @@ export struct NativeMediaPlayerView {
   @StorageLink('mp_safe_left_vp') safeLeftVp: number = 0;
   @StorageLink('mp_safe_right_vp') safeRightVp: number = 0;
   @StorageLink('mp_playback_auto_pip') @Watch('onAutoPipChanged') autoPipEnabled: boolean = true;
+  @StorageLink(PlaybackPreferencesStore.KEY_SUBTITLE_SCALE) subtitleScalePref: number = 1.0;
 
   @Prop request: HarmonyPlaybackRequest = { url: '', title: '', subtitle: '', isAudio: false };
   @Prop isLandscape: boolean = false;
 
   @State private activeVideoReq: HarmonyPlaybackRequest = { url: '', title: '', subtitle: '', isAudio: false };
   private didFallbackToProxy: boolean = false;
+  @State private activeEngineKind: string = 'native';
+  private didAutoFallbackEngine: boolean = false;
+  private suppressStopForEngineSwitch: boolean = false;
+  private enhancedPlayer: HarmonyEnhancedPlayerController = new HarmonyEnhancedPlayerController();
+  private ijkSurfaceId: string = 'mp_harmony_ijk_surface';
   @State private activeRouteKind: string = '';
   @State private activeRouteServer: string = '';
   @State private displayTitle: string = '';
@@ -510,6 +526,7 @@ export struct NativeMediaPlayerView {
 
   private releaseVideoPlayerResources(): void {
     this.stopVideoProgressTimer();
+    this.enhancedPlayer.release();
     const prev = this.videoPlayer;
     this.videoPlayer = null;
     if (prev) {
@@ -706,12 +723,143 @@ export struct NativeMediaPlayerView {
       .border({ width: 0.75, color: this.routeBadgeBorderColor() })
   }
 
-  private async initVideoPlayer(req: HarmonyPlaybackRequest): Promise<void> {
+  private engineShortLabel(): string {
+    return this.activeEngineKind === 'enhanced' ? 'IJK 增强' : 'AVPlayer';
+  }
+
+  @Builder
+  private engineBadgePill() {
+    Text(this.engineShortLabel())
+      .fontSize(11)
+      .fontWeight(FontWeight.Medium)
+      .fontColor(Color.White)
+      .maxLines(1)
+      .padding({ left: 9, right: 9, top: 3, bottom: 3 })
+      .borderRadius(999)
+      .backgroundColor(this.activeEngineKind === 'enhanced' ? '#526366F1' : '#470D9488')
+      .border({
+        width: 0.75,
+        color: this.activeEngineKind === 'enhanced' ? '#8FA5B4FC' : '#8A2DD4BF'
+      })
+      .accessibilityText(`当前内核${this.engineShortLabel()}，点击切换`)
+      .onClick(() => this.openSheet('engine'))
+  }
+
+  /** 播放器内一键热切换内核：保留当前进度与 `play_session_id`，绝不向媒体服务器发送 `stopped`。 */
+  private switchVideoEngine(target: string, notice?: string): void {
+    const normalized = target === 'enhanced' ? 'enhanced' : 'native';
+    if (this.request.isAudio || normalized === this.activeEngineKind) {
+      return;
+    }
+    const carryMs = Math.max(0, this.positionMs);
+    this.suppressStopForEngineSwitch = true;
+    this.showTransientHud('waveform', notice ?? `已切换至 ${normalized === 'enhanced' ? 'IJK 增强内核' : 'AVPlayer 原生'}`);
+    this.initVideoPlayer(this.activeVideoReq, carryMs, normalized).catch(() => {});
+  }
+
+  private tryFallbackVideoRoute(req: HarmonyPlaybackRequest): boolean {
+    const curKind = (req.activeRouteKind ?? '').trim();
+    const serverName = (req.server ?? '').trim();
+    if ((curKind === 'server_lan' || curKind === 'server_wan') && req.url.length > 0) {
+      HarmonyPlaybackRouteResolver.shared().markRouteFailed(serverName, req.url);
+    }
+    const fallbacks: PlaybackRouteCandidate[] = req.fallbackRoutes ? req.fallbackRoutes.slice() : [];
+    const legacyUrl = (req.proxyFallbackUrl ?? '').trim();
+    if (legacyUrl.length > 0 && legacyUrl !== req.url && !fallbacks.some((f: PlaybackRouteCandidate) => f.url === legacyUrl)) {
+      fallbacks.push({
+        kind: 'mp_proxy',
+        url: legacyUrl,
+        probe_url: null,
+        headers: req.proxyFallbackHeaders ?? {},
+        priority: 100,
+        requires_same_origin_auth: true
+      });
+    }
+    while (fallbacks.length > 0) {
+      const nextRoute = fallbacks.shift();
+      if (!nextRoute || !nextRoute.url || nextRoute.url === req.url) { continue; }
+      const nextHeaders = nextRoute.kind === 'mp_proxy'
+        ? (req.proxyFallbackHeaders ?? nextRoute.headers)
+        : nextRoute.headers;
+      this.didFallbackToProxy = nextRoute.kind === 'mp_proxy';
+      const fallbackReq: HarmonyPlaybackRequest = {
+        url: nextRoute.url,
+        headers: nextHeaders,
+        proxyFallbackUrl: req.proxyFallbackUrl,
+        proxyFallbackHeaders: req.proxyFallbackHeaders,
+        activeRouteKind: nextRoute.kind,
+        fallbackRoutes: fallbacks,
+        title: req.title,
+        subtitle: req.subtitle,
+        artist: req.artist,
+        album: req.album,
+        artworkUrl: req.artworkUrl,
+        isAudio: req.isAudio,
+        lyricsLrc: req.lyricsLrc,
+        lyricsUrl: req.lyricsUrl,
+        itemId: req.itemId,
+        server: req.server,
+        serverType: req.serverType,
+        mediaSourceId: req.mediaSourceId,
+        playSessionId: req.playSessionId,
+        progressSyncMode: req.progressSyncMode,
+        resumePositionMs: req.resumePositionMs,
+        subtitles: req.subtitles,
+        preferredAudioLang: req.preferredAudioLang,
+        preferredAudioIndex: req.preferredAudioIndex,
+        preferredSubLang: req.preferredSubLang,
+        preferredExternalSubUrl: req.preferredExternalSubUrl,
+        disableSubtitles: req.disableSubtitles,
+        isSessionBound: req.isSessionBound,
+        queue: req.queue,
+        queueIndex: req.queueIndex
+      };
+      this.initVideoPlayer(fallbackReq, undefined, this.activeEngineKind).catch(() => {});
+      return true;
+    }
+    return false;
+  }
+
+  private resolveVideoEngineForRequest(req: HarmonyPlaybackRequest, engineOverride?: string): string {
+    if (engineOverride === 'native' || engineOverride === 'enhanced') {
+      return engineOverride;
+    }
+    const hasAssOrPgs = (req.subtitles ?? []).some((s: HarmonySubtitleOption) => {
+      const probe = `${s.format ?? ''} ${s.url ?? ''}`.toLowerCase();
+      return probe.includes('ass') || probe.includes('ssa') || probe.includes('pgs') || probe.includes('sup');
+    });
+    const plan = RustCoreBridge.resolvePlaybackEngine({
+      platform: 'harmony',
+      preferred: PlaybackPreferencesStore.getVideoEngine(),
+      is_audio: false,
+      decode_force_software: PlaybackPreferencesStore.getDecodeMode() === 'sw_force',
+      has_enhanced_engine: true,
+      has_legacy_engine: false,
+      url_or_filename: (req.fdPath && req.fdPath.length > 0) ? req.fdPath : req.url,
+      has_ass_or_pgs_subtitle: hasAssOrPgs,
+      ignore_ass_style: PlaybackPreferencesStore.getIgnoreAssStyle()
+    });
+    return plan.primary === 'enhanced' ? 'enhanced' : 'native';
+  }
+
+  private async initVideoPlayer(
+    req: HarmonyPlaybackRequest,
+    startPosOverrideMs?: number,
+    engineOverride?: string
+  ): Promise<void> {
     const gen = ++this.videoLoadGeneration;
+    const isHotSwitch = this.suppressStopForEngineSwitch;
+    this.suppressStopForEngineSwitch = false;
     this.releaseVideoPlayerResources();
-    this.videoSyncTracker.reset(req.playSessionId ?? '');
-    this.videoStartedSent = false;
-    this.videoProgressTickCount = 0;
+    if (!isHotSwitch) {
+      this.didAutoFallbackEngine = false;
+      this.videoSyncTracker.reset(req.playSessionId ?? '');
+      this.videoStartedSent = false;
+      this.videoProgressTickCount = 0;
+    }
+
+    const resolvedEngine = this.resolveVideoEngineForRequest(req, engineOverride);
+    this.activeEngineKind = resolvedEngine;
 
     this.activeVideoReq = req;
     this.activeRouteKind = req.activeRouteKind ?? '';
@@ -719,24 +867,139 @@ export struct NativeMediaPlayerView {
     this.displayTitle = req.title;
     this.displaySubtitle = req.subtitle;
     this.displayArtworkUrl = req.artworkUrl ?? '';
-    this.positionMs = 0;
-    this.durationMs = 0;
-    this.progress = 0;
+    const carriedStartMs = startPosOverrideMs !== undefined ? Math.max(0, startPosOverrideMs) : 0;
+    this.positionMs = carriedStartMs;
+    if (!isHotSwitch) {
+      this.durationMs = 0;
+      this.progress = 0;
+      this.activeSubtitleText = '';
+      this.externalSubCues = [];
+      this.activeEmbeddedSubTrackIndex = -1;
+      this.activeSubIsExternal = false;
+      this.selectedSubId = 'off';
+      this.audioTrackOptions = [];
+      this.selectedAudioTrackIndex = -1;
+      this.subtitleOptions = req.subtitles ? req.subtitles.slice() : [];
+      this.showUpNextCard = false;
+      this.upNextDismissedForCurrent = false;
+      this.resumeBannerText = '';
+      this.clearUpNextTimer();
+      this.clearResumeBannerTimer();
+    }
     this.isBuffering = true;
     this.isPlaying = true;
-    this.activeSubtitleText = '';
-    this.externalSubCues = [];
-    this.activeEmbeddedSubTrackIndex = -1;
-    this.activeSubIsExternal = false;
-    this.selectedSubId = 'off';
-    this.audioTrackOptions = [];
-    this.selectedAudioTrackIndex = -1;
-    this.subtitleOptions = req.subtitles ? req.subtitles.slice() : [];
-    this.showUpNextCard = false;
-    this.upNextDismissedForCurrent = false;
-    this.resumeBannerText = '';
-    this.clearUpNextTimer();
-    this.clearResumeBannerTimer();
+
+    if (resolvedEngine === 'enhanced') {
+      const localResume = PlaybackPreferencesStore.getLocalResumeMs(buildPlaybackResumeKey(req));
+      const initialResumeMs = isHotSwitch
+        ? carriedStartMs
+        : Math.max(localResume, req.resumePositionMs ?? 0);
+      const effectiveStartMs = initialResumeMs > 30000 || isHotSwitch ? initialResumeMs : 0;
+      const targetUrl = (req.fdPath && req.fdPath.length > 0) ? req.fdPath : req.url;
+      const cfg: EnhancedLoadConfig = {
+        url: targetUrl,
+        headers: req.headers ?? {},
+        startPositionMs: effectiveStartMs,
+        speed: HARMONY_SPEED_VALUES[this.speedIndex] ?? 1.0,
+        forceSoftwareDecode: PlaybackPreferencesStore.getDecodeMode() === 'sw_force',
+        largeBuffer: PlaybackPreferencesStore.getBufferProfile() === 'large'
+      };
+      this.enhancedPlayer.load(cfg, {
+        onPrepared: (durMs: number) => {
+          if (gen !== this.videoLoadGeneration) { return; }
+          this.isBuffering = false;
+          this.isPlaying = true;
+          if (durMs > 0) {
+            this.durationMs = durMs;
+          }
+          if (!isHotSwitch && effectiveStartMs > 30000) {
+            this.showResumeBanner(effectiveStartMs);
+          }
+          this.startVideoProgressTimer();
+          this.dispatchVideoSync(this.videoStartedSent ? 'resume' : 'start', false);
+          this.resetControlsAutoHideTimer();
+          if (!isHotSwitch && this.subtitleOptions.length > 0 && !req.disableSubtitles && PlaybackPreferencesStore.getPreferZhSub()) {
+            const zhSub = this.subtitleOptions.find((s: HarmonySubtitleOption) =>
+              s.isExternal && isChineseLanguageTrack(s.language, s.label)
+            );
+            if (zhSub) {
+              this.selectSubtitleOption(zhSub).catch(() => {});
+            }
+          }
+        },
+        onVideoSizeChanged: (w: number, h: number) => {
+          if (gen !== this.videoLoadGeneration) { return; }
+          if (w > 0 && h > 0) {
+            this.videoW = w;
+            this.videoH = h;
+          }
+        },
+        onBufferingChanged: (buffering: boolean) => {
+          if (gen !== this.videoLoadGeneration) { return; }
+          this.isBuffering = buffering;
+        },
+        onProgress: (posMs: number, durMs: number, playing: boolean) => {
+          if (gen !== this.videoLoadGeneration) { return; }
+          this.isPlaying = playing;
+          if (durMs > 0) {
+            this.durationMs = durMs;
+          }
+          if (!this.isDraggingSlider && this.panMode !== 'scrub') {
+            this.positionMs = posMs;
+            if (this.durationMs > 0) {
+              this.progress = Math.min(100, Math.max(0, (posMs / this.durationMs) * 100));
+            }
+          }
+          if (this.activeSubIsExternal && this.selectedSubId !== 'off') {
+            this.activeSubtitleText = findActiveSubtitleText(this.externalSubCues, this.positionMs);
+          }
+          this.checkUpNextTrigger();
+        },
+        onTimedText: (text: string) => {
+          if (gen !== this.videoLoadGeneration) { return; }
+          if (!this.activeSubIsExternal && this.selectedSubId !== 'off') {
+            this.activeSubtitleText = text;
+          }
+        },
+        onCompletion: () => {
+          if (gen !== this.videoLoadGeneration) { return; }
+          this.isPlaying = false;
+          this.stopVideoProgressTimer();
+          const resumeKey = buildPlaybackResumeKey(req);
+          if (resumeKey.length > 0) {
+            PlaybackPreferencesStore.clearLocalResumeMs(resumeKey);
+          }
+          this.dispatchVideoSync('finish', true, this.durationMs > 0 ? this.durationMs : this.positionMs);
+          if (!this.upNextDismissedForCurrent && this.videoQueueIdx + 1 < this.videoQueue.length) {
+            this.clearUpNextTimer();
+            this.showUpNextCard = false;
+            this.playNextVideoEpisode();
+          } else {
+            this.controlsVisible = true;
+            this.syncImmersiveSystemBars(true);
+          }
+        },
+        onError: () => {
+          if (gen !== this.videoLoadGeneration) { return; }
+          if (this.positionMs <= 3000 && this.tryFallbackVideoRoute(req)) {
+            return;
+          }
+          if (
+            PlaybackPreferencesStore.getVideoEngine() === 'auto' &&
+            !this.didAutoFallbackEngine &&
+            this.positionMs <= 3000
+          ) {
+            this.didAutoFallbackEngine = true;
+            this.switchVideoEngine('native', '已自动切换至 AVPlayer 原生内核');
+            return;
+          }
+          this.isBuffering = false;
+          this.isPlaying = false;
+          this.stopVideoProgressTimer();
+        }
+      });
+      return;
+    }
 
     try {
       const player = await media.createAVPlayer();
@@ -815,64 +1078,13 @@ export struct NativeMediaPlayerView {
 
       player.on('error', () => {
         if (gen !== this.videoLoadGeneration) { return; }
-        if (this.positionMs <= 1000) {
-          const curKind = (req.activeRouteKind ?? '').trim();
-          const serverName = (req.server ?? '').trim();
-          if ((curKind === 'server_lan' || curKind === 'server_wan') && req.url.length > 0) {
-            HarmonyPlaybackRouteResolver.shared().markRouteFailed(serverName, req.url);
+        if (this.positionMs <= 3000) {
+          if (this.tryFallbackVideoRoute(req)) {
+            return;
           }
-          const fallbacks: PlaybackRouteCandidate[] = req.fallbackRoutes ? req.fallbackRoutes.slice() : [];
-          const legacyUrl = (req.proxyFallbackUrl ?? '').trim();
-          if (legacyUrl.length > 0 && legacyUrl !== req.url && !fallbacks.some((f: PlaybackRouteCandidate) => f.url === legacyUrl)) {
-            fallbacks.push({
-              kind: 'mp_proxy',
-              url: legacyUrl,
-              probe_url: null,
-              headers: req.proxyFallbackHeaders ?? {},
-              priority: 100,
-              requires_same_origin_auth: true
-            });
-          }
-          while (fallbacks.length > 0) {
-            const nextRoute = fallbacks.shift();
-            if (!nextRoute || !nextRoute.url || nextRoute.url === req.url) { continue; }
-            const nextHeaders = nextRoute.kind === 'mp_proxy'
-              ? (req.proxyFallbackHeaders ?? nextRoute.headers)
-              : nextRoute.headers;
-            this.didFallbackToProxy = nextRoute.kind === 'mp_proxy';
-            const fallbackReq: HarmonyPlaybackRequest = {
-              url: nextRoute.url,
-              headers: nextHeaders,
-              proxyFallbackUrl: req.proxyFallbackUrl,
-              proxyFallbackHeaders: req.proxyFallbackHeaders,
-              activeRouteKind: nextRoute.kind,
-              fallbackRoutes: fallbacks,
-              title: req.title,
-              subtitle: req.subtitle,
-              artist: req.artist,
-              album: req.album,
-              artworkUrl: req.artworkUrl,
-              isAudio: req.isAudio,
-              lyricsLrc: req.lyricsLrc,
-              lyricsUrl: req.lyricsUrl,
-              itemId: req.itemId,
-              server: req.server,
-              serverType: req.serverType,
-              mediaSourceId: req.mediaSourceId,
-              playSessionId: req.playSessionId,
-              progressSyncMode: req.progressSyncMode,
-              resumePositionMs: req.resumePositionMs,
-              subtitles: req.subtitles,
-              preferredAudioLang: req.preferredAudioLang,
-              preferredAudioIndex: req.preferredAudioIndex,
-              preferredSubLang: req.preferredSubLang,
-              preferredExternalSubUrl: req.preferredExternalSubUrl,
-              disableSubtitles: req.disableSubtitles,
-              isSessionBound: req.isSessionBound,
-              queue: req.queue,
-              queueIndex: req.queueIndex
-            };
-            this.initVideoPlayer(fallbackReq).catch(() => {});
+          if (PlaybackPreferencesStore.getVideoEngine() === 'auto' && !this.didAutoFallbackEngine) {
+            this.didAutoFallbackEngine = true;
+            this.switchVideoEngine('enhanced', '当前格式不兼容，已自动切换全能内核');
             return;
           }
         }
@@ -912,17 +1124,19 @@ export struct NativeMediaPlayerView {
           // 读取内封音轨与字幕轨道并应用播前偏好
           this.inspectTracksAndApplyDefaults(player, req, gen).catch(() => {});
 
-          // 检查本地 + 服务端断点续播
+          // 检查热切进度或本地 + 服务端断点续播
           const localResume = PlaybackPreferencesStore.getLocalResumeMs(buildPlaybackResumeKey(req));
-          const resumeMs = Math.max(localResume, req.resumePositionMs ?? 0);
-          if (resumeMs > 30000 && (this.durationMs <= 0 || resumeMs < this.durationMs * 0.95)) {
+          const resumeMs = isHotSwitch ? carriedStartMs : Math.max(localResume, req.resumePositionMs ?? 0);
+          if ((isHotSwitch && resumeMs > 0) || (resumeMs > 30000 && (this.durationMs <= 0 || resumeMs < this.durationMs * 0.95))) {
             try {
               player.seek(resumeMs);
               this.positionMs = resumeMs;
               if (this.durationMs > 0) {
                 this.progress = Math.min(100, (resumeMs / this.durationMs) * 100);
               }
-              this.showResumeBanner(resumeMs);
+              if (!isHotSwitch && resumeMs > 30000) {
+                this.showResumeBanner(resumeMs);
+              }
             } catch {
               // ignore
             }
@@ -970,8 +1184,9 @@ export struct NativeMediaPlayerView {
         }
       });
 
+      const isLargeBuffer = PlaybackPreferencesStore.getBufferProfile() === 'large';
       const strategy: media.PlaybackStrategy = {
-        preferredBufferDuration: 20,
+        preferredBufferDuration: isLargeBuffer ? 60 : 20,
         showFirstFrameOnPrepare: true
       };
       if (req.preferredAudioLang && req.preferredAudioLang.length > 0) {
@@ -1319,6 +1534,19 @@ export struct NativeMediaPlayerView {
   private setVideoPlaying(nextPlaying: boolean): void {
     this.isPlaying = nextPlaying;
     this.pipController.updatePlayState(nextPlaying);
+    if (this.activeEngineKind === 'enhanced') {
+      if (nextPlaying) {
+        this.enhancedPlayer.play();
+        this.startVideoProgressTimer();
+        this.resetControlsAutoHideTimer();
+      } else {
+        this.enhancedPlayer.pause();
+        this.startVideoProgressTimer();
+        this.dispatchVideoSync('pause', true);
+        this.clearControlsAutoHideTimer();
+      }
+      return;
+    }
     if (this.videoPlayer) {
       if (nextPlaying) {
         this.videoPlayer.play().catch(() => {});
@@ -1352,7 +1580,9 @@ export struct NativeMediaPlayerView {
     if (this.activeSubIsExternal && this.selectedSubId !== 'off') {
       this.activeSubtitleText = findActiveSubtitleText(this.externalSubCues, clamped);
     }
-    if (this.videoPlayer) {
+    if (this.activeEngineKind === 'enhanced') {
+      this.enhancedPlayer.seekTo(clamped);
+    } else if (this.videoPlayer) {
       try {
         this.videoPlayer.seek(clamped);
       } catch {
@@ -1400,11 +1630,15 @@ export struct NativeMediaPlayerView {
       return;
     }
     this.speedIndex = clamped;
-    if (this.videoPlayer && !this.isLongPressBoosting) {
-      try {
-        this.videoPlayer.setSpeed(HARMONY_SPEED_ENUMS[clamped]);
-      } catch {
-        // ignore
+    if (!this.isLongPressBoosting) {
+      if (this.activeEngineKind === 'enhanced') {
+        this.enhancedPlayer.setSpeed(HARMONY_SPEED_VALUES[clamped] ?? 1.0);
+      } else if (this.videoPlayer) {
+        try {
+          this.videoPlayer.setSpeed(HARMONY_SPEED_ENUMS[clamped]);
+        } catch {
+          // ignore
+        }
       }
     }
     this.showTransientHud('timer', `倍速：${HARMONY_SPEED_LABELS[clamped]}`);
@@ -1438,15 +1672,22 @@ export struct NativeMediaPlayerView {
   }
 
   private handleLongPressStart(): void {
-    if (this.request.isAudio || this.isLocked || !this.isPlaying || !this.videoPlayer) {
+    if (this.request.isAudio || this.isLocked || !this.isPlaying) {
+      return;
+    }
+    if (this.activeEngineKind !== 'enhanced' && !this.videoPlayer) {
       return;
     }
     this.savedSpeedBeforeBoost = this.speedIndex;
     this.isLongPressBoosting = true;
-    try {
-      this.videoPlayer.setSpeed(HARMONY_SPEED_ENUMS[BOOST_2X_SPEED_INDEX]);
-    } catch {
-      // ignore
+    if (this.activeEngineKind === 'enhanced') {
+      this.enhancedPlayer.setSpeed(2.0);
+    } else if (this.videoPlayer) {
+      try {
+        this.videoPlayer.setSpeed(HARMONY_SPEED_ENUMS[BOOST_2X_SPEED_INDEX]);
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -1455,7 +1696,9 @@ export struct NativeMediaPlayerView {
       return;
     }
     this.isLongPressBoosting = false;
-    if (this.videoPlayer) {
+    if (this.activeEngineKind === 'enhanced') {
+      this.enhancedPlayer.setSpeed(HARMONY_SPEED_VALUES[this.savedSpeedBeforeBoost] ?? 1.0);
+    } else if (this.videoPlayer) {
       try {
         this.videoPlayer.setSpeed(HARMONY_SPEED_ENUMS[this.savedSpeedBeforeBoost]);
       } catch {
@@ -1524,7 +1767,9 @@ export struct NativeMediaPlayerView {
       const delta = -ev.offsetY / Math.max(160, areaH * 0.72);
       const nextV = Math.min(1.0, Math.max(0.0, this.volumeStart + delta));
       this.gestureVolume = nextV;
-      if (this.videoPlayer) {
+      if (this.activeEngineKind === 'enhanced') {
+        this.enhancedPlayer.setVolume(nextV);
+      } else if (this.videoPlayer) {
         try {
           this.videoPlayer.setVolume(nextV);
         } catch {
@@ -1995,7 +2240,11 @@ export struct NativeMediaPlayerView {
             ? '字幕轨道'
             : (this.activeSheetKind === 'audioTracks'
               ? '音轨选择'
-              : (this.activeSheetKind === 'speed' ? '播放倍速' : (this.request.isAudio ? '播放队列' : '剧集选集')))
+              : (this.activeSheetKind === 'speed'
+                ? '播放倍速'
+                : (this.activeSheetKind === 'engine'
+                  ? '切换播放内核'
+                  : (this.request.isAudio ? '播放队列' : '剧集选集'))))
         )
           .fontSize(17)
           .fontWeight(FontWeight.Bold)
@@ -2232,6 +2481,90 @@ export struct NativeMediaPlayerView {
         .width('100%')
         .layoutWeight(1)
         .padding({ left: 16, right: 16, bottom: 20 })
+      } else if (this.activeSheetKind === 'engine') {
+        Column({ space: 10 }) {
+          Text('切换内核时自动保留当前进度且不中断媒体服务器正在播放状态')
+            .fontSize(12)
+            .fontColor('#99FFFFFF')
+            .width('100%')
+
+          Row() {
+            Column({ space: 3 }) {
+              Text('AVPlayer 原生内核')
+                .fontSize(15)
+                .fontWeight(this.activeEngineKind === 'native' ? FontWeight.Bold : FontWeight.Regular)
+                .fontColor(this.activeEngineKind === 'native' ? '#317AF7' : Color.White)
+              Text('系统硬解省电秒开，完整支持画中画小窗')
+                .fontSize(12)
+                .fontColor('#99FFFFFF')
+            }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+            if (this.activeEngineKind === 'native') {
+              SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor(['#317AF7'])
+            }
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+          .borderRadius(14)
+          .backgroundColor(this.activeEngineKind === 'native' ? '#26317AF7' : '#18FFFFFF')
+          .onClick(() => {
+            this.showPlayerSheet = false;
+            this.switchVideoEngine('native');
+          })
+
+          Row() {
+            Column({ space: 3 }) {
+              Text('IJK 增强内核（FFmpeg）')
+                .fontSize(15)
+                .fontWeight(this.activeEngineKind === 'enhanced' ? FontWeight.Bold : FontWeight.Regular)
+                .fontColor(this.activeEngineKind === 'enhanced' ? '#317AF7' : Color.White)
+              Text('补齐 MKV / TS / FLV 与 DTS / TrueHD / AC3 / EAC3 及软解')
+                .fontSize(12)
+                .fontColor('#99FFFFFF')
+            }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+            if (this.activeEngineKind === 'enhanced') {
+              SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor(['#317AF7'])
+            }
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+          .borderRadius(14)
+          .backgroundColor(this.activeEngineKind === 'enhanced' ? '#26317AF7' : '#18FFFFFF')
+          .onClick(() => {
+            this.showPlayerSheet = false;
+            this.switchVideoEngine('enhanced');
+          })
+
+          if (resolveSafeExternalUri(this.activeVideoReq).length > 0) {
+            Row() {
+              Column({ space: 3 }) {
+                Text('使用其他应用播放')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Color.White)
+                Text('通过系统安全打开无凭据直链或本机媒体文件')
+                  .fontSize(12)
+                  .fontColor('#99FFFFFF')
+              }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+              SymbolGlyph($r('sys.symbol.arrow_up_right')).fontSize(16).fontColor(['#CCFFFFFF'])
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+            .borderRadius(14)
+            .backgroundColor('#18FFFFFF')
+            .onClick(() => {
+              this.showPlayerSheet = false;
+              this.setVideoPlaying(false);
+              const ctx = this.getUIContext().getHostContext() ?? undefined;
+              launchHarmonyExternalPlayer(ctx, this.activeVideoReq).then((ok: boolean) => {
+                if (!ok) {
+                  this.showTransientHud('xmark', '未找到可用的外部播放器');
+                }
+              }).catch(() => {});
+            })
+          }
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, bottom: 20 })
       }
     }
     .width('100%')
@@ -2244,16 +2577,32 @@ export struct NativeMediaPlayerView {
       if (this.request.isAudio) {
         this.fullMusicStageBuilder()
       } else {
-        // 视频渲染表面层
+        // 视频渲染表面层（按活动内核挂载系统 AVPlayer XComponent 或 IJK NAPI XComponent）
         Stack({ alignContent: Alignment.Center }) {
-          XComponent({
-            id: 'mp_harmony_video_surface',
-            type: XComponentType.SURFACE,
-            controller: this.xComponentController
-          })
-            .width(this.videoSurfaceWidth())
-            .height(this.videoSurfaceHeight())
-            .backgroundColor(Color.Black)
+          if (this.activeEngineKind === 'enhanced') {
+            XComponent({
+              id: this.ijkSurfaceId,
+              type: XComponentType.SURFACE,
+              libraryname: 'ijkplayer_napi'
+            })
+              .onLoad((ctx?: object) => {
+                if (ctx) {
+                  this.enhancedPlayer.bindSurfaceContext(this.ijkSurfaceId, ctx);
+                }
+              })
+              .width(this.videoSurfaceWidth())
+              .height(this.videoSurfaceHeight())
+              .backgroundColor(Color.Black)
+          } else {
+            XComponent({
+              id: 'mp_harmony_video_surface',
+              type: XComponentType.SURFACE,
+              controller: this.xComponentController
+            })
+              .width(this.videoSurfaceWidth())
+              .height(this.videoSurfaceHeight())
+              .backgroundColor(Color.Black)
+          }
         }
         .width('100%')
         .height('100%')
@@ -2316,11 +2665,11 @@ export struct NativeMediaPlayerView {
         if (this.activeSubtitleText.length > 0 && this.selectedSubId !== 'off') {
           Column() {
             Text(this.activeSubtitleText)
-              .fontSize(this.effectiveLandscape() ? 18 : 15)
+              .fontSize(Math.round((this.effectiveLandscape() ? 18 : 15) * this.subtitleScalePref))
               .fontWeight(FontWeight.Medium)
               .fontColor(Color.White)
               .textAlign(TextAlign.Center)
-              .lineHeight(this.effectiveLandscape() ? 25 : 21)
+              .lineHeight(Math.round((this.effectiveLandscape() ? 25 : 21) * this.subtitleScalePref))
               .textShadow({ radius: 4, color: '#E6000000', offsetX: 0, offsetY: 1 })
               .padding({ left: 14, right: 14, top: 6, bottom: 6 })
               .borderRadius(10)
@@ -2497,11 +2846,13 @@ export struct NativeMediaPlayerView {
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
 
+              this.engineBadgePill()
+
               if (this.activeRouteServer.length > 0 && this.routeBadgeLabel().length > 0) {
                 this.routeBadgePill()
               }
 
-              if (this.pipSupported) {
+              if (this.pipSupported && this.activeEngineKind === 'native') {
                 Stack() {
                   SymbolGlyph($r('sys.symbol.dual_view_PIP'))
                     .fontSize(19)

@@ -18,11 +18,17 @@ export {
 export {
   LyricLineCue,
   SubtitleCue,
+  decodeSubtitleBytes,
   parseLrcLyrics,
   findActiveLyricIndex,
   parseSubtitleText,
   findActiveSubtitleText
 } from './src/main/ets/SubtitleAndLyricsParser';
+
+export {
+  launchHarmonyExternalPlayer,
+  resolveSafeExternalUri
+} from './src/main/ets/engine/HarmonyExternalPlayerLauncher';
 
 export {
   HarmonyPipActionCallbacks,

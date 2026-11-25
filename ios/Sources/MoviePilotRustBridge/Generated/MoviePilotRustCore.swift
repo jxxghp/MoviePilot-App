@@ -1706,6 +1706,18 @@ public func applyPluginFormPatch(originalModelJson: String, patchJson: String)th
 })
 }
 /**
+ * 安全构造自定义外部播放器启动 URL（拒绝危险协议与内嵌凭据链接）。
+ */
+public func buildExternalPlayerUrl(template: String, mediaUrl: String, title: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_build_external_player_url(
+        FfiConverterString.lower(template),
+        FfiConverterString.lower(mediaUrl),
+        FfiConverterString.lower(title),$0
+    )
+})
+}
+/**
  * 基于实例根地址构造安全的 `/api/v1/...` 完整请求 URL。
  */
 public func buildV3EndpointUrl(baseUrl: String, pathSegments: [String], queryJson: String, trailingSlash: Bool)throws  -> String  {
@@ -1911,6 +1923,16 @@ public func planPluginFormJson(documentJson: String)throws  -> String  {
 })
 }
 /**
+ * 根据平台能力、用户内核偏好与媒体特征计算主播放内核及降级备选内核 JSON。
+ */
+public func resolvePlaybackEngineJson(inputJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_resolve_playback_engine_json(
+        FfiConverterString.lower(inputJson),$0
+    )
+})
+}
+/**
  * 校验目标 URL 是否严格属于给定实例源及部署子路径。
  */
 public func serverAddressContains(baseUrl: String, candidateUrl: String) -> Bool  {
@@ -1941,6 +1963,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_apply_plugin_form_patch() != 44294) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_build_external_player_url() != 48700) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_build_v3_endpoint_url() != 39775) {
@@ -1998,6 +2023,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_plan_plugin_form_json() != 32974) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json() != 50581) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_server_address_contains() != 32809) {

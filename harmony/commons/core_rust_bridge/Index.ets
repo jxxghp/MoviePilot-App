@@ -12,7 +12,9 @@ export {
   PlaybackRouteCandidate,
   PlaybackRoutePreference,
   RouteProbeOutcome,
-  PlaybackRoutePlan
+  PlaybackRoutePlan,
+  EngineResolutionInput,
+  EngineResolutionPlan
 } from './src/main/ets/bridge/RustCoreBridge';
 
 export {

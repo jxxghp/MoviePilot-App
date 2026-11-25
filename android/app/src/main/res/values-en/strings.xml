@@ -10,11 +10,13 @@
     <string name="mp_02396185" formatted="false">Connecting to your instance…</string>
     <string name="mp_02478d88" formatted="false">Couldn’t load plugins. Try again.</string>
     <string name="mp_024d6757" formatted="false">%1$s times</string>
+    <string name="mp_02e6ffb1" formatted="false">Hardware Preferred</string>
     <string name="mp_03c62efa" formatted="false">Embedded · %1$s</string>
     <string name="mp_060bd69b" formatted="false">Album artwork</string>
     <string name="mp_061c171e" formatted="false">Previous page preview</string>
     <string name="mp_06507d6e" formatted="false">No installed plugins</string>
     <string name="mp_07c1bdfb" formatted="false">Refresh Account</string>
+    <string name="mp_08128200" formatted="false">Only the enhanced engine supports software video decoding; the system native engine uses hardware video decode</string>
     <string name="mp_083cf2f6" formatted="false">Normal speed</string>
     <string name="mp_085231bd" formatted="false">Save wasn’t confirmed. Your changes are kept.</string>
     <string name="mp_0933cd7f" formatted="false">Open notification page</string>
@@ -30,11 +32,13 @@
     <string name="mp_10_e4d73412" formatted="false">Back 10 seconds</string>
     <string name="mp_10_f9e98b75" formatted="false">Forward 10 seconds</string>
     <string name="mp_10e20c82" formatted="false">This service is already set up. Please sign in.</string>
+    <string name="mp_112c8584" formatted="false">Enhanced Engine</string>
     <string name="mp_11d02415" formatted="false">Back</string>
     <string name="mp_1204486f" formatted="false">Music Center</string>
     <string name="mp_1209bc96" formatted="false">Current server</string>
     <string name="mp_130448bc" formatted="false">Pause</string>
     <string name="mp_15_3e0c2a0a" formatted="false">Every 15 minutes</string>
+    <string name="mp_15cdd697" formatted="false">System Native</string>
     <string name="mp_163aec91" formatted="false">Content</string>
     <string name="mp_16899524" formatted="false">Field expression</string>
     <string name="mp_178375d9" formatted="false">No widget content is available for this account.</string>
@@ -87,6 +91,7 @@
     <string name="mp_2ca6432c" formatted="false">Poster available</string>
     <string name="mp_2d526151" formatted="false">Download incomplete</string>
     <string name="mp_2e151582" formatted="false">Loading poster</string>
+    <string name="mp_2e728a38" formatted="false">Subtitle Size</string>
     <string name="mp_2f752c00" formatted="false">Remove</string>
     <string name="mp_307161a0" formatted="false">Show actions menu</string>
     <string name="mp_30_app_ios_21c19d2f" formatted="false">Each server uses a read-only profile for the current account. Profiles expire after 30 days and must be renewed in the App. Signing out removes them. iOS controls update frequency.</string>
@@ -149,6 +154,7 @@
     <string name="mp_4f92dd99" formatted="false">Default icon</string>
     <string name="mp_4fab9865" formatted="false">Check again</string>
     <string name="mp_4fe5a423" formatted="false">Appearance &amp; Device</string>
+    <string name="mp_4k_strm_7f4048a7" formatted="false">Large (4K / STRM)</string>
     <string name="mp_50d42057" formatted="false">Pairing code copied. Paste it in the Home Screen notification page.</string>
     <string name="mp_513189d7" formatted="false">Airing Schedule</string>
     <string name="mp_513c1c63" formatted="false">Expression</string>
@@ -161,6 +167,7 @@
     <string name="mp_57fce0c4" formatted="false">Pending</string>
     <string name="mp_58421bd3" formatted="false">Picture in Picture is not ready. Wait for the video to start, then try again.</string>
     <string name="mp_58ce18ea" formatted="false">Transfer &amp; Directories</string>
+    <string name="mp_58d5873b" formatted="false">Playback Engine</string>
     <string name="mp_5982c44c" formatted="false">Reload</string>
     <string name="mp_5984ebc4" formatted="false">Select or enter</string>
     <string name="mp_5_31dad6cc" formatted="false">Generate a 5-minute channel bind code</string>
@@ -189,6 +196,7 @@
     <string name="mp_6b576e0f" formatted="false">Enter your username and password.</string>
     <string name="mp_6ba4b7be" formatted="false">Resume watching?</string>
     <string name="mp_6c14bd7f" formatted="false">Close</string>
+    <string name="mp_6c85e1de" formatted="false">Decode Mode</string>
     <string name="mp_6d09dc34" formatted="false">Plugin Center</string>
     <string name="mp_6ed2d0f9" formatted="false">Unbind Account</string>
     <string name="mp_6f22a707" formatted="false">Administrator</string>
@@ -196,6 +204,7 @@
     <string name="mp_70b20820" formatted="false">Select</string>
     <string name="mp_7185bdf9" formatted="false">Push registration requested. Refresh shortly to check pairing status.</string>
     <string name="mp_7262b781" formatted="false">The page will open when ready. You can also retry now or change the server address.</string>
+    <string name="mp_72ebb59c" formatted="false">Engine: %1$s</string>
     <string name="mp_7328deeb" formatted="false">Connect</string>
     <string name="mp_73f8f537" formatted="false">Every hour</string>
     <string name="mp_740edb82" formatted="false">No enabled media servers</string>
@@ -216,6 +225,9 @@
     <string name="mp_7debf9cb" formatted="false">Settings</string>
     <string name="mp_7e45236f" formatted="false">Explore Categories</string>
     <string name="mp_7ea6ff3e" formatted="false">Unable to load playback information. Check the library item and server connection.</string>
+    <string name="mp_8150b51b" formatted="false">Format unsupported by native engine; switched to enhanced engine</string>
+    <string name="mp_81c80048" formatted="false">Playback Engine &amp; Decoding</string>
+    <string name="mp_81d56e3e" formatted="false">Network Buffer</string>
     <string name="mp_823f4d1e" formatted="false">Release Calendar</string>
     <string name="mp_83689796" formatted="false">Select at least one value within the range.</string>
     <string name="mp_838c3aed" formatted="false">Loading lyrics…</string>
@@ -241,6 +253,7 @@
     <string name="mp_92de9b27" formatted="false">WAN Direct</string>
     <string name="mp_936694b4" formatted="false">More playback options</string>
     <string name="mp_93bbc0cb" formatted="false">This account requires a verification method that is not yet available here.</string>
+    <string name="mp_93e4284e" formatted="false">Open in External Player</string>
     <string name="mp_940c8865" formatted="false">Interval</string>
     <string name="mp_94d1041d" formatted="false">Select sites</string>
     <string name="mp_99f6904f" formatted="false">Hour</string>
@@ -304,11 +317,14 @@
     <string name="mp_apppush_52bb00c6" formatted="false">Configure and enable the AppPush notification channel first.</string>
     <string name="mp_apppush_c2f6b265" formatted="false">The notification server differs from the instance\'s AppPush settings. Match the addresses, then generate a new pairing code.</string>
     <string name="mp_apppush_e1861f52" formatted="false">The instance AppPush channel uses %1$s. Use the same address or select Use instance settings before pairing.</string>
+    <string name="mp_ass_43d9c16b" formatted="false">Ignore ASS Subtitle Styles</string>
+    <string name="mp_avplayer_acd36c1d" formatted="false">AVPlayer Native</string>
     <string name="mp_b2d4bcee" formatted="false">Playback unavailable</string>
     <string name="mp_b2e23403" formatted="false">Current page</string>
     <string name="mp_b30a6fdf" formatted="false">Add server</string>
     <string name="mp_b4573f61" formatted="false">Last day</string>
     <string name="mp_b4672d23" formatted="false">Page status</string>
+    <string name="mp_b4a74a0e" formatted="false">Switch Playback Engine</string>
     <string name="mp_b4d9b610" formatted="false">Unable to connect</string>
     <string name="mp_b5025e10" formatted="false">Home Screen notifications</string>
     <string name="mp_b50b0b30" formatted="false">Credentials are sent only to this server. Saved credentials stay on this device. Verification codes are never saved.</string>
@@ -327,6 +343,7 @@
     <string name="mp_bcc3a869" formatted="false">Video torrents</string>
     <string name="mp_bd03b5c1" formatted="false">Enabled. Only content allowed for the current account is displayed.</string>
     <string name="mp_bde0b46a" formatted="false">Passwords are stored securely on this device only. Verification codes are never saved.</string>
+    <string name="mp_be577c3b" formatted="false">Auto (Recommended)</string>
     <string name="mp_be7f8395" formatted="false">Remember credentials</string>
     <string name="mp_bfc04721" formatted="false">Your password is only used once to obtain a token and is never stored.</string>
     <string name="mp_c15ac3ec" formatted="false">Select subtitles</string>
@@ -356,6 +373,7 @@
     <string name="mp_ce52b3cf" formatted="false">Recent imports</string>
     <string name="mp_cf4f090b" formatted="false">Rename</string>
     <string name="mp_d04f51a0" formatted="false">No matches. You can add the entered value.</string>
+    <string name="mp_d0d89915" formatted="false">Force Software</string>
     <string name="mp_d0ff6b41" formatted="false">Loading icon</string>
     <string name="mp_d121eaef" formatted="false">Tap to switch · Swipe left to delete</string>
     <string name="mp_d171944c" formatted="false">Send test notification</string>
@@ -409,10 +427,13 @@
     <string name="mp_ea8443d8" formatted="false">Unpair this installation and paired web pages</string>
     <string name="mp_eb4289d8" formatted="false">Prefer Direct Media Server Streaming</string>
     <string name="mp_eb88ff57" formatted="false">Installed</string>
+    <string name="mp_ebf0f69d" formatted="false">Video Surface</string>
     <string name="mp_ecdf2bcf" formatted="false">The system blocked this connection. Check the server address and network restrictions.</string>
     <string name="mp_ed340e9b" formatted="false">This account is inactive. Please contact an administrator.</string>
     <string name="mp_ed41aa6c" formatted="false">Resume playback</string>
     <string name="mp_ed5e4c3e" formatted="false">Search “%1$s”</string>
+    <string name="mp_ed917b08" formatted="false">Open in External Player by Default</string>
+    <string name="mp_edaa51e3" formatted="false">Switched to %1$s</string>
     <string name="mp_ee561675" formatted="false">Subscriptions</string>
     <string name="mp_ee56a53b" formatted="false">Media Servers</string>
     <string name="mp_ee87f6ec" formatted="false">Server Channels</string>
@@ -428,6 +449,7 @@
     <string name="mp_f28c38e5" formatted="false">Unable to connect. Check the address, port and server status, then retry.</string>
     <string name="mp_f3ea6d34" formatted="false">Actions</string>
     <string name="mp_f40b79d7" formatted="false">Sites</string>
+    <string name="mp_f4cd7ee5" formatted="false">Standard</string>
     <string name="mp_f526c899" formatted="false">Confirm</string>
     <string name="mp_f567539b" formatted="false">Unknown artist</string>
     <string name="mp_f5f4160a" formatted="false">Home Screen Widgets</string>
@@ -456,6 +478,7 @@
     <string name="mp_ff5acbda" formatted="false">The action failed. Try again.</string>
     <string name="mp_ff8cad73" formatted="false">Incorrect username, password or verification code.</string>
     <string name="mp_ffbc3e9f" formatted="false">Create Administrator</string>
+    <string name="mp_ffd10865" formatted="false">Night Mode / Vocal Boost</string>
     <string name="mp_http_https_5ce090ea" formatted="false">HTTP and HTTPS are supported. Sign-in information is saved separately for each server.</string>
     <string name="mp_http_https_774a69d0" formatted="false">Enter the full server address, including http:// or https://.</string>
     <string name="mp_https_27dd23e2" formatted="false">Passkeys are unavailable on this connection or system. Use HTTPS and a supported system.</string>
@@ -464,8 +487,11 @@
     <string name="mp_https_f56d307b" formatted="false">Supports HTTPS, local networks, and deployment subpaths.</string>
     <string name="mp_https_movie_pilot_org_ap_1cc7b749" formatted="false">The default is https://movie-pilot.org. When changing servers, use the same address in the instance\'s AppPush channel.</string>
     <string name="mp_https_tls_c53bebc2" formatted="false">Unable to establish a secure HTTPS connection. Check the server\'s TLS settings.</string>
+    <string name="mp_ijk_dda147c6" formatted="false">IJK Enhanced</string>
     <string name="mp_ipv6_local_ec409aad" formatted="false">This IPv6 address includes a network interface identifier that web pages cannot use. Use a .local hostname or another reachable address.</string>
     <string name="mp_lrc_d90270cd" formatted="false">No matching LRC lyrics</string>
+    <string name="mp_media3_f7911ba3" formatted="false">Media3 Native</string>
+    <string name="mp_mkv_d2679df8" formatted="false">Use system native engine for fast, power-efficient standard playback; switch automatically to enhanced engine for MKV, surround audio, or rich subtitles</string>
     <string name="mp_moviepilot_00c24418" formatted="false">MoviePilot widgets</string>
     <string name="mp_moviepilot_0d734971" formatted="false">The notification server returned no account identity. Update the MoviePilot backend and retry.</string>
     <string name="mp_moviepilot_1313e380" formatted="false">The network is unavailable. For local servers, check MoviePilot\'s Local Network permission in Settings.</string>
@@ -482,10 +508,14 @@
     <string name="mp_moviepilot_d6f2bdb1" formatted="false">You will need to sign in again to access this MoviePilot server.</string>
     <string name="mp_moviepilot_e7f15286" formatted="false">This page is not supported yet. Update MoviePilot and retry.</string>
     <string name="mp_moviepilot_f5a7ce49" formatted="false">Touch and hold the Home Screen, choose Edit → Add Widget and search for MoviePilot. You can also add widgets from Lock Screen customization or Today View. Edit a widget to select its server and content.</string>
+    <string name="mp_mpv_0f7c51b4" formatted="false">MPV Enhanced</string>
     <string name="mp_plex_x_plex_token_4678f466" formatted="false">Plex Access Token (X-Plex-Token)</string>
     <string name="mp_push_notifications_serve_8bf6a5ef" formatted="false">Enable after signing with Push Notifications capability and configuring the Server.</string>
     <string name="mp_safari_app_24c9c662" formatted="false">Open the notification page in Safari and add it to the Home Screen. Open it there and enter the pairing code. Tap a notification to return to the App.</string>
     <string name="mp_strm_895f2616" formatted="false">STRM Direct</string>
+    <string name="mp_url_d8340907" formatted="false">External Player URL Template</string>
+    <string name="mp_vlckit_42693cc8" formatted="false">VLCKit Legacy</string>
+    <string name="mp_vlckit_b044dd97" formatted="false">Legacy (VLCKit)</string>
     <string name="mp_web_7f1d362a" formatted="false">This plugin uses a web interface. Its compatibility view is being migrated.</string>
     <string name="mp_web_aaedd1fc" formatted="false">Configure proxy, concurrency and advanced system settings in Web UI.</string>
     <string name="mp_widget_163aec91" formatted="false">Content</string>

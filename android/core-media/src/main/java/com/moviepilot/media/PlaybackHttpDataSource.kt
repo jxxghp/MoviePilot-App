@@ -52,16 +52,21 @@ object PlaybackHttpDataSource {
         }
     }
 
-    /** 构建用于 Media3 播放器的 TLS 感知、同源凭据隔离与多级直连/降级请求头支持 `OkHttpDataSource.Factory`。 */
-    @OptIn(UnstableApi::class)
-    fun createFactory(
+    /** 过滤外部播放器严禁接收的所有敏感凭据头（无论同源与否均剥离）。 */
+    fun stripAllSensitiveHeaders(headers: Map<String, String>): Map<String, String> {
+        if (headers.isEmpty()) return emptyMap()
+        return headers.filterKeys { key -> key.lowercase() !in SENSITIVE_HEADER_NAMES }
+    }
+
+    /** 构建用于 Media3 与 MPV 本地环回转发代理共用的 TLS 感知、跨源 302 凭据隔离 `OkHttpClient`。 */
+    fun createOkHttpClient(
         originUrl: String,
         headers: Map<String, String>,
         allowSelfSignedTls: Boolean,
         streamUrl: String = "",
         streamHeaders: Map<String, String> = emptyMap(),
         activeStreamProvider: (() -> Pair<String, Map<String, String>>)? = null,
-    ): OkHttpDataSource.Factory {
+    ): OkHttpClient {
         val originHttpUrl = originUrl.toHttpUrlOrNull()
         val clientBuilder = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -125,6 +130,26 @@ object PlaybackHttpDataSource {
             clientBuilder.hostnameVerifier { _, _ -> true }
         }
 
-        return OkHttpDataSource.Factory(clientBuilder.build())
+        return clientBuilder.build()
     }
+
+    /** 构建用于 Media3 播放器的 TLS 感知、同源凭据隔离与多级直连/降级请求头支持 `OkHttpDataSource.Factory`。 */
+    @OptIn(UnstableApi::class)
+    fun createFactory(
+        originUrl: String,
+        headers: Map<String, String>,
+        allowSelfSignedTls: Boolean,
+        streamUrl: String = "",
+        streamHeaders: Map<String, String> = emptyMap(),
+        activeStreamProvider: (() -> Pair<String, Map<String, String>>)? = null,
+    ): OkHttpDataSource.Factory = OkHttpDataSource.Factory(
+        createOkHttpClient(
+            originUrl = originUrl,
+            headers = headers,
+            allowSelfSignedTls = allowSelfSignedTls,
+            streamUrl = streamUrl,
+            streamHeaders = streamHeaders,
+            activeStreamProvider = activeStreamProvider,
+        ),
+    )
 }

@@ -4,10 +4,10 @@ use mp_core_api::{
     ApiEndpoint, ResourceFilterCriteria, ResourceFilterEngine, ResourceItem, SseStreamParser,
 };
 use mp_core_model::{
-    AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, PendingPlaybackStop,
-    PlayableMediaFormat, PlaybackProgressPlanner, PlaybackRouteCandidate, PlaybackRoutePlanner,
-    PlaybackRoutePreference, PlaybackSyncInput, PlaybackSyncState, RouteProbeOutcome,
-    ServerAddress, SubscribeProgressModel,
+    AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, EngineResolutionInput,
+    PendingPlaybackStop, PlayableMediaFormat, PlaybackEngineRouter, PlaybackProgressPlanner,
+    PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference, PlaybackSyncInput,
+    PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
 };
 use mp_core_plugin::{NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder};
 use mp_core_session::{NativePermissions, classify_auth_status, decode_jwt_claims};
@@ -469,6 +469,26 @@ pub fn plan_playback_routes_json(
 #[uniffi::export]
 pub fn is_same_http_origin(url_a: String, url_b: String) -> bool {
     PlaybackRoutePlanner::is_same_http_origin(&url_a, &url_b)
+}
+
+/// 根据平台能力、用户内核偏好与媒体特征计算主播放内核及降级备选内核 JSON。
+#[uniffi::export]
+pub fn resolve_playback_engine_json(input_json: String) -> Result<String, CoreFfiError> {
+    let input: EngineResolutionInput = serde_json::from_str(&input_json)
+        .map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })?;
+    let plan = PlaybackEngineRouter::resolve(&input);
+    serde_json::to_string(&plan).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 安全构造自定义外部播放器启动 URL（拒绝危险协议与内嵌凭据链接）。
+#[uniffi::export]
+pub fn build_external_player_url(
+    template: String,
+    media_url: String,
+    title: String,
+) -> Result<String, CoreFfiError> {
+    PlaybackEngineRouter::build_external_player_url(&template, &media_url, &title)
+        .map_err(|msg| CoreFfiError::InvalidAddress { msg })
 }
 
 /// 返回 Rust 共享内核版本号，用于三端 FFI 冒烟健康检查。

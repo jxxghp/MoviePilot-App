@@ -10,11 +10,13 @@
     <string name="mp_02396185" formatted="false">正在連接你的實例…</string>
     <string name="mp_02478d88" formatted="false">無法載入外掛，請重試。</string>
     <string name="mp_024d6757" formatted="false">%1$s 倍</string>
+    <string name="mp_02e6ffb1" formatted="false">硬體解碼優先</string>
     <string name="mp_03c62efa" formatted="false">內嵌 · %1$s</string>
     <string name="mp_060bd69b" formatted="false">專輯封面</string>
     <string name="mp_061c171e" formatted="false">上一頁預覽</string>
     <string name="mp_06507d6e" formatted="false">暫無已安裝外掛</string>
     <string name="mp_07c1bdfb" formatted="false">重新整理帳號狀態</string>
+    <string name="mp_08128200" formatted="false">僅全能增強核心支援視訊強制軟解，系統原生核心僅支援硬解或音訊軟解</string>
     <string name="mp_083cf2f6" formatted="false">正常速度</string>
     <string name="mp_085231bd" formatted="false">儲存結果未確認，修改已保留。</string>
     <string name="mp_0933cd7f" formatted="false">打開通知網頁</string>
@@ -30,11 +32,13 @@
     <string name="mp_10_e4d73412" formatted="false">後退 10 秒</string>
     <string name="mp_10_f9e98b75" formatted="false">前進 10 秒</string>
     <string name="mp_10e20c82" formatted="false">服務已初始化，請登入。</string>
+    <string name="mp_112c8584" formatted="false">全能增強核心</string>
     <string name="mp_11d02415" formatted="false">返回</string>
     <string name="mp_1204486f" formatted="false">音樂中心</string>
     <string name="mp_1209bc96" formatted="false">當前服務</string>
     <string name="mp_130448bc" formatted="false">暫停</string>
     <string name="mp_15_3e0c2a0a" formatted="false">每 15 分鐘</string>
+    <string name="mp_15cdd697" formatted="false">系統原生核心</string>
     <string name="mp_163aec91" formatted="false">內容</string>
     <string name="mp_16899524" formatted="false">欄位運算式</string>
     <string name="mp_178375d9" formatted="false">當前帳號沒有可用的小組件內容。</string>
@@ -87,6 +91,7 @@
     <string name="mp_2ca6432c" formatted="false">含海報</string>
     <string name="mp_2d526151" formatted="false">下載未完成</string>
     <string name="mp_2e151582" formatted="false">海報加載中</string>
+    <string name="mp_2e728a38" formatted="false">字幕字號</string>
     <string name="mp_2f752c00" formatted="false">移除</string>
     <string name="mp_307161a0" formatted="false">顯示操作菜單</string>
     <string name="mp_30_app_ios_21c19d2f" formatted="false">每個服務使用當前帳號的只讀資料。有效期為 30 天，屆時需在 App 內續期；退出帳號會移除資料。更新頻率由 iOS 決定。</string>
@@ -149,6 +154,7 @@
     <string name="mp_4f92dd99" formatted="false">預設圖標</string>
     <string name="mp_4fab9865" formatted="false">重新檢查</string>
     <string name="mp_4fe5a423" formatted="false">外觀與本機</string>
+    <string name="mp_4k_strm_7f4048a7" formatted="false">大緩衝（4K / STRM）</string>
     <string name="mp_50d42057" formatted="false">綁定碼已複製。請在主屏幕通知網頁中粘貼。</string>
     <string name="mp_513189d7" formatted="false">追劇排期</string>
     <string name="mp_513c1c63" formatted="false">運算式</string>
@@ -161,6 +167,7 @@
     <string name="mp_57fce0c4" formatted="false">待審批</string>
     <string name="mp_58421bd3" formatted="false">暫時無法開啟子母畫面，請等待影片開始播放後重試。</string>
     <string name="mp_58ce18ea" formatted="false">整理與目錄</string>
+    <string name="mp_58d5873b" formatted="false">播放核心</string>
     <string name="mp_5982c44c" formatted="false">重新加載</string>
     <string name="mp_5984ebc4" formatted="false">選擇或輸入</string>
     <string name="mp_5_31dad6cc" formatted="false">產生 5 分鐘管道關聯綁定碼</string>
@@ -189,6 +196,7 @@
     <string name="mp_6b576e0f" formatted="false">請輸入用戶名和密碼。</string>
     <string name="mp_6ba4b7be" formatted="false">繼續觀看？</string>
     <string name="mp_6c14bd7f" formatted="false">關閉</string>
+    <string name="mp_6c85e1de" formatted="false">解碼模式</string>
     <string name="mp_6d09dc34" formatted="false">插件中心</string>
     <string name="mp_6ed2d0f9" formatted="false">解除綁定</string>
     <string name="mp_6f22a707" formatted="false">超級管理員</string>
@@ -196,6 +204,7 @@
     <string name="mp_70b20820" formatted="false">選擇</string>
     <string name="mp_7185bdf9" formatted="false">已向系統申請推送令牌，稍後刷新查看綁定狀態。</string>
     <string name="mp_7262b781" formatted="false">頁面準備完成後會自動進入，也可以立即重試或切換服務地址。</string>
+    <string name="mp_72ebb59c" formatted="false">核心：%1$s</string>
     <string name="mp_7328deeb" formatted="false">連接</string>
     <string name="mp_73f8f537" formatted="false">每小時</string>
     <string name="mp_740edb82" formatted="false">暫無已啟用的媒體伺服器</string>
@@ -216,6 +225,9 @@
     <string name="mp_7debf9cb" formatted="false">設定</string>
     <string name="mp_7e45236f" formatted="false">分類探索</string>
     <string name="mp_7ea6ff3e" formatted="false">無法讀取播放資訊，請確認影片仍在媒體庫中並檢查後台連接。</string>
+    <string name="mp_8150b51b" formatted="false">目前格式不相容，已自動切換全能核心</string>
+    <string name="mp_81c80048" formatted="false">播放核心與解碼</string>
+    <string name="mp_81d56e3e" formatted="false">網路緩衝</string>
     <string name="mp_823f4d1e" formatted="false">追劇日曆</string>
     <string name="mp_83689796" formatted="false">請選擇範圍內的值，至少選擇一項。</string>
     <string name="mp_838c3aed" formatted="false">正在讀取歌詞…</string>
@@ -241,6 +253,7 @@
     <string name="mp_92de9b27" formatted="false">外網直連</string>
     <string name="mp_936694b4" formatted="false">更多播放選項</string>
     <string name="mp_93bbc0cb" formatted="false">此帳號需要尚未接入的驗證方式。</string>
+    <string name="mp_93e4284e" formatted="false">使用外部播放器開啟</string>
     <string name="mp_940c8865" formatted="false">間隔</string>
     <string name="mp_94d1041d" formatted="false">選擇站點</string>
     <string name="mp_99f6904f" formatted="false">小時</string>
@@ -304,11 +317,14 @@
     <string name="mp_apppush_52bb00c6" formatted="false">請先配置並啓用 AppPush 通知渠道。</string>
     <string name="mp_apppush_c2f6b265" formatted="false">通知服務中心與實例 AppPush 配置不一致，請先統一服務地址後重新生成綁定碼。</string>
     <string name="mp_apppush_e1861f52" formatted="false">實例 AppPush 當前使用 %1$s。請在後台配置相同地址，或選擇“使用實例配置”後綁定。</string>
+    <string name="mp_ass_43d9c16b" formatted="false">忽略 ASS 字幕特效樣式</string>
+    <string name="mp_avplayer_acd36c1d" formatted="false">AVPlayer 原生</string>
     <string name="mp_b2d4bcee" formatted="false">播放暫不可用</string>
     <string name="mp_b2e23403" formatted="false">當前頁面</string>
     <string name="mp_b30a6fdf" formatted="false">添加服務</string>
     <string name="mp_b4573f61" formatted="false">月底</string>
     <string name="mp_b4672d23" formatted="false">頁面狀態</string>
+    <string name="mp_b4a74a0e" formatted="false">切換播放核心</string>
     <string name="mp_b4d9b610" formatted="false">暫時無法連接</string>
     <string name="mp_b5025e10" formatted="false">主屏幕通知</string>
     <string name="mp_b50b0b30" formatted="false">帳號資訊僅發送到當前服務。記住的帳號密碼僅保存在本機，驗證碼不會保存。</string>
@@ -327,6 +343,7 @@
     <string name="mp_bcc3a869" formatted="false">影視資源</string>
     <string name="mp_bd03b5c1" formatted="false">已啓用，只讀顯示當前帳號允許的內容。</string>
     <string name="mp_bde0b46a" formatted="false">密碼僅在本機安全儲存，驗證碼不會儲存。</string>
+    <string name="mp_be577c3b" formatted="false">自動選擇（推薦）</string>
     <string name="mp_be7f8395" formatted="false">記住帳號密碼</string>
     <string name="mp_bfc04721" formatted="false">密碼僅用於一次性換取存取權杖，不會儲存明文密碼。</string>
     <string name="mp_c15ac3ec" formatted="false">選擇字幕</string>
@@ -356,6 +373,7 @@
     <string name="mp_ce52b3cf" formatted="false">近期入庫</string>
     <string name="mp_cf4f090b" formatted="false">修改顯示名稱</string>
     <string name="mp_d04f51a0" formatted="false">沒有符合項目，可直接新增輸入值。</string>
+    <string name="mp_d0d89915" formatted="false">強制軟體解碼</string>
     <string name="mp_d0ff6b41" formatted="false">圖標加載中</string>
     <string name="mp_d121eaef" formatted="false">點按切換 · 左滑刪除</string>
     <string name="mp_d171944c" formatted="false">發送測試通知</string>
@@ -409,10 +427,13 @@
     <string name="mp_ea8443d8" formatted="false">解除本機及配對網頁綁定</string>
     <string name="mp_eb4289d8" formatted="false">媒體伺服器直連優先</string>
     <string name="mp_eb88ff57" formatted="false">已安裝</string>
+    <string name="mp_ebf0f69d" formatted="false">渲染檢視</string>
     <string name="mp_ecdf2bcf" formatted="false">系統阻止了此連接，請檢查服務地址及設備的網路訪問限制。</string>
     <string name="mp_ed340e9b" formatted="false">帳號未啟用，請聯絡管理員。</string>
     <string name="mp_ed41aa6c" formatted="false">繼續播放</string>
     <string name="mp_ed5e4c3e" formatted="false">搜索“%1$s”</string>
+    <string name="mp_ed917b08" formatted="false">預設呼叫外部播放器</string>
+    <string name="mp_edaa51e3" formatted="false">已切換至 %1$s</string>
     <string name="mp_ee561675" formatted="false">我的訂閱</string>
     <string name="mp_ee56a53b" formatted="false">媒體伺服器</string>
     <string name="mp_ee87f6ec" formatted="false">伺服器通知管道</string>
@@ -428,6 +449,7 @@
     <string name="mp_f28c38e5" formatted="false">無法連接服務，請檢查地址、端口和服務狀態後重試。</string>
     <string name="mp_f3ea6d34" formatted="false">操作</string>
     <string name="mp_f40b79d7" formatted="false">站點管理</string>
+    <string name="mp_f4cd7ee5" formatted="false">標準緩衝</string>
     <string name="mp_f526c899" formatted="false">確定</string>
     <string name="mp_f567539b" formatted="false">未知藝人</string>
     <string name="mp_f5f4160a" formatted="false">桌面小工具</string>
@@ -456,6 +478,7 @@
     <string name="mp_ff5acbda" formatted="false">操作失敗，請重試。</string>
     <string name="mp_ff8cad73" formatted="false">用戶名、密碼或驗證碼不正確。</string>
     <string name="mp_ffbc3e9f" formatted="false">建立管理員</string>
+    <string name="mp_ffd10865" formatted="false">夜間模式 / 人聲增強</string>
     <string name="mp_http_https_5ce090ea" formatted="false">支持 HTTP 和 HTTPS。登錄資訊按服務分別保存。</string>
     <string name="mp_http_https_774a69d0" formatted="false">請輸入包含 http:// 或 https:// 的完整服務地址。</string>
     <string name="mp_https_27dd23e2" formatted="false">當前連接或系統不支持通行密鑰，請使用 HTTPS 地址和支持的系統。</string>
@@ -464,8 +487,11 @@
     <string name="mp_https_f56d307b" formatted="false">支援 HTTPS、區域網路位址及部署子路徑。</string>
     <string name="mp_https_movie_pilot_org_ap_1cc7b749" formatted="false">預設使用 https://movie-pilot.org。更換服務中心時，實例的 AppPush 渠道也須使用相同地址。</string>
     <string name="mp_https_tls_c53bebc2" formatted="false">無法建立安全的 HTTPS 連接，請檢查伺服器的 TLS 配置。</string>
+    <string name="mp_ijk_dda147c6" formatted="false">IJK 增強</string>
     <string name="mp_ipv6_local_ec409aad" formatted="false">此 IPv6 地址包含網卡標識，網頁無法使用。請改用 .local 主機名或其他可訪問的地址。</string>
     <string name="mp_lrc_d90270cd" formatted="false">暫無同名 LRC 歌詞</string>
+    <string name="mp_media3_f7911ba3" formatted="false">Media3 原生</string>
+    <string name="mp_mkv_d2679df8" formatted="false">一般影片與音樂走系統原生核心省電秒開；MKV、多聲道原盤或特效字幕自動切至全能核心</string>
     <string name="mp_moviepilot_00c24418" formatted="false">MoviePilot 小組件</string>
     <string name="mp_moviepilot_0d734971" formatted="false">通知服務未返回帳號身份，請更新 MoviePilot 後端後重試。</string>
     <string name="mp_moviepilot_1313e380" formatted="false">當前網路不可用。若連接局域網服務，請檢查系統設置中 MoviePilot 的本地網路權限。</string>
@@ -482,10 +508,14 @@
     <string name="mp_moviepilot_d6f2bdb1" formatted="false">登出後需要重新輸入帳號密碼或憑證登入目前 MoviePilot 服務。</string>
     <string name="mp_moviepilot_e7f15286" formatted="false">當前頁面暫不支持，請更新 MoviePilot 後重試。</string>
     <string name="mp_moviepilot_f5a7ce49" formatted="false">長按主屏幕空白處，選擇“編輯”→“添加小組件”，搜索 MoviePilot。鎖屏可在自定中添加；向右滑到今天視圖，也可添加。編輯小組件可選擇服務和內容。</string>
+    <string name="mp_mpv_0f7c51b4" formatted="false">MPV 全能</string>
     <string name="mp_plex_x_plex_token_4678f466" formatted="false">Plex 存取權杖 (X-Plex-Token)</string>
     <string name="mp_push_notifications_serve_8bf6a5ef" formatted="false">使用帶 Push Notifications 能力的簽名和已配置的 Server 後開啓。</string>
     <string name="mp_safari_app_24c9c662" formatted="false">在 Safari 開啟通知網頁，加入主畫面，再從主畫面開啟並輸入綁定碼。通知由主畫面網頁接收，點擊後可返回 App。</string>
     <string name="mp_strm_895f2616" formatted="false">STRM 直連</string>
+    <string name="mp_url_d8340907" formatted="false">外部播放器 URL 範本</string>
+    <string name="mp_vlckit_42693cc8" formatted="false">VLCKit 相容</string>
+    <string name="mp_vlckit_b044dd97" formatted="false">相容核心（VLCKit）</string>
     <string name="mp_web_7f1d362a" formatted="false">此外掛使用 Web 介面，相容入口正在遷移。</string>
     <string name="mp_web_aaedd1fc" formatted="false">底層代理、並行與進階系統參數請在 Web 管理台設定。</string>
     <string name="mp_widget_163aec91" formatted="false">內容</string>

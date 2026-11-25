@@ -710,7 +710,45 @@ val LocalMoviePilotColors = compositionLocalOf {
 class PlaybackPreferencesStore(context: Context?) {
     private val prefs = context?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    var hwDecode by mutableStateOf(prefs?.getBoolean(KEY_HW_DECODE, true) ?: true)
+    /** 播放内核选择：`auto`（自动选择推荐） / `native`（系统 Media3） / `enhanced`（全能 MPV）。 */
+    var videoEngine by mutableStateOf(prefs?.getString(KEY_VIDEO_ENGINE, "auto") ?: "auto")
+        private set
+
+    /** 解码模式：`hw_auto`（硬解优先） / `sw_force`（强制软解）；兼容迁移旧版 `hw_decode` 布尔开关。 */
+    var decodeMode by mutableStateOf(
+        prefs?.getString(KEY_DECODE_MODE, null)
+            ?: if (prefs?.getBoolean(KEY_HW_DECODE, true) == false) "sw_force" else "hw_auto",
+    )
+        private set
+
+    /** 网络缓冲策略：`standard`（标准） / `large`（大缓冲，4K/网盘 STRM 推荐）。 */
+    var bufferProfile by mutableStateOf(prefs?.getString(KEY_BUFFER_PROFILE, "standard") ?: "standard")
+        private set
+
+    /** 夜间模式 / 人声动态范围压缩增强。 */
+    var audioNightMode by mutableStateOf(prefs?.getBoolean(KEY_AUDIO_NIGHT_MODE, false) ?: false)
+        private set
+
+    /** 忽略 ASS 字幕复杂特效样式，统一按清爽字号渲染。 */
+    var ignoreAssStyle by mutableStateOf(prefs?.getBoolean(KEY_IGNORE_ASS_STYLE, false) ?: false)
+        private set
+
+    /** 字幕字号缩放倍率（`0.85f` / `1.0f` / `1.15f` / `1.3f`）。 */
+    var subtitleScale by mutableStateOf(prefs?.getFloat(KEY_SUBTITLE_SCALE, 1.0f)?.takeIf { it > 0.5f } ?: 1.0f)
+        private set
+
+    /** Media3 视频渲染载体：`surface`（SurfaceView 推荐） / `texture`（TextureView 兼容折叠屏与动画）。 */
+    var surfaceType by mutableStateOf(prefs?.getString(KEY_SURFACE_TYPE, "surface") ?: "surface")
+        private set
+
+    /** 点击播放影片时默认优先唤起系统外部播放器选择器（仅限无实例凭据直链或本机文件）。 */
+    var defaultExternalPlayer by mutableStateOf(prefs?.getBoolean(KEY_DEFAULT_EXTERNAL_PLAYER, false) ?: false)
+        private set
+
+    var hwDecode by mutableStateOf(
+        (prefs?.getString(KEY_DECODE_MODE, null)?.let { it != "sw_force" })
+            ?: (prefs?.getBoolean(KEY_HW_DECODE, true) ?: true),
+    )
         private set
 
     var autoPip by mutableStateOf(prefs?.getBoolean(KEY_AUTO_PIP, true) ?: true)
@@ -745,9 +783,65 @@ class PlaybackPreferencesStore(context: Context?) {
     var directPlay by mutableStateOf(prefs?.getBoolean(KEY_DIRECT_PLAY, true) ?: true)
         private set
 
+    /** 更新播放内核偏好（`auto` / `native` / `enhanced`）。 */
+    fun updateVideoEngine(engine: String) {
+        val normalized = if (engine in setOf("auto", "native", "enhanced")) engine else "auto"
+        videoEngine = normalized
+        prefs?.edit()?.putString(KEY_VIDEO_ENGINE, normalized)?.apply()
+    }
+
+    /** 更新解码模式偏好（`hw_auto` / `sw_force`）并同步兼容旧版 `hwDecode` 布尔键。 */
+    fun updateDecodeMode(mode: String) {
+        val normalized = if (mode == "sw_force") "sw_force" else "hw_auto"
+        decodeMode = normalized
+        hwDecode = normalized != "sw_force"
+        prefs?.edit()
+            ?.putString(KEY_DECODE_MODE, normalized)
+            ?.putBoolean(KEY_HW_DECODE, hwDecode)
+            ?.apply()
+    }
+
+    /** 更新网络缓冲档位（`standard` / `large`）。 */
+    fun updateBufferProfile(profile: String) {
+        val normalized = if (profile == "large") "large" else "standard"
+        bufferProfile = normalized
+        prefs?.edit()?.putString(KEY_BUFFER_PROFILE, normalized)?.apply()
+    }
+
+    /** 更新夜间模式 / 人声增强开关。 */
+    fun updateAudioNightMode(enabled: Boolean) {
+        audioNightMode = enabled
+        prefs?.edit()?.putBoolean(KEY_AUDIO_NIGHT_MODE, enabled)?.apply()
+    }
+
+    /** 更新忽略 ASS 字幕特效样式开关。 */
+    fun updateIgnoreAssStyle(enabled: Boolean) {
+        ignoreAssStyle = enabled
+        prefs?.edit()?.putBoolean(KEY_IGNORE_ASS_STYLE, enabled)?.apply()
+    }
+
+    /** 更新字幕字号倍率。 */
+    fun updateSubtitleScale(scale: Float) {
+        val clamped = scale.coerceIn(0.75f, 1.5f)
+        subtitleScale = clamped
+        prefs?.edit()?.putFloat(KEY_SUBTITLE_SCALE, clamped)?.apply()
+    }
+
+    /** 更新视频渲染视图类型（`surface` / `texture`）。 */
+    fun updateSurfaceType(type: String) {
+        val normalized = if (type == "texture") "texture" else "surface"
+        surfaceType = normalized
+        prefs?.edit()?.putString(KEY_SURFACE_TYPE, normalized)?.apply()
+    }
+
+    /** 更新默认调用外部播放器开关。 */
+    fun updateDefaultExternalPlayer(enabled: Boolean) {
+        defaultExternalPlayer = enabled
+        prefs?.edit()?.putBoolean(KEY_DEFAULT_EXTERNAL_PLAYER, enabled)?.apply()
+    }
+
     fun updateHwDecode(enabled: Boolean) {
-        hwDecode = enabled
-        prefs?.edit()?.putBoolean(KEY_HW_DECODE, enabled)?.apply()
+        updateDecodeMode(if (enabled) "hw_auto" else "sw_force")
     }
 
     fun updateAutoPip(enabled: Boolean) {
@@ -802,12 +896,25 @@ class PlaybackPreferencesStore(context: Context?) {
 
     val summaryText: String
         get() {
+            val engineLabel = when (videoEngine) {
+                "native" -> "系统原生"
+                "enhanced" -> "全能增强"
+                else -> "自动内核"
+            }
             val spdText = if (defaultSpeed % 1f == 0f) String.format("%.1fx", defaultSpeed) else "${defaultSpeed}x"
-            return "$defaultQuality · $spdText"
+            return "$engineLabel · $defaultQuality · $spdText"
         }
 
     companion object {
         const val PREFS_NAME = "mp_playback_prefs_v1"
+        const val KEY_VIDEO_ENGINE = "video_engine"
+        const val KEY_DECODE_MODE = "decode_mode"
+        const val KEY_BUFFER_PROFILE = "buffer_profile"
+        const val KEY_AUDIO_NIGHT_MODE = "audio_night_mode"
+        const val KEY_IGNORE_ASS_STYLE = "ignore_ass_style"
+        const val KEY_SUBTITLE_SCALE = "subtitle_scale"
+        const val KEY_SURFACE_TYPE = "surface_type"
+        const val KEY_DEFAULT_EXTERNAL_PLAYER = "default_external_player"
         const val KEY_HW_DECODE = "hw_decode"
         const val KEY_AUTO_PIP = "auto_pip"
         const val KEY_QUALITY = "default_quality"
