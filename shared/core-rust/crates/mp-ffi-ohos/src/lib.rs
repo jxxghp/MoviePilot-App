@@ -8,7 +8,12 @@ use mp_core_model::{
     PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference, PlaybackSyncInput,
     PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
 };
-use mp_core_plugin::{NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder};
+use mp_core_plugin::{
+    NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder,
+    build_plugin_remote_cache_key, normalize_plugin_remote_entry,
+    resolve_plugin_remote_upstream_path, validate_plugin_api_path,
+    validate_plugin_shell_asset_path,
+};
 use mp_core_session::{NativePermissions, classify_auth_status, decode_jwt_claims};
 
 /// 跨平台纯函数门面：供 `#[napi]`（target_env = "ohos"）与宿主机单元测试复用同一实现。
@@ -220,6 +225,37 @@ pub mod bridge {
     ) -> Result<String, String> {
         PlaybackEngineRouter::build_external_player_url(template, media_url, title)
     }
+
+    pub fn validate_plugin_bridge_api_path(raw_path: &str) -> Result<String, String> {
+        validate_plugin_api_path(raw_path)
+    }
+
+    pub fn validate_plugin_shell_asset(virtual_path: &str) -> Result<String, String> {
+        validate_plugin_shell_asset_path(virtual_path)
+    }
+
+    pub fn build_plugin_remote_cache_key_json(
+        instance_origin: &str,
+        plugin_id: &str,
+        version_or_hash: &str,
+    ) -> Result<String, String> {
+        let key = build_plugin_remote_cache_key(instance_origin, plugin_id, version_or_hash);
+        serde_json::to_string(&key).map_err(|e| e.to_string())
+    }
+
+    pub fn normalize_plugin_remote_entry_json(
+        plugin_id: &str,
+        version_or_hash: &str,
+        raw_remote_url: &str,
+    ) -> Result<String, String> {
+        let plan = normalize_plugin_remote_entry(plugin_id, version_or_hash, raw_remote_url)?;
+        serde_json::to_string(&plan).map_err(|e| e.to_string())
+    }
+
+    pub fn resolve_plugin_remote_upstream_json(virtual_path: &str) -> Result<String, String> {
+        let target = resolve_plugin_remote_upstream_path(virtual_path)?;
+        serde_json::to_string(&target).map_err(|e| e.to_string())
+    }
 }
 
 #[cfg(target_env = "ohos")]
@@ -375,6 +411,42 @@ mod napi_exports {
         title: String,
     ) -> Result<String> {
         bridge::build_external_player_url(&template, &media_url, &title)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn validate_plugin_bridge_api_path(raw_path: String) -> Result<String> {
+        bridge::validate_plugin_bridge_api_path(&raw_path).map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn validate_plugin_shell_asset(virtual_path: String) -> Result<String> {
+        bridge::validate_plugin_shell_asset(&virtual_path).map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn build_plugin_remote_cache_key_json(
+        instance_origin: String,
+        plugin_id: String,
+        version_or_hash: String,
+    ) -> Result<String> {
+        bridge::build_plugin_remote_cache_key_json(&instance_origin, &plugin_id, &version_or_hash)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn normalize_plugin_remote_entry_json(
+        plugin_id: String,
+        version_or_hash: String,
+        raw_remote_url: String,
+    ) -> Result<String> {
+        bridge::normalize_plugin_remote_entry_json(&plugin_id, &version_or_hash, &raw_remote_url)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn resolve_plugin_remote_upstream_json(virtual_path: String) -> Result<String> {
+        bridge::resolve_plugin_remote_upstream_json(&virtual_path)
             .map_err(napi_ohos::Error::from_reason)
     }
 }

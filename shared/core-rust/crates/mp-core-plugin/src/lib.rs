@@ -5,10 +5,17 @@ pub mod combobox;
 pub mod cron;
 pub mod expression;
 pub mod form;
+pub mod remote_runtime;
 
 pub use combobox::{ComboboxEntry, ComboboxMode, NativeCombobox};
 pub use cron::{CronFormat, CronSummary, NativeCron};
 pub use expression::NativeFormExpression;
 pub use form::{
     NativeFormPlan, PluginFieldSpec, PluginFormDraft, PluginNode, PluginRenderMode, PluginUiDecoder,
+};
+pub use remote_runtime::{
+    PluginRemoteCacheKey, PluginRemoteEntryPlan, PluginRemoteUpstreamTarget,
+    build_plugin_remote_cache_key, normalize_plugin_remote_entry,
+    resolve_plugin_remote_upstream_path, sanitize_cache_segment, validate_plugin_api_path,
+    validate_plugin_shell_asset_path,
 };

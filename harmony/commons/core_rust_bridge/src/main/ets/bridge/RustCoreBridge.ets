@@ -30,6 +30,32 @@ export interface NativeCoreModule {
   isSameHttpOrigin?(urlA: string, urlB: string): boolean;
   resolvePlaybackEngineJson?(inputJson: string): string;
   buildExternalPlayerUrl?(template: string, mediaUrl: string, title: string): string;
+  validatePluginBridgeApiPath?(rawPath: string): string;
+  validatePluginShellAsset?(virtualPath: string): string;
+  buildPluginRemoteCacheKeyJson?(instanceOrigin: string, pluginId: string, versionOrHash: string): string;
+  normalizePluginRemoteEntryJson?(pluginId: string, versionOrHash: string, rawRemoteUrl: string): string;
+  resolvePluginRemoteUpstreamJson?(virtualPath: string): string;
+}
+
+export interface PluginRemoteCacheKey {
+  instance_hash: string;
+  plugin_id_lower: string;
+  version_segment: string;
+  relative_dir: string;
+}
+
+export interface PluginRemoteEntryPlan {
+  plugin_id: string;
+  version_tag: string;
+  virtual_entry_path: string;
+  upstream_file_path: string;
+}
+
+export interface PluginRemoteUpstreamTarget {
+  plugin_id: string;
+  version_tag: string;
+  asset_rel_path: string;
+  upstream_api_path: string;
 }
 
 export interface EngineResolutionInput {
@@ -1039,6 +1065,209 @@ export class RustCoreBridge {
       .replace(/\{url\}/g, encodeURIComponent(media))
       .replace(/\{raw_url\}/g, media)
       .replace(/\{title\}/g, encodeURIComponent((title ?? '').trim()));
+  }
+
+  /** 校验并规范化插件 Bridge `/api/v1/...` 路径，拒绝外部主机与路径穿越。 */
+  static validatePluginApiPath(rawPath: string): string {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.validatePluginBridgeApiPath) {
+        return RustCoreBridge.nativeLib.validatePluginBridgeApiPath(rawPath);
+      }
+    } catch {
+      return '';
+    }
+    const trimmed = (rawPath ?? '').trim();
+    if (!trimmed || trimmed.includes('\\') || /[\x00-\x1f\x7f]/.test(trimmed)) {
+      return '';
+    }
+    const lower = trimmed.toLowerCase();
+    if (lower.includes('://') || lower.startsWith('//') || lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('file:')) {
+      return '';
+    }
+    const noFrag = trimmed.split('#')[0];
+    const qIdx = noFrag.indexOf('?');
+    const pathPart = qIdx >= 0 ? noFrag.substring(0, qIdx) : noFrag;
+    const queryPart = qIdx >= 0 ? noFrag.substring(qIdx + 1) : '';
+    const stripped = pathPart.replace(/^\/+/, '');
+    const rel = stripped.startsWith('api/v1/') ? stripped.substring(7) : (stripped === 'api/v1' ? '' : stripped);
+    const segs = RustCoreBridge.validateSafePluginSegments(rel);
+    if (!segs) {
+      return '';
+    }
+    const norm = `/api/v1/${segs.join('/')}`;
+    return queryPart.length > 0 ? `${norm}?${queryPart}` : norm;
+  }
+
+  /** 校验本地运行时壳 `/shell/...` 资产路径并返回安全包内相对路径。 */
+  static validatePluginShellAssetPath(virtualPath: string): string {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.validatePluginShellAsset) {
+        return RustCoreBridge.nativeLib.validatePluginShellAsset(virtualPath);
+      }
+    } catch {
+      return '';
+    }
+    const clean = (virtualPath ?? '').trim().split('#')[0].split('?')[0].replace(/^\/+/, '');
+    const rel = clean.startsWith('shell/') ? clean.substring(6) : clean;
+    const segs = RustCoreBridge.validateSafePluginSegments(rel);
+    return segs ? segs.join('/') : '';
+  }
+
+  /** 生成按实例源 SHA-256、插件 ID 与版本/产物哈希隔离的磁盘缓存键。 */
+  static buildPluginRemoteCacheKey(
+    instanceOrigin: string,
+    pluginId: string,
+    versionOrHash: string
+  ): PluginRemoteCacheKey {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.buildPluginRemoteCacheKeyJson) {
+        const raw = RustCoreBridge.nativeLib.buildPluginRemoteCacheKeyJson(instanceOrigin, pluginId, versionOrHash);
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as PluginRemoteCacheKey;
+        }
+      }
+    } catch {
+      // fallback
+    }
+    let hashVal = 2166136261;
+    const norm = (instanceOrigin ?? '').trim().replace(/\/+$/, '').toLowerCase();
+    for (let i = 0; i < norm.length; i++) {
+      hashVal ^= norm.charCodeAt(i);
+      hashVal = Math.imul(hashVal, 16777619) >>> 0;
+    }
+    const instHash = hashVal.toString(16).padStart(8, '0');
+    const pid = RustCoreBridge.sanitizePluginSegment((pluginId ?? '').toLowerCase(), 'plugin');
+    const ver = RustCoreBridge.sanitizePluginSegment(versionOrHash ?? '', 'default');
+    return {
+      instance_hash: instHash,
+      plugin_id_lower: pid,
+      version_segment: ver,
+      relative_dir: `${instHash}/${pid}/${ver}`
+    };
+  }
+
+  /** 规划联邦插件虚拟源入口与上游路径。 */
+  static normalizePluginRemoteEntry(
+    pluginId: string,
+    versionOrHash: string,
+    rawRemoteUrl: string
+  ): PluginRemoteEntryPlan | null {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.normalizePluginRemoteEntryJson) {
+        const raw = RustCoreBridge.nativeLib.normalizePluginRemoteEntryJson(pluginId, versionOrHash, rawRemoteUrl);
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as PluginRemoteEntryPlan;
+        }
+      }
+    } catch {
+      return null;
+    }
+    const trimmed = (rawRemoteUrl ?? '').trim();
+    if (!trimmed || trimmed.includes('\\')) {
+      return null;
+    }
+    const noFrag = trimmed.split('#')[0];
+    const qIdx = noFrag.indexOf('?');
+    const pathOrUrl = qIdx >= 0 ? noFrag.substring(0, qIdx) : noFrag;
+    const query = qIdx >= 0 ? noFrag.substring(qIdx + 1) : '';
+    let pathOnly = pathOrUrl;
+    const schemePos = pathOrUrl.indexOf('://');
+    if (schemePos >= 0) {
+      const slash = pathOrUrl.indexOf('/', schemePos + 3);
+      if (slash < 0) {
+        return null;
+      }
+      pathOnly = pathOrUrl.substring(slash);
+    }
+    const marker = 'plugin/file/';
+    const mIdx = pathOnly.toLowerCase().indexOf(marker);
+    if (mIdx < 0) {
+      return null;
+    }
+    const segs = RustCoreBridge.validateSafePluginSegments(pathOnly.substring(mIdx + marker.length));
+    if (!segs || segs.length < 2) {
+      return null;
+    }
+    const filePid = segs[0];
+    const rel = segs.slice(1).join('/');
+    let qVer = '';
+    const pairs = query.split('&');
+    for (let i = 0; i < pairs.length; i++) {
+      if (pairs[i].startsWith('v=')) {
+        qVer = pairs[i].substring(2).trim();
+        break;
+      }
+    }
+    const verTag = RustCoreBridge.sanitizePluginSegment((versionOrHash ?? '').trim() || qVer || 'default', 'default');
+    return {
+      plugin_id: filePid,
+      version_tag: verTag,
+      virtual_entry_path: `/plugin-remote/${filePid}/${verTag}/${rel}`,
+      upstream_file_path: `/api/v1/plugin/file/${filePid}/${rel}`
+    };
+  }
+
+  /** 将虚拟源 `/plugin-remote/...` 还原为上游 API 路径与缓存相对路径。 */
+  static resolvePluginRemoteUpstream(virtualPath: string): PluginRemoteUpstreamTarget | null {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.resolvePluginRemoteUpstreamJson) {
+        const raw = RustCoreBridge.nativeLib.resolvePluginRemoteUpstreamJson(virtualPath);
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as PluginRemoteUpstreamTarget;
+        }
+      }
+    } catch {
+      return null;
+    }
+    const stripped = (virtualPath ?? '').trim().split('#')[0].split('?')[0].replace(/^\/+/, '');
+    if (!stripped.startsWith('plugin-remote/')) {
+      return null;
+    }
+    const segs = RustCoreBridge.validateSafePluginSegments(stripped.substring('plugin-remote/'.length));
+    if (!segs || segs.length < 3) {
+      return null;
+    }
+    const pid = segs[0];
+    const ver = RustCoreBridge.sanitizePluginSegment(segs[1], 'default');
+    const rel = segs.slice(2).join('/');
+    return {
+      plugin_id: pid,
+      version_tag: ver,
+      asset_rel_path: rel,
+      upstream_api_path: `/api/v1/plugin/file/${pid}/${rel}`
+    };
+  }
+
+  private static sanitizePluginSegment(raw: string, fallback: string): string {
+    const cleaned = (raw ?? '').trim().replace(/[^A-Za-z0-9._-]/g, '_').replace(/^[._]+|[._]+$/g, '').substring(0, 64);
+    if (!cleaned || cleaned === '.' || cleaned === '..' || cleaned.includes('..')) {
+      return fallback;
+    }
+    return cleaned;
+  }
+
+  private static validateSafePluginSegments(raw: string): string[] | null {
+    const trimmed = (raw ?? '').replace(/^\/+|\/+$/g, '');
+    if (!trimmed) {
+      return null;
+    }
+    const parts = trimmed.split('/');
+    for (let i = 0; i < parts.length; i++) {
+      const seg = parts[i];
+      if (!seg || seg === '.' || seg === '..') {
+        return null;
+      }
+      let decoded = seg.toLowerCase();
+      try {
+        decoded = decodeURIComponent(seg).toLowerCase();
+      } catch {
+        // keep raw
+      }
+      if (decoded === '.' || decoded === '..' || decoded.includes('..') || decoded.includes('/') || decoded.includes('\\')) {
+        return null;
+      }
+    }
+    return parts;
   }
 
   private static fallbackResolvePlaybackEngine(input: EngineResolutionInput): EngineResolutionPlan {

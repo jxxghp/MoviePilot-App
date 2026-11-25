@@ -25,6 +25,9 @@ def sync_all(root: Path = ROOT, check: bool = False) -> list[str]:
     drifted.extend(_load("sync_tokens", "sync-tokens.py").sync_tokens(root, check=check))
     drifted.extend(_load("sync_l10n", "sync-l10n.py").sync_l10n(root, check=check))
     drifted.extend(_load("sync_assets", "sync-assets.py").sync_assets(root, check=check))
+    drifted.extend(
+        _load("sync_plugin_shell", "sync-plugin-shell.py").sync_plugin_shell(root, check=check)
+    )
     drifted.extend(_load("sync_version", "sync-version.py").sync_version(root, check=check))
     return drifted
 

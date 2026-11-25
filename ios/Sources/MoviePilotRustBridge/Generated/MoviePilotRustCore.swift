@@ -1718,6 +1718,18 @@ public func buildExternalPlayerUrl(template: String, mediaUrl: String, title: St
 })
 }
 /**
+ * 生成按实例源 SHA-256、插件 ID 与版本/哈希隔离的磁盘缓存键 JSON。
+ */
+public func buildPluginRemoteCacheKeyJson(instanceOrigin: String, pluginId: String, versionOrHash: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_build_plugin_remote_cache_key_json(
+        FfiConverterString.lower(instanceOrigin),
+        FfiConverterString.lower(pluginId),
+        FfiConverterString.lower(versionOrHash),$0
+    )
+})
+}
+/**
  * 基于实例根地址构造安全的 `/api/v1/...` 完整请求 URL。
  */
 public func buildV3EndpointUrl(baseUrl: String, pathSegments: [String], queryJson: String, trailingSlash: Bool)throws  -> String  {
@@ -1849,6 +1861,18 @@ public func normalizePendingPlaybackStopsJson(entriesJson: String, nowEpochMs: I
 })
 }
 /**
+ * 将后端联邦插件远程入口地址规划为虚拟源路径与上游文件路径 JSON。
+ */
+public func normalizePluginRemoteEntryJson(pluginId: String, versionOrHash: String, rawRemoteUrl: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_normalize_plugin_remote_entry_json(
+        FfiConverterString.lower(pluginId),
+        FfiConverterString.lower(versionOrHash),
+        FfiConverterString.lower(rawRemoteUrl),$0
+    )
+})
+}
+/**
  * 规范化 MoviePilot 实例地址（保留反向代理子路径，拒绝非法协议与内嵌凭据）。
  */
 public func normalizeServerAddress(raw: String)throws  -> String  {
@@ -1933,6 +1957,16 @@ public func resolvePlaybackEngineJson(inputJson: String)throws  -> String  {
 })
 }
 /**
+ * 将虚拟源 `/plugin-remote/...` 请求安全还原为上游 API 路径与缓存相对路径 JSON。
+ */
+public func resolvePluginRemoteUpstreamJson(virtualPath: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_resolve_plugin_remote_upstream_json(
+        FfiConverterString.lower(virtualPath),$0
+    )
+})
+}
+/**
  * 校验目标 URL 是否严格属于给定实例源及部署子路径。
  */
 public func serverAddressContains(baseUrl: String, candidateUrl: String) -> Bool  {
@@ -1940,6 +1974,26 @@ public func serverAddressContains(baseUrl: String, candidateUrl: String) -> Bool
     uniffi_moviepilot_core_fn_func_server_address_contains(
         FfiConverterString.lower(baseUrl),
         FfiConverterString.lower(candidateUrl),$0
+    )
+})
+}
+/**
+ * 校验并规范化插件 Bridge 请求的 `/api/v1/...` 路径，拒绝外部主机与路径穿越。
+ */
+public func validatePluginBridgeApiPath(rawPath: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_validate_plugin_bridge_api_path(
+        FfiConverterString.lower(rawPath),$0
+    )
+})
+}
+/**
+ * 校验本地运行时壳 `/shell/...` 资产路径并返回安全的包内相对路径。
+ */
+public func validatePluginShellAsset(virtualPath: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_validate_plugin_shell_asset(
+        FfiConverterString.lower(virtualPath),$0
     )
 })
 }
@@ -1966,6 +2020,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_build_external_player_url() != 48700) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_build_plugin_remote_cache_key_json() != 2310) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_build_v3_endpoint_url() != 39775) {
@@ -2004,6 +2061,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json() != 59689) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_normalize_plugin_remote_entry_json() != 58046) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_normalize_server_address() != 63452) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2028,7 +2088,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json() != 50581) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_resolve_plugin_remote_upstream_json() != 55803) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_server_address_contains() != 32809) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_validate_plugin_bridge_api_path() != 29616) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_validate_plugin_shell_asset() != 35061) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_method_nativesseparser_finish() != 1038) {

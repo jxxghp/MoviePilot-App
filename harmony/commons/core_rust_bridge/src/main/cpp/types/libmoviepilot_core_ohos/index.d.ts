@@ -16,3 +16,8 @@ export declare function evaluatePluginExpression(expr: string, modelJson: string
 export declare function analyzeCronJson(expr: string): string;
 export declare function computeMedalPaletteJson(medalId: string): string;
 export declare function computeSubscribeProgressJson(total: number, lack: number): string;
+export declare function validatePluginBridgeApiPath(rawPath: string): string;
+export declare function validatePluginShellAsset(virtualPath: string): string;
+export declare function buildPluginRemoteCacheKeyJson(instanceOrigin: string, pluginId: string, versionOrHash: string): string;
+export declare function normalizePluginRemoteEntryJson(pluginId: string, versionOrHash: string, rawRemoteUrl: string): string;
+export declare function resolvePluginRemoteUpstreamJson(virtualPath: string): string;

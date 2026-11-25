@@ -231,6 +231,7 @@
     <string name="mp_823f4d1e" formatted="false">Release Calendar</string>
     <string name="mp_83689796" formatted="false">Select at least one value within the range.</string>
     <string name="mp_838c3aed" formatted="false">Loading lyrics…</string>
+    <string name="mp_83924414" formatted="false">Uses the pre-warmed local runtime by default for native visual fusion, instant opening, and API-only servers. Enable this to fall back to the legacy full web frontend.</string>
     <string name="mp_83dc943e" formatted="false">System overview</string>
     <string name="mp_83e48d7c" formatted="false">Current value (unlisted)</string>
     <string name="mp_848aaab0" formatted="false">Check this value</string>
@@ -271,6 +272,7 @@
     <string name="mp_a1aaf352" formatted="false">Username</string>
     <string name="mp_a3148a4e" formatted="false">Sign in to manage your subscriptions and media.</string>
     <string name="mp_a336277e" formatted="false">Bind Media Server Account</string>
+    <string name="mp_a368e87b" formatted="false">Open in Legacy Web Container</string>
     <string name="mp_a3ccf702" formatted="false">Source</string>
     <string name="mp_a3ed811e" formatted="false">Authenticator code</string>
     <string name="mp_a4474dd6" formatted="false">Account &amp; Service</string>
@@ -340,6 +342,7 @@
     <string name="mp_baf84751" formatted="false">Users</string>
     <string name="mp_bb370d56" formatted="false">Unable to load local lyrics.</string>
     <string name="mp_bbc7d362" formatted="false">Connect to server</string>
+    <string name="mp_bc2b8f51" formatted="false">Starting local plugin runtime…</string>
     <string name="mp_bcc3a869" formatted="false">Video torrents</string>
     <string name="mp_bd03b5c1" formatted="false">Enabled. Only content allowed for the current account is displayed.</string>
     <string name="mp_bde0b46a" formatted="false">Passwords are stored securely on this device only. Verification codes are never saved.</string>
@@ -434,6 +437,7 @@
     <string name="mp_ed5e4c3e" formatted="false">Search “%1$s”</string>
     <string name="mp_ed917b08" formatted="false">Open in External Player by Default</string>
     <string name="mp_edaa51e3" formatted="false">Switched to %1$s</string>
+    <string name="mp_ede7ece4" formatted="false">Local runtime failed to load plugin</string>
     <string name="mp_ee561675" formatted="false">Subscriptions</string>
     <string name="mp_ee56a53b" formatted="false">Media Servers</string>
     <string name="mp_ee87f6ec" formatted="false">Server Channels</string>
@@ -516,6 +520,10 @@
     <string name="mp_url_d8340907" formatted="false">External Player URL Template</string>
     <string name="mp_vlckit_42693cc8" formatted="false">VLCKit Legacy</string>
     <string name="mp_vlckit_b044dd97" formatted="false">Legacy (VLCKit)</string>
+    <string name="mp_vue_2b8527e0" formatted="false">Legacy WebView Mode for Vue Plugins</string>
+    <string name="mp_vue_516f2bec" formatted="false">Vue Plugin Runtime</string>
+    <string name="mp_vue_89421e63" formatted="false">Cleared local Vue plugin cache</string>
+    <string name="mp_vue_e5116a4f" formatted="false">Clear Vue Plugin Cache</string>
     <string name="mp_web_7f1d362a" formatted="false">This plugin uses a web interface. Its compatibility view is being migrated.</string>
     <string name="mp_web_aaedd1fc" formatted="false">Configure proxy, concurrency and advanced system settings in Web UI.</string>
     <string name="mp_widget_163aec91" formatted="false">Content</string>

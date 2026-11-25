@@ -3611,6 +3611,184 @@ final class NativeV2EntryTests: XCTestCase {
     }
   }
 
+  /// Route A 端到端真机视觉与桥接验收：
+  /// 1. 在完全无前端 HTML / 3000 端口的纯 API 夹具上，打开 Vue 联邦插件 `VueCompatDemo`；
+  /// 2. 校验 `mp-plugin://shell/` 本地预热运行时加载合成 ESM `remoteEntry.js`、Native Bridge 鉴权 API 代理与零令牌安全；
+  /// 3. 校验原生 Toast、原生 Alert 确认框与原生标题栏按钮桥接；
+  /// 4. 切换浅色模式二次打开，验证热池复用、磁盘缓存命中（`remoteEntry.js` 仅拉取 1 次）与深/浅双色透明原生背景视觉融合截图。
+  func testNativeVuePluginLocalRuntimeFusionAndBridge() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+
+    // 1. 进入设置页确认「Vue 插件兼容网页模式」开关存在且默认关闭
+    openOverflowItem("native-more-settings-btn", viaTab: "更多", app: app)
+    if !app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 6) {
+      let gear = app.buttons["native-more-settings-btn"]
+      if gear.waitForExistence(timeout: 6) {
+        tap(gear, app: app)
+      }
+    }
+    XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 10))
+    let legacyRow = app.descendants(matching: .any)["native-settings-vue-legacy-mode"].firstMatch
+    reveal(legacyRow, app: app)
+    XCTAssertTrue(legacyRow.waitForExistence(timeout: 8))
+    capture("vue-runtime-01-settings-toggle")
+
+    // 清空上一次运行可能残留的本地插件分片缓存，保证本次首次打开从夹具拉取 1 次、二次打开严格命中磁盘缓存
+    let clearCacheRow = app.descendants(matching: .any)["native-settings-clear-cache"].firstMatch
+    if clearCacheRow.waitForExistence(timeout: 4) {
+      tap(clearCacheRow, app: app)
+      let clearAlert = app.alerts["清理本地缓存"]
+      if clearAlert.waitForExistence(timeout: 4) {
+        clearAlert.buttons["清理"].tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+    }
+
+    // 返回更多 -> 进入插件市场
+    if app.navigationBars.buttons.firstMatch.exists {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    openOverflowItem("native-overflow-plugin-market", app: app)
+    XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 10))
+
+    // 2. 点击 Vue 联邦插件卡片，触发本地预热运行时直接加载合成 ESM remoteEntry.js
+    let vueCard = app.descendants(matching: .any)["native-installed-card-VueCompatDemo"].firstMatch
+    reveal(vueCard, app: app)
+    XCTAssertTrue(vueCard.waitForExistence(timeout: 10))
+    tap(vueCard, app: app)
+
+    let readyContainer = app.descendants(matching: .any)["native-vue-local-runtime-ready"].firstMatch
+    XCTAssertTrue(readyContainer.waitForExistence(timeout: 20), "本地联邦运行时未在 20 秒内完成挂载")
+
+    // 3. 校验共享 Vue/Vuetify 渲染、Native Bridge 鉴权 API 代理以及零 localStorage.auth 暴露
+    let webView = app.webViews.firstMatch
+    XCTAssertTrue(webView.waitForExistence(timeout: 8))
+    XCTAssertTrue(
+      webView.staticTexts["合成联邦插件运行正常"].waitForExistence(timeout: 12),
+      "联邦组件标题未渲染"
+    )
+    let apiText = webView.staticTexts.matching(
+      NSPredicate(format: "label CONTAINS %@", "本地预热运行时直通成功 (v1.2.0)")
+    ).firstMatch
+    XCTAssertTrue(apiText.waitForExistence(timeout: 12), "Native Bridge api.request 未成功返回鉴权数据")
+    XCTAssertTrue(
+      webView.staticTexts["零令牌安全校验通过"].waitForExistence(timeout: 8),
+      "WebView 内发现不应存在的 auth 令牌"
+    )
+    // 等待 Layer 3 透明清洗与淡入动画稳定
+    try await Task.sleep(nanoseconds: 600_000_000)
+    capture("vue-runtime-02-dark-fusion")
+
+    // 4. 校验原生标题栏按钮桥接（hostSdk.shell.registerButton -> 原生导航栏 Menu -> host.action 回传）
+    let headerMenu = app.buttons["native-sheet-menu"]
+    XCTAssertTrue(headerMenu.waitForExistence(timeout: 8), "原生标题栏插件操作菜单未展示")
+    headerMenu.tap()
+    let refreshAction = app.buttons["刷新状态"]
+    XCTAssertTrue(refreshAction.waitForExistence(timeout: 6), "标题栏菜单中未找到插件注册的「刷新状态」按钮")
+    refreshAction.tap()
+    XCTAssertTrue(
+      webView.staticTexts["刷新次数 1"].waitForExistence(timeout: 8),
+      "点击原生标题栏动作后未触发插件回调更新刷新次数"
+    )
+
+    // 5. 校验原生 Toast 桥接（Vuetify VBtn 默认 uppercase，使用大小写不敏感匹配）
+    let toastBtn = webView.buttons.matching(
+      NSPredicate(format: "label CONTAINS[c] %@", "触发原生 Toast")
+    ).firstMatch
+    XCTAssertTrue(toastBtn.waitForExistence(timeout: 8))
+    toastBtn.tap()
+    let nativeToast = app.descendants(matching: .any)["native-vue-local-runtime-toast"].firstMatch
+    XCTAssertTrue(nativeToast.waitForExistence(timeout: 8), "原生 Toast 横幅未展示")
+    capture("vue-runtime-03-native-toast")
+
+    // 6. 校验原生 Alert 确认框桥接
+    let confirmBtn = webView.buttons.matching(
+      NSPredicate(format: "label CONTAINS[c] %@", "触发原生确认框")
+    ).firstMatch
+    XCTAssertTrue(confirmBtn.waitForExistence(timeout: 8))
+    confirmBtn.tap()
+    let nativeAlert = app.alerts["原生确认测试"]
+    XCTAssertTrue(nativeAlert.waitForExistence(timeout: 8), "原生确认框未弹出")
+    capture("vue-runtime-04-native-confirm")
+    nativeAlert.buttons["确定"].tap()
+    XCTAssertTrue(
+      webView.staticTexts["原生确认结果：已确认"].waitForExistence(timeout: 8),
+      "原生确认结果未回传至联邦插件"
+    )
+
+    // 6. 关闭弹窗 -> 切换浅色模式 -> 再次打开验证热池复用 + 磁盘缓存命中 + 浅色透明视觉融合
+    let closeBtn = app.buttons["native-vue-plugin-sheet-close"]
+    XCTAssertTrue(closeBtn.waitForExistence(timeout: 8))
+    closeBtn.tap()
+    try await Task.sleep(nanoseconds: 600_000_000)
+    if app.navigationBars.buttons.firstMatch.exists {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+
+    // 打开设置 -> 外观 -> 切换浅色
+    tabButton("更多", app: app).tap()
+    let settingsGear = app.buttons["native-more-settings-btn"]
+    XCTAssertTrue(settingsGear.waitForExistence(timeout: 8))
+    tap(settingsGear, app: app)
+    XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 10))
+    let appearanceBtn = app.buttons["native-settings-hub-appearance"]
+    reveal(appearanceBtn, app: app)
+    XCTAssertTrue(appearanceBtn.waitForExistence(timeout: 8))
+    tap(appearanceBtn, app: app)
+    XCTAssertTrue(app.scrollViews["native-appearance-scroll"].waitForExistence(timeout: 10))
+    let lightModeBtn = app.buttons["native-appearance-mode-light"]
+    XCTAssertTrue(lightModeBtn.waitForExistence(timeout: 8))
+    lightModeBtn.tap()
+    try await Task.sleep(nanoseconds: 500_000_000)
+
+    // 返回插件市场，第二次打开 VueCompatDemo（应命中热池与磁盘缓存）
+    app.navigationBars.buttons.firstMatch.tap()
+    try await Task.sleep(nanoseconds: 400_000_000)
+    app.navigationBars.buttons.firstMatch.tap()
+    openOverflowItem("native-overflow-plugin-market", app: app)
+    XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 10))
+    let vueCardLight = app.descendants(matching: .any)["native-installed-card-VueCompatDemo"].firstMatch
+    reveal(vueCardLight, app: app)
+    XCTAssertTrue(vueCardLight.waitForExistence(timeout: 10))
+    tap(vueCardLight, app: app)
+    XCTAssertTrue(readyContainer.waitForExistence(timeout: 15), "浅色模式二次挂载失败")
+    XCTAssertTrue(webView.staticTexts["合成联邦插件运行正常"].waitForExistence(timeout: 10))
+    XCTAssertTrue(apiText.waitForExistence(timeout: 10))
+    try await Task.sleep(nanoseconds: 600_000_000)
+    capture("vue-runtime-05-light-fusion")
+
+    // 清理回深色模式
+    closeBtn.tap()
+    try await Task.sleep(nanoseconds: 400_000_000)
+    if app.navigationBars.buttons.firstMatch.exists {
+      app.navigationBars.buttons.firstMatch.tap()
+    }
+    tabButton("更多", app: app).tap()
+    if settingsGear.waitForExistence(timeout: 6) {
+      tap(settingsGear, app: app)
+      if app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 8) {
+        reveal(appearanceBtn, app: app)
+        if appearanceBtn.waitForExistence(timeout: 6) {
+          tap(appearanceBtn, app: app)
+          let darkBtn = app.buttons["native-appearance-mode-dark"]
+          if darkBtn.waitForExistence(timeout: 6) { darkBtn.tap() }
+        }
+      }
+    }
+
+    // 7. 严格验证后端计数：零意外 404 请求，remoteEntry.js 二次打开严格命中磁盘缓存（仅拉取 1 次！）
+    let counts = try await stats()
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/plugin/remotes"] ?? 0, 2)
+    XCTAssertEqual(
+      counts["a"]?["GET api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js"],
+      1,
+      "第二次打开同一版本联邦插件必须命中实例隔离磁盘缓存，不应重复回源下载 remoteEntry.js"
+    )
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/plugin/VueCompatDemo/status"] ?? 0, 2)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
   /// 画面只保留合成实例，明确作为运行验收而非尚未实现业务页的设计图。
   private func capture(_ name: String) {
     let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())

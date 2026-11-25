@@ -10,6 +10,7 @@
 		02938EC7396846498DBB3C3F /* NativeDownloadsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */; };
 		04729F76AADB6E784C8E9C39 /* NativeAppearanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A4D15B8082C9119B8C37AC /* NativeAppearanceStore.swift */; };
 		08E6A5EB18261F0E3B4964F6 /* NativeMusicPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */; };
+		0C84D194ABE2A7346BAF979C /* PluginRemoteDiskCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17BA1AD0A6153767FAE766F9 /* PluginRemoteDiskCache.swift */; };
 		0EE2961899BD600DE410D4E8 /* MediaPlaybackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */; };
 		0F10DAF3C3E45285527B6679 /* NativeAgentFloatingMascot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CC709A18D7FAEDC0527EDD8 /* NativeAgentFloatingMascot.swift */; };
 		0FE557F4111AB0095942BEFF /* NativeDiscoverModulesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE7B8D4C7A31F109890ABCF /* NativeDiscoverModulesSheet.swift */; };
@@ -35,6 +36,7 @@
 		528DDA8EB6B423A11DB733E6 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */; };
 		54E9EBAF180B0BCF04DE4FC6 /* MPVKit-GPL in Frameworks */ = {isa = PBXBuildFile; productRef = 1E7CB3F32BC8E527322728D1 /* MPVKit-GPL */; };
 		570ED0CADD7D194D0F7AE95E /* PlaybackProgressReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0741479EF6479213B9E981B /* PlaybackProgressReporter.swift */; };
+		583FB6CD9EF8B2E2AC490998 /* PluginRemoteRuntimeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FF0D1740E03C0842FF3D7E /* PluginRemoteRuntimeModels.swift */; };
 		5927F511B04B6D1BA62E7ACD /* NativeWorkflowCanvasPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */; };
 		5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */; };
 		6051CDC21EA5C85DA1DD6D3E /* NativeFileManagerPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */; };
@@ -45,6 +47,7 @@
 		6CDCB467D0F4D78498B4B275 /* NativeMediaServerLibraryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B862EABE429A361CC27AD33 /* NativeMediaServerLibraryPage.swift */; };
 		713D9E91E655AFBD94513CE8 /* NativeCommunityMedal3D.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6175439779975CFCB2785F /* NativeCommunityMedal3D.swift */; };
 		74BB072F347838874E453BDA /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA1036A3B6223749CA83C56 /* MoviePilotCore */; };
+		81225805767A9EA522F839C9 /* PluginShell in Resources */ = {isa = PBXBuildFile; fileRef = E0B1D45452F242A84DDE3942 /* PluginShell */; };
 		81605C89FB80C7DDEB3B42C2 /* CinematicForms.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */; };
 		823F9719D320A50E3E7ACBFF /* NativeMediaPlaybackLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87FA9E46584D4776F3809815 /* NativeMediaPlaybackLauncher.swift */; };
 		82F26380686E29CF97D4DFC7 /* NativeMediaServerDetailPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8D947D97A101D7977471583 /* NativeMediaServerDetailPage.swift */; };
@@ -55,9 +58,11 @@
 		8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */; };
 		98EB4831D3C52B37D00D990D /* NativePluginComboboxEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */; };
 		9A697B5E5AFFE2064EF6A510 /* PlaybackEngineFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9227646C7A4D3E9ADF81E79 /* PlaybackEngineFactory.swift */; };
+		9AACAF7FD197B1F573D94927 /* NativePluginLocalRuntimeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2E56EC08A9E0B58E242AF9F /* NativePluginLocalRuntimeView.swift */; };
 		9D0CE41BA43CAC19187B26D4 /* NativePluginMarketPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */; };
 		9DF0F4028DD3BB274401298C /* NativeAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A041E4198BE71B63A2B109 /* NativeAppModel.swift */; };
 		A0AB51CE161F94808B6EE599 /* AccountAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 274895617146E30E9DDE5876 /* AccountAppearance.swift */; };
+		A2064D5F490C78CF9AF2AD29 /* PluginWebViewPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45EAB81992967CE5216573A7 /* PluginWebViewPool.swift */; };
 		A642DFCFFE0254BB381EE957 /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0A56C13BC20DA849FEC8E121 /* MoviePilotCore */; };
 		A7450D804DFEC7AA7069C158 /* NativeSystemRouteHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFCBFC58ED64133835C72B4E /* NativeSystemRouteHub.swift */; };
 		AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C5522D23DCCE1A49988D78B /* NotificationService.swift */; };
@@ -82,6 +87,7 @@
 		DB471BEA03F64E92F0182C28 /* NativeExplorePage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77D6979872674A2654C34AE8 /* NativeExplorePage.swift */; };
 		DD0E2E99E6765F70226EBAF8 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 04E88BB7343F2CD8583FABF2 /* InfoPlist.strings */; };
 		DDCEE1C105B831849FC9B502 /* NativeDiscoverPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64E08B040825C4BB1B965C7E /* NativeDiscoverPage.swift */; };
+		E15865E566336959DDC120B0 /* PluginHostBridgeV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC3FDF874F421F138E7F0B4 /* PluginHostBridgeV2.swift */; };
 		E21E24BFBE4855AC34A5D779 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 1AB88D3590D6F2C58202F3F7 /* Localizable.strings */; };
 		E3AC1F3F475F11DC45745A36 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDB18350D46A9411B179B162 /* Configuration.swift */; };
 		E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */; };
@@ -92,6 +98,7 @@
 		EBD4F63E868782325F577479 /* NativeDiagnosticsToolsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D48CE7A268E8BCABB4E802 /* NativeDiagnosticsToolsPage.swift */; };
 		ED7AB3AFEFD8AAECD1B05FBF /* MoviePilotPluginForms in Frameworks */ = {isa = PBXBuildFile; productRef = 5E248C82425CCA43BA25F73B /* MoviePilotPluginForms */; };
 		F944EE34CDE90324D357B2C9 /* NativeCommunityMedalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C90415B5DDCA525A940F84A9 /* NativeCommunityMedalsView.swift */; };
+		FA3F4B6F20008329F812EEEB /* PluginShellSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A6F2A1F8489C21FBF44F14 /* PluginShellSchemeHandler.swift */; };
 		FA7D96C95BCA99B1CDDEABA8 /* NativePluginCatalogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70F0E54BFC5895C7EBDD0AD /* NativePluginCatalogView.swift */; };
 		FBCCCA54858635AC0FAFCBBE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */; };
 		FC9C91C4309FD599B60E191E /* NativeCalendarPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 311A8C9F7207218D1D1F8D15 /* NativeCalendarPage.swift */; };
@@ -139,6 +146,7 @@
 		11C1FABE88ED006EC70944CD /* InstanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceStore.swift; sourceTree = "<group>"; };
 		15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		16DC09F74832A0B86B73E0DB /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		17BA1AD0A6153767FAE766F9 /* PluginRemoteDiskCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginRemoteDiskCache.swift; sourceTree = "<group>"; };
 		18137A11C852F3555A73F283 /* NativeV2SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2SceneDelegate.swift; sourceTree = "<group>"; };
 		18D77B462A8A2EDE1AD9ABCC /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MoviePilotWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -156,7 +164,9 @@
 		3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginDataPageView.swift; sourceTree = "<group>"; };
 		3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeResourceSearchPage.swift; sourceTree = "<group>"; };
 		4365514BAF4C18C82A3BCB98 /* NativeSettingsHubPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSettingsHubPage.swift; sourceTree = "<group>"; };
+		43A6F2A1F8489C21FBF44F14 /* PluginShellSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginShellSchemeHandler.swift; sourceTree = "<group>"; };
 		4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFileManagerPage.swift; sourceTree = "<group>"; };
+		45EAB81992967CE5216573A7 /* PluginWebViewPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginWebViewPool.swift; sourceTree = "<group>"; };
 		45F7C55CF76C93C422A267E7 /* MoviePilotUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MoviePilotUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		474B78994605A9AAE8AE2900 /* AVPlayerPlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerPlaybackEngine.swift; sourceTree = "<group>"; };
 		4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemIntegrationSheets.swift; sourceTree = "<group>"; };
@@ -183,6 +193,7 @@
 		92FC46BA3B51393FE1CBD566 /* NativeUsersPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeUsersPage.swift; sourceTree = "<group>"; };
 		937552AB1FC12F2CB12D3D13 /* PlaybackRouteResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackRouteResolver.swift; sourceTree = "<group>"; };
 		956812F9BDCA0C80A21A1D4D /* NativePluginCronEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginCronEditor.swift; sourceTree = "<group>"; };
+		9AC3FDF874F421F138E7F0B4 /* PluginHostBridgeV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginHostBridgeV2.swift; sourceTree = "<group>"; };
 		A214F452230E5D4805759D1F /* VlcPlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VlcPlaybackEngine.swift; sourceTree = "<group>"; };
 		A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoviePilotWidgets.swift; sourceTree = "<group>"; };
 		A7076717937113403C755586 /* NativeAgentChatPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAgentChatPage.swift; sourceTree = "<group>"; };
@@ -190,6 +201,7 @@
 		A8D947D97A101D7977471583 /* NativeMediaServerDetailPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaServerDetailPage.swift; sourceTree = "<group>"; };
 		AC48C1614B5128296F31DB7D /* CinematicSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicSurfaces.swift; sourceTree = "<group>"; };
 		B27822CB5BB7D354B979B834 /* NativePluginFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginFormView.swift; sourceTree = "<group>"; };
+		B3FF0D1740E03C0842FF3D7E /* PluginRemoteRuntimeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginRemoteRuntimeModels.swift; sourceTree = "<group>"; };
 		B49D224903D83A20EF07FF85 /* CommunityMedals */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CommunityMedals; path = MoviePilot/Resources/CommunityMedals; sourceTree = SOURCE_ROOT; };
 		B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMessagesPage.swift; sourceTree = "<group>"; };
 		B8610FEB4EE38230CD0D07A1 /* NativeV2EntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2EntryTests.swift; sourceTree = "<group>"; };
@@ -213,6 +225,7 @@
 		DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTransferHistoryPage.swift; sourceTree = "<group>"; };
 		DDA1934688E4D109E194DB96 /* WidgetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetService.swift; sourceTree = "<group>"; };
 		DDC39012EDE608FCCD82D37B /* NativeDeviceLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDeviceLayout.swift; sourceTree = "<group>"; };
+		E0B1D45452F242A84DDE3942 /* PluginShell */ = {isa = PBXFileReference; lastKnownFileType = folder; name = PluginShell; path = MoviePilot/Resources/PluginShell; sourceTree = SOURCE_ROOT; };
 		E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaDetailPage.swift; sourceTree = "<group>"; };
 		E93AFCC3E95380CC87531EFD /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		EBE1EA601497A25CA8C37673 /* PlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngine.swift; sourceTree = "<group>"; };
@@ -220,6 +233,7 @@
 		EEA3031D7DC4E14A074F6218 /* LegacyWebsiteStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyWebsiteStorage.swift; sourceTree = "<group>"; };
 		EF6849CE05D1EC77AFA67129 /* NativeDownloadsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDownloadsPage.swift; sourceTree = "<group>"; };
 		F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkflowCanvasPage.swift; sourceTree = "<group>"; };
+		F2E56EC08A9E0B58E242AF9F /* NativePluginLocalRuntimeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginLocalRuntimeView.swift; sourceTree = "<group>"; };
 		F3EF638076E3852573384373 /* NativeAppearanceSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppearanceSettingsPage.swift; sourceTree = "<group>"; };
 		F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeCommunityPage.swift; sourceTree = "<group>"; };
 		F9AB903ED4FAEABC5A9E0569 /* NativeMoreHubPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMoreHubPage.swift; sourceTree = "<group>"; };
@@ -411,6 +425,7 @@
 				15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */,
 				B49D224903D83A20EF07FF85 /* CommunityMedals */,
 				571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */,
+				E0B1D45452F242A84DDE3942 /* PluginShell */,
 				074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */,
 				5F9B30B754752545394EF900 /* Widgets.entitlements */,
 				04E88BB7343F2CD8583FABF2 /* InfoPlist.strings */,
@@ -453,6 +468,12 @@
 			isa = PBXGroup;
 			children = (
 				EEA3031D7DC4E14A074F6218 /* LegacyWebsiteStorage.swift */,
+				F2E56EC08A9E0B58E242AF9F /* NativePluginLocalRuntimeView.swift */,
+				9AC3FDF874F421F138E7F0B4 /* PluginHostBridgeV2.swift */,
+				17BA1AD0A6153767FAE766F9 /* PluginRemoteDiskCache.swift */,
+				B3FF0D1740E03C0842FF3D7E /* PluginRemoteRuntimeModels.swift */,
+				43A6F2A1F8489C21FBF44F14 /* PluginShellSchemeHandler.swift */,
+				45EAB81992967CE5216573A7 /* PluginWebViewPool.swift */,
 			);
 			path = PluginWeb;
 			sourceTree = "<group>";
@@ -585,6 +606,7 @@
 				88CB04BEB4BEB2FD5E1189F7 /* CommunityMedals in Resources */,
 				DD0E2E99E6765F70226EBAF8 /* InfoPlist.strings in Resources */,
 				E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */,
+				81225805767A9EA522F839C9 /* PluginShell in Resources */,
 				60C934B3A627113848AA3617 /* ThirdPartyNotices.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -659,6 +681,7 @@
 				3D424A853E324626526E7C32 /* NativePluginCronEditor.swift in Sources */,
 				2E02C60A35D867A2008213A0 /* NativePluginDataPageView.swift in Sources */,
 				D7EDEDB0DE9835F49D973665 /* NativePluginFormView.swift in Sources */,
+				9AACAF7FD197B1F573D94927 /* NativePluginLocalRuntimeView.swift in Sources */,
 				9D0CE41BA43CAC19187B26D4 /* NativePluginMarketPage.swift in Sources */,
 				84F5B4F5B036CE1992EE9C26 /* NativeResourceSearchPage.swift in Sources */,
 				1C92A256F9DF407CB0D39639 /* NativeSettingsHubPage.swift in Sources */,
@@ -683,6 +706,11 @@
 				9A697B5E5AFFE2064EF6A510 /* PlaybackEngineFactory.swift in Sources */,
 				570ED0CADD7D194D0F7AE95E /* PlaybackProgressReporter.swift in Sources */,
 				C3500C0B9397F6B2A29004A1 /* PlaybackRouteResolver.swift in Sources */,
+				E15865E566336959DDC120B0 /* PluginHostBridgeV2.swift in Sources */,
+				0C84D194ABE2A7346BAF979C /* PluginRemoteDiskCache.swift in Sources */,
+				583FB6CD9EF8B2E2AC490998 /* PluginRemoteRuntimeModels.swift in Sources */,
+				FA3F4B6F20008329F812EEEB /* PluginShellSchemeHandler.swift in Sources */,
+				A2064D5F490C78CF9AF2AD29 /* PluginWebViewPool.swift in Sources */,
 				D25729D75787FFE684BCE836 /* SceneDelegate.swift in Sources */,
 				528DDA8EB6B423A11DB733E6 /* TokenStore.swift in Sources */,
 				D4CAB04ABD4D7D707666ABAF /* VlcPlaybackEngine.swift in Sources */,

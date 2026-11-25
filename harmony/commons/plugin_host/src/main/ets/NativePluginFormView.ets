@@ -1,4 +1,6 @@
 import { webview } from '@kit.ArkWeb';
+import { HarmonyLocalPluginShellView } from './runtime/HarmonyLocalPluginShellView';
+import { HarmonyPluginHeaderAction } from './runtime/HarmonyPluginHostBridgeV2';
 import { RustCoreBridge, MpRemoteImage } from '@moviepilot/core_rust_bridge';
 import {
   CinematicPanel,
@@ -812,6 +814,7 @@ export struct NativePluginDataPageView {
 export struct IsolatedVuePluginWebView {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_USE_LEGACY_VUE_PLUGIN) useLegacyVuePlugin: boolean = false;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) @Watch('onHostWindowResize') windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) @Watch('onHostWindowResize') windowHeightVp: number = 892;
   @Prop pluginId: string = '';
@@ -827,6 +830,7 @@ export struct IsolatedVuePluginWebView {
   onRequestDismiss: () => void = () => {};
 
   @State private isReady: boolean = false;
+  @State private fallbackToLegacy: boolean = false;
   private activeConfirmationId: string = '';
   private webController: webview.WebviewController = new webview.WebviewController();
   private phase: string = 'idle'; // idle | configured | preparing | active | released
@@ -1298,6 +1302,48 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
   }
 
   build() {
+    if (!this.useLegacyVuePlugin && !this.fallbackToLegacy) {
+      HarmonyLocalPluginShellView({
+        pluginId: this.pluginId,
+        pluginName: this.pluginId,
+        serverUrl: this.serverUrl,
+        authToken: this.authToken,
+        userName: this.userName,
+        userAvatar: this.userAvatar,
+        isSuperuser: this.isSuperuser,
+        surface: this.switchesToConfig ? 'config' : 'dataPage',
+        pluginHasPage: !this.switchesToConfig,
+        onHeaderUpdate: (title: string, actions: HarmonyPluginHeaderAction[]) => {
+          if (title.length > 0) {
+            this.onChromeTitleChange(title);
+          }
+          const mapped: VueChromeAction[] = [];
+          for (let i = 0; i < actions.length; i++) {
+            mapped.push({
+              id: actions[i].id,
+              title: actions[i].title,
+              icon: actions[i].icon,
+              enabled: actions[i].enabled
+            });
+          }
+          this.onChromeActionsChange(mapped);
+        },
+        onRequestDismiss: () => {
+          this.onRequestDismiss();
+        },
+        onFallbackToLegacy: () => {
+          this.fallbackToLegacy = true;
+        },
+        onRegisterActions: (invoke: (actionId: string) => void, close: () => boolean) => {
+          if (this.chromeController) {
+            this.chromeController.invokeActionHandler = invoke;
+            this.chromeController.requestCloseHandler = close;
+          }
+        }
+      })
+        .width('100%')
+        .height('100%')
+    } else {
     Stack({ alignContent: Alignment.Center }) {
       Web({ src: this.targetUrl(), controller: this.webController })
         .javaScriptAccess(true)
@@ -1349,6 +1395,7 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
         }
       }
     })
+    }
   }
 }
 

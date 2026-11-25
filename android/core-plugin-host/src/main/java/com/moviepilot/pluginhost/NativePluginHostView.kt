@@ -82,11 +82,15 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.LocalAppearanceStore
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.SkeletonCardStyle
+import com.moviepilot.pluginhost.runtime.AndroidPluginWebViewPool
+import com.moviepilot.pluginhost.runtime.LocalPluginShellWebView
+import com.moviepilot.pluginhost.runtime.PluginRemoteDiskCache
 import com.moviepilot.rustbridge.RustCoreBridge
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -109,6 +113,8 @@ private fun JsonObject.safeStr(key: String): String? = this[key].safePrim()?.con
  * 必须在用户主动退出登录或 401 令牌失效自动退登时调用，杜绝跨账号残留。
  */
 fun clearIsolatedPluginWebViewSession(context: Context) {
+    AndroidPluginWebViewPool.resetForSessionChange()
+    PluginRemoteDiskCache.clearAll(context)
     runCatching {
         val cm = CookieManager.getInstance()
         cm.removeAllCookies(null)
@@ -1714,6 +1720,40 @@ private class AndroidVuePluginChromeHost(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun IsolatedVuePluginWebView(
+    pluginId: String,
+    session: VuePluginSessionPayload,
+    surface: VuePluginSurface = VuePluginSurface.DataPage,
+    chromeController: VuePluginChromeController? = null,
+    pluginHasPage: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val appearance = LocalAppearanceStore.current
+    var fallbackToLegacy by remember(pluginId, surface) { mutableStateOf(false) }
+    if (!appearance.useLegacyVuePluginContainer && !fallbackToLegacy) {
+        LocalPluginShellWebView(
+            pluginId = pluginId,
+            session = session,
+            surface = surface,
+            chromeController = chromeController,
+            pluginHasPage = pluginHasPage,
+            onFallbackToLegacy = { fallbackToLegacy = true },
+            modifier = modifier,
+        )
+        return
+    }
+    LegacyIsolatedVuePluginWebView(
+        pluginId = pluginId,
+        session = session,
+        surface = surface,
+        chromeController = chromeController,
+        pluginHasPage = pluginHasPage,
+        modifier = modifier,
+    )
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun LegacyIsolatedVuePluginWebView(
     pluginId: String,
     session: VuePluginSessionPayload,
     surface: VuePluginSurface = VuePluginSurface.DataPage,

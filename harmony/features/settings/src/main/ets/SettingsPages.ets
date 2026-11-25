@@ -669,6 +669,7 @@ export struct HarmonySettingsHubPage {
   @StorageLink(HarmonyAppearanceStore.KEY_ANIMATE_BG) animateBg: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT) showAiMascot: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_USE_LEGACY_VUE_PLUGIN) useLegacyVuePlugin: boolean = false;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @StorageLink(PlaybackPreferencesStore.KEY_SCALE_MODE) playbackScaleMode: string = 'fit';
@@ -1498,6 +1499,21 @@ export struct HarmonySettingsHubPage {
                   .selectedColor(this.accentHex)
                   .onChange((v: boolean) => {
                     this.showAiMascot = v;
+                    this.persistAppearanceToDisk();
+                  })
+              }.width('100%')
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Row() {
+                Column({ space: 2 }) {
+                  Text('Vue 插件兼容网页模式').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('默认使用本地预热运行时，原生背景融合且无需前端端口；若个别插件不兼容可开启回退网页前端').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.useLegacyVuePlugin })
+                  .selectedColor(this.accentHex)
+                  .onChange((v: boolean) => {
+                    this.useLegacyVuePlugin = v;
                     this.persistAppearanceToDisk();
                   })
               }.width('100%')

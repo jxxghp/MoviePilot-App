@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "protocol": "moviepilot.pluginHost",
+  "protocolMajor": 2,
+  "shellVersion": "1ea54c8266868c14",
+  "bundleHash": "1ea54c8266868c14",
+  "entry": "plugin-shell.html",
+  "files": {
+    "assets/_virtual_mf-localSharedImportMap___mfe_internal__MoviePilot__mf_owner__1-Dd9udLtu.js": {
+      "sha256": "15fc65df0ff75015cbd31a495180ad6afeea1bf2e44e14b9f7df4ba98fa7de60",
+      "size": 1995
+    },
+    "assets/_virtual_mf___mfe_internal__MoviePilot__mf_owner__270887288814861__loadShare__vue__loadShare__.js-BM6OFLax.js": {
+      "sha256": "bf07007824aafab7e7ad73c63365349904822fccf976bbe5e7f61ea63e9c0050",
+      "size": 128116
+    },
+    "assets/_virtual_mf___mfe_internal__MoviePilot__mf_owner__270887288814861__loadShare__vuetify__loadShare__.js-DFFGpgb9.js": {
+      "sha256": "4cd575f809f08efdbc3d38147df350eb142dc35b3b8980641eaf1e04c8f449e8",
+      "size": 61192
+    },
+    "assets/helpers-Mspi5Is9.js": {
+      "sha256": "38d8222b4d30d9e1be5cdfc4da3be492e7e78fc2d7216df3ee3fcd5447e780ab",
+      "size": 72
+    },
+    "assets/hostInit-C6LRK_74.js": {
+      "sha256": "0991c6c3e96132c3f48774e20ad134435e16a207ac7fd53bfa3085f8ae22b055",
+      "size": 5827
+    },
+    "assets/icons-bundle-BKOuK79v.js": {
+      "sha256": "025ea840982445247e3a704850d024d2e96e24b22a72e2ca7eba46a1e2d0a036",
+      "size": 170611
+    },
+    "assets/index-BDPrJYKc.js": {
+      "sha256": "4ffa3872ce2f66614441b4cc04c3c0c907da5dd83ea7ff47e3fb018306938bed",
+      "size": 727
+    },
+    "assets/index-DuhcXm_v.js": {
+      "sha256": "6197a049c4b9a80c57ccc74e4bd3ab685dcdafd9fec393ff745660db6e58d09c",
+      "size": 64799
+    },
+    "assets/mf-entry-bootstrap-0-3983ff91.js": {
+      "sha256": "3983ff919f17b0550f30741722d4f35a501cbb8e7362a09e3520e112184ad6e9",
+      "size": 2169
+    },
+    "assets/pendingShares-D_t68T_n.js": {
+      "sha256": "9886e09384d0e7a34f5d7cda12039ebacafbf9e72e00ca1a075c2fc5b79b688e",
+      "size": 1654
+    },
+    "assets/plugin-shell-DcDIFwC3.js": {
+      "sha256": "eefa6d64ac6f72d5baead591da23f5e4c1092736c7fc21b2603b27587832daa7",
+      "size": 483661
+    },
+    "assets/style-bwKRo_FN.css": {
+      "sha256": "d0d8ccf2aa66f4acfb2322f120037229542d68f81891a814cdb28492b9b73e0a",
+      "size": 449916
+    },
+    "assets/vite-preload-helper-BzLqMsWX.js": {
+      "sha256": "e3f0027760fcc6e706cd50eb1bfafc936842290235ef74f626442754dc78daaa",
+      "size": 1113
+    },
+    "plugin-shell.html": {
+      "sha256": "43bba2618629d6861b312b6dae762a5414ac0c1df8125a6e6ed8211ee8a3ea05",
+      "size": 1843
+    },
+    "remoteEntry.js": {
+      "sha256": "eaddd45302a19a8ab92ae4a935682708ab4c2715f98ee495a62dffb0f1317cb2",
+      "size": 21291
+    }
+  }
+}

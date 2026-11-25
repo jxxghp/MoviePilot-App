@@ -231,6 +231,7 @@
     <string name="mp_823f4d1e" formatted="false">追剧日历</string>
     <string name="mp_83689796" formatted="false">请选择范围内的值，至少选择一项。</string>
     <string name="mp_838c3aed" formatted="false">正在读取歌词…</string>
+    <string name="mp_83924414" formatted="false">默认使用本地预热运行时，原生背景融合、秒开且无需前端端口；若个别插件不兼容可开启此项回退完整网页前端。</string>
     <string name="mp_83dc943e" formatted="false">系统概览</string>
     <string name="mp_83e48d7c" formatted="false">当前值（不在选项中）</string>
     <string name="mp_848aaab0" formatted="false">请检查此项的值</string>
@@ -271,6 +272,7 @@
     <string name="mp_a1aaf352" formatted="false">用户名</string>
     <string name="mp_a3148a4e" formatted="false">登录你的服务，继续管理订阅与媒体。</string>
     <string name="mp_a336277e" formatted="false">绑定媒体服务器账号</string>
+    <string name="mp_a368e87b" formatted="false">用兼容网页容器打开</string>
     <string name="mp_a3ccf702" formatted="false">数据源</string>
     <string name="mp_a3ed811e" formatted="false">身份验证器验证码</string>
     <string name="mp_a4474dd6" formatted="false">账号与服务</string>
@@ -340,6 +342,7 @@
     <string name="mp_baf84751" formatted="false">用户管理</string>
     <string name="mp_bb370d56" formatted="false">无法读取本地歌词。</string>
     <string name="mp_bbc7d362" formatted="false">连接服务</string>
+    <string name="mp_bc2b8f51" formatted="false">正在启动本地插件运行时…</string>
     <string name="mp_bcc3a869" formatted="false">影视资源</string>
     <string name="mp_bd03b5c1" formatted="false">已启用，只读显示当前账号允许的内容。</string>
     <string name="mp_bde0b46a" formatted="false">密码仅在本机安全保存，验证码不会保存。</string>
@@ -434,6 +437,7 @@
     <string name="mp_ed5e4c3e" formatted="false">搜索“%1$s”</string>
     <string name="mp_ed917b08" formatted="false">默认调用外部播放器</string>
     <string name="mp_edaa51e3" formatted="false">已切换至 %1$s</string>
+    <string name="mp_ede7ece4" formatted="false">本地运行时加载插件失败</string>
     <string name="mp_ee561675" formatted="false">我的订阅</string>
     <string name="mp_ee56a53b" formatted="false">媒体服务器</string>
     <string name="mp_ee87f6ec" formatted="false">服务端通知渠道</string>
@@ -516,6 +520,10 @@
     <string name="mp_url_d8340907" formatted="false">外部播放器 URL 模板</string>
     <string name="mp_vlckit_42693cc8" formatted="false">VLCKit 兼容</string>
     <string name="mp_vlckit_b044dd97" formatted="false">兼容内核（VLCKit）</string>
+    <string name="mp_vue_2b8527e0" formatted="false">Vue 插件兼容网页模式</string>
+    <string name="mp_vue_516f2bec" formatted="false">Vue 插件运行容器</string>
+    <string name="mp_vue_89421e63" formatted="false">已清理 Vue 插件本地缓存</string>
+    <string name="mp_vue_e5116a4f" formatted="false">清理 Vue 插件本地缓存</string>
     <string name="mp_web_7f1d362a" formatted="false">此插件使用 Web 界面，兼容入口正在迁移。</string>
     <string name="mp_web_aaedd1fc" formatted="false">底层代理、并发与高级系统参数请在 Web 管理台配置。</string>
     <string name="mp_widget_163aec91" formatted="false">内容</string>

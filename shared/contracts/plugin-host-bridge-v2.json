@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MoviePilot Native Plugin Host Bridge Protocol v2",
+  "protocol": "moviepilot.pluginHost",
+  "major": 2,
+  "virtualOrigins": {
+    "ios": "mp-plugin://shell",
+    "android": "https://plugin-shell.moviepilot.local",
+    "harmony": "https://plugin-shell.moviepilot.local"
+  },
+  "virtualRoutes": {
+    "shellPrefix": "/shell/",
+    "shellEntry": "/shell/plugin-shell.html",
+    "remotePrefix": "/plugin-remote/{pluginId}/{versionOrHash}/{assetPath}",
+    "passiveApiPrefix": "/api/v1/"
+  },
+  "securityInvariants": [
+    "No Bearer token, session secret, or localStorage.auth is ever written into the WebView.",
+    "All authenticated plugin API requests traverse bridge message api.request with payload.requestId and are validated to strictly target /api/v1/ on the active MoviePilot instance.",
+    "Remote plugin JS/CSS chunks are served through the platform virtual origin and disk-cached under {instanceHash}/{pluginId}/{versionOrHash}/.",
+    "Passive GET /api/v1/ requests (images, icons, plugin static assets) are intercepted and authenticated natively without exposing tokens to JS."
+  ],
+  "hostToWebTypes": [
+    "plugin.mount",
+    "plugin.unmount",
+    "theme.update",
+    "locale.update",
+    "safeArea.update",
+    "nav.back",
+    "host.action",
+    "bridge.response"
+  ],
+  "webToHostTypes": [
+    "shell.ready",
+    "plugin.mounted",
+    "plugin.error",
+    "plugin.close",
+    "plugin.action",
+    "api.request",
+    "api.abort",
+    "ui.toast",
+    "ui.confirm",
+    "ui.header",
+    "nav.backResult",
+    "nav.openRoute",
+    "nav.openExternal",
+    "device.haptic",
+    "device.clipboard"
+  ],
+  "visualTokens": {
+    "requiredFields": [
+      "mode",
+      "platform",
+      "backgroundPreset",
+      "isAmoledBlack",
+      "highContrast",
+      "accentHex",
+      "onAccentHex",
+      "textPrimaryHex",
+      "textSecondaryHex",
+      "surfaceGlassRgba",
+      "surfaceElevatedRgba",
+      "surfaceBorderRgba",
+      "surfaceBlurPx",
+      "solidSurfaceHex",
+      "fieldFillRgba",
+      "fieldBorderRgba",
+      "chipFillRgba",
+      "chipBorderRgba",
+      "dividerRgba",
+      "panelRadiusPx",
+      "sheetRadiusPx",
+      "borderWidthPx",
+      "semantic"
+    ]
+  },
+  "poolPolicy": {
+    "warmIdleCount": 1,
+    "prewarmIdleDelayMs": 1500,
+    "maxReusesPerWebView": 15,
+    "remoteDiskCacheLimitBytes": 52428800,
+    "mountFadeInMs": 160
+  }
+}

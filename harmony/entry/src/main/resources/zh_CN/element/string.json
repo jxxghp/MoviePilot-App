@@ -921,6 +921,10 @@
       "value": "正在读取歌词…"
     },
     {
+      "name": "mp_83924414",
+      "value": "默认使用本地预热运行时，原生背景融合、秒开且无需前端端口；若个别插件不兼容可开启此项回退完整网页前端。"
+    },
+    {
       "name": "mp_83dc943e",
       "value": "系统概览"
     },
@@ -1079,6 +1083,10 @@
     {
       "name": "mp_a336277e",
       "value": "绑定媒体服务器账号"
+    },
+    {
+      "name": "mp_a368e87b",
+      "value": "用兼容网页容器打开"
     },
     {
       "name": "mp_a3ccf702",
@@ -1355,6 +1363,10 @@
     {
       "name": "mp_bbc7d362",
       "value": "连接服务"
+    },
+    {
+      "name": "mp_bc2b8f51",
+      "value": "正在启动本地插件运行时…"
     },
     {
       "name": "mp_bcc3a869",
@@ -1733,6 +1745,10 @@
       "value": "已切换至 %s"
     },
     {
+      "name": "mp_ede7ece4",
+      "value": "本地运行时加载插件失败"
+    },
+    {
       "name": "mp_ee561675",
       "value": "我的订阅"
     },
@@ -2059,6 +2075,22 @@
     {
       "name": "mp_vlckit_b044dd97",
       "value": "兼容内核（VLCKit）"
+    },
+    {
+      "name": "mp_vue_2b8527e0",
+      "value": "Vue 插件兼容网页模式"
+    },
+    {
+      "name": "mp_vue_516f2bec",
+      "value": "Vue 插件运行容器"
+    },
+    {
+      "name": "mp_vue_89421e63",
+      "value": "已清理 Vue 插件本地缓存"
+    },
+    {
+      "name": "mp_vue_e5116a4f",
+      "value": "清理 Vue 插件本地缓存"
     },
     {
       "name": "mp_web_7f1d362a",

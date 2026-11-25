@@ -128,6 +128,7 @@ import com.moviepilot.media.QueueTrackSpec
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.media.buildConfiguredExoPlayer
 import com.moviepilot.pluginhost.clearIsolatedPluginWebViewSession
+import com.moviepilot.pluginhost.runtime.AndroidPluginWebViewPool
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaPersonDto
 import com.moviepilot.rustbridge.MediaServerLibraryDto
@@ -341,6 +342,14 @@ fun MoviePilotRootShell(
     }
 
     val activeInstanceUrl = currentActiveInstanceUrl()
+
+    // 登录后空闲 1.5s 自动预热 1 个本地联邦插件运行时壳，做到点击 Vue 插件零冷启动延迟
+    val appearance = LocalAppearanceStore.current
+    LaunchedEffect(activeInstanceUrl, appearance.useLegacyVuePluginContainer) {
+        if (activeInstanceUrl.isNotBlank() && !appearance.useLegacyVuePluginContainer) {
+            AndroidPluginWebViewPool.scheduleIdlePrewarm(context, 1500L)
+        }
+    }
 
     // 启动时清扫上次异常退出遗留的远程存储播放临时缓存文件
     LaunchedEffect(Unit) {

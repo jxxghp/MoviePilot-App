@@ -38,6 +38,16 @@ class SyncToolsTests(unittest.TestCase):
         self.assertTrue((ROOT / "android/app/src/main/res/values/strings.xml").is_file())
         self.assertTrue((ROOT / "harmony/entry/src/main/resources/base/element/string.json").is_file())
 
+    def test_plugin_shell_runtime_synced_to_all_three_platforms(self):
+        for rel in [
+            "shared/plugin-shell/manifest.json",
+            "shared/plugin-shell/plugin-shell.html",
+            "ios/MoviePilot/Resources/PluginShell/plugin-shell.html",
+            "android/core-plugin-host/src/main/assets/plugin_shell/plugin-shell.html",
+            "harmony/entry/src/main/resources/rawfile/plugin_shell/plugin-shell.html",
+        ]:
+            self.assertTrue((ROOT / rel).is_file(), f"缺少 plugin-shell 资产：{rel}")
+
     def test_screenshot_gallery_links_match_files_on_disk(self):
         import re
 

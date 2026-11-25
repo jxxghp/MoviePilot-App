@@ -1242,6 +1242,10 @@ final class NativeVueSheetBridge: ObservableObject {
   @Published var failureMessage: String?
   /// 当前 WebView 文档的协议宿主；WebView 销毁后自动失效，旧文档不能再接收命令。
   weak var host: NativeVuePluginChromeHost?
+  /// 本地预热联邦运行时（v2）回调覆盖，启用本地运行时后优先接管导航栏按钮与确认框。
+  var localInvokeAction: ((String) -> Void)?
+  var localRequestClose: (() -> Bool)?
+  var localRespondConfirmation: ((String, Bool) -> Void)?
 
   init(defaultTitle: String) {
     self.title = defaultTitle
@@ -1252,18 +1256,29 @@ final class NativeVueSheetBridge: ObservableObject {
 
   /// 原生栏按钮只回传前端声明的按钮标识，由前端复核后点击当前弹窗内的真实按钮。
   func invokeAction(id: String) {
+    if let localInvokeAction {
+      localInvokeAction(id)
+      return
+    }
     host?.invokeSheetAction(id)
   }
 
   /// 原生关闭：可关闭的网页弹窗先交回前端关闭（嵌套弹窗只关闭最上层）；返回 false 表示应直接关闭整个 Sheet。
   func requestClose() -> Bool {
-    host?.requestCloseCurrentSheet() ?? false
+    if let localRequestClose {
+      return localRequestClose()
+    }
+    return host?.requestCloseCurrentSheet() ?? false
   }
 
   /// 原生 Alert 结算后把确认/取消交回前端原组件，不重复执行业务逻辑。
   func respondConfirmation(_ confirmed: Bool) {
     guard let current = confirmation else { return }
     confirmation = nil
+    if let localRespondConfirmation {
+      localRespondConfirmation(current.id, confirmed)
+      return
+    }
     host?.respondConfirmation(id: current.id, confirmed: confirmed)
   }
 }
@@ -1415,9 +1430,16 @@ struct NativeVuePluginWebContainer: View {
 
   @Environment(\.colorScheme) private var colorScheme
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @AppStorage(PluginRuntimePreferences.useLegacyWebContainerKey)
+  private var useLegacyWebContainer = false
+  @State private var fallbackToLegacy = false
   @State private var launchConfig: VuePluginLaunchConfig?
   @State private var isWebLoading = true
   @State private var loadError: String?
+
+  private var prefersLocalRuntime: Bool {
+    !useLegacyWebContainer && !fallbackToLegacy
+  }
 
   private var showsLoader: Bool {
     if let sheetBridge {
@@ -1427,6 +1449,24 @@ struct NativeVuePluginWebContainer: View {
   }
 
   var body: some View {
+    if prefersLocalRuntime {
+      NativePluginLocalRuntimeView(
+        session: session,
+        pluginID: pluginID,
+        pluginName: pluginName,
+        surface: surface,
+        sheetBridge: sheetBridge,
+        pluginHasPage: pluginHasPage,
+        onFallbackToLegacy: {
+          fallbackToLegacy = true
+        }
+      )
+    } else {
+      legacyWebBody
+    }
+  }
+
+  private var legacyWebBody: some View {
     ZStack {
       CinematicBackground()
       if let launchConfig {

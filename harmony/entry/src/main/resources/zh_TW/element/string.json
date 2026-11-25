@@ -670,7 +670,7 @@
     },
     {
       "name": "mp_5982c44c",
-      "value": "重新加載"
+      "value": "重新載入"
     },
     {
       "name": "mp_5984ebc4",
@@ -921,6 +921,10 @@
       "value": "正在讀取歌詞…"
     },
     {
+      "name": "mp_83924414",
+      "value": "預設使用本地預熱執行期，原生背景融合、秒開且無需前端連接埠；若個別外掛不相容可開啟此項回退完整網頁前端。"
+    },
+    {
       "name": "mp_83dc943e",
       "value": "系統概覽"
     },
@@ -1079,6 +1083,10 @@
     {
       "name": "mp_a336277e",
       "value": "綁定媒體伺服器賬號"
+    },
+    {
+      "name": "mp_a368e87b",
+      "value": "使用相容網頁容器開啟"
     },
     {
       "name": "mp_a3ccf702",
@@ -1355,6 +1363,10 @@
     {
       "name": "mp_bbc7d362",
       "value": "連接服務"
+    },
+    {
+      "name": "mp_bc2b8f51",
+      "value": "正在啟動本地外掛執行期…"
     },
     {
       "name": "mp_bcc3a869",
@@ -1733,6 +1745,10 @@
       "value": "已切換至 %s"
     },
     {
+      "name": "mp_ede7ece4",
+      "value": "本地執行期載入外掛失敗"
+    },
+    {
       "name": "mp_ee561675",
       "value": "我的訂閱"
     },
@@ -2059,6 +2075,22 @@
     {
       "name": "mp_vlckit_b044dd97",
       "value": "相容核心（VLCKit）"
+    },
+    {
+      "name": "mp_vue_2b8527e0",
+      "value": "Vue 外掛相容網頁模式"
+    },
+    {
+      "name": "mp_vue_516f2bec",
+      "value": "Vue 外掛執行容器"
+    },
+    {
+      "name": "mp_vue_89421e63",
+      "value": "已清理 Vue 外掛本地快取"
+    },
+    {
+      "name": "mp_vue_e5116a4f",
+      "value": "清理 Vue 外掛本地快取"
     },
     {
       "name": "mp_web_7f1d362a",

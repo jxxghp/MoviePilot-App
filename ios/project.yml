@@ -29,9 +29,13 @@ targets:
     platform: iOS
     sources:
       - path: MoviePilot
-        excludes: [Resources/Info.plist, Resources/CommunityMedals]
+        excludes: [Resources/Info.plist, Resources/CommunityMedals, Resources/PluginShell]
       # 勋章贴图按 `CommunityMedals/` 子目录从包内加载，必须以文件夹引用整体拷贝，不能平铺到包根目录。
       - path: MoviePilot/Resources/CommunityMedals
+        type: folder
+        buildPhase: resources
+      # 本地联邦插件运行时壳（plugin-shell）需保留 `assets/` 子目录结构，以文件夹引用整体打入主包。
+      - path: MoviePilot/Resources/PluginShell
         type: folder
         buildPhase: resources
       - path: NativeDesignSystem

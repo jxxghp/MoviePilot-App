@@ -198,3 +198,35 @@ class NativeFixtureTests(unittest.TestCase):
             chunk = stream_resp.read()
             self.assertEqual(len(chunk), 1024)
             self.assertIn(b"ftyp", chunk[:32])
+
+    def test_vue_plugin_local_runtime_endpoints_require_auth_and_serve_esm(self):
+        """验证合成联邦插件 remotes、ESM remoteEntry.js 与桥接状态接口在无前端 HTML 情况下独立工作。"""
+        forbidden_status, _ = self.request("/a/api/v1/plugin/remotes?token=wrong")
+        self.assertEqual(forbidden_status, 403)
+
+        ok_status, items = self.request("/a/api/v1/plugin/remotes?token=moviepilot")
+        self.assertEqual(ok_status, 200)
+        self.assertEqual(items[0]["id"], "VueCompatDemo")
+        self.assertEqual(items[0]["version"], "1.2.0")
+        self.assertEqual(items[0]["bundle_hash"], "a1b2c3d4e5f6")
+
+        unauth_status, _ = self.request("/a/api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js")
+        self.assertEqual(unauth_status, 401)
+
+        js_req = Request(
+            self.base + "/a/api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js",
+            headers={"Authorization": "Bearer synthetic-native-a"},
+        )
+        with urlopen(js_req, timeout=5) as js_resp:
+            self.assertEqual(js_resp.status, 200)
+            self.assertIn("javascript", js_resp.headers.get("Content-Type", ""))
+            js_body = js_resp.read().decode("utf-8")
+            self.assertIn("export async function get(", js_body)
+
+        status_code, payload = self.request(
+            "/a/api/v1/plugin/VueCompatDemo/status",
+            token="synthetic-native-a",
+        )
+        self.assertEqual(status_code, 200)
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["data"]["items"], 42)

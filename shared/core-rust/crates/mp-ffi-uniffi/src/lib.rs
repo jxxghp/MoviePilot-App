@@ -9,7 +9,12 @@ use mp_core_model::{
     PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference, PlaybackSyncInput,
     PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
 };
-use mp_core_plugin::{NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder};
+use mp_core_plugin::{
+    NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder,
+    build_plugin_remote_cache_key, normalize_plugin_remote_entry,
+    resolve_plugin_remote_upstream_path, validate_plugin_api_path,
+    validate_plugin_shell_asset_path,
+};
 use mp_core_session::{NativePermissions, classify_auth_status, decode_jwt_claims};
 use std::sync::Mutex;
 use thiserror::Error;
@@ -489,6 +494,50 @@ pub fn build_external_player_url(
 ) -> Result<String, CoreFfiError> {
     PlaybackEngineRouter::build_external_player_url(&template, &media_url, &title)
         .map_err(|msg| CoreFfiError::InvalidAddress { msg })
+}
+
+/// 校验并规范化插件 Bridge 请求的 `/api/v1/...` 路径，拒绝外部主机与路径穿越。
+#[uniffi::export]
+pub fn validate_plugin_bridge_api_path(raw_path: String) -> Result<String, CoreFfiError> {
+    validate_plugin_api_path(&raw_path).map_err(|msg| CoreFfiError::InvalidEndpoint { msg })
+}
+
+/// 校验本地运行时壳 `/shell/...` 资产路径并返回安全的包内相对路径。
+#[uniffi::export]
+pub fn validate_plugin_shell_asset(virtual_path: String) -> Result<String, CoreFfiError> {
+    validate_plugin_shell_asset_path(&virtual_path)
+        .map_err(|msg| CoreFfiError::InvalidEndpoint { msg })
+}
+
+/// 生成按实例源 SHA-256、插件 ID 与版本/哈希隔离的磁盘缓存键 JSON。
+#[uniffi::export]
+pub fn build_plugin_remote_cache_key_json(
+    instance_origin: String,
+    plugin_id: String,
+    version_or_hash: String,
+) -> Result<String, CoreFfiError> {
+    let key = build_plugin_remote_cache_key(&instance_origin, &plugin_id, &version_or_hash);
+    serde_json::to_string(&key).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 将后端联邦插件远程入口地址规划为虚拟源路径与上游文件路径 JSON。
+#[uniffi::export]
+pub fn normalize_plugin_remote_entry_json(
+    plugin_id: String,
+    version_or_hash: String,
+    raw_remote_url: String,
+) -> Result<String, CoreFfiError> {
+    let plan = normalize_plugin_remote_entry(&plugin_id, &version_or_hash, &raw_remote_url)
+        .map_err(|msg| CoreFfiError::InvalidEndpoint { msg })?;
+    serde_json::to_string(&plan).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 将虚拟源 `/plugin-remote/...` 请求安全还原为上游 API 路径与缓存相对路径 JSON。
+#[uniffi::export]
+pub fn resolve_plugin_remote_upstream_json(virtual_path: String) -> Result<String, CoreFfiError> {
+    let target = resolve_plugin_remote_upstream_path(&virtual_path)
+        .map_err(|msg| CoreFfiError::InvalidEndpoint { msg })?;
+    serde_json::to_string(&target).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
 }
 
 /// 返回 Rust 共享内核版本号，用于三端 FFI 冒烟健康检查。

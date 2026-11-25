@@ -33,6 +33,8 @@ struct NativeSettingsHubPage: View {
   @State private var showsLogoutConfirm = false
   @State private var cacheClearedNotice = false
   @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
+  @AppStorage(PluginRuntimePreferences.useLegacyWebContainerKey)
+  private var useLegacyVuePluginContainer = false
   @AppStorage("nativeV2.playback.aspectFill") private var playbackAspectFill = false
   @AppStorage("nativeV2.playback.defaultRate") private var playbackDefaultRate = 1.0
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -128,6 +130,8 @@ struct NativeSettingsHubPage: View {
         NativeMediaArtworkCache.shared.clearSession(session)
         NativePageDataCache.shared.clearAll()
         NativeMediaLibraryStatusStore.shared.clearAll()
+        PluginWebViewPool.shared.resetForSessionChange()
+        Task { await PluginRemoteDiskCache.shared.clearAll() }
         cacheBytes = 0
         cacheClearedNotice = true
       }
@@ -146,7 +150,9 @@ struct NativeSettingsHubPage: View {
     }
     .onAppear {
       Task {
-        cacheBytes = await NativeMediaArtworkCache.shared.diskCacheSizeBytes(for: session)
+        let artworkBytes = await NativeMediaArtworkCache.shared.diskCacheSizeBytes(for: session)
+        let pluginBytes = await PluginRemoteDiskCache.shared.diskUsageBytes()
+        cacheBytes = artworkBytes + pluginBytes
       }
     }
   }
@@ -466,6 +472,36 @@ struct NativeSettingsHubPage: View {
       .buttonStyle(.plain)
       .accessibilityIdentifier("native-v2-language")
       settingsRowDivider
+      HStack(spacing: 14) {
+        iconBadge("puzzlepiece.extension")
+        VStack(alignment: .leading, spacing: 2) {
+          Text(t("Vue 插件兼容网页模式"))
+            .font(.body)
+            .foregroundStyle(.primary)
+          Text(t("默认使用本地预热运行时，原生背景融合、秒开且无需前端端口；若个别插件不兼容可开启此项回退完整网页前端。"))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        Spacer(minLength: 8)
+        Toggle("", isOn: $useLegacyVuePluginContainer)
+          .labelsHidden()
+          .tint(appearance.accentColor)
+          .frame(minHeight: 44)
+          .accessibilityLabel(t("Vue 插件兼容网页模式"))
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
+      .frame(minHeight: 56)
+      .accessibilityIdentifier("native-settings-vue-legacy-mode")
+      .onChange(of: useLegacyVuePluginContainer) { legacy in
+        if legacy {
+          PluginWebViewPool.shared.resetForSessionChange()
+        } else {
+          PluginWebViewPool.shared.scheduleIdlePrewarm(delaySeconds: 0.5)
+        }
+      }
+      settingsRowDivider
       navRow(
         title: t("本地缓存清理"),
         subtitle: cacheClearedNotice ? t("已清理") : Self.formatBytes(Double(cacheBytes)),
@@ -602,7 +638,9 @@ struct NativeSettingsHubPage: View {
   // MARK: - 概览数据加载
 
   private func loadOverview(forceRefresh: Bool = false) async {
-    cacheBytes = await NativeMediaArtworkCache.shared.diskCacheSizeBytes(for: session)
+    let artworkBytes = await NativeMediaArtworkCache.shared.diskCacheSizeBytes(for: session)
+    let pluginBytes = await PluginRemoteDiskCache.shared.diskUsageBytes()
+    cacheBytes = artworkBytes + pluginBytes
     guard snapshot.user.isSuperuser else {
       isOverviewLoading = false
       return

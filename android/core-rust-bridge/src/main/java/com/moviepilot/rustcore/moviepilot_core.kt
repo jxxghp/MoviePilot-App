@@ -768,6 +768,16 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -788,6 +798,8 @@ internal interface IntegrityCheckingUniffiLib : Library {
 fun uniffi_moviepilot_core_checksum_func_apply_plugin_form_patch(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_build_external_player_url(
+): Short
+fun uniffi_moviepilot_core_checksum_func_build_plugin_remote_cache_key_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_build_v3_endpoint_url(
 ): Short
@@ -813,6 +825,8 @@ fun uniffi_moviepilot_core_checksum_func_is_same_http_origin(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_normalize_plugin_remote_entry_json(
+): Short
 fun uniffi_moviepilot_core_checksum_func_normalize_server_address(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_agent_markdown(
@@ -829,7 +843,13 @@ fun uniffi_moviepilot_core_checksum_func_plan_plugin_form_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_resolve_plugin_remote_upstream_json(
+): Short
 fun uniffi_moviepilot_core_checksum_func_server_address_contains(
+): Short
+fun uniffi_moviepilot_core_checksum_func_validate_plugin_bridge_api_path(
+): Short
+fun uniffi_moviepilot_core_checksum_func_validate_plugin_shell_asset(
 ): Short
 fun uniffi_moviepilot_core_checksum_method_nativesseparser_finish(
 ): Short
@@ -902,6 +922,8 @@ fun uniffi_moviepilot_core_fn_func_apply_plugin_form_patch(`originalModelJson`: 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_build_external_player_url(`template`: RustBuffer.ByValue,`mediaUrl`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_build_plugin_remote_cache_key_json(`instanceOrigin`: RustBuffer.ByValue,`pluginId`: RustBuffer.ByValue,`versionOrHash`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_build_v3_endpoint_url(`baseUrl`: RustBuffer.ByValue,`pathSegments`: RustBuffer.ByValue,`queryJson`: RustBuffer.ByValue,`trailingSlash`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_classify_http_auth_status(`status`: Short,`bodyText`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -926,6 +948,8 @@ fun uniffi_moviepilot_core_fn_func_is_same_http_origin(`urlA`: RustBuffer.ByValu
 ): Byte
 fun uniffi_moviepilot_core_fn_func_normalize_pending_playback_stops_json(`entriesJson`: RustBuffer.ByValue,`nowEpochMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_normalize_plugin_remote_entry_json(`pluginId`: RustBuffer.ByValue,`versionOrHash`: RustBuffer.ByValue,`rawRemoteUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_normalize_server_address(`raw`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_parse_agent_markdown(`markdown`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -942,8 +966,14 @@ fun uniffi_moviepilot_core_fn_func_plan_plugin_form_json(`documentJson`: RustBuf
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_resolve_playback_engine_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_resolve_plugin_remote_upstream_json(`virtualPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_server_address_contains(`baseUrl`: RustBuffer.ByValue,`candidateUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_moviepilot_core_fn_func_validate_plugin_bridge_api_path(`rawPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_validate_plugin_shell_asset(`virtualPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun ffi_moviepilot_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun ffi_moviepilot_core_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1079,6 +1109,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_build_external_player_url() != 48700.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_build_plugin_remote_cache_key_json() != 2310.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_build_v3_endpoint_url() != 39775.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1115,6 +1148,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json() != 59689.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_normalize_plugin_remote_entry_json() != 58046.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_normalize_server_address() != 63452.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1139,7 +1175,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json() != 50581.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_resolve_plugin_remote_upstream_json() != 55803.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_server_address_contains() != 32809.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_validate_plugin_bridge_api_path() != 29616.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_validate_plugin_shell_asset() != 35061.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_method_nativesseparser_finish() != 1038.toShort()) {
@@ -2418,6 +2463,19 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 生成按实例源 SHA-256、插件 ID 与版本/哈希隔离的磁盘缓存键 JSON。
+         */
+    @Throws(CoreFfiException::class) fun `buildPluginRemoteCacheKeyJson`(`instanceOrigin`: kotlin.String, `pluginId`: kotlin.String, `versionOrHash`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_build_plugin_remote_cache_key_json(
+        FfiConverterString.lower(`instanceOrigin`),FfiConverterString.lower(`pluginId`),FfiConverterString.lower(`versionOrHash`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 基于实例根地址构造安全的 `/api/v1/...` 完整请求 URL。
          */
     @Throws(CoreFfiException::class) fun `buildV3EndpointUrl`(`baseUrl`: kotlin.String, `pathSegments`: List<kotlin.String>, `queryJson`: kotlin.String, `trailingSlash`: kotlin.Boolean): kotlin.String {
@@ -2566,6 +2624,19 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 将后端联邦插件远程入口地址规划为虚拟源路径与上游文件路径 JSON。
+         */
+    @Throws(CoreFfiException::class) fun `normalizePluginRemoteEntryJson`(`pluginId`: kotlin.String, `versionOrHash`: kotlin.String, `rawRemoteUrl`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_normalize_plugin_remote_entry_json(
+        FfiConverterString.lower(`pluginId`),FfiConverterString.lower(`versionOrHash`),FfiConverterString.lower(`rawRemoteUrl`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 规范化 MoviePilot 实例地址（保留反向代理子路径，拒绝非法协议与内嵌凭据）。
          */
     @Throws(CoreFfiException::class) fun `normalizeServerAddress`(`raw`: kotlin.String): kotlin.String {
@@ -2668,12 +2739,51 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 将虚拟源 `/plugin-remote/...` 请求安全还原为上游 API 路径与缓存相对路径 JSON。
+         */
+    @Throws(CoreFfiException::class) fun `resolvePluginRemoteUpstreamJson`(`virtualPath`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_resolve_plugin_remote_upstream_json(
+        FfiConverterString.lower(`virtualPath`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 校验目标 URL 是否严格属于给定实例源及部署子路径。
          */ fun `serverAddressContains`(`baseUrl`: kotlin.String, `candidateUrl`: kotlin.String): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_server_address_contains(
         FfiConverterString.lower(`baseUrl`),FfiConverterString.lower(`candidateUrl`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 校验并规范化插件 Bridge 请求的 `/api/v1/...` 路径，拒绝外部主机与路径穿越。
+         */
+    @Throws(CoreFfiException::class) fun `validatePluginBridgeApiPath`(`rawPath`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_validate_plugin_bridge_api_path(
+        FfiConverterString.lower(`rawPath`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 校验本地运行时壳 `/shell/...` 资产路径并返回安全的包内相对路径。
+         */
+    @Throws(CoreFfiException::class) fun `validatePluginShellAsset`(`virtualPath`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_validate_plugin_shell_asset(
+        FfiConverterString.lower(`virtualPath`),_status)
 }
     )
     }

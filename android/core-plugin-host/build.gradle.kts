@@ -20,4 +20,6 @@ android {
 dependencies {
     api(project(":design-system"))
     api(project(":core-rust-bridge"))
+    implementation(libs.androidx.webkit)
+    implementation(libs.okhttp)
 }

@@ -2580,6 +2580,51 @@
       "zh-Hans": "默认头像",
       "zh-Hant": "預設頭像",
       "en": "Default avatar"
+    },
+    "Vue 插件运行容器": {
+      "zh-Hans": "Vue 插件运行容器",
+      "zh-Hant": "Vue 外掛執行容器",
+      "en": "Vue Plugin Runtime"
+    },
+    "Vue 插件兼容网页模式": {
+      "zh-Hans": "Vue 插件兼容网页模式",
+      "zh-Hant": "Vue 外掛相容網頁模式",
+      "en": "Legacy WebView Mode for Vue Plugins"
+    },
+    "默认使用本地预热运行时，原生背景融合、秒开且无需前端端口；若个别插件不兼容可开启此项回退完整网页前端。": {
+      "zh-Hans": "默认使用本地预热运行时，原生背景融合、秒开且无需前端端口；若个别插件不兼容可开启此项回退完整网页前端。",
+      "zh-Hant": "預設使用本地預熱執行期，原生背景融合、秒開且無需前端連接埠；若個別外掛不相容可開啟此項回退完整網頁前端。",
+      "en": "Uses the pre-warmed local runtime by default for native visual fusion, instant opening, and API-only servers. Enable this to fall back to the legacy full web frontend."
+    },
+    "清理 Vue 插件本地缓存": {
+      "zh-Hans": "清理 Vue 插件本地缓存",
+      "zh-Hant": "清理 Vue 外掛本地快取",
+      "en": "Clear Vue Plugin Cache"
+    },
+    "已清理 Vue 插件本地缓存": {
+      "zh-Hans": "已清理 Vue 插件本地缓存",
+      "zh-Hant": "已清理 Vue 外掛本地快取",
+      "en": "Cleared local Vue plugin cache"
+    },
+    "用兼容网页容器打开": {
+      "zh-Hans": "用兼容网页容器打开",
+      "zh-Hant": "使用相容網頁容器開啟",
+      "en": "Open in Legacy Web Container"
+    },
+    "正在启动本地插件运行时…": {
+      "zh-Hans": "正在启动本地插件运行时…",
+      "zh-Hant": "正在啟動本地外掛執行期…",
+      "en": "Starting local plugin runtime…"
+    },
+    "本地运行时加载插件失败": {
+      "zh-Hans": "本地运行时加载插件失败",
+      "zh-Hant": "本地執行期載入外掛失敗",
+      "en": "Local runtime failed to load plugin"
+    },
+    "重新加载": {
+      "zh-Hans": "重新加载",
+      "zh-Hant": "重新載入",
+      "en": "Reload"
     }
   }
 }

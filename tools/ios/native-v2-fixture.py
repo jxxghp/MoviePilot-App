@@ -398,6 +398,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                     f"/{name}/api/v1/site/",
                     f"/{name}/api/v1/workflow/",
                     f"/{name}/api/v1/user/",
+                    f"/{name}/api/v1/authorization/",
                 }
                 or re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/site/(?:test|icon)/[0-9]+", endpoint)
@@ -428,6 +429,15 @@ class NativeHandler(BaseHTTPRequestHandler):
             if re.fullmatch(r"api/v1/plugin/dashboard/[A-Za-z][A-Za-z0-9_]*(?:/[A-Za-z0-9_-]+)?", endpoint):
                 self.plugin_dashboard_endpoint(name, endpoint)
                 return
+            if endpoint == "api/v1/plugin/remotes":
+                self.plugin_remotes_endpoint(name)
+                return
+            if endpoint == "api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js":
+                self.plugin_remote_entry_js_endpoint(name)
+                return
+            if endpoint == "api/v1/plugin/VueCompatDemo/status":
+                self.plugin_vue_demo_status_endpoint(name)
+                return
             if re.fullmatch(r"api/v1/plugin/page/[A-Za-z][A-Za-z0-9_]*", endpoint):
                 self.plugin_page_endpoint(name, endpoint)
                 return
@@ -441,6 +451,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 "api/v1/system/nettest/targets", "api/v1/system/nettest",
                 "api/v1/system/modulelist", "api/v1/system/ruletest",
                 "api/v1/system/logging", "api/v1/system/runscheduler",
+                "api/v1/system/global/user",
                 "api/v1/media/recognize",
             } or re.fullmatch(r"api/v1/system/(?:setting|moduletest)/[A-Za-z0-9_]+", endpoint):
                 self.system_setting_read_endpoint(name, endpoint)
@@ -1430,6 +1441,9 @@ class NativeHandler(BaseHTTPRequestHandler):
         if endpoint == "api/v1/system/runscheduler":
             self.reply(200, {"success": True, "message": "", "data": None})
             return
+        if endpoint == "api/v1/system/global/user":
+            self.reply(200, {"success": True, "message": "", "data": {}})
+            return
         key = endpoint.rsplit("/", 1)[-1]
         defaults = {
             "Directories": [
@@ -1638,6 +1652,242 @@ class NativeHandler(BaseHTTPRequestHandler):
                 row for row in self.server.profiles[name]["installed_plugins"] if row["id"] != plugin_id
             ]
         self.reply(200, {"success": True, "message": "", "data": None})
+
+    def plugin_remotes_endpoint(self, name):
+        """返回合成 Vue 联邦插件远程入口清单（完全无前端 HTML / 3000 端口依赖）。"""
+        query = parse_qs(urlsplit(self.path).query)
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/plugin/remotes"] += 1
+            mode = profile["mode"]
+        if mode == "expired":
+            self.reply(401, {"success": False})
+            return
+        if query.get("token", [""])[0] != "moviepilot":
+            self.reply(403, {"detail": "Forbidden"})
+            return
+        self.reply(
+            200,
+            [
+                {
+                    "id": "VueCompatDemo",
+                    "url": "/api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js?v=1.2.0",
+                    "name": "合成远程组件插件",
+                    "version": "1.2.0",
+                    "bundle_hash": "a1b2c3d4e5f6",
+                }
+            ],
+        )
+
+    def plugin_remote_entry_js_endpoint(self, name):
+        """返回可被 @module-federation/enhanced/runtime 加载的 ESM 合成联邦插件容器。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        js_body = r"""
+let sharedScope = null;
+
+export function init(scope) {
+  sharedScope = scope;
+}
+
+async function resolveSharedVue(scope) {
+  const pkg = scope && scope.vue;
+  if (!pkg) throw new Error('Shared vue not found in federation shareScope');
+  const versions = Object.values(pkg);
+  if (!versions.length) throw new Error('Shared vue version map is empty');
+  const entry = versions[0];
+  if (typeof entry.lib === 'function') return entry.lib();
+  if (typeof entry.get === 'function') {
+    const factory = await entry.get();
+    return typeof factory === 'function' ? factory() : factory;
+  }
+  return entry;
+}
+
+function createDemoComponent(Vue, mode) {
+  const { defineComponent, h, ref, onMounted, resolveComponent } = Vue;
+  return defineComponent({
+    name: mode === 'Config' ? 'VueCompatDemoConfig' : 'VueCompatDemoPage',
+    props: {
+      api: { type: Object, required: true },
+      hostSdk: { type: Object, default: null },
+      initialConfig: { type: Object, default: () => ({}) },
+      pluginId: { type: String, default: 'VueCompatDemo' },
+    },
+    setup(props) {
+      const apiStatus = ref('正在经 Native Bridge 请求状态…');
+      const tokenAudit = ref('校验中…');
+      const confirmResult = ref('尚未触发确认框');
+      const refreshCount = ref(0);
+
+      async function loadStatus() {
+        try {
+          const res = await props.api.get('plugin/VueCompatDemo/status');
+          const msg = (res && res.message) ? res.message : JSON.stringify(res);
+          const count = (res && res.data && res.data.items) ? res.data.items : 0;
+          apiStatus.value = 'API 代理返回：' + msg + ' · 条目 ' + count;
+        } catch (err) {
+          apiStatus.value = 'API 代理失败：' + (err && err.message ? err.message : String(err));
+        }
+      }
+
+      onMounted(() => {
+        let hasAuth = false;
+        try {
+          hasAuth = window.localStorage.getItem('auth') !== null;
+        } catch (_) {}
+        tokenAudit.value = hasAuth ? '检测到 auth 残留' : '零令牌安全校验通过';
+        loadStatus();
+        if (props.hostSdk && props.hostSdk.shell && typeof props.hostSdk.shell.registerButton === 'function') {
+          props.hostSdk.shell.registerButton({
+            title: '刷新状态',
+            icon: 'mdi-refresh',
+            action: () => {
+              refreshCount.value += 1;
+              loadStatus();
+            },
+          });
+        }
+      });
+
+      function onTriggerToast() {
+        if (props.hostSdk && props.hostSdk.ui && props.hostSdk.ui.toast) {
+          props.hostSdk.ui.toast.success('原生 Toast 桥接成功');
+        }
+      }
+
+      async function onTriggerConfirm() {
+        if (props.hostSdk && props.hostSdk.ui && typeof props.hostSdk.ui.confirm === 'function') {
+          const ok = await props.hostSdk.ui.confirm({
+            title: '原生确认测试',
+            content: '来自联邦插件的原生确认弹窗',
+            confirmText: '确定',
+            cancelText: '取消',
+          });
+          confirmResult.value = ok ? '原生确认结果：已确认' : '原生确认结果：已取消';
+        }
+      }
+
+      return () => {
+        const VCard = resolveComponent('VCard');
+        const VCardTitle = resolveComponent('VCardTitle');
+        const VCardText = resolveComponent('VCardText');
+        const VBtn = resolveComponent('VBtn');
+        const VChip = resolveComponent('VChip');
+
+        // 故意包裹一层全宽白色不透明根容器，用于验证 Layer 3 视觉融合自动将其洗净为透明
+        return h(
+          'div',
+          {
+            class: 'demo-opaque-wrapper',
+            style: {
+              width: '100%',
+              minHeight: '460px',
+              backgroundColor: 'rgb(255, 255, 255)',
+              padding: '16px',
+              boxSizing: 'border-box',
+            },
+          },
+          [
+            h(
+              VCard,
+              { class: 'mb-4', variant: 'flat' },
+              {
+                default: () => [
+                  h(VCardTitle, null, () => '合成联邦插件运行正常'),
+                  h(VCardText, null, () => [
+                    h('div', { style: { marginBottom: '10px', fontSize: '14px' } }, apiStatus.value),
+                    h(
+                      'div',
+                      { style: { display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' } },
+                      [
+                        h(VChip, { color: 'success', size: 'small', variant: 'tonal' }, () => tokenAudit.value),
+                        h(VChip, { color: 'primary', size: 'small', variant: 'tonal' }, () => '本地预热联邦运行时 v2'),
+                        h(VChip, { color: 'info', size: 'small', variant: 'tonal' }, () => '刷新次数 ' + refreshCount.value),
+                      ]
+                    ),
+                    h('div', { style: { fontSize: '13px', opacity: '0.85' } }, confirmResult.value),
+                  ]),
+                ],
+              }
+            ),
+            h(
+              VCard,
+              { variant: 'flat' },
+              {
+                default: () => [
+                  h(VCardTitle, null, () => '原生能力桥接验证'),
+                  h(VCardText, null, () => [
+                    h(
+                      'div',
+                      { style: { display: 'flex', flexWrap: 'wrap', gap: '12px' } },
+                      [
+                        h(
+                          VBtn,
+                          { color: 'primary', variant: 'flat', onClick: onTriggerToast },
+                          () => '触发原生 Toast'
+                        ),
+                        h(
+                          VBtn,
+                          { color: 'secondary', variant: 'tonal', onClick: onTriggerConfirm },
+                          () => '触发原生确认框'
+                        ),
+                      ]
+                    ),
+                  ]),
+                ],
+              }
+            ),
+          ]
+        );
+      };
+    },
+  });
+}
+
+export async function get(moduleName) {
+  const Vue = await resolveSharedVue(sharedScope);
+  if (moduleName === './Config' || moduleName === 'Config') {
+    const comp = createDemoComponent(Vue, 'Config');
+    return () => ({ __esModule: true, default: comp });
+  }
+  const comp = createDemoComponent(Vue, 'Page');
+  return () => ({ __esModule: true, default: comp });
+}
+"""
+        data = js_body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/javascript; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def plugin_vue_demo_status_endpoint(self, name):
+        """校验 Native Bridge 代发的鉴权 API 请求并返回状态数据。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/plugin/VueCompatDemo/status"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        self.reply(
+            200,
+            {
+                "success": True,
+                "message": "本地预热运行时直通成功 (v1.2.0)",
+                "data": {"items": 42, "engine": "local-shell-v2"},
+            },
+        )
 
     def plugin_page_endpoint(self, name, endpoint):
         """返回插件原生 Vuetify JSON 页面或 Vue 远程组件声明。"""

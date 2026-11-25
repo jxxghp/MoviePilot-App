@@ -300,6 +300,7 @@ final class NativeAppModel: ObservableObject {
       isSwitchingServer = false
       previousAuthenticatedInstance = nil
       NativeAgentChatStore.resetAll()
+      PluginWebViewPool.shared.resetForSessionChange()
       usageReportTask?.cancel()
       usageReportTask = nil
       reportedUsageScope = nil
@@ -329,6 +330,7 @@ final class NativeAppModel: ObservableObject {
       NotificationService.shared.attachNative(session)
       WidgetService.shared.reconcile(native: session)
       NativeSystemRouteHub.shared.resolvePending(for: session.instance.id.uuidString)
+      PluginWebViewPool.shared.scheduleIdlePrewarm()
       reportUsageIfEnabled(for: session)
       return
     }
@@ -338,6 +340,7 @@ final class NativeAppModel: ObservableObject {
       let target = selected ?? saved.first(where: { $0.id == instance.id })
       if let target { selected = target }
       NativeAgentChatStore.resetAll()
+      PluginWebViewPool.shared.resetForSessionChange()
       usageReportTask?.cancel()
       usageReportTask = nil
       reportedUsageScope = nil
@@ -503,6 +506,10 @@ final class NativeAppModel: ObservableObject {
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       NotificationService.shared.clearStoredState(for: instance.id)
       await LegacyWebsiteStorage.erase(for: instance.id)
+      await PluginRemoteDiskCache.shared.clear(instanceOrigin: instance.address.url.absoluteString)
+      if forgettingActiveSession {
+        PluginWebViewPool.shared.resetForSessionChange()
+      }
       try check(id)
       try instances.forget(instance)
       if previousAuthenticatedInstance?.id == instance.id {

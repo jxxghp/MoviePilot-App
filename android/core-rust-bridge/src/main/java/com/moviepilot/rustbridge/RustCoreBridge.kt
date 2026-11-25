@@ -11,6 +11,7 @@ import com.moviepilot.rustcore.SubscribeProgressFfi
 import com.moviepilot.rustcore.analyzeCronExpression
 import com.moviepilot.rustcore.applyPluginFormPatch
 import com.moviepilot.rustcore.buildExternalPlayerUrl
+import com.moviepilot.rustcore.buildPluginRemoteCacheKeyJson
 import com.moviepilot.rustcore.buildV3EndpointUrl
 import com.moviepilot.rustcore.classifyHttpAuthStatus
 import com.moviepilot.rustcore.computeMedalPalette
@@ -23,6 +24,7 @@ import com.moviepilot.rustcore.evaluateUserPermissions
 import com.moviepilot.rustcore.filterAndGroupResources
 import com.moviepilot.rustcore.isSameHttpOrigin
 import com.moviepilot.rustcore.normalizePendingPlaybackStopsJson
+import com.moviepilot.rustcore.normalizePluginRemoteEntryJson
 import com.moviepilot.rustcore.normalizeServerAddress
 import com.moviepilot.rustcore.parseAgentMarkdown
 import com.moviepilot.rustcore.parseDeepLinkJson
@@ -31,9 +33,15 @@ import com.moviepilot.rustcore.planPlaybackRoutesJson
 import com.moviepilot.rustcore.planPlaybackSyncStepJson
 import com.moviepilot.rustcore.planPluginFormJson
 import com.moviepilot.rustcore.resolvePlaybackEngineJson
+import com.moviepilot.rustcore.resolvePluginRemoteUpstreamJson
 import com.moviepilot.rustcore.serverAddressContains
+import com.moviepilot.rustcore.validatePluginBridgeApiPath
+import com.moviepilot.rustcore.validatePluginShellAsset
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.security.MessageDigest
 
 /**
  * Rust 共享业务内核统一 Kotlin 门面：所有无 UI 核心逻辑（路由解析、SSE 流、9 维筛选分组、
@@ -44,6 +52,30 @@ data class ParsedStrmStream(
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val mediaKind: String = "video",
+)
+
+@Serializable
+data class PluginRemoteCacheKeyDto(
+    @SerialName("instance_hash") val instanceHash: String,
+    @SerialName("plugin_id_lower") val pluginIdLower: String,
+    @SerialName("version_segment") val versionSegment: String,
+    @SerialName("relative_dir") val relativeDir: String,
+)
+
+@Serializable
+data class PluginRemoteEntryPlanDto(
+    @SerialName("plugin_id") val pluginId: String,
+    @SerialName("version_tag") val versionTag: String,
+    @SerialName("virtual_entry_path") val virtualEntryPath: String,
+    @SerialName("upstream_file_path") val upstreamFilePath: String,
+)
+
+@Serializable
+data class PluginRemoteUpstreamTargetDto(
+    @SerialName("plugin_id") val pluginId: String,
+    @SerialName("version_tag") val versionTag: String,
+    @SerialName("asset_rel_path") val assetRelPath: String,
+    @SerialName("upstream_api_path") val upstreamApiPath: String,
 )
 
 object RustCoreBridge {
@@ -235,6 +267,206 @@ object RustCoreBridge {
             ?.takeIf { it.isNotBlank() }
             ?.let { return it }
         return fallbackBuildExternalPlayerUrl(template, mediaUrl, title)
+    }
+
+    /** 校验并规范化插件 Bridge 请求的 `/api/v1/...` 路径，拒绝外部主机与路径穿越。 */
+    fun validatePluginApiPath(rawPath: String): String? {
+        runCatching { validatePluginBridgeApiPath(rawPath) }
+            .onSuccess { if (it.isNotBlank()) return it }
+            .onFailure { if (it !is UnsatisfiedLinkError && it !is NoClassDefFoundError) return null }
+        return fallbackValidatePluginApiPath(rawPath)
+    }
+
+    /** 校验本地运行时壳 `/shell/...` 资产路径并返回安全包内相对路径。 */
+    fun validatePluginShellAssetPath(virtualPath: String): String? {
+        runCatching { validatePluginShellAsset(virtualPath) }
+            .onSuccess { if (it.isNotBlank()) return it }
+            .onFailure { if (it !is UnsatisfiedLinkError && it !is NoClassDefFoundError) return null }
+        return fallbackValidatePluginShellAssetPath(virtualPath)
+    }
+
+    /** 派生按实例源 SHA-256、插件 ID 与版本/产物哈希隔离的磁盘缓存键。 */
+    fun buildPluginRemoteCacheKey(
+        instanceOrigin: String,
+        pluginId: String,
+        versionOrHash: String,
+    ): PluginRemoteCacheKeyDto {
+        val raw = runCatching {
+            buildPluginRemoteCacheKeyJson(instanceOrigin, pluginId, versionOrHash)
+        }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<PluginRemoteCacheKeyDto>(raw) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        return fallbackBuildPluginRemoteCacheKey(instanceOrigin, pluginId, versionOrHash)
+    }
+
+    /** 将后端 `/api/v1/plugin/remotes` 返回的入口规划为虚拟源入口与上游文件路径。 */
+    fun normalizePluginRemoteEntry(
+        pluginId: String,
+        versionOrHash: String,
+        rawRemoteUrl: String,
+    ): PluginRemoteEntryPlanDto? {
+        runCatching {
+            normalizePluginRemoteEntryJson(pluginId, versionOrHash, rawRemoteUrl)
+        }.onSuccess { raw ->
+            if (raw.isNotBlank()) {
+                runCatching { syncJson.decodeFromString<PluginRemoteEntryPlanDto>(raw) }
+                    .getOrNull()
+                    ?.let { return it }
+            }
+        }.onFailure {
+            if (it !is UnsatisfiedLinkError && it !is NoClassDefFoundError) return null
+        }
+        return fallbackNormalizePluginRemoteEntry(versionOrHash, rawRemoteUrl)
+    }
+
+    /** 将虚拟源 `/plugin-remote/...` 请求还原为上游 API 路径与缓存相对路径。 */
+    fun resolvePluginRemoteUpstream(virtualPath: String): PluginRemoteUpstreamTargetDto? {
+        runCatching {
+            resolvePluginRemoteUpstreamJson(virtualPath)
+        }.onSuccess { raw ->
+            if (raw.isNotBlank()) {
+                runCatching { syncJson.decodeFromString<PluginRemoteUpstreamTargetDto>(raw) }
+                    .getOrNull()
+                    ?.let { return it }
+            }
+        }.onFailure {
+            if (it !is UnsatisfiedLinkError && it !is NoClassDefFoundError) return null
+        }
+        return fallbackResolvePluginRemoteUpstream(virtualPath)
+    }
+
+    private fun hasUnsafeControlOrBackslash(s: String): Boolean =
+        s.any { it.code < 0x20 || it.code == 0x7F || it == '\\' }
+
+    private fun sanitizeCacheSegment(raw: String, fallback: String): String {
+        val sb = StringBuilder()
+        for (ch in raw.trim()) {
+            if (sb.length >= 64) break
+            if (ch.isLetterOrDigit() && ch.code < 128 || ch == '-' || ch == '_' || ch == '.') {
+                sb.append(ch)
+            } else {
+                sb.append('_')
+            }
+        }
+        val cleaned = sb.toString().trim('.', '_')
+        return if (cleaned.isEmpty() || cleaned == "." || cleaned == ".." || cleaned.contains("..")) fallback else cleaned
+    }
+
+    private fun validateSafeSegments(raw: String): List<String>? {
+        val trimmed = raw.trim('/')
+        if (trimmed.isEmpty()) return null
+        val out = mutableListOf<String>()
+        for (seg in trimmed.split('/')) {
+            if (seg.isEmpty() || seg == "." || seg == "..") return null
+            val decoded = runCatching { java.net.URLDecoder.decode(seg, "UTF-8") }.getOrDefault(seg).lowercase()
+            if (decoded == "." || decoded == ".." || decoded.contains("..") || decoded.contains('/') || decoded.contains('\\') || decoded.contains('\u0000')) {
+                return null
+            }
+            out += seg
+        }
+        return out
+    }
+
+    private fun fallbackValidatePluginApiPath(rawPath: String): String? {
+        val trimmed = rawPath.trim()
+        if (trimmed.isEmpty() || hasUnsafeControlOrBackslash(trimmed)) return null
+        val lower = trimmed.lowercase()
+        if ("://" in lower || lower.startsWith("//") || lower.startsWith("http:") || lower.startsWith("https:") || lower.startsWith("javascript:") || lower.startsWith("data:") || lower.startsWith("file:")) {
+            return null
+        }
+        val noFrag = trimmed.substringBefore('#')
+        val pathPart = noFrag.substringBefore('?')
+        val queryPart = if ('?' in noFrag) noFrag.substringAfter('?') else null
+        val stripped = pathPart.trimStart('/')
+        val rel = when {
+            stripped.startsWith("api/v1/") -> stripped.removePrefix("api/v1/")
+            stripped == "api/v1" -> ""
+            else -> stripped
+        }
+        val segs = validateSafeSegments(rel) ?: return null
+        val normalized = "/api/v1/${segs.joinToString("/")}"
+        return if (queryPart != null) {
+            if (hasUnsafeControlOrBackslash(queryPart)) null else "$normalized?$queryPart"
+        } else {
+            normalized
+        }
+    }
+
+    private fun fallbackValidatePluginShellAssetPath(virtualPath: String): String? {
+        val trimmed = virtualPath.trim()
+        if (trimmed.isEmpty() || hasUnsafeControlOrBackslash(trimmed)) return null
+        val clean = trimmed.substringBefore('#').substringBefore('?').trimStart('/')
+        val rel = clean.removePrefix("shell/")
+        val segs = validateSafeSegments(rel) ?: return null
+        return segs.joinToString("/")
+    }
+
+    private fun fallbackBuildPluginRemoteCacheKey(
+        instanceOrigin: String,
+        pluginId: String,
+        versionOrHash: String,
+    ): PluginRemoteCacheKeyDto {
+        val norm = instanceOrigin.trim().trimEnd('/').lowercase()
+        val digest = MessageDigest.getInstance("SHA-256").digest(norm.toByteArray(Charsets.UTF_8))
+        val hash16 = digest.joinToString("") { "%02x".format(it) }.take(16)
+        val pid = sanitizeCacheSegment(pluginId.lowercase(), "plugin")
+        val ver = sanitizeCacheSegment(versionOrHash, "default")
+        return PluginRemoteCacheKeyDto(hash16, pid, ver, "$hash16/$pid/$ver")
+    }
+
+    private fun fallbackNormalizePluginRemoteEntry(
+        versionOrHash: String,
+        rawRemoteUrl: String,
+    ): PluginRemoteEntryPlanDto? {
+        val trimmed = rawRemoteUrl.trim()
+        if (trimmed.isEmpty() || hasUnsafeControlOrBackslash(trimmed)) return null
+        val noFrag = trimmed.substringBefore('#')
+        val pathOrUrl = noFrag.substringBefore('?')
+        val query = if ('?' in noFrag) noFrag.substringAfter('?') else ""
+        val pathOnly = if ("://" in pathOrUrl) {
+            val after = pathOrUrl.substringAfter("://")
+            val idx = after.indexOf('/')
+            if (idx < 0) return null else after.substring(idx)
+        } else {
+            pathOrUrl
+        }
+        val marker = "plugin/file/"
+        val idx = pathOnly.lowercase().indexOf(marker)
+        if (idx < 0) return null
+        val segs = validateSafeSegments(pathOnly.substring(idx + marker.length)) ?: return null
+        if (segs.size < 2) return null
+        val filePid = segs[0]
+        val rel = segs.drop(1).joinToString("/")
+        val qv = query.split('&').firstOrNull { it.startsWith("v=") }?.substringAfter("v=")?.trim()
+        val verRaw = versionOrHash.trim().ifEmpty { qv.orEmpty().ifEmpty { "default" } }
+        val verTag = sanitizeCacheSegment(verRaw, "default")
+        return PluginRemoteEntryPlanDto(
+            pluginId = filePid,
+            versionTag = verTag,
+            virtualEntryPath = "/plugin-remote/$filePid/$verTag/$rel",
+            upstreamFilePath = "/api/v1/plugin/file/$filePid/$rel",
+        )
+    }
+
+    private fun fallbackResolvePluginRemoteUpstream(virtualPath: String): PluginRemoteUpstreamTargetDto? {
+        val trimmed = virtualPath.trim()
+        if (trimmed.isEmpty() || hasUnsafeControlOrBackslash(trimmed)) return null
+        val stripped = trimmed.substringBefore('#').substringBefore('?').trimStart('/')
+        if (!stripped.startsWith("plugin-remote/")) return null
+        val segs = validateSafeSegments(stripped.removePrefix("plugin-remote/")) ?: return null
+        if (segs.size < 3) return null
+        val pid = segs[0]
+        val ver = sanitizeCacheSegment(segs[1], "default")
+        val rel = segs.drop(2).joinToString("/")
+        return PluginRemoteUpstreamTargetDto(
+            pluginId = pid,
+            versionTag = ver,
+            assetRelPath = rel,
+            upstreamApiPath = "/api/v1/plugin/file/$pid/$rel",
+        )
     }
 
     private fun fallbackResolvePlaybackEngine(input: EngineResolutionInputDto): EngineResolutionPlanDto {

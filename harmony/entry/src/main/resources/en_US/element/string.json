@@ -921,6 +921,10 @@
       "value": "Loading lyrics…"
     },
     {
+      "name": "mp_83924414",
+      "value": "Uses the pre-warmed local runtime by default for native visual fusion, instant opening, and API-only servers. Enable this to fall back to the legacy full web frontend."
+    },
+    {
       "name": "mp_83dc943e",
       "value": "System overview"
     },
@@ -1079,6 +1083,10 @@
     {
       "name": "mp_a336277e",
       "value": "Bind Media Server Account"
+    },
+    {
+      "name": "mp_a368e87b",
+      "value": "Open in Legacy Web Container"
     },
     {
       "name": "mp_a3ccf702",
@@ -1355,6 +1363,10 @@
     {
       "name": "mp_bbc7d362",
       "value": "Connect to server"
+    },
+    {
+      "name": "mp_bc2b8f51",
+      "value": "Starting local plugin runtime…"
     },
     {
       "name": "mp_bcc3a869",
@@ -1733,6 +1745,10 @@
       "value": "Switched to %s"
     },
     {
+      "name": "mp_ede7ece4",
+      "value": "Local runtime failed to load plugin"
+    },
+    {
       "name": "mp_ee561675",
       "value": "Subscriptions"
     },
@@ -2059,6 +2075,22 @@
     {
       "name": "mp_vlckit_b044dd97",
       "value": "Legacy (VLCKit)"
+    },
+    {
+      "name": "mp_vue_2b8527e0",
+      "value": "Legacy WebView Mode for Vue Plugins"
+    },
+    {
+      "name": "mp_vue_516f2bec",
+      "value": "Vue Plugin Runtime"
+    },
+    {
+      "name": "mp_vue_89421e63",
+      "value": "Cleared local Vue plugin cache"
+    },
+    {
+      "name": "mp_vue_e5116a4f",
+      "value": "Clear Vue Plugin Cache"
     },
     {
       "name": "mp_web_7f1d362a",

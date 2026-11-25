@@ -168,7 +168,7 @@
     <string name="mp_58421bd3" formatted="false">暫時無法開啟子母畫面，請等待影片開始播放後重試。</string>
     <string name="mp_58ce18ea" formatted="false">整理與目錄</string>
     <string name="mp_58d5873b" formatted="false">播放核心</string>
-    <string name="mp_5982c44c" formatted="false">重新加載</string>
+    <string name="mp_5982c44c" formatted="false">重新載入</string>
     <string name="mp_5984ebc4" formatted="false">選擇或輸入</string>
     <string name="mp_5_31dad6cc" formatted="false">產生 5 分鐘管道關聯綁定碼</string>
     <string name="mp_5a781bec" formatted="false">繼續收聽？</string>
@@ -231,6 +231,7 @@
     <string name="mp_823f4d1e" formatted="false">追劇日曆</string>
     <string name="mp_83689796" formatted="false">請選擇範圍內的值，至少選擇一項。</string>
     <string name="mp_838c3aed" formatted="false">正在讀取歌詞…</string>
+    <string name="mp_83924414" formatted="false">預設使用本地預熱執行期，原生背景融合、秒開且無需前端連接埠；若個別外掛不相容可開啟此項回退完整網頁前端。</string>
     <string name="mp_83dc943e" formatted="false">系統概覽</string>
     <string name="mp_83e48d7c" formatted="false">目前值（不在選項中）</string>
     <string name="mp_848aaab0" formatted="false">請檢查此項的值</string>
@@ -271,6 +272,7 @@
     <string name="mp_a1aaf352" formatted="false">用戶名</string>
     <string name="mp_a3148a4e" formatted="false">登錄你的服務，繼續管理訂閱與媒體。</string>
     <string name="mp_a336277e" formatted="false">綁定媒體伺服器賬號</string>
+    <string name="mp_a368e87b" formatted="false">使用相容網頁容器開啟</string>
     <string name="mp_a3ccf702" formatted="false">資料源</string>
     <string name="mp_a3ed811e" formatted="false">身份驗證器驗證碼</string>
     <string name="mp_a4474dd6" formatted="false">帳號與服務</string>
@@ -340,6 +342,7 @@
     <string name="mp_baf84751" formatted="false">使用者管理</string>
     <string name="mp_bb370d56" formatted="false">無法讀取本地歌詞。</string>
     <string name="mp_bbc7d362" formatted="false">連接服務</string>
+    <string name="mp_bc2b8f51" formatted="false">正在啟動本地外掛執行期…</string>
     <string name="mp_bcc3a869" formatted="false">影視資源</string>
     <string name="mp_bd03b5c1" formatted="false">已啓用，只讀顯示當前帳號允許的內容。</string>
     <string name="mp_bde0b46a" formatted="false">密碼僅在本機安全儲存，驗證碼不會儲存。</string>
@@ -434,6 +437,7 @@
     <string name="mp_ed5e4c3e" formatted="false">搜索“%1$s”</string>
     <string name="mp_ed917b08" formatted="false">預設呼叫外部播放器</string>
     <string name="mp_edaa51e3" formatted="false">已切換至 %1$s</string>
+    <string name="mp_ede7ece4" formatted="false">本地執行期載入外掛失敗</string>
     <string name="mp_ee561675" formatted="false">我的訂閱</string>
     <string name="mp_ee56a53b" formatted="false">媒體伺服器</string>
     <string name="mp_ee87f6ec" formatted="false">伺服器通知管道</string>
@@ -516,6 +520,10 @@
     <string name="mp_url_d8340907" formatted="false">外部播放器 URL 範本</string>
     <string name="mp_vlckit_42693cc8" formatted="false">VLCKit 相容</string>
     <string name="mp_vlckit_b044dd97" formatted="false">相容核心（VLCKit）</string>
+    <string name="mp_vue_2b8527e0" formatted="false">Vue 外掛相容網頁模式</string>
+    <string name="mp_vue_516f2bec" formatted="false">Vue 外掛執行容器</string>
+    <string name="mp_vue_89421e63" formatted="false">已清理 Vue 外掛本地快取</string>
+    <string name="mp_vue_e5116a4f" formatted="false">清理 Vue 外掛本地快取</string>
     <string name="mp_web_7f1d362a" formatted="false">此外掛使用 Web 介面，相容入口正在遷移。</string>
     <string name="mp_web_aaedd1fc" formatted="false">底層代理、並行與進階系統參數請在 Web 管理台設定。</string>
     <string name="mp_widget_163aec91" formatted="false">內容</string>
