@@ -51,6 +51,7 @@ struct NativeResourceSearchPage: View {
   let target: NativeResourceSearchTarget
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.verticalSizeClass) private var verticalSizeClass
   @State private var keyword: String
   @State private var sites: [NativeSearchSite] = []
   @State private var siteScope: SiteScopeSelection = .systemDefault
@@ -107,12 +108,13 @@ struct NativeResourceSearchPage: View {
           }
           if !results.isEmpty || filter.activeCount > 0 {
             cascadingFilterBar
+              .frame(minHeight: 32)
           }
           if let feedback {
             feedbackBanner(feedback)
           }
           if isLoading && results.isEmpty {
-            VStack(spacing: 12) {
+            VStack(spacing: 14) {
               HStack(spacing: 8) {
                 ProgressView().controlSize(.small).tint(.primary)
                 Text(loadingMessage)
@@ -121,7 +123,8 @@ struct NativeResourceSearchPage: View {
                 Spacer(minLength: 0)
               }
               .padding(.horizontal, 4)
-              NativeCardListSkeletonView(count: 5, style: .posterRow)
+              .frame(minHeight: 32)
+              NativeCardListSkeletonView(count: 5, style: .torrentCard, spacing: 11)
             }
             .transition(.opacity)
           } else if loadFailed && results.isEmpty {
@@ -155,7 +158,7 @@ struct NativeResourceSearchPage: View {
     }
     .navigationTitle(navigationTitle)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         if !results.isEmpty {
@@ -225,7 +228,10 @@ struct NativeResourceSearchPage: View {
         feedback = NativeResourceFeedback(isError: false, message: message)
       }
       .nativeGlassSheet()
-      .presentationDetents([.fraction(2.0 / 3.0), .large])
+      .nativeAdaptiveSheetSizing()
+      .presentationDetents(
+        verticalSizeClass == .compact ? [.large] : [.fraction(2.0 / 3.0), .large]
+      )
       .presentationDragIndicator(.visible)
     }
   }
@@ -349,11 +355,12 @@ struct NativeResourceSearchPage: View {
     let hasKeyword = !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     let canSubmit = hasKeyword || canBrowseSingleSite
     let isDefaultScope = siteScope == .systemDefault
-    return CinematicPanel(padding: 10) {
-      HStack(spacing: 8) {
+    return CinematicPanel(padding: 6) {
+      HStack(spacing: 6) {
         Image(systemName: "magnifyingglass")
           .font(.subheadline)
           .foregroundStyle(.secondary)
+          .padding(.leading, 6)
         TextField(
           canBrowseSingleSite ? "输入关键词，留空可浏览所选站点" : "输入关键词搜索（单选站点可浏览）",
           text: $keyword
@@ -362,6 +369,7 @@ struct NativeResourceSearchPage: View {
         .autocorrectionDisabled()
         .submitLabel(.search)
         .focused($searchFocused)
+        .frame(minHeight: 44)
         .accessibilityIdentifier("native-resource-search-query")
         .onSubmit { submitSearch() }
         if !keyword.isEmpty {
@@ -370,7 +378,7 @@ struct NativeResourceSearchPage: View {
           } label: {
             Image(systemName: "xmark.circle.fill")
               .foregroundStyle(.secondary)
-              .frame(width: 28, height: 28)
+              .frame(width: 44, height: 44)
               .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
@@ -422,7 +430,8 @@ struct NativeResourceSearchPage: View {
             .background(
               isDefaultScope ? NativeTheme.chipFill : appearance.accentColor, in: Capsule()
             )
-            .contentShape(Capsule())
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
           }
           .accessibilityIdentifier("native-resource-search-sites")
         }
@@ -461,8 +470,10 @@ struct NativeResourceSearchPage: View {
                 }
               }
           }
-          .contentShape(Capsule())
+          .frame(minHeight: 44)
+          .contentShape(Rectangle())
         }
+        .padding(.trailing, 4)
         .buttonStyle(.plain)
         .disabled(isLoading || !canSubmit)
         .opacity(canSubmit || isLoading ? 1.0 : 0.65)
@@ -487,11 +498,15 @@ struct NativeResourceSearchPage: View {
           .foregroundStyle(.secondary)
           .lineLimit(1)
         Spacer(minLength: 8)
-        Button("上次结果") {
+        Button {
           loadLastResults()
+        } label: {
+          Text("上次结果")
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.primary.opacity(0.82))
+            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+            .contentShape(Rectangle())
         }
-        .font(.caption.weight(.medium))
-        .foregroundStyle(.primary.opacity(0.82))
         .buttonStyle(.plain)
         .disabled(isLoading)
         .accessibilityIdentifier("native-resource-back-last")
@@ -1037,12 +1052,14 @@ private struct NativeResourceAllFiltersSheet: View {
             facetGroup("流媒体来源", options: facets.webSources, selection: $filter.webSources)
             facetGroup("制作组", options: facets.releaseGroups, selection: $filter.releaseGroups)
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
       }
       .navigationTitle("全部筛选 (\(filter.activeCount))")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("重置") { filter.clearAll() }
@@ -1057,6 +1074,7 @@ private struct NativeResourceAllFiltersSheet: View {
       }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 
   @ViewBuilder
@@ -1336,14 +1354,16 @@ private struct NativeDownloadConfirmSheet: View {
             .disabled(isSubmitting)
             .accessibilityIdentifier("native-download-confirm-submit")
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin)
           .padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
       }
       .navigationTitle("确认下载")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -1358,6 +1378,7 @@ private struct NativeDownloadConfirmSheet: View {
       }
       .task { await loadOptions() }
     }
+    .nativeAdaptiveSheetSizing()
   }
 
   private func loadOptions() async {

@@ -1,0 +1,62 @@
+{
+  "version": "1.0.0",
+  "sseFrames": [
+    "event: thinking\ndata: {\"text\":\"正在检索站点资源\"}\n\n",
+    "event: tool_call\ndata: {\"id\":\"tc_1\",\"name\":\"search_media\",\"status\":\"running\"}\n\n",
+    "data: {\"delta\":\"已找到 3 个 4K 资源\"}\n\n",
+    "event: done\ndata: [DONE]\n\n"
+  ],
+  "resources": [
+    {
+      "id": "r1",
+      "title": "Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.HDR10.Atmos-GroupA",
+      "site_name": "合成站A",
+      "size": 75161927680,
+      "seeders": 128,
+      "peers": 14,
+      "resource_pix": "2160p",
+      "resource_type": "BluRay",
+      "video_encode": "HEVC",
+      "audio_encode": "Atmos",
+      "resource_team": "GroupA",
+      "edition": "REMUX",
+      "downloadvolumefactor": 0.0,
+      "uploadvolumefactor": 2.0,
+      "labels": ["中字", "HDR", "杜比视界"]
+    },
+    {
+      "id": "r2",
+      "title": "Dune.Part.Two.2024.2160p.UHD.BluRay.REMUX.DV.HDR10.Atmos-GroupA",
+      "site_name": "合成站B",
+      "size": 75161927680,
+      "seeders": 64,
+      "peers": 8,
+      "resource_pix": "2160p",
+      "resource_type": "BluRay",
+      "video_encode": "HEVC",
+      "audio_encode": "Atmos",
+      "resource_team": "GroupA",
+      "edition": "REMUX",
+      "downloadvolumefactor": 0.5,
+      "uploadvolumefactor": 1.0,
+      "labels": ["中字", "HDR"]
+    },
+    {
+      "id": "r3",
+      "title": "Dune.Part.Two.2024.1080p.WEB-DL.H264.AAC-GroupB",
+      "site_name": "合成站A",
+      "size": 8589934592,
+      "seeders": 42,
+      "peers": 5,
+      "resource_pix": "1080p",
+      "resource_type": "WEB-DL",
+      "video_encode": "H264",
+      "audio_encode": "AAC",
+      "resource_team": "GroupB",
+      "edition": "WEB-DL",
+      "downloadvolumefactor": 1.0,
+      "uploadvolumefactor": 1.0,
+      "labels": ["国语"]
+    }
+  ]
+}

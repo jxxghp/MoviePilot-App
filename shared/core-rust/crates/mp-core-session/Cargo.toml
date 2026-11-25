@@ -1,0 +1,13 @@
+[package]
+name = "mp-core-session"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64.workspace = true
+mp-core-api = { path = "../mp-core-api" }
+mp-core-model = { path = "../mp-core-model" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

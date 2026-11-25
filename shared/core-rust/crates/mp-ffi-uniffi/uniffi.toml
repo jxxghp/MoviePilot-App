@@ -1,0 +1,9 @@
+[bindings.kotlin]
+package_name = "com.moviepilot.rustcore"
+cdylib_name = "moviepilot_core"
+
+[bindings.swift]
+module_name = "MoviePilotRustCore"
+ffi_module_name = "MoviePilotRustCoreFFI"
+generate_immutable_records = true
+omit_checksums = false

@@ -123,7 +123,7 @@ struct NativePluginComboboxEditor: View {
           .disabled(field.disabled)
       }
       .navigationTitle(field.label).navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button(L10n.text("取消")) { dismiss() }.accessibilityIdentifier("native-combobox-cancel")

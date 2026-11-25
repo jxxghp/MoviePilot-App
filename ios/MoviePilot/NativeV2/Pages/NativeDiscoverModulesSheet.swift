@@ -173,7 +173,7 @@ struct NativeDiscoverModulesSheet: View {
       }
       .navigationTitle("编辑发现模块")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") {

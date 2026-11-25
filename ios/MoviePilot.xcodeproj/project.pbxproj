@@ -20,7 +20,6 @@
 		23E731081F1C8B9393CDE436 /* MoviePilotWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		26EA21BAF0EB0F9D663FE97F /* MoviePilotWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */; };
 		29D3DF44DA14967EB9C79979 /* NativeSystemSettingsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */; };
-		A1E000020000000000000002 /* NativeDeviceLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E000010000000000000001 /* NativeDeviceLayout.swift */; };
 		29E6D5DE3717F6EBA7D36D69 /* NativeDynamicActionCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */; };
 		2BA2E297A78BF7DB111DB06C /* NativeSystemIntegrationSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */; };
 		2E02C60A35D867A2008213A0 /* NativePluginDataPageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */; };
@@ -38,16 +37,17 @@
 		5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */; };
 		6051CDC21EA5C85DA1DD6D3E /* NativeFileManagerPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */; };
 		60C934B3A627113848AA3617 /* ThirdPartyNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */; };
-		A1C000020000000000000002 /* CommunityMedals in Resources */ = {isa = PBXBuildFile; fileRef = A1C000010000000000000001 /* CommunityMedals */; };
-		A1C000050000000000000005 /* NativeCommunityMedal3D.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C000040000000000000004 /* NativeCommunityMedal3D.swift */; };
-		A1C000070000000000000007 /* NativeCommunityMedalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C000060000000000000006 /* NativeCommunityMedalsView.swift */; };
 		6AB5E40E1A68D643F166E5A6 /* CinematicSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC48C1614B5128296F31DB7D /* CinematicSurfaces.swift */; };
 		6BEF4859F2AE0A164D9941B7 /* LegacyWebsiteStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA3031D7DC4E14A074F6218 /* LegacyWebsiteStorage.swift */; };
+		6CDCB467D0F4D78498B4B275 /* NativeMediaServerLibraryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B862EABE429A361CC27AD33 /* NativeMediaServerLibraryPage.swift */; };
+		713D9E91E655AFBD94513CE8 /* NativeCommunityMedal3D.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6175439779975CFCB2785F /* NativeCommunityMedal3D.swift */; };
 		74BB072F347838874E453BDA /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA1036A3B6223749CA83C56 /* MoviePilotCore */; };
 		81605C89FB80C7DDEB3B42C2 /* CinematicForms.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */; };
 		823F9719D320A50E3E7ACBFF /* NativeMediaPlaybackLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87FA9E46584D4776F3809815 /* NativeMediaPlaybackLauncher.swift */; };
+		82F26380686E29CF97D4DFC7 /* NativeMediaServerDetailPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8D947D97A101D7977471583 /* NativeMediaServerDetailPage.swift */; };
 		8464FBB90159A6B122B561E9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16DC09F74832A0B86B73E0DB /* AppDelegate.swift */; };
 		84F5B4F5B036CE1992EE9C26 /* NativeResourceSearchPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */; };
+		88CB04BEB4BEB2FD5E1189F7 /* CommunityMedals in Resources */ = {isa = PBXBuildFile; fileRef = B49D224903D83A20EF07FF85 /* CommunityMedals */; };
 		8DF4FDF3C653CBAE5E342F13 /* NativeV2EntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8610FEB4EE38230CD0D07A1 /* NativeV2EntryTests.swift */; };
 		8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */; };
 		98EB4831D3C52B37D00D990D /* NativePluginComboboxEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */; };
@@ -63,6 +63,8 @@
 		B8BFDD2872B5BE73B16B5837 /* NativeV2MainShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326FD64AC22302FFA0758F17 /* NativeV2MainShell.swift */; };
 		BE036DC842893643B15A3BE2 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC001A55D766FA81E7EC654 /* Views.swift */; };
 		C38CDC369F7BE7AB52EF08E5 /* NativeTransferHistoryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */; };
+		C5315286AFDA4CCAD1E92407 /* NativeSubscribeFilesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A58B21E3ADBBEB0DA68B282 /* NativeSubscribeFilesSheet.swift */; };
+		CD0E0C643287EA44A2611F7C /* NativeMoreHubPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9AB903ED4FAEABC5A9E0569 /* NativeMoreHubPage.swift */; };
 		D25729D75787FFE684BCE836 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */; };
 		D2AE907740AD1CA35EDE9E4F /* NativeV2SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18137A11C852F3555A73F283 /* NativeV2SceneDelegate.swift */; };
 		D2F28E40B4CA7F797613B2BD /* NativeMediaSearchPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018FA9D54CDFDB2AC49D2983 /* NativeMediaSearchPage.swift */; };
@@ -77,13 +79,14 @@
 		E3AC1F3F475F11DC45745A36 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDB18350D46A9411B179B162 /* Configuration.swift */; };
 		E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */; };
 		E6614181F752357720A889EB /* NativeMediaDetailPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */; };
-		A1D000020000000000000002 /* NativeMediaServerLibraryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D000010000000000000001 /* NativeMediaServerLibraryPage.swift */; };
-		A1D000040000000000000004 /* NativeMediaServerDetailPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D000030000000000000003 /* NativeMediaServerDetailPage.swift */; };
+		E99FD98553961B4C37924301 /* GeneratedTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75AA6BAD2AB90671F8FF5FD1 /* GeneratedTokens.swift */; };
 		EBD4F63E868782325F577479 /* NativeDiagnosticsToolsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D48CE7A268E8BCABB4E802 /* NativeDiagnosticsToolsPage.swift */; };
 		ED7AB3AFEFD8AAECD1B05FBF /* MoviePilotPluginForms in Frameworks */ = {isa = PBXBuildFile; productRef = 5E248C82425CCA43BA25F73B /* MoviePilotPluginForms */; };
+		F944EE34CDE90324D357B2C9 /* NativeCommunityMedalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C90415B5DDCA525A940F84A9 /* NativeCommunityMedalsView.swift */; };
 		FA7D96C95BCA99B1CDDEABA8 /* NativePluginCatalogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C70F0E54BFC5895C7EBDD0AD /* NativePluginCatalogView.swift */; };
 		FBCCCA54858635AC0FAFCBBE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */; };
 		FC9C91C4309FD599B60E191E /* NativeCalendarPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 311A8C9F7207218D1D1F8D15 /* NativeCalendarPage.swift */; };
+		FE97B4770F1151CDA4E7405C /* NativeDeviceLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC39012EDE608FCCD82D37B /* NativeDeviceLayout.swift */; };
 		FFBF4A25C55AF8B92FC3E416 /* NativeSubscriptionsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */; };
 /* End PBXBuildFile section */
 
@@ -120,15 +123,10 @@
 
 /* Begin PBXFileReference section */
 		018FA9D54CDFDB2AC49D2983 /* NativeMediaSearchPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaSearchPage.swift; sourceTree = "<group>"; };
-		A1E000010000000000000001 /* NativeDeviceLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDeviceLayout.swift; sourceTree = "<group>"; };
 		06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDynamicActionCenter.swift; sourceTree = "<group>"; };
 		074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdPartyNotices.txt; sourceTree = "<group>"; };
-		A1C000010000000000000001 /* CommunityMedals */ = {isa = PBXFileReference; lastKnownFileType = folder; path = CommunityMedals; sourceTree = "<group>"; };
-		A1C000040000000000000004 /* NativeCommunityMedal3D.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommunityMedal3D.swift; sourceTree = "<group>"; };
-		A1C000060000000000000006 /* NativeCommunityMedalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommunityMedalsView.swift; sourceTree = "<group>"; };
-		A1D000010000000000000001 /* NativeMediaServerLibraryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaServerLibraryPage.swift; sourceTree = "<group>"; };
-		A1D000030000000000000003 /* NativeMediaServerDetailPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaServerDetailPage.swift; sourceTree = "<group>"; };
 		08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMusicPage.swift; sourceTree = "<group>"; };
+		0A58B21E3ADBBEB0DA68B282 /* NativeSubscribeFilesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeFilesSheet.swift; sourceTree = "<group>"; };
 		11C1FABE88ED006EC70944CD /* InstanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstanceStore.swift; sourceTree = "<group>"; };
 		15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		16DC09F74832A0B86B73E0DB /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -139,11 +137,12 @@
 		26F7EF16B0F3F0449AC21549 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		274895617146E30E9DDE5876 /* AccountAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAppearance.swift; sourceTree = "<group>"; };
 		2A663A5F20E9060A67A02499 /* APNs.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = APNs.entitlements; sourceTree = "<group>"; };
+		2E6175439779975CFCB2785F /* NativeCommunityMedal3D.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommunityMedal3D.swift; sourceTree = "<group>"; };
 		2E76B95589CF91ADA4DD7FA6 /* NativeWorkflowsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkflowsPage.swift; sourceTree = "<group>"; };
 		311A8C9F7207218D1D1F8D15 /* NativeCalendarPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCalendarPage.swift; sourceTree = "<group>"; };
 		326FD64AC22302FFA0758F17 /* NativeV2MainShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2MainShell.swift; sourceTree = "<group>"; };
 		38A4D15B8082C9119B8C37AC /* NativeAppearanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppearanceStore.swift; sourceTree = "<group>"; };
-		3B9A3A01FB3A03C2FC8AD128 /* MoviePilot-App */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "MoviePilot-App"; path = ..; sourceTree = SOURCE_ROOT; };
+		3B862EABE429A361CC27AD33 /* NativeMediaServerLibraryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaServerLibraryPage.swift; sourceTree = "<group>"; };
 		3C5522D23DCCE1A49988D78B /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginDataPageView.swift; sourceTree = "<group>"; };
 		3E0B3A43D3BA4AA717CEB29B /* NativeResourceSearchPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeResourceSearchPage.swift; sourceTree = "<group>"; };
@@ -162,8 +161,10 @@
 		68C6FA6CA18037E7B4A18B47 /* NativeSystemSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemSettingsPage.swift; sourceTree = "<group>"; };
 		6FA5AFA5548F3E007A5709E9 /* NativePluginComboboxEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginComboboxEditor.swift; sourceTree = "<group>"; };
 		7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeEditorSheet.swift; sourceTree = "<group>"; };
+		75AA6BAD2AB90671F8FF5FD1 /* GeneratedTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedTokens.swift; sourceTree = "<group>"; };
 		76B2E764B2FD72F7288DDD30 /* NativeDashboardPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDashboardPage.swift; sourceTree = "<group>"; };
 		77D6979872674A2654C34AE8 /* NativeExplorePage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeExplorePage.swift; sourceTree = "<group>"; };
+		7A9BC01CD4B7F00B1EEA93DB /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
 		7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPlaybackController.swift; sourceTree = "<group>"; };
 		7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenStore.swift; sourceTree = "<group>"; };
 		82505BCAA1DF4DB8495B8348 /* NativeSystemModulesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemModulesPage.swift; sourceTree = "<group>"; };
@@ -173,14 +174,17 @@
 		A6E9D58111CB3F6D0CC5F8EB /* MoviePilotWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoviePilotWidgets.swift; sourceTree = "<group>"; };
 		A7076717937113403C755586 /* NativeAgentChatPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAgentChatPage.swift; sourceTree = "<group>"; };
 		A7D4C74144CA16E15C0B2839 /* NativeEntityIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeEntityIcons.swift; sourceTree = "<group>"; };
+		A8D947D97A101D7977471583 /* NativeMediaServerDetailPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaServerDetailPage.swift; sourceTree = "<group>"; };
 		AC48C1614B5128296F31DB7D /* CinematicSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicSurfaces.swift; sourceTree = "<group>"; };
 		B27822CB5BB7D354B979B834 /* NativePluginFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginFormView.swift; sourceTree = "<group>"; };
+		B49D224903D83A20EF07FF85 /* CommunityMedals */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CommunityMedals; path = MoviePilot/Resources/CommunityMedals; sourceTree = SOURCE_ROOT; };
 		B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMessagesPage.swift; sourceTree = "<group>"; };
 		B8610FEB4EE38230CD0D07A1 /* NativeV2EntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2EntryTests.swift; sourceTree = "<group>"; };
 		BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicForms.swift; sourceTree = "<group>"; };
 		BFCBFC58ED64133835C72B4E /* NativeSystemRouteHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemRouteHub.swift; sourceTree = "<group>"; };
 		C0583F9328402162806C7EB8 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		C70F0E54BFC5895C7EBDD0AD /* NativePluginCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginCatalogView.swift; sourceTree = "<group>"; };
+		C90415B5DDCA525A940F84A9 /* NativeCommunityMedalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommunityMedalsView.swift; sourceTree = "<group>"; };
 		CA63714518565C74DC4BC92B /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
 		CCC001A55D766FA81E7EC654 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
 		CCE7B8D4C7A31F109890ABCF /* NativeDiscoverModulesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverModulesSheet.swift; sourceTree = "<group>"; };
@@ -192,6 +196,7 @@
 		DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscriptionsPage.swift; sourceTree = "<group>"; };
 		DD83F9ADCEC4810F8AB5FA50 /* NativeTransferHistoryPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTransferHistoryPage.swift; sourceTree = "<group>"; };
 		DDA1934688E4D109E194DB96 /* WidgetService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetService.swift; sourceTree = "<group>"; };
+		DDC39012EDE608FCCD82D37B /* NativeDeviceLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDeviceLayout.swift; sourceTree = "<group>"; };
 		E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaDetailPage.swift; sourceTree = "<group>"; };
 		E93AFCC3E95380CC87531EFD /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
@@ -200,6 +205,7 @@
 		F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWorkflowCanvasPage.swift; sourceTree = "<group>"; };
 		F3EF638076E3852573384373 /* NativeAppearanceSettingsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppearanceSettingsPage.swift; sourceTree = "<group>"; };
 		F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSubscribeCommunityPage.swift; sourceTree = "<group>"; };
+		F9AB903ED4FAEABC5A9E0569 /* NativeMoreHubPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMoreHubPage.swift; sourceTree = "<group>"; };
 		FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginMarketPage.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -226,6 +232,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		035E3EB7C2C6E94ACAF6320F /* CommunityMedals */ = {
+			isa = PBXGroup;
+			children = (
+				2E6175439779975CFCB2785F /* NativeCommunityMedal3D.swift */,
+				C90415B5DDCA525A940F84A9 /* NativeCommunityMedalsView.swift */,
+			);
+			path = CommunityMedals;
+			sourceTree = "<group>";
+		};
 		0F5FD4DBFB4E453146F0DC76 /* MoviePilot */ = {
 			isa = PBXGroup;
 			children = (
@@ -268,9 +283,10 @@
 				77D6979872674A2654C34AE8 /* NativeExplorePage.swift */,
 				4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */,
 				E2CBAA3DC386BDCFF67D1137 /* NativeMediaDetailPage.swift */,
-				A1D000030000000000000003 /* NativeMediaServerDetailPage.swift */,
-				A1D000010000000000000001 /* NativeMediaServerLibraryPage.swift */,
+				A8D947D97A101D7977471583 /* NativeMediaServerDetailPage.swift */,
+				3B862EABE429A361CC27AD33 /* NativeMediaServerLibraryPage.swift */,
 				B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */,
+				F9AB903ED4FAEABC5A9E0569 /* NativeMoreHubPage.swift */,
 				08443236F43B97DD00EC6B5A /* NativeMusicPage.swift */,
 				3D388D03E1CAFD2739ADF561 /* NativePluginDataPageView.swift */,
 				FF26A18662E7326F40027471 /* NativePluginMarketPage.swift */,
@@ -279,6 +295,7 @@
 				5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */,
 				F5CA3958D36BFB5E17CA6E7E /* NativeSubscribeCommunityPage.swift */,
 				7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */,
+				0A58B21E3ADBBEB0DA68B282 /* NativeSubscribeFilesSheet.swift */,
 				DA6542A83716C651A9A5510B /* NativeSubscriptionsPage.swift */,
 				4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */,
 				82505BCAA1DF4DB8495B8348 /* NativeSystemModulesPage.swift */,
@@ -326,7 +343,7 @@
 			children = (
 				1CC709A18D7FAEDC0527EDD8 /* NativeAgentFloatingMascot.swift */,
 				56A041E4198BE71B63A2B109 /* NativeAppModel.swift */,
-				A1E000010000000000000001 /* NativeDeviceLayout.swift */,
+				DDC39012EDE608FCCD82D37B /* NativeDeviceLayout.swift */,
 				06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */,
 				A7D4C74144CA16E15C0B2839 /* NativeEntityIcons.swift */,
 				87FA9E46584D4776F3809815 /* NativeMediaPlaybackLauncher.swift */,
@@ -339,19 +356,10 @@
 				326FD64AC22302FFA0758F17 /* NativeV2MainShell.swift */,
 				57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */,
 				18137A11C852F3555A73F283 /* NativeV2SceneDelegate.swift */,
-				A1C000030000000000000003 /* CommunityMedals */,
+				035E3EB7C2C6E94ACAF6320F /* CommunityMedals */,
 				267004C4E5B90C068A2A03F1 /* Pages */,
 			);
 			path = NativeV2;
-			sourceTree = "<group>";
-		};
-		A1C000030000000000000003 /* CommunityMedals */ = {
-			isa = PBXGroup;
-			children = (
-				A1C000040000000000000004 /* NativeCommunityMedal3D.swift */,
-				A1C000060000000000000006 /* NativeCommunityMedalsView.swift */,
-			);
-			path = CommunityMedals;
 			sourceTree = "<group>";
 		};
 		9AF90AA7B61F0D7CF4C99A59 /* NativeDesignSystem */ = {
@@ -359,6 +367,7 @@
 			children = (
 				BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */,
 				AC48C1614B5128296F31DB7D /* CinematicSurfaces.swift */,
+				75AA6BAD2AB90671F8FF5FD1 /* GeneratedTokens.swift */,
 				38A4D15B8082C9119B8C37AC /* NativeAppearanceStore.swift */,
 			);
 			path = NativeDesignSystem;
@@ -369,7 +378,7 @@
 			children = (
 				2A663A5F20E9060A67A02499 /* APNs.entitlements */,
 				15977B3A7EE8DCEF7B5257CF /* Assets.xcassets */,
-				A1C000010000000000000001 /* CommunityMedals */,
+				B49D224903D83A20EF07FF85 /* CommunityMedals */,
 				571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */,
 				074E2F176D7B19065BD0557F /* ThirdPartyNotices.txt */,
 				5F9B30B754752545394EF900 /* Widgets.entitlements */,
@@ -393,7 +402,7 @@
 		B5D93B3640257B07FA889008 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				3B9A3A01FB3A03C2FC8AD128 /* MoviePilot-App */,
+				7A9BC01CD4B7F00B1EEA93DB /* ios */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -509,7 +518,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				56C0B16F5EA68739D0973A66 /* XCRemoteSwiftPackageReference "vlckit" */,
-				AC61DDA2475F1976C0441A19 /* XCLocalSwiftPackageReference ".." */,
+				A7567ABCE99DF71DA02F426C /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 892DB6753E28CB0376EE1229 /* Products */;
@@ -529,10 +538,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				FBCCCA54858635AC0FAFCBBE /* Assets.xcassets in Resources */,
+				88CB04BEB4BEB2FD5E1189F7 /* CommunityMedals in Resources */,
 				DD0E2E99E6765F70226EBAF8 /* InfoPlist.strings in Resources */,
 				E4468F866BDEF9BB3036AF33 /* LaunchScreen.storyboard in Resources */,
 				60C934B3A627113848AA3617 /* ThirdPartyNotices.txt in Resources */,
-				A1C000020000000000000002 /* CommunityMedals in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -566,6 +575,7 @@
 				8464FBB90159A6B122B561E9 /* AppDelegate.swift in Sources */,
 				81605C89FB80C7DDEB3B42C2 /* CinematicForms.swift in Sources */,
 				6AB5E40E1A68D643F166E5A6 /* CinematicSurfaces.swift in Sources */,
+				E99FD98553961B4C37924301 /* GeneratedTokens.swift in Sources */,
 				B751481BFB0F29D5319D82A4 /* InstanceStore.swift in Sources */,
 				D9DD60CF7154BD6A1589FE6C /* LanguageSettings.swift in Sources */,
 				6BEF4859F2AE0A164D9941B7 /* LegacyWebsiteStorage.swift in Sources */,
@@ -577,22 +587,25 @@
 				41EAC1FFF43BBB88B9E028CD /* NativeAppearanceSettingsPage.swift in Sources */,
 				04729F76AADB6E784C8E9C39 /* NativeAppearanceStore.swift in Sources */,
 				FC9C91C4309FD599B60E191E /* NativeCalendarPage.swift in Sources */,
+				713D9E91E655AFBD94513CE8 /* NativeCommunityMedal3D.swift in Sources */,
+				F944EE34CDE90324D357B2C9 /* NativeCommunityMedalsView.swift in Sources */,
 				2ECCFA5FCDCC8BEB234D0B0D /* NativeDashboardPage.swift in Sources */,
+				FE97B4770F1151CDA4E7405C /* NativeDeviceLayout.swift in Sources */,
 				EBD4F63E868782325F577479 /* NativeDiagnosticsToolsPage.swift in Sources */,
 				0FE557F4111AB0095942BEFF /* NativeDiscoverModulesSheet.swift in Sources */,
 				DDCEE1C105B831849FC9B502 /* NativeDiscoverPage.swift in Sources */,
 				02938EC7396846498DBB3C3F /* NativeDownloadsPage.swift in Sources */,
-				A1E000020000000000000002 /* NativeDeviceLayout.swift in Sources */,
 				29E6D5DE3717F6EBA7D36D69 /* NativeDynamicActionCenter.swift in Sources */,
 				1B6DCC76020A6EE81DA87E69 /* NativeEntityIcons.swift in Sources */,
 				DB471BEA03F64E92F0182C28 /* NativeExplorePage.swift in Sources */,
 				6051CDC21EA5C85DA1DD6D3E /* NativeFileManagerPage.swift in Sources */,
 				E6614181F752357720A889EB /* NativeMediaDetailPage.swift in Sources */,
-				A1D000040000000000000004 /* NativeMediaServerDetailPage.swift in Sources */,
-				A1D000020000000000000002 /* NativeMediaServerLibraryPage.swift in Sources */,
 				823F9719D320A50E3E7ACBFF /* NativeMediaPlaybackLauncher.swift in Sources */,
 				D2F28E40B4CA7F797613B2BD /* NativeMediaSearchPage.swift in Sources */,
+				82F26380686E29CF97D4DFC7 /* NativeMediaServerDetailPage.swift in Sources */,
+				6CDCB467D0F4D78498B4B275 /* NativeMediaServerLibraryPage.swift in Sources */,
 				B3D2A711BFF5C857E13FF960 /* NativeMessagesPage.swift in Sources */,
+				CD0E0C643287EA44A2611F7C /* NativeMoreHubPage.swift in Sources */,
 				08E6A5EB18261F0E3B4964F6 /* NativeMusicPage.swift in Sources */,
 				FA7D96C95BCA99B1CDDEABA8 /* NativePluginCatalogView.swift in Sources */,
 				98EB4831D3C52B37D00D990D /* NativePluginComboboxEditor.swift in Sources */,
@@ -605,6 +618,7 @@
 				1643E5D3ACDFDECB97B3BD54 /* NativeSitesPage.swift in Sources */,
 				3B7D26D9189BEB1B9C008546 /* NativeSubscribeCommunityPage.swift in Sources */,
 				5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */,
+				C5315286AFDA4CCAD1E92407 /* NativeSubscribeFilesSheet.swift in Sources */,
 				FFBF4A25C55AF8B92FC3E416 /* NativeSubscriptionsPage.swift in Sources */,
 				2BA2E297A78BF7DB111DB06C /* NativeSystemIntegrationSheets.swift in Sources */,
 				D3F8AFBC464110DB485BC873 /* NativeSystemModulesPage.swift in Sources */,
@@ -615,8 +629,6 @@
 				B8BFDD2872B5BE73B16B5837 /* NativeV2MainShell.swift in Sources */,
 				8DF5E1BB381E11AE01C5C435 /* NativeV2RootView.swift in Sources */,
 				D2AE907740AD1CA35EDE9E4F /* NativeV2SceneDelegate.swift in Sources */,
-				A1C000050000000000000005 /* NativeCommunityMedal3D.swift in Sources */,
-				A1C000070000000000000007 /* NativeCommunityMedalsView.swift in Sources */,
 				5927F511B04B6D1BA62E7ACD /* NativeWorkflowCanvasPage.swift in Sources */,
 				3CBB675738DCDAD4D0C9ADB9 /* NativeWorkflowsPage.swift in Sources */,
 				AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */,
@@ -722,7 +734,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 2.0.2;
+				MARKETING_VERSION = 2.0.3;
 				MOVIEPILOT_APNS_ENVIRONMENT = production;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -863,7 +875,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 2.0.2;
+				MARKETING_VERSION = 2.0.3;
 				MOVIEPILOT_APNS_ENVIRONMENT = production;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -956,9 +968,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		AC61DDA2475F1976C0441A19 /* XCLocalSwiftPackageReference ".." */ = {
+		A7567ABCE99DF71DA02F426C /* XCLocalSwiftPackageReference "." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ..;
+			relativePath = .;
 		};
 /* End XCLocalSwiftPackageReference section */
 

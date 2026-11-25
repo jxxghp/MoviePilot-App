@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import MoviePilotCore
 import SceneKit
 import SwiftUI
@@ -31,6 +32,7 @@ final class CommunityMedalAssetLoader: @unchecked Sendable {
 
   private let lock = NSLock()
   private var imageCache: [String: UIImage] = [:]
+  private var thumbnailCache: [String: UIImage] = [:]
   private var outlineCache: [String: CommunityMedalOutline] = [:]
 
   func webpImage(named stem: String) -> UIImage? {
@@ -42,8 +44,10 @@ final class CommunityMedalAssetLoader: @unchecked Sendable {
     lock.unlock()
 
     guard
-      let url = Bundle.main.url(
-        forResource: stem, withExtension: "webp", subdirectory: "CommunityMedals"),
+      let url =
+        Bundle.main.url(
+          forResource: stem, withExtension: "webp", subdirectory: "CommunityMedals")
+        ?? Bundle.main.url(forResource: stem, withExtension: "webp"),
       let image = UIImage(contentsOfFile: url.path)
     else { return nil }
 
@@ -65,8 +69,10 @@ final class CommunityMedalAssetLoader: @unchecked Sendable {
     lock.unlock()
 
     guard
-      let url = Bundle.main.url(
-        forResource: "\(stem).outline", withExtension: "json", subdirectory: "CommunityMedals"),
+      let url =
+        Bundle.main.url(
+          forResource: "\(stem).outline", withExtension: "json", subdirectory: "CommunityMedals")
+        ?? Bundle.main.url(forResource: "\(stem).outline", withExtension: "json"),
       let data = try? Data(contentsOf: url),
       let decoded = try? JSONDecoder().decode(CommunityMedalOutline.self, from: data)
     else { return nil }
@@ -85,6 +91,105 @@ final class CommunityMedalAssetLoader: @unchecked Sendable {
   func frontImage(for record: CommunityMedalRecord) -> UIImage? {
     let stem = CommunityMedalCatalog.frontAssetStem(for: record)
     return webpImage(named: stem) ?? webpImage(named: "\(record.key)-front")
+  }
+
+  // MARK: 网格缩略图（降采样 + 烘焙阴影）
+
+  /// 网格缩略图画布在勋章本体四周预留的阴影余量（pt），需容纳模糊半径与下移偏移。
+  static let gridThumbnailShadowInset: CGFloat = 16
+
+  /// 网格缩略图画布边长（pt）：勋章本体边长加两侧阴影余量。
+  static func gridThumbnailCanvasSide(medalSide: CGFloat) -> CGFloat {
+    medalSide + gridThumbnailShadowInset * 2
+  }
+
+  /// 网格缩略图的候选素材名，顺序与原网格取图一致：分档正面图 → 通用正面图 → 分档徽标 → 通用徽标。
+  static func gridThumbnailStems(for record: CommunityMedalRecord) -> [String] {
+    [
+      CommunityMedalCatalog.frontAssetStem(for: record),
+      "\(record.key)-front",
+      CommunityMedalCatalog.badgeAssetStem(for: record),
+      "\(record.key)-badge",
+    ]
+  }
+
+  /// 网格缩略图缓存键，覆盖素材、显示边长、屏幕倍率与深浅色阴影。
+  static func gridThumbnailKey(
+    stems: [String], medalSide: CGFloat, scale: CGFloat, isDark: Bool
+  ) -> String {
+    "\(stems.first ?? "")|\(Int(medalSide.rounded()))|\(Int((scale * 100).rounded()))|\(isDark)"
+  }
+
+  /// 同步读取已生成的网格缩略图，供首帧直接呈现。
+  func cachedGridThumbnail(forKey key: String) -> UIImage? {
+    lock.lock()
+    defer { lock.unlock() }
+    return thumbnailCache[key]
+  }
+
+  /// 生成网格缩略图：用 ImageIO 把 1200px 原图直接降采样到显示像素并立即解码，再把投影一次性烘焙进位图，
+  /// 滚动时不再逐帧缩放大纹理和离屏计算阴影。可在后台线程调用。
+  func makeGridThumbnail(
+    stems: [String], medalSide: CGFloat, scale: CGFloat, isDark: Bool
+  ) -> UIImage? {
+    let key = Self.gridThumbnailKey(
+      stems: stems, medalSide: medalSide, scale: scale, isDark: isDark)
+    if let cached = cachedGridThumbnail(forKey: key) { return cached }
+
+    let maxPixel = max(Int((medalSide * scale).rounded(.up)), 1)
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCacheImmediately: true,
+      kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+    ]
+    var downsampled: CGImage?
+    for stem in stems {
+      guard
+        let url =
+          Bundle.main.url(
+            forResource: stem, withExtension: "webp", subdirectory: "CommunityMedals")
+          ?? Bundle.main.url(forResource: stem, withExtension: "webp"),
+        let source = CGImageSourceCreateWithURL(
+          url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+        let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+      else { continue }
+      downsampled = image
+      break
+    }
+    guard let downsampled else { return nil }
+
+    let canvasSide = Self.gridThumbnailCanvasSide(medalSide: medalSide)
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = scale
+    format.opaque = false
+    let renderer = UIGraphicsImageRenderer(
+      size: CGSize(width: canvasSide, height: canvasSide), format: format)
+    let pixelWidth = CGFloat(downsampled.width)
+    let pixelHeight = CGFloat(downsampled.height)
+    let fit = medalSide / max(pixelWidth, pixelHeight, 1)
+    let drawSize = CGSize(width: pixelWidth * fit, height: pixelHeight * fit)
+    let drawRect = CGRect(
+      x: (canvasSide - drawSize.width) / 2,
+      y: (canvasSide - drawSize.height) / 2,
+      width: drawSize.width,
+      height: drawSize.height)
+    let baked = renderer.image { context in
+      // 与原 `.shadow(radius: 6, y: 3)` 对齐：Core Graphics 的 blur 约为图层阴影半径的两倍。
+      context.cgContext.setShadow(
+        offset: CGSize(width: 0, height: 3),
+        blur: 12,
+        color: UIColor.black.withAlphaComponent(isDark ? 0.42 : 0.18).cgColor)
+      UIImage(cgImage: downsampled).draw(in: drawRect)
+    }
+
+    lock.lock()
+    if thumbnailCache.count > 64 {
+      thumbnailCache.removeAll(keepingCapacity: true)
+    }
+    thumbnailCache[key] = baked
+    lock.unlock()
+    return baked
   }
 }
 

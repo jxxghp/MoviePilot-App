@@ -1,4 +1,4 @@
-name: iOS checks
+name: Multiplatform CI
 
 on:
   push:
@@ -11,19 +11,34 @@ permissions:
   contents: read
 
 jobs:
-  core-and-ios:
+  ssot-and-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify SSOT sync gate
+        run: python3 tools/sync-all.py --check
+      - name: Run Python tooling and fixture tests
+        run: python3 -m unittest discover -s tools/tests
+      - name: Rust format, clippy, and golden fixture tests
+        working-directory: shared/core-rust
+        run: |
+          cargo fmt --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+
+  ios:
+    needs: ssot-and-rust
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - name: Toolchain
         run: xcodebuild -version
-      - name: Core tests
-        run: zsh scripts/test-core.sh
-      - name: Script and fixture verification
-        run: python3 -m unittest discover -s scripts/tests
-      - name: Swift formatting
-        run: xcrun swift-format lint --strict --recursive Sources Tests ios/MoviePilot ios/MoviePilotUITests ios/MoviePilotWidgets
+      - name: Swift core tests
+        run: zsh tools/ios/test-core.sh
+      - name: Swift formatting check
+        run: xcrun swift-format lint --strict ios/NativeDesignSystem/GeneratedTokens.swift
       - name: Build WidgetKit extension
         run: >-
           xcodebuild build
@@ -32,7 +47,7 @@ jobs:
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath DerivedData
           CODE_SIGNING_ALLOWED=NO
-      - name: Build iOS simulator app and UI tests
+      - name: Build iOS simulator app
         run: >-
           xcodebuild build-for-testing
           -project ios/MoviePilot.xcodeproj
@@ -40,3 +55,41 @@ jobs:
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath DerivedData
           CODE_SIGNING_ALLOWED=NO
+
+  android:
+    needs: ssot-and-rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Rust Android target & cargo-ndk
+        run: |
+          rustup target add aarch64-linux-android
+          cargo install cargo-ndk --locked
+      - name: Run Android unit tests and verify Release APK gate
+        run: bash tools/android/build-android.sh artifacts
+
+  harmony:
+    needs: ssot-and-rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup HarmonyOS NEXT Command Line Tools
+        uses: ErBWs/setup-ohos@v2
+        with:
+          version: '26.0.0.821'
+          cache: 'true'
+      - name: Install Rust OHOS target & build HarmonyOS HAP gate
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1
+          rustup target add aarch64-unknown-linux-ohos
+          bash tools/harmony/build-harmony.sh artifacts

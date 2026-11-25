@@ -18,6 +18,7 @@ final class NativeAppModel: ObservableObject {
   @Published private(set) var busy = false
   @Published private(set) var messageKey: String?
   @Published private(set) var fixedUsername = false
+  @Published private(set) var isSwitchingServer = false
   @Published private(set) var language = AppLanguage.current
   @Published var address = ""
   @Published var username = ""
@@ -30,6 +31,7 @@ final class NativeAppModel: ObservableObject {
   @Published var needsOTP = false
   private let instances: InstanceStore
   private let credentials = LoginCredentialStore()
+  private var previousAuthenticatedInstance: SavedInstance?
   private var task: Task<Void, Never>?
   private var usageReportTask: Task<Void, Never>?
   private var reportedUsageScope: NativeSessionScope?
@@ -54,9 +56,11 @@ final class NativeAppModel: ObservableObject {
       }
   }
 
-  /// 冷启动只尝试恢复上次实例令牌，绝不自动提交可选的已保存密码，同时保留冷启动携带的系统深链与快捷项意图。
+  /// 冷启动先尝试恢复上次实例令牌；仍需登录时，若已回填本机保存的密码且“保持登录”开启，则自动提交一次登录，同时保留冷启动携带的系统深链与快捷项意图。
   func start() {
-    if let selected { connect(selected, preserveSystemLaunchIntent: true) }
+    if let selected {
+      connect(selected, preserveSystemLaunchIntent: true, submitsSavedLogin: true)
+    }
   }
 
   /// 地址校验失败保留原输入，成功则沿用相同标准地址的 UUID。
@@ -69,8 +73,30 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
+  /// 当前切换服务页是否可返回原已登录会话。
+  var canCancelSwitchServer: Bool {
+    isSwitchingServer && (manager.currentSession != nil || previousAuthenticatedInstance != nil)
+  }
+
   /// 新实例先取消旧尝试和草稿，只有本次返回可以更新界面与回填凭据；冷启动/小组件发起的连接保留系统跳转意图。
-  func connect(_ instance: SavedInstance, preserveSystemLaunchIntent: Bool = false) {
+  /// 仅冷启动开启 `submitsSavedLogin`：手动选择实例或小组件深链进入登录页时仍等待用户确认。
+  func connect(
+    _ instance: SavedInstance, preserveSystemLaunchIntent: Bool = false,
+    submitsSavedLogin: Bool = false
+  ) {
+    if isSwitchingServer,
+      let active = manager.currentSession,
+      active.instance.id == instance.id,
+      active.instance.address == instance.address
+    {
+      cancelSwitchServer()
+      return
+    }
+    if manager.currentSession != nil && manager.currentSession?.instance.id != instance.id {
+      NativePageDataCache.shared.clearAll()
+      NativeMediaArtworkCache.shared.clearMemory()
+      NativeMediaLibraryStatusStore.shared.clearAll()
+    }
     resetSessionState(clearSystemIntents: !preserveSystemLaunchIntent)
     do {
       selected = try instances.select(instance.address)
@@ -81,7 +107,17 @@ final class NativeAppModel: ObservableObject {
       address = instance.address.url.absoluteString
       form = .login
       execute { [self] id in
-        _ = try await manager.connect(instance.nativeInstance)
+        do {
+          _ = try await manager.connect(instance.nativeInstance)
+        } catch {
+          // 已保存令牌过期：过期回调已回填本机保存的密码与开关，这里代替用户点一次登录。
+          guard submitsSavedLogin, operationID == id, !Task.isCancelled,
+            case .loginRequired(_, .expired) = manager.state, canSubmitSavedLogin
+          else { throw error }
+          messageKey = nil
+          try await submitLogin(id)
+          return
+        }
         try check(id)
         switch manager.state {
         case .initializationRequired(_, let configured):
@@ -91,10 +127,60 @@ final class NativeAppModel: ObservableObject {
           regenerateKey()
         case .loginRequired:
           loadCredentials(instance)
+          // 没有可恢复的令牌：同样只代替用户点一次，失败后停在登录页由用户处理。
+          if submitsSavedLogin, canSubmitSavedLogin { try await submitLogin(id) }
         default: break
         }
       }
     } catch { messageKey = Self.errorKey(error) }
+  }
+
+  /// 从已登录设置页进入切换服务面板：保留当前内存会话与页面滚动栈，支持随时返回原服务。
+  func beginSwitchServer() {
+    operationID = UUID()
+    task?.cancel()
+    task = nil
+    busy = false
+    if previousAuthenticatedInstance == nil {
+      previousAuthenticatedInstance =
+        selected
+        ?? saved.first(where: { $0.id == manager.currentSession?.instance.id })
+    }
+    clearSecrets()
+    address = ""
+    username = ""
+    rememberSession = true
+    rememberCredentials = false
+    needsOTP = false
+    fixedUsername = false
+    messageKey = nil
+    form = .connection
+    saved = instances.instances
+    isSwitchingServer = true
+  }
+
+  /// 取消切换服务：若原会话仍在内存则零耗时恢复，否则按已保存实例重新连接恢复。
+  func cancelSwitchServer() {
+    operationID = UUID()
+    task?.cancel()
+    task = nil
+    busy = false
+    clearSecrets()
+    messageKey = nil
+    let previous = previousAuthenticatedInstance
+    previousAuthenticatedInstance = nil
+    isSwitchingServer = false
+    if manager.currentSession != nil {
+      if let previous {
+        selected = (try? instances.select(previous.address)) ?? previous
+        saved = instances.instances
+        address = previous.address.url.absoluteString
+      }
+      return
+    }
+    if let previous {
+      connect(previous)
+    }
   }
 
   /// 退出连接页不注销已保存令牌；旧网络、通知绑定、快捷项与临时 Widget 代次必须先停止。
@@ -134,25 +220,30 @@ final class NativeAppModel: ObservableObject {
 
   /// 一次明确登录只提交一次；保存密码失败可见，但不撤销已成功确认的内存身份。
   func login() {
+    guard selected != nil else { return }
+    execute { [self] id in try await submitLogin(id) }
+  }
+
+  /// 以当前表单提交登录；手动点击与冷启动自动登录共用，同一操作内只提交一次。
+  private func submitLogin(_ id: UUID) async throws {
     guard let selected else { return }
     let input = LoginCredentials(username: username, password: password)
     let code = otp
     let savePassword = rememberCredentials
     let keepSession = rememberSession
-    execute { [self] id in
-      _ = try await manager.login(
-        to: selected.nativeInstance, username: input.username, password: input.password,
-        otp: code.isEmpty ? nil : code, remember: keepSession)
-      try check(id)
-      do {
-        if savePassword {
-          try credentials.save(input, for: selected.id, address: selected.address)
-        } else {
-          try credentials.remove(for: selected.id)
-        }
-      } catch { messageKey = "此设备未能安全保存部分登录信息，下次可能需要重新输入。" }
-      clearSecrets()
-    }
+    _ = try await manager.login(
+      to: selected.nativeInstance, username: input.username, password: input.password,
+      otp: code.isEmpty ? nil : code, remember: keepSession)
+    try check(id)
+    instances.setKeepsSession(keepSession, for: selected.id)
+    do {
+      if savePassword {
+        try credentials.save(input, for: selected.id, address: selected.address)
+      } else {
+        try credentials.remove(for: selected.id)
+      }
+    } catch { messageKey = "此设备未能安全保存部分登录信息，下次可能需要重新输入。" }
+    clearSecrets()
   }
 
   /// 初始化提交不自动登录，不把生成的 API Key 持久化到设备或剪贴板。
@@ -178,6 +269,17 @@ final class NativeAppModel: ObservableObject {
     }
   }
 
+  /// 冷启动自动登录的前提：密码来自本机保存的记录，且“保持登录”处于开启。
+  private var canSubmitSavedLogin: Bool {
+    rememberSession && rememberCredentials && !username.isEmpty && !password.isEmpty
+  }
+
+  /// “保持登录”按实例记住用户的选择，下次进入登录页时恢复，并决定冷启动是否自动登录。
+  func setRememberSession(_ enabled: Bool) {
+    rememberSession = enabled
+    if let selected { instances.setKeepsSession(enabled, for: selected.id) }
+  }
+
   /// 关闭密码记忆立即删除本实例记录，系统拒绝时回滚开关并明确提示。
   func setRememberCredentials(_ enabled: Bool) {
     guard !enabled, let selected else {
@@ -195,6 +297,8 @@ final class NativeAppModel: ObservableObject {
     guard let selected else { return }
     do {
       try manager.logout()
+      isSwitchingServer = false
+      previousAuthenticatedInstance = nil
       NativeAgentChatStore.resetAll()
       usageReportTask?.cancel()
       usageReportTask = nil
@@ -219,6 +323,8 @@ final class NativeAppModel: ObservableObject {
   /// 观察状态变迁：已认证时挂载原生系统集成；过期时立即清理本实例集成资料并回到登录页。
   func received(_ state: NativeSessionState) {
     if case .authenticated = state, let session = manager.currentSession {
+      isSwitchingServer = false
+      previousAuthenticatedInstance = nil
       lastSessionValidationAt = Date()
       NotificationService.shared.attachNative(session)
       WidgetService.shared.reconcile(native: session)
@@ -227,6 +333,8 @@ final class NativeAppModel: ObservableObject {
       return
     }
     if case .loginRequired(let instance, .expired) = state {
+      isSwitchingServer = false
+      previousAuthenticatedInstance = nil
       let target = selected ?? saved.first(where: { $0.id == instance.id })
       if let target { selected = target }
       NativeAgentChatStore.resetAll()
@@ -274,6 +382,9 @@ final class NativeAppModel: ObservableObject {
     NotificationService.shared.resumePending()
     WidgetService.shared.resumePending(native: session)
     NativeSystemRouteHub.shared.resolvePending(for: session.instance.id.uuidString)
+    if isSwitchingServer, NativeSystemRouteHub.shared.pendingTarget != nil {
+      cancelSwitchServer()
+    }
     reportUsageIfEnabled(for: session)
   }
 
@@ -388,10 +499,22 @@ final class NativeAppModel: ObservableObject {
   /// 只在确认删除后执行；先清理旧网页存储与小组件授权，再交由既有地址簿清理安全记录。
   func forget(_ instance: SavedInstance) {
     execute { [self] id in
+      let forgettingActiveSession = manager.currentSession?.instance.id == instance.id
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
+      NotificationService.shared.clearStoredState(for: instance.id)
       await LegacyWebsiteStorage.erase(for: instance.id)
       try check(id)
       try instances.forget(instance)
+      if previousAuthenticatedInstance?.id == instance.id {
+        previousAuthenticatedInstance = nil
+      }
+      if forgettingActiveSession {
+        NativePageDataCache.shared.clearAll()
+        NativeMediaArtworkCache.shared.clearMemory()
+        NativeMediaLibraryStatusStore.shared.clearAll()
+        isSwitchingServer = false
+        resetSessionState(clearSystemIntents: true)
+      }
       saved = instances.instances
       if selected?.id == instance.id { selected = nil }
     }
@@ -430,8 +553,9 @@ final class NativeAppModel: ObservableObject {
     clearSecrets()
   }
 
-  /// 已保存的密码仅回填当前地址，不隐式开启另一个实例的记忆或提交认证。
+  /// 恢复该实例的“保持登录”选择并回填已保存的密码；仅作用于当前地址，是否提交认证由调用方决定。
   private func loadCredentials(_ instance: SavedInstance) {
+    rememberSession = instances.keepsSession(instance.id)
     do {
       if let value = try credentials.read(for: instance.id, address: instance.address) {
         username = value.username

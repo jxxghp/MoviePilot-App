@@ -1,0 +1,44 @@
+{
+  "app": {
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "targetSdkVersion": "26.0.1",
+        "runtimeOS": "HarmonyOS"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [{ "name": "default", "applyToProducts": ["default"] }]
+    },
+    { "name": "core_rust_bridge", "srcPath": "./commons/core_rust_bridge" },
+    { "name": "design_system", "srcPath": "./commons/design_system" },
+    { "name": "media_player", "srcPath": "./commons/media_player" },
+    { "name": "medal_3d", "srcPath": "./commons/medal_3d" },
+    { "name": "plugin_host", "srcPath": "./commons/plugin_host" },
+    { "name": "auth", "srcPath": "./features/auth" },
+    { "name": "discover", "srcPath": "./features/discover" },
+    { "name": "media", "srcPath": "./features/media" },
+    { "name": "subscribe", "srcPath": "./features/subscribe" },
+    { "name": "download", "srcPath": "./features/download" },
+    { "name": "library", "srcPath": "./features/library" },
+    { "name": "dashboard", "srcPath": "./features/dashboard" },
+    { "name": "automation", "srcPath": "./features/automation" },
+    { "name": "agent", "srcPath": "./features/agent" },
+    { "name": "settings", "srcPath": "./features/settings" }
+  ]
+}

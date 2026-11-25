@@ -1,0 +1,75 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "MoviePilot HarmonyOS NEXT 主入口 HAP",
+    "mainElement": "EntryAbility",
+    "deviceTypes": ["phone", "tablet", "2in1"],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    "metadata": [
+      {
+        "name": "ohos.arkui.UIMaterial.state",
+        "value": "enable"
+      }
+    ],
+    "requestPermissions": [
+      { "name": "ohos.permission.INTERNET" },
+      { "name": "ohos.permission.GET_NETWORK_INFO" },
+      { "name": "ohos.permission.KEEP_BACKGROUND_RUNNING" },
+      {
+        "name": "ohos.permission.MICROPHONE",
+        "reason": "$string:app_name",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      }
+    ],
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "MoviePilot 主窗口能力（沉浸式全屏 + DeepLink + 系统音视频打开方式）",
+        "icon": "$media:appicon",
+        "label": "$string:app_name",
+        "orientation": "auto_rotation_restricted",
+        "backgroundModes": ["audioPlayback"],
+        "startWindowIcon": "$media:brandmark",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "skills": [
+          {
+            "entities": ["entity.system.home"],
+            "actions": ["action.system.home"]
+          },
+          {
+            "actions": ["ohos.want.action.viewData"],
+            "uris": [
+              { "scheme": "moviepilot" },
+              { "scheme": "moviepilot-app", "host": "notification" },
+              { "scheme": "file", "type": "video/*" },
+              { "scheme": "file", "type": "audio/*" },
+              { "scheme": "file", "type": "application/x-strm" }
+            ]
+          }
+        ]
+      }
+    ],
+    "extensionAbilities": [
+      {
+        "name": "MoviePilotFormAbility",
+        "srcEntry": "./ets/widget/MoviePilotFormAbility.ets",
+        "type": "form",
+        "exported": true,
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
+      }
+    ]
+  }
+}

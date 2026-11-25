@@ -39,8 +39,23 @@ struct NativeUsersPage: View {
             .accessibilityIdentifier("native-users-feedback")
           }
           if isLoading && users.isEmpty {
-            NativeCardListSkeletonView(count: 4, style: .iconRow)
-              .transition(.opacity)
+            VStack(alignment: .leading, spacing: 16) {
+              VStack(alignment: .leading, spacing: 7) {
+                Text("管理员")
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 6)
+                NativeCardListSkeletonView(count: 1, style: .groupedIconList)
+              }
+              VStack(alignment: .leading, spacing: 7) {
+                Text("普通成员")
+                  .font(.footnote.weight(.medium))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 6)
+                NativeCardListSkeletonView(count: 3, style: .groupedIconList)
+              }
+            }
+            .transition(.opacity)
           } else if loadFailed && users.isEmpty {
             failureCard
           } else if filteredUsers.isEmpty {
@@ -69,7 +84,7 @@ struct NativeUsersPage: View {
     }
     .navigationTitle(users.isEmpty ? "用户管理" : "用户管理 (\(users.count))")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "按用户名或邮箱筛选")
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -491,7 +506,7 @@ private struct NativeUserEditorSheet: View {
       }
       .navigationTitle(isCreate ? "新增用户" : "编辑用户")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }

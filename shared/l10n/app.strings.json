@@ -1,0 +1,2340 @@
+{
+  "version": "1.0.0",
+  "entries": {
+    "%@\n十分钟内有效，仅可使用一次。请只粘贴到你自己的通知网页。": {
+      "zh-Hans": "%@\n十分钟内有效，仅可使用一次。请只粘贴到你自己的通知网页。",
+      "zh-Hant": "%@\n十分鐘內有效，僅可使用一次。請只粘貼到你自己的通知網頁。",
+      "en": "%@\nValid for ten minutes and one use. Paste only into your own notification page."
+    },
+    "%@\n将清除此服务保存的账号密码、登录状态和网页数据。": {
+      "zh-Hans": "%@\n将清除此服务保存的账号密码、登录状态和网页数据。",
+      "zh-Hant": "%@\n將清除此服務保存的帳號密碼、登錄狀態和網頁資料。",
+      "en": "%@\nSaved credentials, sign-in status and web data for this server will be removed."
+    },
+    "%@ 倍": {
+      "zh-Hans": "%@ 倍",
+      "zh-Hant": "%@ 倍",
+      "en": "%@ times"
+    },
+    "%@，页内分类": {
+      "zh-Hans": "%@，页内分类",
+      "zh-Hant": "%@，頁內分類",
+      "en": "%@, page categories"
+    },
+    "APNs 提醒": {
+      "zh-Hans": "APNs 提醒",
+      "zh-Hant": "APNs 提醒",
+      "en": "APNs Alerts"
+    },
+    "App 导航连接已中断。请确认实例前端已更新，再重新打开。": {
+      "zh-Hans": "App 导航连接已中断。请确认实例前端已更新，再重新打开。",
+      "zh-Hant": "App 導航連接已中斷。請確認實例前端已更新，再重新打開。",
+      "en": "The App navigation connection was interrupted. Update the instance frontend, then reopen."
+    },
+    "MoviePilot 小组件": {
+      "zh-Hans": "MoviePilot 小组件",
+      "zh-Hant": "MoviePilot 小組件",
+      "en": "MoviePilot widgets"
+    },
+    "MoviePilot 服务地址": {
+      "zh-Hans": "MoviePilot 服务地址",
+      "zh-Hant": "MoviePilot 服務地址",
+      "en": "MoviePilot server address"
+    },
+    "MoviePilot 正在准备页面": {
+      "zh-Hans": "MoviePilot 正在准备页面",
+      "zh-Hant": "MoviePilot 正在準備頁面",
+      "en": "MoviePilot is preparing the page"
+    },
+    "MoviePilot 状态": {
+      "zh-Hans": "MoviePilot 状态",
+      "zh-Hant": "MoviePilot 狀態",
+      "en": "MoviePilot status"
+    },
+    "上一页预览": {
+      "zh-Hans": "上一页预览",
+      "zh-Hant": "上一頁預覽",
+      "en": "Previous page preview"
+    },
+    "上次播放到 %@。": {
+      "zh-Hans": "上次播放到 %@。",
+      "zh-Hant": "上次播放到 %@。",
+      "en": "Last played at %@."
+    },
+    "上次采样": {
+      "zh-Hans": "上次采样",
+      "zh-Hant": "上次採樣",
+      "en": "Last updated"
+    },
+    "下一页": {
+      "zh-Hans": "下一页",
+      "zh-Hant": "下一頁",
+      "en": "Next page"
+    },
+    "下载": {
+      "zh-Hans": "下载",
+      "zh-Hant": "下載",
+      "en": "Downloads"
+    },
+    "下载任务": {
+      "zh-Hans": "下载任务",
+      "zh-Hant": "下載任務",
+      "en": "Downloads"
+    },
+    "下载器": {
+      "zh-Hans": "下载器",
+      "zh-Hant": "下載器",
+      "en": "Downloaders"
+    },
+    "下载未完成": {
+      "zh-Hans": "下载未完成",
+      "zh-Hant": "下載未完成",
+      "en": "Download incomplete"
+    },
+    "下载状态": {
+      "zh-Hans": "下载状态",
+      "zh-Hant": "下載狀態",
+      "en": "Download status"
+    },
+    "下载速度 %@，上传速度 %@": {
+      "zh-Hans": "下载速度 %@，上传速度 %@",
+      "zh-Hant": "下載速度 %@，上傳速度 %@",
+      "en": "Download %@, upload %@"
+    },
+    "专辑封面": {
+      "zh-Hans": "专辑封面",
+      "zh-Hant": "專輯封面",
+      "en": "Album artwork"
+    },
+    "两次输入的密码不一致。": {
+      "zh-Hans": "两次输入的密码不一致。",
+      "zh-Hant": "兩次輸入的密碼不一致。",
+      "en": "The passwords do not match."
+    },
+    "个": {
+      "zh-Hans": "个",
+      "zh-Hant": "個",
+      "en": "configured"
+    },
+    "主导航": {
+      "zh-Hans": "主导航",
+      "zh-Hant": "主導航",
+      "en": "Main navigation"
+    },
+    "主屏幕通知": {
+      "zh-Hans": "主屏幕通知",
+      "zh-Hant": "主屏幕通知",
+      "en": "Home Screen notifications"
+    },
+    "主题与外观": {
+      "zh-Hans": "主题与外观",
+      "zh-Hant": "主題與外觀",
+      "en": "Theme & Appearance"
+    },
+    "五段顺序：分、时、日、月、周。": {
+      "zh-Hans": "五段顺序：分、时、日、月、周。",
+      "zh-Hant": "五段順序：分、時、日、月、週。",
+      "en": "Five fields: minute, hour, day, month, weekday."
+    },
+    "人物": {
+      "zh-Hans": "人物",
+      "zh-Hant": "人物",
+      "en": "People"
+    },
+    "从头开始": {
+      "zh-Hans": "从头开始",
+      "zh-Hant": "從頭開始",
+      "en": "Start over"
+    },
+    "位成员": {
+      "zh-Hans": "位成员",
+      "zh-Hant": "位成員",
+      "en": "Members"
+    },
+    "你的媒体世界，随时连接。": {
+      "zh-Hans": "你的媒体世界，随时连接。",
+      "zh-Hant": "你的媒體世界，隨時連接。",
+      "en": "Your media world, always connected."
+    },
+    "使用实例配置": {
+      "zh-Hans": "使用实例配置",
+      "zh-Hant": "使用實例配置",
+      "en": "Use instance settings"
+    },
+    "使用带 Push Notifications 能力的签名和已配置的 Server 后开启。": {
+      "zh-Hans": "使用带 Push Notifications 能力的签名和已配置的 Server 后开启。",
+      "zh-Hant": "使用帶 Push Notifications 能力的簽名和已配置的 Server 後開啓。",
+      "en": "Enable after signing with Push Notifications capability and configuring the Server."
+    },
+    "使用此资料的小组件将停止显示内容。": {
+      "zh-Hans": "使用此资料的小组件将停止显示内容。",
+      "zh-Hant": "使用此資料的小組件將停止顯示內容。",
+      "en": "Widgets using this profile will stop displaying content."
+    },
+    "使用通行密钥登录": {
+      "zh-Hans": "使用通行密钥登录",
+      "zh-Hant": "使用通行密鑰登錄",
+      "en": "Sign in with a passkey"
+    },
+    "使用默认服务中心": {
+      "zh-Hans": "使用默认服务中心",
+      "zh-Hant": "使用預設服務中心",
+      "en": "Use default notification server"
+    },
+    "保存": {
+      "zh-Hans": "保存",
+      "zh-Hant": "保存",
+      "en": "Save"
+    },
+    "保存结果未确认，修改已保留。": {
+      "zh-Hans": "保存结果未确认，修改已保留。",
+      "zh-Hant": "儲存結果未確認，修改已保留。",
+      "en": "Save wasn’t confirmed. Your changes are kept."
+    },
+    "保持登录": {
+      "zh-Hans": "保持登录",
+      "zh-Hant": "保持登錄",
+      "en": "Stay signed in"
+    },
+    "修改显示名称": {
+      "zh-Hans": "修改显示名称",
+      "zh-Hant": "修改顯示名稱",
+      "en": "Rename"
+    },
+    "免费 Apple 个人签名没有 APNs 能力。主屏幕通知使用相同的私有 Server，无需开发者账号。": {
+      "zh-Hans": "免费 Apple 个人签名没有 APNs 能力。主屏幕通知使用相同的私有 Server，无需开发者账号。",
+      "zh-Hant": "免費 Apple 個人簽名沒有 APNs 能力。主屏幕通知使用相同的私有 Server，無需開發者帳號。",
+      "en": "Free Apple personal signing does not support APNs. Home Screen notifications use the same private Server and need no developer account."
+    },
+    "免费自签也可接收通知": {
+      "zh-Hans": "免费自签也可接收通知",
+      "zh-Hant": "免費自簽也可接收通知",
+      "en": "Notifications with free signing"
+    },
+    "全部": {
+      "zh-Hans": "全部",
+      "zh-Hant": "全部",
+      "en": "All"
+    },
+    "关闭": {
+      "zh-Hans": "关闭",
+      "zh-Hant": "關閉",
+      "en": "Close"
+    },
+    "关闭字幕": {
+      "zh-Hans": "关闭字幕",
+      "zh-Hant": "關閉字幕",
+      "en": "Subtitles off"
+    },
+    "关闭播放器": {
+      "zh-Hans": "关闭播放器",
+      "zh-Hant": "關閉播放器",
+      "en": "Close player"
+    },
+    "内容": {
+      "zh-Hans": "内容",
+      "zh-Hant": "內容",
+      "en": "Content"
+    },
+    "内嵌 · %@": {
+      "zh-Hans": "内嵌 · %@",
+      "zh-Hant": "內嵌 · %@",
+      "en": "Embedded · %@"
+    },
+    "分类探索": {
+      "zh-Hans": "分类探索",
+      "zh-Hant": "分類探索",
+      "en": "Explore Categories"
+    },
+    "分钟": {
+      "zh-Hans": "分钟",
+      "zh-Hant": "分鐘",
+      "en": "Minute"
+    },
+    "切换服务": {
+      "zh-Hans": "切换服务",
+      "zh-Hant": "切換服務",
+      "en": "Switch Server"
+    },
+    "创建管理员": {
+      "zh-Hans": "创建管理员",
+      "zh-Hant": "建立管理員",
+      "en": "Create Administrator"
+    },
+    "删除": {
+      "zh-Hans": "删除",
+      "zh-Hant": "刪除",
+      "en": "Delete"
+    },
+    "删除已保存的服务？": {
+      "zh-Hans": "删除已保存的服务？",
+      "zh-Hant": "刪除已保存的服務？",
+      "en": "Delete saved server?"
+    },
+    "删除服务": {
+      "zh-Hans": "删除服务",
+      "zh-Hant": "刪除服務",
+      "en": "Delete server"
+    },
+    "删除服务？": {
+      "zh-Hans": "删除服务？",
+      "zh-Hant": "刪除服務？",
+      "en": "Delete Service?"
+    },
+    "刷新": {
+      "zh-Hans": "刷新",
+      "zh-Hant": "刷新",
+      "en": "Refresh"
+    },
+    "刷新账号状态": {
+      "zh-Hans": "刷新账号状态",
+      "zh-Hant": "重新整理帳號狀態",
+      "en": "Refresh Account"
+    },
+    "前进 10 秒": {
+      "zh-Hans": "前进 10 秒",
+      "zh-Hant": "前進 10 秒",
+      "en": "Forward 10 seconds"
+    },
+    "剧集订阅": {
+      "zh-Hans": "剧集订阅",
+      "zh-Hant": "劇集訂閱",
+      "en": "TV subscriptions"
+    },
+    "剩余 %@": {
+      "zh-Hans": "剩余 %@",
+      "zh-Hant": "剩餘 %@",
+      "en": "%@ free"
+    },
+    "匹配此字段的全部值": {
+      "zh-Hans": "匹配此字段的全部值",
+      "zh-Hant": "符合此欄位的全部值",
+      "en": "Match every value in this field"
+    },
+    "原生通知需要系统授权": {
+      "zh-Hans": "原生通知需要系统授权",
+      "zh-Hant": "原生通知需要系統授權",
+      "en": "Native notifications require permission"
+    },
+    "发现": {
+      "zh-Hans": "发现",
+      "zh-Hant": "發現",
+      "en": "Discover"
+    },
+    "发送测试通知": {
+      "zh-Hans": "发送测试通知",
+      "zh-Hant": "發送測試通知",
+      "en": "Send test notification"
+    },
+    "取消": {
+      "zh-Hans": "取消",
+      "zh-Hant": "取消",
+      "en": "Cancel"
+    },
+    "可用": {
+      "zh-Hans": "可用",
+      "zh-Hant": "可用",
+      "en": "Free"
+    },
+    "合集": {
+      "zh-Hans": "合集",
+      "zh-Hant": "合集",
+      "en": "Collections"
+    },
+    "后退 10 秒": {
+      "zh-Hans": "后退 10 秒",
+      "zh-Hant": "後退 10 秒",
+      "en": "Back 10 seconds"
+    },
+    "含海报": {
+      "zh-Hans": "含海报",
+      "zh-Hant": "含海報",
+      "en": "Poster available"
+    },
+    "启用": {
+      "zh-Hans": "启用",
+      "zh-Hant": "啟用",
+      "en": "Active"
+    },
+    "启用后可在系统小组件中选择此服务。": {
+      "zh-Hans": "启用后可在系统小组件中选择此服务。",
+      "zh-Hant": "啓用後可在系統小組件中選擇此服務。",
+      "en": "Enable to select this server in system widgets."
+    },
+    "启用小组件": {
+      "zh-Hans": "启用小组件",
+      "zh-Hant": "啓用小組件",
+      "en": "Enable widgets"
+    },
+    "启用当前账号": {
+      "zh-Hans": "启用当前账号",
+      "zh-Hant": "啓用當前帳號",
+      "en": "Enable current account"
+    },
+    "图标加载中": {
+      "zh-Hans": "图标加载中",
+      "zh-Hant": "圖標加載中",
+      "en": "Loading icon"
+    },
+    "在 App 中启用小组件，再长按选择服务和内容": {
+      "zh-Hans": "在 App 中启用小组件，再长按选择服务和内容",
+      "zh-Hant": "在 App 中啓用小組件，再長按選擇服務和內容",
+      "en": "Enable widgets in the App, then touch and hold to select a server and content"
+    },
+    "在 App 中检查小组件": {
+      "zh-Hans": "在 App 中检查小组件",
+      "zh-Hant": "在 App 中檢查小組件",
+      "en": "Check widgets in the App"
+    },
+    "在 Safari 打开通知网页，添加到主屏幕，再从主屏幕打开并输入绑定码。通知由主屏幕网页接收，点击后可返回 App。": {
+      "zh-Hans": "在 Safari 打开通知网页，添加到主屏幕，再从主屏幕打开并输入绑定码。通知由主屏幕网页接收，点击后可返回 App。",
+      "zh-Hant": "在 Safari 開啟通知網頁，加入主畫面，再從主畫面開啟並輸入綁定碼。通知由主畫面網頁接收，點擊後可返回 App。",
+      "en": "Open the notification page in Safari and add it to the Home Screen. Open it there and enter the pairing code. Tap a notification to return to the App."
+    },
+    "在锁屏查看下载、上传速度及只读状态。": {
+      "zh-Hans": "在锁屏查看下载、上传速度及只读状态。",
+      "zh-Hant": "在鎖屏查看下載、上傳速度及只讀狀態。",
+      "en": "View download and upload speeds and status on the Lock Screen."
+    },
+    "地址中不要包含账号或密码。连接后再安全登录。": {
+      "zh-Hans": "地址中不要包含账号或密码。连接后再安全登录。",
+      "zh-Hant": "地址中不要包含帳號或密碼。連接後再安全登錄。",
+      "en": "Do not include a username or password in the address. Sign in securely after connecting."
+    },
+    "基础": {
+      "zh-Hans": "基础",
+      "zh-Hant": "基礎",
+      "en": "Basic"
+    },
+    "填写便于区分服务的名称。": {
+      "zh-Hans": "填写便于区分服务的名称。",
+      "zh-Hant": "填寫便於區分服務的名稱。",
+      "en": "Enter a name to identify this server."
+    },
+    "复制 API Key": {
+      "zh-Hans": "复制 API Key",
+      "zh-Hant": "複製 API Key",
+      "en": "Copy API Key"
+    },
+    "复制绑定码": {
+      "zh-Hans": "复制绑定码",
+      "zh-Hant": "複製綁定碼",
+      "en": "Copy pairing code"
+    },
+    "外挂": {
+      "zh-Hans": "外挂",
+      "zh-Hant": "外掛",
+      "en": "External"
+    },
+    "外观与本机": {
+      "zh-Hans": "外观与本机",
+      "zh-Hant": "外觀與本機",
+      "en": "Appearance & Device"
+    },
+    "头像已加载": {
+      "zh-Hans": "头像已加载",
+      "zh-Hant": "頭像已加載",
+      "en": "Avatar loaded"
+    },
+    "好": {
+      "zh-Hans": "好",
+      "zh-Hant": "好",
+      "en": "OK"
+    },
+    "媒体": {
+      "zh-Hans": "媒体",
+      "zh-Hant": "媒體",
+      "en": "Media"
+    },
+    "媒体库": {
+      "zh-Hans": "媒体库",
+      "zh-Hant": "媒體庫",
+      "en": "Library"
+    },
+    "媒体数据源": {
+      "zh-Hans": "媒体数据源",
+      "zh-Hant": "媒體資料來源",
+      "en": "Media Data Sources"
+    },
+    "媒体服务器": {
+      "zh-Hans": "媒体服务器",
+      "zh-Hant": "媒體伺服器",
+      "en": "Media Servers"
+    },
+    "字幕": {
+      "zh-Hans": "字幕",
+      "zh-Hant": "字幕",
+      "en": "Subtitles"
+    },
+    "字幕读取失败，请选择其他字幕或检查后台连接。": {
+      "zh-Hans": "字幕读取失败，请选择其他字幕或检查后台连接。",
+      "zh-Hant": "字幕讀取失敗，請選擇其他字幕或檢查後台連接。",
+      "en": "Unable to load subtitles. Select another track or check the server connection."
+    },
+    "字段": {
+      "zh-Hans": "字段",
+      "zh-Hant": "欄位",
+      "en": "Fields"
+    },
+    "字段表达式": {
+      "zh-Hans": "字段表达式",
+      "zh-Hant": "欄位運算式",
+      "en": "Field expression"
+    },
+    "完成": {
+      "zh-Hans": "完成",
+      "zh-Hant": "完成",
+      "en": "Done"
+    },
+    "完整表达式": {
+      "zh-Hans": "完整表达式",
+      "zh-Hant": "完整運算式",
+      "en": "Full expression"
+    },
+    "实例 AppPush 当前使用 %@。请在后台配置相同地址，或选择“使用实例配置”后绑定。": {
+      "zh-Hans": "实例 AppPush 当前使用 %@。请在后台配置相同地址，或选择“使用实例配置”后绑定。",
+      "zh-Hant": "實例 AppPush 當前使用 %@。請在後台配置相同地址，或選擇“使用實例配置”後綁定。",
+      "en": "The instance AppPush channel uses %@. Use the same address or select Use instance settings before pairing."
+    },
+    "实例与刷新": {
+      "zh-Hans": "实例与刷新",
+      "zh-Hant": "實例與重新整理",
+      "en": "Instance & Refresh"
+    },
+    "密码": {
+      "zh-Hans": "密码",
+      "zh-Hant": "密碼",
+      "en": "Password"
+    },
+    "密码为 6–50 位，至少包含字母、数字、符号中的两类。API Key 仅提交到此服务。": {
+      "zh-Hans": "密码为 6–50 位，至少包含字母、数字、符号中的两类。API Key 仅提交到此服务。",
+      "zh-Hant": "密碼為 6–50 位，至少包含字母、數字、符號中的兩類。API Key 僅提交至此服務。",
+      "en": "Use 6–50 characters with at least two of letters, numbers, or symbols. The API key is sent only to this service."
+    },
+    "密码仅在本机安全保存，验证码不会保存。": {
+      "zh-Hans": "密码仅在本机安全保存，验证码不会保存。",
+      "zh-Hant": "密碼僅在本機安全儲存，驗證碼不會儲存。",
+      "en": "Passwords are stored securely on this device only. Verification codes are never saved."
+    },
+    "将清空本机已缓存的海报图片与页面快照，不会影响服务器数据。": {
+      "zh-Hans": "将清空本机已缓存的海报图片与页面快照，不会影响服务器数据。",
+      "zh-Hant": "將清空本機已快取的海報圖片與頁面快照，不會影響伺服器資料。",
+      "en": "Clears cached posters and page snapshots on this device without affecting server data."
+    },
+    "将移除此服务的本机登录信息和缓存。": {
+      "zh-Hans": "将移除此服务的本机登录信息和缓存。",
+      "zh-Hant": "將移除此服務的本機登入資訊與快取。",
+      "en": "This removes saved sign-in information and cached data for this service on this device."
+    },
+    "小时": {
+      "zh-Hans": "小时",
+      "zh-Hant": "小時",
+      "en": "Hour"
+    },
+    "小窗播放": {
+      "zh-Hans": "小窗播放",
+      "zh-Hant": "子母畫面播放",
+      "en": "Picture in Picture"
+    },
+    "小组件": {
+      "zh-Hans": "小组件",
+      "zh-Hant": "小組件",
+      "en": "Widgets"
+    },
+    "小组件资料不可用": {
+      "zh-Hans": "小组件资料不可用",
+      "zh-Hant": "小組件資料不可用",
+      "en": "Widget profile unavailable"
+    },
+    "尚无数据": {
+      "zh-Hans": "尚无数据",
+      "zh-Hant": "尚無資料",
+      "en": "No data yet"
+    },
+    "尚未启用": {
+      "zh-Hans": "尚未启用",
+      "zh-Hant": "尚未啓用",
+      "en": "Not enabled"
+    },
+    "工作日 09:00": {
+      "zh-Hans": "工作日 09:00",
+      "zh-Hant": "工作日 09:00",
+      "en": "Weekdays at 09:00"
+    },
+    "工作流": {
+      "zh-Hans": "工作流",
+      "zh-Hant": "工作流程",
+      "en": "Workflows"
+    },
+    "已保存的服务": {
+      "zh-Hans": "已保存的服务",
+      "zh-Hant": "已保存的服務",
+      "en": "Saved servers"
+    },
+    "已保留不在选项中的当前值。": {
+      "zh-Hans": "已保留不在选项中的当前值。",
+      "zh-Hant": "已保留不在選項中的目前值。",
+      "en": "Unlisted current values are kept."
+    },
+    "已向系统申请推送令牌，稍后刷新查看绑定状态。": {
+      "zh-Hans": "已向系统申请推送令牌，稍后刷新查看绑定状态。",
+      "zh-Hant": "已向系統申請推送令牌，稍後刷新查看綁定狀態。",
+      "en": "Push registration requested. Refresh shortly to check pairing status."
+    },
+    "已启用，只读显示当前账号允许的内容。": {
+      "zh-Hans": "已启用，只读显示当前账号允许的内容。",
+      "zh-Hant": "已啓用，只讀顯示當前帳號允許的內容。",
+      "en": "Enabled. Only content allowed for the current account is displayed."
+    },
+    "已安装": {
+      "zh-Hans": "已安装",
+      "zh-Hant": "已安裝",
+      "en": "Installed"
+    },
+    "已安装管理与插件商店": {
+      "zh-Hans": "已安装管理与插件商店",
+      "zh-Hant": "已安裝管理與插件商店",
+      "en": "Installed Plugins & Store"
+    },
+    "已授": {
+      "zh-Hans": "已授",
+      "zh-Hant": "已授權",
+      "en": "Authorized"
+    },
+    "已提交 %d/%d 个设备，请检查系统通知。": {
+      "zh-Hans": "已提交 %d/%d 个设备，请检查系统通知。",
+      "zh-Hant": "已提交 %d/%d 個設備，請檢查系統通知。",
+      "en": "Submitted to %d/%d devices. Check system notifications."
+    },
+    "已显示全部内容": {
+      "zh-Hans": "已显示全部内容",
+      "zh-Hant": "已顯示全部內容",
+      "en": "All content displayed"
+    },
+    "已清理": {
+      "zh-Hans": "已清理",
+      "zh-Hant": "已清除",
+      "en": "Cleared"
+    },
+    "已用": {
+      "zh-Hans": "已用",
+      "zh-Hant": "已用",
+      "en": "Used"
+    },
+    "已登录": {
+      "zh-Hans": "已登录",
+      "zh-Hant": "已登錄",
+      "en": "Signed in"
+    },
+    "已选择": {
+      "zh-Hans": "已选择",
+      "zh-Hant": "已選擇",
+      "en": "Selected"
+    },
+    "常用入口": {
+      "zh-Hans": "常用入口",
+      "zh-Hant": "常用入口",
+      "en": "Quick access"
+    },
+    "常用计划": {
+      "zh-Hans": "常用计划",
+      "zh-Hant": "常用排程",
+      "en": "Presets"
+    },
+    "应用": {
+      "zh-Hans": "应用",
+      "zh-Hant": "應用",
+      "en": "Apps"
+    },
+    "底层代理、并发与高级系统参数请在 Web 管理台配置。": {
+      "zh-Hans": "底层代理、并发与高级系统参数请在 Web 管理台配置。",
+      "zh-Hant": "底層代理、並行與進階系統參數請在 Web 管理台設定。",
+      "en": "Configure proxy, concurrency and advanced system settings in Web UI."
+    },
+    "开启系统通知": {
+      "zh-Hans": "开启系统通知",
+      "zh-Hant": "開啓系統通知",
+      "en": "Enable system notifications"
+    },
+    "开始": {
+      "zh-Hans": "开始",
+      "zh-Hant": "開始",
+      "en": "Start"
+    },
+    "弹窗操作": {
+      "zh-Hans": "弹窗操作",
+      "zh-Hant": "彈窗操作",
+      "en": "Dialog actions"
+    },
+    "当前 App 尚不支持此实例要求的验证方式，请检查账户验证设置。": {
+      "zh-Hans": "当前 App 尚不支持此实例要求的验证方式，请检查账户验证设置。",
+      "zh-Hant": "當前 App 尚不支持此實例要求的驗證方式，請檢查賬戶驗證設置。",
+      "en": "This App does not support the verification required by this instance. Check your account settings."
+    },
+    "当前值（不在选项中）": {
+      "zh-Hans": "当前值（不在选项中）",
+      "zh-Hant": "目前值（不在選項中）",
+      "en": "Current value (unlisted)"
+    },
+    "当前安装": {
+      "zh-Hans": "当前安装",
+      "zh-Hant": "當前安裝",
+      "en": "This installation"
+    },
+    "当前安装使用主屏幕通知。": {
+      "zh-Hans": "当前安装使用主屏幕通知。",
+      "zh-Hant": "當前安裝使用主屏幕通知。",
+      "en": "This installation uses Home Screen notifications."
+    },
+    "当前安装已解除绑定。": {
+      "zh-Hans": "当前安装已解除绑定。",
+      "zh-Hant": "當前安裝已解除綁定。",
+      "en": "This installation is unpaired."
+    },
+    "当前安装的共享区域不可用，请检查安装或续签后重试。": {
+      "zh-Hans": "当前安装的共享区域不可用，请检查安装或续签后重试。",
+      "zh-Hant": "當前安裝的共享區域不可用，請檢查安裝或續簽後重試。",
+      "en": "Shared storage is unavailable. Check the installation or renew its signature, then retry."
+    },
+    "当前播放": {
+      "zh-Hans": "当前播放",
+      "zh-Hant": "當前播放",
+      "en": "Now playing"
+    },
+    "当前服务": {
+      "zh-Hans": "当前服务",
+      "zh-Hant": "當前服務",
+      "en": "Current server"
+    },
+    "当前签名使用主屏幕通知": {
+      "zh-Hans": "当前签名使用主屏幕通知",
+      "zh-Hant": "當前簽名使用主屏幕通知",
+      "en": "This signature uses Home Screen notifications"
+    },
+    "当前网络不可用。若连接局域网服务，请检查系统设置中 MoviePilot 的本地网络权限。": {
+      "zh-Hans": "当前网络不可用。若连接局域网服务，请检查系统设置中 MoviePilot 的本地网络权限。",
+      "zh-Hant": "當前網路不可用。若連接局域網服務，請檢查系統設置中 MoviePilot 的本地網路權限。",
+      "en": "The network is unavailable. For local servers, check MoviePilot's Local Network permission in Settings."
+    },
+    "当前账号": {
+      "zh-Hans": "当前账号",
+      "zh-Hant": "目前帳號",
+      "en": "Current Account"
+    },
+    "当前账号已绑定 %d 个通知设备。": {
+      "zh-Hans": "当前账号已绑定 %d 个通知设备。",
+      "zh-Hant": "當前帳號已綁定 %d 個通知設備。",
+      "en": "%d notification devices are paired with this account."
+    },
+    "当前账号没有可用的小组件内容。": {
+      "zh-Hans": "当前账号没有可用的小组件内容。",
+      "zh-Hant": "當前帳號沒有可用的小組件內容。",
+      "en": "No widget content is available for this account."
+    },
+    "当前账号没有此操作权限。": {
+      "zh-Hans": "当前账号没有此操作权限。",
+      "zh-Hant": "目前帳號沒有此操作權限。",
+      "en": "This account does not have permission for this action."
+    },
+    "当前账号还没有绑定通知设备。": {
+      "zh-Hans": "当前账号还没有绑定通知设备。",
+      "zh-Hant": "當前帳號還沒有綁定通知設備。",
+      "en": "No notification devices are paired with this account."
+    },
+    "当前连接或系统不支持通行密钥，请使用 HTTPS 地址和支持的系统。": {
+      "zh-Hans": "当前连接或系统不支持通行密钥，请使用 HTTPS 地址和支持的系统。",
+      "zh-Hant": "當前連接或系統不支持通行密鑰，請使用 HTTPS 地址和支持的系統。",
+      "en": "Passkeys are unavailable on this connection or system. Use HTTPS and a supported system."
+    },
+    "当前页面": {
+      "zh-Hans": "当前页面",
+      "zh-Hant": "當前頁面",
+      "en": "Current page"
+    },
+    "当前页面暂不支持，请更新 MoviePilot 后重试。": {
+      "zh-Hans": "当前页面暂不支持，请更新 MoviePilot 后重试。",
+      "zh-Hant": "當前頁面暫不支持，請更新 MoviePilot 後重試。",
+      "en": "This page is not supported yet. Update MoviePilot and retry."
+    },
+    "影视": {
+      "zh-Hans": "影视",
+      "zh-Hant": "影視",
+      "en": "Movies & TV"
+    },
+    "影视资源": {
+      "zh-Hans": "影视资源",
+      "zh-Hant": "影視資源",
+      "en": "Video torrents"
+    },
+    "待审批": {
+      "zh-Hans": "待审批",
+      "zh-Hant": "待審批",
+      "en": "Pending"
+    },
+    "快捷工具与系统诊断": {
+      "zh-Hans": "快捷工具与系统诊断",
+      "zh-Hant": "快捷工具與系統診斷",
+      "en": "Shortcuts & Diagnostics"
+    },
+    "总入库": {
+      "zh-Hans": "总入库",
+      "zh-Hant": "總入庫",
+      "en": "Total imports"
+    },
+    "总订阅": {
+      "zh-Hans": "总订阅",
+      "zh-Hant": "總訂閱",
+      "en": "Total subscriptions"
+    },
+    "悬浮智能助手": {
+      "zh-Hans": "悬浮智能助手",
+      "zh-Hant": "懸浮智慧助手",
+      "en": "Floating AI Assistant"
+    },
+    "我的": {
+      "zh-Hans": "我的",
+      "zh-Hant": "我的",
+      "en": "Mine"
+    },
+    "我的订阅": {
+      "zh-Hans": "我的订阅",
+      "zh-Hant": "我的訂閱",
+      "en": "Subscriptions"
+    },
+    "打开 App": {
+      "zh-Hans": "打开 App",
+      "zh-Hant": "打開 App",
+      "en": "Open App"
+    },
+    "打开 MoviePilot": {
+      "zh-Hans": "打开 MoviePilot",
+      "zh-Hant": "打開 MoviePilot",
+      "en": "Open MoviePilot"
+    },
+    "打开通知网页": {
+      "zh-Hans": "打开通知网页",
+      "zh-Hant": "打開通知網頁",
+      "en": "Open notification page"
+    },
+    "执行时间以服务器和插件的时区为准。": {
+      "zh-Hans": "执行时间以服务器和插件的时区为准。",
+      "zh-Hant": "執行時間以伺服器和外掛的時區為準。",
+      "en": "Execution uses the server and plugin time zones."
+    },
+    "指定值": {
+      "zh-Hans": "指定值",
+      "zh-Hant": "指定值",
+      "en": "Specific values"
+    },
+    "指定起点": {
+      "zh-Hans": "指定起点",
+      "zh-Hant": "指定起點",
+      "en": "Set a starting value"
+    },
+    "探索": {
+      "zh-Hans": "探索",
+      "zh-Hant": "探索",
+      "en": "Explore"
+    },
+    "插件": {
+      "zh-Hans": "插件",
+      "zh-Hant": "外掛",
+      "en": "Plugins"
+    },
+    "插件与工作流": {
+      "zh-Hans": "插件与工作流",
+      "zh-Hant": "插件與工作流",
+      "en": "Plugins & Workflows"
+    },
+    "插件中心": {
+      "zh-Hans": "插件中心",
+      "zh-Hant": "插件中心",
+      "en": "Plugin Center"
+    },
+    "插件图标已加载": {
+      "zh-Hans": "插件图标已加载",
+      "zh-Hant": "插件圖標已加載",
+      "en": "Plugin icon loaded"
+    },
+    "插件面板": {
+      "zh-Hans": "插件面板",
+      "zh-Hant": "插件面板",
+      "en": "Plugin panel"
+    },
+    "搜索": {
+      "zh-Hans": "搜索",
+      "zh-Hant": "搜尋",
+      "en": "Search"
+    },
+    "搜索“%@”": {
+      "zh-Hans": "搜索“%@”",
+      "zh-Hant": "搜索“%@”",
+      "en": "Search “%@”"
+    },
+    "搜索与元数据来源": {
+      "zh-Hans": "搜索与元数据来源",
+      "zh-Hant": "搜尋與中繼資料來源",
+      "en": "Search & Metadata Sources"
+    },
+    "搜索或输入自定义值": {
+      "zh-Hans": "搜索或输入自定义值",
+      "zh-Hant": "搜尋或輸入自訂值",
+      "en": "Search or enter a custom value"
+    },
+    "播放": {
+      "zh-Hans": "播放",
+      "zh-Hant": "播放",
+      "en": "Playback"
+    },
+    "播放偏好": {
+      "zh-Hans": "播放偏好",
+      "zh-Hant": "播放偏好",
+      "en": "Playback Preferences"
+    },
+    "播放暂不可用": {
+      "zh-Hans": "播放暂不可用",
+      "zh-Hant": "播放暫不可用",
+      "en": "Playback unavailable"
+    },
+    "播放进度": {
+      "zh-Hans": "播放进度",
+      "zh-Hant": "播放進度",
+      "en": "Playback progress"
+    },
+    "播放速度": {
+      "zh-Hans": "播放速度",
+      "zh-Hant": "播放速度",
+      "en": "Playback speed"
+    },
+    "操作": {
+      "zh-Hans": "操作",
+      "zh-Hant": "操作",
+      "en": "Actions"
+    },
+    "操作失败，请重试。": {
+      "zh-Hans": "操作失败，请重试。",
+      "zh-Hant": "操作失敗，請重試。",
+      "en": "The action failed. Try again."
+    },
+    "操作菜单": {
+      "zh-Hans": "操作菜单",
+      "zh-Hant": "操作菜單",
+      "en": "Actions menu"
+    },
+    "支持 HTTP 和 HTTPS。登录信息按服务分别保存。": {
+      "zh-Hans": "支持 HTTP 和 HTTPS。登录信息按服务分别保存。",
+      "zh-Hant": "支持 HTTP 和 HTTPS。登錄資訊按服務分別保存。",
+      "en": "HTTP and HTTPS are supported. Sign-in information is saved separately for each server."
+    },
+    "支持 HTTPS、局域网地址和部署子路径。": {
+      "zh-Hans": "支持 HTTPS、局域网地址和部署子路径。",
+      "zh-Hant": "支援 HTTPS、區域網路位址及部署子路徑。",
+      "en": "Supports HTTPS, local networks, and deployment subpaths."
+    },
+    "放弃修改": {
+      "zh-Hans": "放弃修改",
+      "zh-Hant": "放棄修改",
+      "en": "Discard changes"
+    },
+    "放弃未保存的修改？": {
+      "zh-Hans": "放弃未保存的修改？",
+      "zh-Hant": "放棄未儲存的修改？",
+      "en": "Discard unsaved changes?"
+    },
+    "数字星期由插件解释；改选时使用星期名称。": {
+      "zh-Hans": "数字星期由插件解释；改选时使用星期名称。",
+      "zh-Hant": "數字星期由插件解釋；改選時使用星期名稱。",
+      "en": "Numeric weekdays follow the plugin’s rules. Choose weekday names to change them."
+    },
+    "数据已过期，请打开 App 刷新": {
+      "zh-Hans": "数据已过期，请打开 App 刷新",
+      "zh-Hant": "資料已過期，請打開 App 刷新",
+      "en": "Data has expired. Open the App to refresh"
+    },
+    "数据待更新": {
+      "zh-Hans": "数据待更新",
+      "zh-Hant": "資料待更新",
+      "en": "Update pending"
+    },
+    "数据源": {
+      "zh-Hans": "数据源",
+      "zh-Hant": "資料源",
+      "en": "Source"
+    },
+    "整理与目录": {
+      "zh-Hans": "整理与目录",
+      "zh-Hant": "整理與目錄",
+      "en": "Transfer & Directories"
+    },
+    "整理历史": {
+      "zh-Hans": "整理历史",
+      "zh-Hant": "整理記錄",
+      "en": "Transfer History"
+    },
+    "文件管理": {
+      "zh-Hans": "文件管理",
+      "zh-Hant": "檔案管理",
+      "en": "File Manager"
+    },
+    "新增与管理": {
+      "zh-Hans": "新增与管理",
+      "zh-Hant": "新增與管理",
+      "en": "Add & Manage"
+    },
+    "方式": {
+      "zh-Hans": "方式",
+      "zh-Hant": "方式",
+      "en": "Mode"
+    },
+    "无法加载插件，请重试。": {
+      "zh-Hans": "无法加载插件，请重试。",
+      "zh-Hant": "無法載入外掛，請重試。",
+      "en": "Couldn’t load plugins. Try again."
+    },
+    "无法启动系统音频会话，请检查设备声音设置。": {
+      "zh-Hans": "无法启动系统音频会话，请检查设备声音设置。",
+      "zh-Hant": "無法啓動系統音頻會話，請檢查設備聲音設置。",
+      "en": "Unable to start audio. Check your device's sound settings."
+    },
+    "无法应用，修改已保留。": {
+      "zh-Hans": "无法应用，修改已保留。",
+      "zh-Hant": "無法套用，修改已保留。",
+      "en": "Unable to apply. Your changes are kept."
+    },
+    "无法建立安全的 HTTPS 连接，请检查服务器的 TLS 配置。": {
+      "zh-Hans": "无法建立安全的 HTTPS 连接，请检查服务器的 TLS 配置。",
+      "zh-Hant": "無法建立安全的 HTTPS 連接，請檢查伺服器的 TLS 配置。",
+      "en": "Unable to establish a secure HTTPS connection. Check the server's TLS settings."
+    },
+    "无法开启系统通知，请检查通知服务与系统设置。": {
+      "zh-Hans": "无法开启系统通知，请检查通知服务与系统设置。",
+      "zh-Hant": "無法開啓系統通知，請檢查通知服務與系統設置。",
+      "en": "Unable to enable system notifications. Check the notification server and system settings."
+    },
+    "无法恢复系统音频会话，请手动继续播放。": {
+      "zh-Hans": "无法恢复系统音频会话，请手动继续播放。",
+      "zh-Hant": "無法恢復系統音頻會話，請手動繼續播放。",
+      "en": "Unable to resume audio. Resume playback manually."
+    },
+    "无法打开此小组件，请检查当前账号权限或重新启用资料。": {
+      "zh-Hans": "无法打开此小组件，请检查当前账号权限或重新启用资料。",
+      "zh-Hant": "無法打開此小組件，請檢查當前帳號權限或重新啓用資料。",
+      "en": "Unable to open this widget. Check account permissions or enable the profile again."
+    },
+    "无法播放": {
+      "zh-Hans": "无法播放",
+      "zh-Hant": "無法播放",
+      "en": "Unable to play"
+    },
+    "无法生成安全密钥，请重试。": {
+      "zh-Hans": "无法生成安全密钥，请重试。",
+      "zh-Hant": "無法產生安全金鑰，請重試。",
+      "en": "Unable to generate a secure key. Please try again."
+    },
+    "无法解析服务地址，请检查主机名及当前网络的 DNS 设置。": {
+      "zh-Hans": "无法解析服务地址，请检查主机名及当前网络的 DNS 设置。",
+      "zh-Hant": "無法解析服務地址，請檢查主機名及當前網路的 DNS 設置。",
+      "en": "Unable to resolve the server address. Check the hostname and DNS settings."
+    },
+    "无法访问安全存储，请解锁设备后重试。": {
+      "zh-Hans": "无法访问安全存储，请解锁设备后重试。",
+      "zh-Hant": "無法存取安全儲存，請解鎖裝置後重試。",
+      "en": "Secure storage is unavailable. Unlock your device and try again."
+    },
+    "无法读取播放信息，请确认影片仍在媒体库中并检查后台连接。": {
+      "zh-Hans": "无法读取播放信息，请确认影片仍在媒体库中并检查后台连接。",
+      "zh-Hant": "無法讀取播放資訊，請確認影片仍在媒體庫中並檢查後台連接。",
+      "en": "Unable to load playback information. Check the library item and server connection."
+    },
+    "无法读取本地歌词。": {
+      "zh-Hans": "无法读取本地歌词。",
+      "zh-Hant": "無法讀取本地歌詞。",
+      "en": "Unable to load local lyrics."
+    },
+    "无法连接服务，请检查地址、端口和服务状态后重试。": {
+      "zh-Hans": "无法连接服务，请检查地址、端口和服务状态后重试。",
+      "zh-Hant": "無法連接服務，請檢查地址、端口和服務狀態後重試。",
+      "en": "Unable to connect. Check the address, port and server status, then retry."
+    },
+    "无法连接服务，请重试或更改地址。": {
+      "zh-Hans": "无法连接服务，请重试或更改地址。",
+      "zh-Hant": "無法連線至服務，請重試或變更位址。",
+      "en": "Unable to connect. Retry or change the service address."
+    },
+    "无法连接此实例，请检查地址、网络和服务状态。": {
+      "zh-Hans": "无法连接此实例，请检查地址、网络和服务状态。",
+      "zh-Hant": "無法連接此實例，請檢查地址、網路和服務狀態。",
+      "en": "Unable to connect to this instance. Check the address, network and server status."
+    },
+    "无法连接通知服务，请检查网络与登录状态。": {
+      "zh-Hans": "无法连接通知服务，请检查网络与登录状态。",
+      "zh-Hant": "無法連接通知服務，請檢查網路與登錄狀態。",
+      "en": "Unable to connect to the notification server. Check your network and sign-in status."
+    },
+    "日期": {
+      "zh-Hans": "日期",
+      "zh-Hant": "日期",
+      "en": "Day"
+    },
+    "星期": {
+      "zh-Hans": "星期",
+      "zh-Hant": "星期",
+      "en": "Weekday"
+    },
+    "显示 API Key": {
+      "zh-Hans": "显示 API Key",
+      "zh-Hant": "顯示 API Key",
+      "en": "Show API Key"
+    },
+    "显示名称": {
+      "zh-Hans": "显示名称",
+      "zh-Hant": "顯示名稱",
+      "en": "Display name"
+    },
+    "显示媒体名称": {
+      "zh-Hans": "显示媒体名称",
+      "zh-Hant": "顯示媒體名稱",
+      "en": "Show media names"
+    },
+    "显示密码": {
+      "zh-Hans": "显示密码",
+      "zh-Hant": "顯示密碼",
+      "en": "Show password"
+    },
+    "显示操作菜单": {
+      "zh-Hans": "显示操作菜单",
+      "zh-Hant": "顯示操作菜單",
+      "en": "Show actions menu"
+    },
+    "普通成员": {
+      "zh-Hans": "普通成员",
+      "zh-Hant": "一般成員",
+      "en": "Member"
+    },
+    "智能、插件与自动化": {
+      "zh-Hans": "智能、插件与自动化",
+      "zh-Hant": "智能、插件與自動化",
+      "en": "AI, Plugins & Automation"
+    },
+    "暂不支持的配置组件": {
+      "zh-Hans": "暂不支持的配置组件",
+      "zh-Hant": "暫不支援的設定元件",
+      "en": "Unsupported settings component"
+    },
+    "暂停": {
+      "zh-Hans": "暂停",
+      "zh-Hant": "暫停",
+      "en": "Pause"
+    },
+    "暂无内容": {
+      "zh-Hans": "暂无内容",
+      "zh-Hant": "暫無內容",
+      "en": "No content"
+    },
+    "暂无同名 LRC 歌词": {
+      "zh-Hans": "暂无同名 LRC 歌词",
+      "zh-Hant": "暫無同名 LRC 歌詞",
+      "en": "No matching LRC lyrics"
+    },
+    "暂无已安装插件": {
+      "zh-Hans": "暂无已安装插件",
+      "zh-Hant": "暫無已安裝外掛",
+      "en": "No installed plugins"
+    },
+    "暂时无法开启画中画，请等待视频开始播放后重试。": {
+      "zh-Hans": "暂时无法开启画中画，请等待视频开始播放后重试。",
+      "zh-Hant": "暫時無法開啟子母畫面，請等待影片開始播放後重試。",
+      "en": "Picture in Picture is not ready. Wait for the video to start, then try again."
+    },
+    "暂时无法打开 MoviePilot": {
+      "zh-Hans": "暂时无法打开 MoviePilot",
+      "zh-Hant": "暫時無法打開 MoviePilot",
+      "en": "Unable to open MoviePilot"
+    },
+    "暂时无法读取": {
+      "zh-Hans": "暂时无法读取",
+      "zh-Hant": "暫時無法讀取",
+      "en": "Unable to load"
+    },
+    "暂时无法读取小组件资料，请在 App 中检查": {
+      "zh-Hans": "暂时无法读取小组件资料，请在 App 中检查",
+      "zh-Hant": "暫時無法讀取小組件資料，請在 App 中檢查",
+      "en": "Unable to load the widget profile. Check it in the App"
+    },
+    "暂时无法读取，请解锁设备、检查连接后重试。": {
+      "zh-Hans": "暂时无法读取，请解锁设备、检查连接后重试。",
+      "zh-Hant": "暫時無法讀取，請解鎖設備、檢查連接後重試。",
+      "en": "Unable to load. Unlock your device, check the connection and retry."
+    },
+    "暂时无法连接": {
+      "zh-Hans": "暂时无法连接",
+      "zh-Hant": "暫時無法連接",
+      "en": "Unable to connect"
+    },
+    "更多": {
+      "zh-Hans": "更多",
+      "zh-Hant": "更多",
+      "en": "More"
+    },
+    "更多播放选项": {
+      "zh-Hans": "更多播放选项",
+      "zh-Hant": "更多播放選項",
+      "en": "More playback options"
+    },
+    "更改地址": {
+      "zh-Hans": "更改地址",
+      "zh-Hant": "更改地址",
+      "en": "Change address"
+    },
+    "更改服务地址": {
+      "zh-Hans": "更改服务地址",
+      "zh-Hant": "更改服務地址",
+      "en": "Change server address"
+    },
+    "月份": {
+      "zh-Hans": "月份",
+      "zh-Hant": "月份",
+      "en": "Month"
+    },
+    "月底": {
+      "zh-Hans": "月底",
+      "zh-Hant": "月底",
+      "en": "Last day"
+    },
+    "有效期至": {
+      "zh-Hans": "有效期至",
+      "zh-Hant": "有效期至",
+      "en": "Expires"
+    },
+    "服务": {
+      "zh-Hans": "服务",
+      "zh-Hant": "服務",
+      "en": "Server"
+    },
+    "服务与账号": {
+      "zh-Hans": "服务与账号",
+      "zh-Hant": "服務與帳號",
+      "en": "Server & Account"
+    },
+    "服务响应无法解析，请检查后端版本和地址。": {
+      "zh-Hans": "服务响应无法解析，请检查后端版本和地址。",
+      "zh-Hant": "服務回應無法解析，請檢查後端版本及位址。",
+      "en": "The service response could not be read. Check the backend version and address."
+    },
+    "服务器的 HTTPS 证书未受系统信任或已失效。请修复证书后重试。": {
+      "zh-Hans": "服务器的 HTTPS 证书未受系统信任或已失效。请修复证书后重试。",
+      "zh-Hant": "伺服器的 HTTPS 證書未受系統信任或已失效。請修復證書後重試。",
+      "en": "The server's HTTPS certificate is untrusted or expired. Fix the certificate and retry."
+    },
+    "服务地址": {
+      "zh-Hans": "服务地址",
+      "zh-Hant": "服務地址",
+      "en": "Server address"
+    },
+    "服务就绪后会自动继续；连接超时后将返回地址列表。": {
+      "zh-Hans": "服务就绪后会自动继续；连接超时后将返回地址列表。",
+      "zh-Hant": "服務就緒後會自動繼續；連接超時後將返回地址列表。",
+      "en": "This will continue when the server is ready. A timeout returns to the server list."
+    },
+    "服务已初始化，请登录。": {
+      "zh-Hans": "服务已初始化，请登录。",
+      "zh-Hant": "服務已初始化，請登入。",
+      "en": "This service is already set up. Please sign in."
+    },
+    "服务暂时不可用，正在自动重试…": {
+      "zh-Hans": "服务暂时不可用，正在自动重试…",
+      "zh-Hant": "服務暫時不可用，正在自動重試…",
+      "en": "Server unavailable. Retrying automatically…"
+    },
+    "服务状态": {
+      "zh-Hans": "服务状态",
+      "zh-Hant": "服務狀態",
+      "en": "Server status"
+    },
+    "服务状态已改变，请重试以重新检查。": {
+      "zh-Hans": "服务状态已改变，请重试以重新检查。",
+      "zh-Hant": "服務狀態已變更，請重試以重新檢查。",
+      "en": "The service state has changed. Retry to check its current state."
+    },
+    "服务端通知渠道": {
+      "zh-Hans": "服务端通知渠道",
+      "zh-Hant": "伺服器通知管道",
+      "en": "Server Channels"
+    },
+    "服务返回了重定向，请检查完整服务地址。": {
+      "zh-Hans": "服务返回了重定向，请检查完整服务地址。",
+      "zh-Hant": "服務傳回重新導向，請檢查完整服務位址。",
+      "en": "The service returned a redirect. Check the full service address."
+    },
+    "未知艺人": {
+      "zh-Hans": "未知艺人",
+      "zh-Hant": "未知藝人",
+      "en": "Unknown artist"
+    },
+    "未能完成通行密钥验证，请重新尝试。": {
+      "zh-Hans": "未能完成通行密钥验证，请重新尝试。",
+      "zh-Hant": "未能完成通行密鑰驗證，請重新嘗試。",
+      "en": "Unable to verify the passkey. Try again."
+    },
+    "未能更新已保存的服务，请重试。": {
+      "zh-Hans": "未能更新已保存的服务，请重试。",
+      "zh-Hant": "未能更新已保存的服務，請重試。",
+      "en": "Unable to update saved servers. Try again."
+    },
+    "未能清除已保存的账号密码，请重试。": {
+      "zh-Hans": "未能清除已保存的账号密码，请重试。",
+      "zh-Hant": "未能清除已保存的帳號密碼，請重試。",
+      "en": "Unable to remove saved credentials. Try again."
+    },
+    "本地缓存清理": {
+      "zh-Hans": "本地缓存清理",
+      "zh-Hant": "清除本機快取",
+      "en": "Clear Local Cache"
+    },
+    "本机推送通知": {
+      "zh-Hans": "本机推送通知",
+      "zh-Hant": "本機推播通知",
+      "en": "Push Notifications"
+    },
+    "本机资料": {
+      "zh-Hans": "本机资料",
+      "zh-Hant": "本機資料",
+      "en": "Local profile"
+    },
+    "权限角色": {
+      "zh-Hans": "权限角色",
+      "zh-Hant": "權限角色",
+      "en": "Roles"
+    },
+    "查看服务概览、下载、近期入库与订阅。": {
+      "zh-Hans": "查看服务概览、下载、近期入库与订阅。",
+      "zh-Hant": "查看服務概覽、下載、近期入庫與訂閱。",
+      "en": "View server overview, downloads, recent imports and subscriptions."
+    },
+    "桌面、锁屏与今天视图": {
+      "zh-Hans": "桌面、锁屏与今天视图",
+      "zh-Hant": "桌面、鎖屏與今天視圖",
+      "en": "Home Screen, Lock Screen and Today View"
+    },
+    "桌面小组件": {
+      "zh-Hans": "桌面小组件",
+      "zh-Hant": "桌面小工具",
+      "en": "Home Screen Widgets"
+    },
+    "欢迎回来": {
+      "zh-Hans": "欢迎回来",
+      "zh-Hant": "歡迎回來",
+      "en": "Welcome back"
+    },
+    "正在保存…": {
+      "zh-Hans": "正在保存…",
+      "zh-Hant": "正在儲存…",
+      "en": "Saving…"
+    },
+    "正在加载…": {
+      "zh-Hans": "正在加载…",
+      "zh-Hant": "正在載入…",
+      "en": "Loading…"
+    },
+    "正在恢复页面": {
+      "zh-Hans": "正在恢复页面",
+      "zh-Hant": "正在恢復頁面",
+      "en": "Restoring page"
+    },
+    "正在打开 MoviePilot": {
+      "zh-Hans": "正在打开 MoviePilot",
+      "zh-Hant": "正在打開 MoviePilot",
+      "en": "Opening MoviePilot"
+    },
+    "正在检测服务连接…": {
+      "zh-Hans": "正在检测服务连接…",
+      "zh-Hant": "正在檢測服務連接…",
+      "en": "Checking server connection…"
+    },
+    "正在等待 MoviePilot": {
+      "zh-Hans": "正在等待 MoviePilot",
+      "zh-Hant": "正在等待 MoviePilot",
+      "en": "Waiting for MoviePilot"
+    },
+    "正在读取…": {
+      "zh-Hans": "正在读取…",
+      "zh-Hant": "正在讀取…",
+      "en": "Loading…"
+    },
+    "正在读取歌词…": {
+      "zh-Hans": "正在读取歌词…",
+      "zh-Hant": "正在讀取歌詞…",
+      "en": "Loading lyrics…"
+    },
+    "正在读取通知绑定…": {
+      "zh-Hans": "正在读取通知绑定…",
+      "zh-Hant": "正在讀取通知綁定…",
+      "en": "Loading notification pairing…"
+    },
+    "正在连接你的实例…": {
+      "zh-Hans": "正在连接你的实例…",
+      "zh-Hant": "正在連接你的實例…",
+      "en": "Connecting to your instance…"
+    },
+    "正常速度": {
+      "zh-Hans": "正常速度",
+      "zh-Hant": "正常速度",
+      "en": "Normal speed"
+    },
+    "此 IPv6 地址包含网卡标识，网页无法使用。请改用 .local 主机名或其他可访问的地址。": {
+      "zh-Hans": "此 IPv6 地址包含网卡标识，网页无法使用。请改用 .local 主机名或其他可访问的地址。",
+      "zh-Hant": "此 IPv6 地址包含網卡標識，網頁無法使用。請改用 .local 主機名或其他可訪問的地址。",
+      "en": "This IPv6 address includes a network interface identifier that web pages cannot use. Use a .local hostname or another reachable address."
+    },
+    "此处只编辑一个字段；完整自定义值可在上一页输入。": {
+      "zh-Hans": "此处只编辑一个字段；完整自定义值可在上一页输入。",
+      "zh-Hant": "此處只編輯一個欄位；完整自訂值可在上一頁輸入。",
+      "en": "Edit one field here. Enter a full custom value on the previous page."
+    },
+    "此实例尚未初始化，请先在浏览器中创建管理员，再返回 App 重新检查。": {
+      "zh-Hans": "此实例尚未初始化，请先在浏览器中创建管理员，再返回 App 重新检查。",
+      "zh-Hant": "此實例尚未初始化，請先在瀏覽器中創建管理員，再返回 App 重新檢查。",
+      "en": "This instance is not initialized. Create an administrator in a browser, then return to the App and check again."
+    },
+    "此实例要求客户端证书，请使用网页登录。": {
+      "zh-Hans": "此实例要求客户端证书，请使用网页登录。",
+      "zh-Hant": "此實例要求客戶端證書，請使用網頁登錄。",
+      "en": "This instance requires a client certificate. Sign in with a browser."
+    },
+    "此插件使用 Web 界面，兼容入口正在迁移。": {
+      "zh-Hans": "此插件使用 Web 界面，兼容入口正在迁移。",
+      "zh-Hant": "此外掛使用 Web 介面，相容入口正在遷移。",
+      "en": "This plugin uses a web interface. Its compatibility view is being migrated."
+    },
+    "此插件没有配置项": {
+      "zh-Hans": "此插件没有配置项",
+      "zh-Hant": "此外掛沒有設定項目",
+      "en": "This plugin has no settings"
+    },
+    "此设备未能安全保存部分登录信息，下次可能需要重新输入。": {
+      "zh-Hans": "此设备未能安全保存部分登录信息，下次可能需要重新输入。",
+      "zh-Hant": "此設備未能安全保存部分登錄資訊，下次可能需要重新輸入。",
+      "en": "Some sign-in information could not be saved securely. You may need to enter it again next time."
+    },
+    "此账号暂不可显示所选内容": {
+      "zh-Hans": "此账号暂不可显示所选内容",
+      "zh-Hant": "此帳號暫不可顯示所選內容",
+      "en": "The selected content is unavailable for this account"
+    },
+    "此账号需要尚未接入的验证方式。": {
+      "zh-Hans": "此账号需要尚未接入的验证方式。",
+      "zh-Hant": "此帳號需要尚未接入的驗證方式。",
+      "en": "This account requires a verification method that is not yet available here."
+    },
+    "每 15 分钟": {
+      "zh-Hans": "每 15 分钟",
+      "zh-Hant": "每 15 分鐘",
+      "en": "Every 15 minutes"
+    },
+    "每个服务使用当前账号的只读资料。有效期为 30 天，届时需在 App 内续期；退出账号会移除资料。更新频率由 iOS 决定。": {
+      "zh-Hans": "每个服务使用当前账号的只读资料。有效期为 30 天，届时需在 App 内续期；退出账号会移除资料。更新频率由 iOS 决定。",
+      "zh-Hant": "每個服務使用當前帳號的只讀資料。有效期為 30 天，屆時需在 App 內續期；退出帳號會移除資料。更新頻率由 iOS 決定。",
+      "en": "Each server uses a read-only profile for the current account. Profiles expire after 30 days and must be renewed in the App. Signing out removes them. iOS controls update frequency."
+    },
+    "每天 09:00": {
+      "zh-Hans": "每天 09:00",
+      "zh-Hant": "每天 09:00",
+      "en": "Daily at 09:00"
+    },
+    "每小时": {
+      "zh-Hans": "每小时",
+      "zh-Hant": "每小時",
+      "en": "Every hour"
+    },
+    "每年 1 月 1 日": {
+      "zh-Hans": "每年 1 月 1 日",
+      "zh-Hant": "每年 1 月 1 日",
+      "en": "January 1 each year"
+    },
+    "每月 1 日": {
+      "zh-Hans": "每月 1 日",
+      "zh-Hant": "每月 1 日",
+      "en": "First day of each month"
+    },
+    "每月最后一天": {
+      "zh-Hans": "每月最后一天",
+      "zh-Hant": "每月最後一天",
+      "en": "Last day of each month"
+    },
+    "没有匹配项，可直接添加输入值。": {
+      "zh-Hans": "没有匹配项，可直接添加输入值。",
+      "zh-Hant": "沒有符合項目，可直接新增輸入值。",
+      "en": "No matches. You can add the entered value."
+    },
+    "海报加载中": {
+      "zh-Hans": "海报加载中",
+      "zh-Hant": "海報加載中",
+      "en": "Loading poster"
+    },
+    "海报暂不可用": {
+      "zh-Hans": "海报暂不可用",
+      "zh-Hant": "海報暫不可用",
+      "en": "Poster unavailable"
+    },
+    "消息推送配置": {
+      "zh-Hans": "消息推送配置",
+      "zh-Hant": "訊息推播設定",
+      "en": "Notification Channels"
+    },
+    "添加小组件": {
+      "zh-Hans": "添加小组件",
+      "zh-Hant": "添加小組件",
+      "en": "Add widgets"
+    },
+    "添加服务": {
+      "zh-Hans": "添加服务",
+      "zh-Hant": "添加服務",
+      "en": "Add server"
+    },
+    "清理": {
+      "zh-Hans": "清理",
+      "zh-Hant": "清除",
+      "en": "Clear"
+    },
+    "清理本地缓存": {
+      "zh-Hans": "清理本地缓存",
+      "zh-Hant": "清除本機快取",
+      "en": "Clear Local Cache"
+    },
+    "清空表达式": {
+      "zh-Hans": "清空表达式",
+      "zh-Hant": "清空運算式",
+      "en": "Clear expression"
+    },
+    "清除地址": {
+      "zh-Hans": "清除地址",
+      "zh-Hant": "清除位址",
+      "en": "Clear Address"
+    },
+    "清除选择": {
+      "zh-Hans": "清除选择",
+      "zh-Hant": "清除選擇",
+      "en": "Clear selection"
+    },
+    "渠道授权": {
+      "zh-Hans": "渠道授权",
+      "zh-Hant": "管道授權",
+      "en": "Channel Auth"
+    },
+    "渠道授权与绑定": {
+      "zh-Hans": "渠道授权与绑定",
+      "zh-Hant": "管道授權與綁定",
+      "en": "Channel Authorization"
+    },
+    "点按切换 · 左滑删除": {
+      "zh-Hans": "点按切换 · 左滑删除",
+      "zh-Hant": "點按切換 · 左滑刪除",
+      "en": "Tap to switch · Swipe left to delete"
+    },
+    "生成 5 分钟渠道关联绑定码": {
+      "zh-Hans": "生成 5 分钟渠道关联绑定码",
+      "zh-Hant": "產生 5 分鐘管道關聯綁定碼",
+      "en": "Generate a 5-minute channel bind code"
+    },
+    "生成绑定码": {
+      "zh-Hans": "生成绑定码",
+      "zh-Hant": "生成綁定碼",
+      "en": "Generate pairing code"
+    },
+    "用户名": {
+      "zh-Hans": "用户名",
+      "zh-Hant": "用戶名",
+      "en": "Username"
+    },
+    "用户名、密码或验证码不正确。": {
+      "zh-Hans": "用户名、密码或验证码不正确。",
+      "zh-Hant": "用戶名、密碼或驗證碼不正確。",
+      "en": "Incorrect username, password or verification code."
+    },
+    "用户头像": {
+      "zh-Hans": "用户头像",
+      "zh-Hant": "用戶頭像",
+      "en": "User avatar"
+    },
+    "用户管理": {
+      "zh-Hans": "用户管理",
+      "zh-Hant": "使用者管理",
+      "en": "Users"
+    },
+    "电影订阅": {
+      "zh-Hans": "电影订阅",
+      "zh-Hant": "電影訂閱",
+      "en": "Movie subscriptions"
+    },
+    "界面语言": {
+      "zh-Hans": "界面语言",
+      "zh-Hant": "介面語言",
+      "en": "Language"
+    },
+    "留空时由插件决定执行规则。": {
+      "zh-Hans": "留空时由插件决定执行规则。",
+      "zh-Hant": "留空時由外掛決定執行規則。",
+      "en": "Leave blank to use the plugin’s rules."
+    },
+    "登录": {
+      "zh-Hans": "登录",
+      "zh-Hant": "登錄",
+      "en": "Sign in"
+    },
+    "登录你的服务，继续管理订阅与媒体。": {
+      "zh-Hans": "登录你的服务，继续管理订阅与媒体。",
+      "zh-Hant": "登錄你的服務，繼續管理訂閱與媒體。",
+      "en": "Sign in to manage your subscriptions and media."
+    },
+    "登录尝试过于频繁，请在 %d 秒后重试。": {
+      "zh-Hans": "登录尝试过于频繁，请在 %d 秒后重试。",
+      "zh-Hant": "登錄嘗試過於頻繁，請在 %d 秒後重試。",
+      "en": "Too many sign-in attempts. Try again in %d seconds."
+    },
+    "登录已过期，请重新登录。": {
+      "zh-Hans": "登录已过期，请重新登录。",
+      "zh-Hant": "登入已過期，請重新登入。",
+      "en": "Your session has expired. Please sign in again."
+    },
+    "登录状态已变化，请重新打开设置。": {
+      "zh-Hans": "登录状态已变化，请重新打开设置。",
+      "zh-Hant": "登錄狀態已變化，請重新打開設置。",
+      "en": "Your sign-in status changed. Reopen settings."
+    },
+    "登录状态已改变，请重新打开通知设置。": {
+      "zh-Hans": "登录状态已改变，请重新打开通知设置。",
+      "zh-Hant": "登錄狀態已改變，請重新打開通知設置。",
+      "en": "Your sign-in status changed. Reopen notification settings."
+    },
+    "目录映射与刮削": {
+      "zh-Hans": "目录映射与刮削",
+      "zh-Hant": "目錄對應與刮削",
+      "en": "Directories & Scraping"
+    },
+    "确定": {
+      "zh-Hans": "确定",
+      "zh-Hant": "確定",
+      "en": "Confirm"
+    },
+    "确认密码": {
+      "zh-Hans": "确认密码",
+      "zh-Hant": "確認密碼",
+      "en": "Confirm Password"
+    },
+    "移除": {
+      "zh-Hans": "移除",
+      "zh-Hant": "移除",
+      "en": "Remove"
+    },
+    "移除本机资料": {
+      "zh-Hans": "移除本机资料",
+      "zh-Hant": "移除本機資料",
+      "en": "Remove local profile"
+    },
+    "移除本机资料？": {
+      "zh-Hans": "移除本机资料？",
+      "zh-Hant": "移除本機資料？",
+      "en": "Remove local profile?"
+    },
+    "空值": {
+      "zh-Hans": "空值",
+      "zh-Hant": "空值",
+      "en": "Empty value"
+    },
+    "立即重试": {
+      "zh-Hans": "立即重试",
+      "zh-Hant": "立即重試",
+      "en": "Retry now"
+    },
+    "站点管理": {
+      "zh-Hans": "站点管理",
+      "zh-Hant": "站點管理",
+      "en": "Sites"
+    },
+    "站点范围 · 规则组": {
+      "zh-Hans": "站点范围 · 规则组",
+      "zh-Hant": "站點範圍 · 規則群組",
+      "en": "Sites & Rules"
+    },
+    "站点资源": {
+      "zh-Hans": "站点资源",
+      "zh-Hant": "站點資源",
+      "en": "Site Resources"
+    },
+    "管理员": {
+      "zh-Hans": "管理员",
+      "zh-Hant": "管理員",
+      "en": "Administrator"
+    },
+    "管理员已创建，请登录。": {
+      "zh-Hans": "管理员已创建，请登录。",
+      "zh-Hant": "管理員已建立，請登入。",
+      "en": "Administrator created. Please sign in."
+    },
+    "系统未能注册 APNs。请检查签名能力，或使用主屏幕通知。": {
+      "zh-Hans": "系统未能注册 APNs。请检查签名能力，或使用主屏幕通知。",
+      "zh-Hant": "系統未能註冊 APNs。請檢查簽名能力，或使用主屏幕通知。",
+      "en": "APNs registration failed. Check signing capabilities or use Home Screen notifications."
+    },
+    "系统概览": {
+      "zh-Hans": "系统概览",
+      "zh-Hant": "系統概覽",
+      "en": "System overview"
+    },
+    "系统通知": {
+      "zh-Hans": "系统通知",
+      "zh-Hant": "系統通知",
+      "en": "System notifications"
+    },
+    "系统通知未开启，可前往设置允许通知。": {
+      "zh-Hans": "系统通知未开启，可前往设置允许通知。",
+      "zh-Hant": "系統通知未開啓，可前往設置允許通知。",
+      "en": "System notifications are disabled. Allow them in Settings."
+    },
+    "系统阻止了此连接，请检查服务地址及设备的网络访问限制。": {
+      "zh-Hans": "系统阻止了此连接，请检查服务地址及设备的网络访问限制。",
+      "zh-Hant": "系統阻止了此連接，請檢查服務地址及設備的網路訪問限制。",
+      "en": "The system blocked this connection. Check the server address and network restrictions."
+    },
+    "索引与流量": {
+      "zh-Hans": "索引与流量",
+      "zh-Hant": "索引與流量",
+      "en": "Index & Traffic"
+    },
+    "绑定码已复制。请在主屏幕通知网页中粘贴。": {
+      "zh-Hans": "绑定码已复制。请在主屏幕通知网页中粘贴。",
+      "zh-Hant": "綁定碼已複製。請在主屏幕通知網頁中粘貼。",
+      "en": "Pairing code copied. Paste it in the Home Screen notification page."
+    },
+    "绑定码已生成，完成主屏幕网页绑定后可发送测试通知。": {
+      "zh-Hans": "绑定码已生成，完成主屏幕网页绑定后可发送测试通知。",
+      "zh-Hant": "綁定碼已生成，完成主屏幕網頁綁定後可發送測試通知。",
+      "en": "Pairing code generated. Pair the Home Screen page, then send a test notification."
+    },
+    "结束": {
+      "zh-Hans": "结束",
+      "zh-Hant": "結束",
+      "en": "End"
+    },
+    "继续播放": {
+      "zh-Hans": "继续播放",
+      "zh-Hant": "繼續播放",
+      "en": "Resume playback"
+    },
+    "继续收听": {
+      "zh-Hans": "继续收听",
+      "zh-Hant": "繼續收聽",
+      "en": "Resume listening"
+    },
+    "继续收听？": {
+      "zh-Hans": "继续收听？",
+      "zh-Hant": "繼續收聽？",
+      "en": "Resume listening?"
+    },
+    "继续观看？": {
+      "zh-Hans": "继续观看？",
+      "zh-Hant": "繼續觀看？",
+      "en": "Resume watching?"
+    },
+    "续期": {
+      "zh-Hans": "续期",
+      "zh-Hant": "續期",
+      "en": "Renew"
+    },
+    "编辑计划": {
+      "zh-Hans": "编辑计划",
+      "zh-Hant": "編輯排程",
+      "en": "Edit schedule"
+    },
+    "自定义": {
+      "zh-Hans": "自定义",
+      "zh-Hant": "自訂",
+      "en": "Custom"
+    },
+    "自定义值会原样交给插件处理。": {
+      "zh-Hans": "自定义值会原样交给插件处理。",
+      "zh-Hant": "自訂值會原樣交給外掛處理。",
+      "en": "Custom values are passed to the plugin unchanged."
+    },
+    "自定义探索": {
+      "zh-Hans": "自定义探索",
+      "zh-Hant": "自定義探索",
+      "en": "Customize discovery"
+    },
+    "自定义推荐": {
+      "zh-Hans": "自定义推荐",
+      "zh-Hant": "自定義推薦",
+      "en": "Customize recommendations"
+    },
+    "自适应": {
+      "zh-Hans": "自适应",
+      "zh-Hant": "自適應",
+      "en": "Fit"
+    },
+    "范围": {
+      "zh-Hans": "范围",
+      "zh-Hant": "範圍",
+      "en": "Range"
+    },
+    "表达式": {
+      "zh-Hans": "表达式",
+      "zh-Hant": "運算式",
+      "en": "Expression"
+    },
+    "视频画面": {
+      "zh-Hans": "视频画面",
+      "zh-Hant": "影片畫面",
+      "en": "Video"
+    },
+    "解除本机及配对网页绑定": {
+      "zh-Hans": "解除本机及配对网页绑定",
+      "zh-Hant": "解除本機及配對網頁綁定",
+      "en": "Unpair this installation and paired web pages"
+    },
+    "订阅": {
+      "zh-Hans": "订阅",
+      "zh-Hant": "訂閱",
+      "en": "Subscriptions"
+    },
+    "订阅与搜索": {
+      "zh-Hans": "订阅与搜索",
+      "zh-Hant": "訂閱與搜尋",
+      "en": "Subscribe & Search"
+    },
+    "订阅广场": {
+      "zh-Hans": "订阅广场",
+      "zh-Hant": "訂閱廣場",
+      "en": "Community Subscriptions"
+    },
+    "订阅日历": {
+      "zh-Hans": "订阅日历",
+      "zh-Hant": "訂閱行事曆",
+      "en": "Calendar"
+    },
+    "认证接口返回了不支持的数据，请更新实例或检查服务后重试。": {
+      "zh-Hans": "认证接口返回了不支持的数据，请更新实例或检查服务后重试。",
+      "zh-Hant": "認證接口返回了不支持的資料，請更新實例或檢查服務後重試。",
+      "en": "The authentication response is unsupported. Update the instance or check the server, then retry."
+    },
+    "记住账号密码": {
+      "zh-Hans": "记住账号密码",
+      "zh-Hant": "記住帳號密碼",
+      "en": "Remember credentials"
+    },
+    "设置": {
+      "zh-Hans": "设置",
+      "zh-Hant": "設定",
+      "en": "Settings"
+    },
+    "语言": {
+      "zh-Hans": "语言",
+      "zh-Hant": "語言",
+      "en": "Language"
+    },
+    "语言切换后会重新加载当前页面，并与网页共享设置。": {
+      "zh-Hans": "语言切换后会重新加载当前页面，并与网页共享设置。",
+      "zh-Hant": "語言切換後會重新加載當前頁面，並與網頁共享設置。",
+      "en": "Changing language reloads the current page and shares the setting with the web interface."
+    },
+    "请先配置并启用 AppPush 通知渠道。": {
+      "zh-Hans": "请先配置并启用 AppPush 通知渠道。",
+      "zh-Hant": "請先配置並啓用 AppPush 通知渠道。",
+      "en": "Configure and enable the AppPush notification channel first."
+    },
+    "请在 App 中刷新小组件资料": {
+      "zh-Hans": "请在 App 中刷新小组件资料",
+      "zh-Hant": "請在 App 中刷新小組件資料",
+      "en": "Refresh the widget profile in the App"
+    },
+    "请在 App 中重新启用": {
+      "zh-Hans": "请在 App 中重新启用",
+      "zh-Hant": "請在 App 中重新啓用",
+      "en": "Enable again in the App"
+    },
+    "请在 MoviePilot「设定 → 通知」中添加、启用并保存 AppPush 渠道；若已启用，请更新后端后重试。": {
+      "zh-Hans": "请在 MoviePilot「设定 → 通知」中添加、启用并保存 AppPush 渠道；若已启用，请更新后端后重试。",
+      "zh-Hant": "請在 MoviePilot「設定 → 通知」中添加、啓用並保存 AppPush 渠道；若已啓用，請更新後端後重試。",
+      "en": "Add, enable and save an AppPush channel in MoviePilot Settings → Notifications. If already enabled, update the backend and retry."
+    },
+    "请在对应服务登录后，重新启用小组件资料。": {
+      "zh-Hans": "请在对应服务登录后，重新启用小组件资料。",
+      "zh-Hant": "請在對應服務登錄後，重新啓用小組件資料。",
+      "en": "Sign in to the corresponding server, then enable the widget profile again."
+    },
+    "请更新 MoviePilot 并刷新小组件": {
+      "zh-Hans": "请更新 MoviePilot 并刷新小组件",
+      "zh-Hant": "請更新 MoviePilot 並刷新小組件",
+      "en": "Update MoviePilot and refresh the widget"
+    },
+    "请更新兼容前端后，在通知中心查看这条消息。": {
+      "zh-Hans": "请更新兼容前端后，在通知中心查看这条消息。",
+      "zh-Hant": "請更新兼容前端後，在通知中心查看這條消息。",
+      "en": "Update to a compatible frontend, then view this message in the notification center."
+    },
+    "请更新实例的前端资源后，再使用 App 通行密钥登录。": {
+      "zh-Hans": "请更新实例的前端资源后，再使用 App 通行密钥登录。",
+      "zh-Hant": "請更新實例的前端資源後，再使用 App 通行密鑰登錄。",
+      "en": "Update the instance's frontend before signing in with a passkey in the App."
+    },
+    "请检查标记的配置项。": {
+      "zh-Hans": "请检查标记的配置项。",
+      "zh-Hant": "請檢查標記的設定項目。",
+      "en": "Check the highlighted settings."
+    },
+    "请检查此项的值": {
+      "zh-Hans": "请检查此项的值",
+      "zh-Hant": "請檢查此項的值",
+      "en": "Check this value"
+    },
+    "请检查用户名、密码和 API Key。": {
+      "zh-Hans": "请检查用户名、密码和 API Key。",
+      "zh-Hant": "請檢查使用者名稱、密碼及 API Key。",
+      "en": "Please check the username, password, and API key."
+    },
+    "请检查网络后，在原页面重新选择下载。": {
+      "zh-Hans": "请检查网络后，在原页面重新选择下载。",
+      "zh-Hant": "請檢查網路後，在原頁面重新選擇下載。",
+      "en": "Check the network, then select the download again on the original page."
+    },
+    "请求过于频繁，请稍后再试。": {
+      "zh-Hans": "请求过于频繁，请稍后再试。",
+      "zh-Hant": "請求過於頻繁，請稍後再試。",
+      "en": "Too many requests. Please try again later."
+    },
+    "请确认影片仍在媒体库中，并检查 MoviePilot 与网盘连接。": {
+      "zh-Hans": "请确认影片仍在媒体库中，并检查 MoviePilot 与网盘连接。",
+      "zh-Hant": "請確認影片仍在媒體庫中，並檢查 MoviePilot 與網盤連接。",
+      "en": "Check that the item is still in the library and that MoviePilot and cloud storage are connected."
+    },
+    "请等待页面登录并完成加载。": {
+      "zh-Hans": "请等待页面登录并完成加载。",
+      "zh-Hant": "請等待頁面登錄並完成加載。",
+      "en": "Wait for the page to sign in and finish loading."
+    },
+    "请输入 HTTPS 服务地址，并与实例的 AppPush 消息中心保持一致。": {
+      "zh-Hans": "请输入 HTTPS 服务地址，并与实例的 AppPush 消息中心保持一致。",
+      "zh-Hant": "請輸入 HTTPS 服務地址，並與實例的 AppPush 消息中心保持一致。",
+      "en": "Enter an HTTPS address matching the instance's AppPush notification server."
+    },
+    "请输入包含 http:// 或 https:// 的完整服务地址。": {
+      "zh-Hans": "请输入包含 http:// 或 https:// 的完整服务地址。",
+      "zh-Hant": "請輸入包含 http:// 或 https:// 的完整服務地址。",
+      "en": "Enter the full server address, including http:// or https://."
+    },
+    "请输入服务根地址，不要包含查询参数或 # 后的页面路径。": {
+      "zh-Hans": "请输入服务根地址，不要包含查询参数或 # 后的页面路径。",
+      "zh-Hant": "請輸入服務根地址，不要包含查詢參數或 # 後的頁面路徑。",
+      "en": "Enter the server root address without query parameters or a page path after #."
+    },
+    "请输入用户名和密码。": {
+      "zh-Hans": "请输入用户名和密码。",
+      "zh-Hant": "請輸入用戶名和密碼。",
+      "en": "Enter your username and password."
+    },
+    "请输入身份验证器中的 6 位验证码。": {
+      "zh-Hans": "请输入身份验证器中的 6 位验证码。",
+      "zh-Hant": "請輸入身份驗證器中的 6 位驗證碼。",
+      "en": "Enter the 6-digit code from your authenticator."
+    },
+    "请输入身份验证器验证码。": {
+      "zh-Hans": "请输入身份验证器验证码。",
+      "zh-Hant": "請輸入驗證器驗證碼。",
+      "en": "Enter your authenticator verification code."
+    },
+    "请输入较短的显示名称，并移除特殊控制字符。": {
+      "zh-Hans": "请输入较短的显示名称，并移除特殊控制字符。",
+      "zh-Hant": "請輸入較短的顯示名稱，並移除特殊控制字符。",
+      "en": "Enter a shorter display name without control characters."
+    },
+    "请选择范围内的值，至少选择一项。": {
+      "zh-Hans": "请选择范围内的值，至少选择一项。",
+      "zh-Hant": "請選擇範圍內的值，至少選擇一項。",
+      "en": "Select at least one value within the range."
+    },
+    "请重新加载页面后再试。": {
+      "zh-Hans": "请重新加载页面后再试。",
+      "zh-Hant": "請重新加載頁面後再試。",
+      "en": "Reload the page and try again."
+    },
+    "账号与服务": {
+      "zh-Hans": "账号与服务",
+      "zh-Hant": "帳號與服務",
+      "en": "Account & Service"
+    },
+    "账号信息仅发送到当前服务。记住的账号密码仅保存在本机，验证码不会保存。": {
+      "zh-Hans": "账号信息仅发送到当前服务。记住的账号密码仅保存在本机，验证码不会保存。",
+      "zh-Hant": "帳號資訊僅發送到當前服務。記住的帳號密碼僅保存在本機，驗證碼不會保存。",
+      "en": "Credentials are sent only to this server. Saved credentials stay on this device. Verification codes are never saved."
+    },
+    "账号未启用，请联系管理员。": {
+      "zh-Hans": "账号未启用，请联系管理员。",
+      "zh-Hant": "帳號未啟用，請聯絡管理員。",
+      "en": "This account is inactive. Please contact an administrator."
+    },
+    "资源": {
+      "zh-Hans": "资源",
+      "zh-Hant": "資源",
+      "en": "Torrents"
+    },
+    "资源与媒体流转": {
+      "zh-Hans": "资源与媒体流转",
+      "zh-Hant": "資源與媒體流轉",
+      "en": "Resources & Media Flow"
+    },
+    "起点": {
+      "zh-Hans": "起点",
+      "zh-Hant": "起點",
+      "en": "Starting value"
+    },
+    "超级管理员": {
+      "zh-Hans": "超级管理员",
+      "zh-Hant": "超級管理員",
+      "en": "Administrator"
+    },
+    "身份验证器验证码": {
+      "zh-Hans": "身份验证器验证码",
+      "zh-Hant": "身份驗證器驗證碼",
+      "en": "Authenticator code"
+    },
+    "近期入库": {
+      "zh-Hans": "近期入库",
+      "zh-Hant": "近期入庫",
+      "en": "Recent imports"
+    },
+    "返回": {
+      "zh-Hans": "返回",
+      "zh-Hant": "返回",
+      "en": "Back"
+    },
+    "返回上一级菜单": {
+      "zh-Hans": "返回上一级菜单",
+      "zh-Hant": "返回上一級菜單",
+      "en": "Back to parent menu"
+    },
+    "返回中的当前页面": {
+      "zh-Hans": "返回中的当前页面",
+      "zh-Hant": "返回中的當前頁面",
+      "en": "Current page while going back"
+    },
+    "返回全屏": {
+      "zh-Hans": "返回全屏",
+      "zh-Hant": "返回全螢幕",
+      "en": "Return to full screen"
+    },
+    "这条通知属于其他实例或账号，请切换后查看通知中心。": {
+      "zh-Hans": "这条通知属于其他实例或账号，请切换后查看通知中心。",
+      "zh-Hant": "這條通知屬於其他實例或帳號，請切換後查看通知中心。",
+      "en": "This notification belongs to another instance or account. Switch to it to view the notification center."
+    },
+    "进度": {
+      "zh-Hans": "进度",
+      "zh-Hant": "進度",
+      "en": "Progress"
+    },
+    "连接": {
+      "zh-Hans": "连接",
+      "zh-Hant": "連接",
+      "en": "Connect"
+    },
+    "连接与显示": {
+      "zh-Hans": "连接与显示",
+      "zh-Hant": "連接與顯示",
+      "en": "Connection & Display"
+    },
+    "连接服务": {
+      "zh-Hans": "连接服务",
+      "zh-Hant": "連接服務",
+      "en": "Connect to server"
+    },
+    "连接超时，请检查网络及服务状态后重试。": {
+      "zh-Hans": "连接超时，请检查网络及服务状态后重试。",
+      "zh-Hant": "連接超時，請檢查網路及服務狀態後重試。",
+      "en": "Connection timed out. Check the network and server status, then retry."
+    },
+    "连接超时，请选择当前网络可用的服务地址，或稍后重试。": {
+      "zh-Hans": "连接超时，请选择当前网络可用的服务地址，或稍后重试。",
+      "zh-Hant": "連接超時，請選擇當前網路可用的服務地址，或稍後重試。",
+      "en": "Connection timed out. Choose a reachable server address or try again later."
+    },
+    "连接超时，请重试或更改地址。": {
+      "zh-Hans": "连接超时，请重试或更改地址。",
+      "zh-Hant": "連線逾時，請重試或變更位址。",
+      "en": "The connection timed out. Retry or change the address."
+    },
+    "追剧与社区": {
+      "zh-Hans": "追剧与社区",
+      "zh-Hant": "追劇與社區",
+      "en": "Calendar & Community"
+    },
+    "追剧排期": {
+      "zh-Hans": "追剧排期",
+      "zh-Hant": "追劇排期",
+      "en": "Airing Schedule"
+    },
+    "追剧日历": {
+      "zh-Hans": "追剧日历",
+      "zh-Hant": "追劇日曆",
+      "en": "Release Calendar"
+    },
+    "退出后需要重新输入账号密码或凭据登录当前 MoviePilot 服务。": {
+      "zh-Hans": "退出后需要重新输入账号密码或凭据登录当前 MoviePilot 服务。",
+      "zh-Hant": "登出後需要重新輸入帳號密碼或憑證登入目前 MoviePilot 服務。",
+      "en": "You will need to sign in again to access this MoviePilot server."
+    },
+    "退出登录": {
+      "zh-Hans": "退出登录",
+      "zh-Hant": "登出",
+      "en": "Sign Out"
+    },
+    "选中项过多": {
+      "zh-Hans": "选中项过多",
+      "zh-Hant": "選取項目過多",
+      "en": "Too many items selected"
+    },
+    "选择": {
+      "zh-Hans": "选择",
+      "zh-Hant": "選擇",
+      "en": "Select"
+    },
+    "选择值": {
+      "zh-Hans": "选择值",
+      "zh-Hant": "選擇值",
+      "en": "Select values"
+    },
+    "选择字幕": {
+      "zh-Hans": "选择字幕",
+      "zh-Hant": "選擇字幕",
+      "en": "Select subtitles"
+    },
+    "选择已在 App 中启用的服务与只读内容。": {
+      "zh-Hans": "选择已在 App 中启用的服务与只读内容。",
+      "zh-Hant": "選擇已在 App 中啓用的服務與只讀內容。",
+      "en": "Choose a server enabled in the App and its read-only content."
+    },
+    "选择或输入": {
+      "zh-Hans": "选择或输入",
+      "zh-Hant": "選擇或輸入",
+      "en": "Select or enter"
+    },
+    "选择站点": {
+      "zh-Hans": "选择站点",
+      "zh-Hant": "選擇站點",
+      "en": "Select sites"
+    },
+    "选择音轨": {
+      "zh-Hans": "选择音轨",
+      "zh-Hant": "選擇音軌",
+      "en": "Select audio track"
+    },
+    "通知": {
+      "zh-Hans": "通知",
+      "zh-Hant": "通知",
+      "en": "Notifications"
+    },
+    "通知与智能": {
+      "zh-Hans": "通知与智能",
+      "zh-Hant": "通知與智慧",
+      "en": "Notifications & AI"
+    },
+    "通知中心": {
+      "zh-Hans": "通知中心",
+      "zh-Hant": "通知中心",
+      "en": "Notification center"
+    },
+    "通知令牌尚未绑定，请检查后台渠道并重新开启。": {
+      "zh-Hans": "通知令牌尚未绑定，请检查后台渠道并重新开启。",
+      "zh-Hant": "通知令牌尚未綁定，請檢查後台渠道並重新開啓。",
+      "en": "The notification token is not paired yet. Check the server channel and enable again."
+    },
+    "通知服务中心": {
+      "zh-Hans": "通知服务中心",
+      "zh-Hant": "通知服務中心",
+      "en": "Notification server"
+    },
+    "通知服务中心与实例 AppPush 配置不一致，请先统一服务地址后重新生成绑定码。": {
+      "zh-Hans": "通知服务中心与实例 AppPush 配置不一致，请先统一服务地址后重新生成绑定码。",
+      "zh-Hant": "通知服務中心與實例 AppPush 配置不一致，請先統一服務地址後重新生成綁定碼。",
+      "en": "The notification server differs from the instance's AppPush settings. Match the addresses, then generate a new pairing code."
+    },
+    "通知服务中心已更新，请重新生成绑定码。": {
+      "zh-Hans": "通知服务中心已更新，请重新生成绑定码。",
+      "zh-Hant": "通知服務中心已更新，請重新生成綁定碼。",
+      "en": "Notification server updated. Generate a new pairing code."
+    },
+    "通知服务响应无效。": {
+      "zh-Hans": "通知服务响应无效。",
+      "zh-Hant": "通知服務響應無效。",
+      "en": "Invalid notification server response."
+    },
+    "通知服务未返回账号身份，请更新 MoviePilot 后端后重试。": {
+      "zh-Hans": "通知服务未返回账号身份，请更新 MoviePilot 后端后重试。",
+      "zh-Hant": "通知服務未返回帳號身份，請更新 MoviePilot 後端後重試。",
+      "en": "The notification server returned no account identity. Update the MoviePilot backend and retry."
+    },
+    "通行密钥验证已过期，请重新尝试。": {
+      "zh-Hans": "通行密钥验证已过期，请重新尝试。",
+      "zh-Hant": "通行密鑰驗證已過期，請重新嘗試。",
+      "en": "Passkey verification expired. Try again."
+    },
+    "通行密钥验证结果无效，请重新尝试。": {
+      "zh-Hans": "通行密钥验证结果无效，请重新尝试。",
+      "zh-Hant": "通行密鑰驗證結果無效，請重新嘗試。",
+      "en": "Invalid passkey verification result. Try again."
+    },
+    "部分配置暂不支持原生编辑，保存已停用。": {
+      "zh-Hans": "部分配置暂不支持原生编辑，保存已停用。",
+      "zh-Hant": "部分設定暫不支援原生編輯，儲存已停用。",
+      "en": "Some settings aren’t supported yet. Saving is disabled."
+    },
+    "配置已保存": {
+      "zh-Hans": "配置已保存",
+      "zh-Hant": "設定已儲存",
+      "en": "Settings saved"
+    },
+    "重新加载": {
+      "zh-Hans": "重新加载",
+      "zh-Hant": "重新加載",
+      "en": "Reload"
+    },
+    "重新打开": {
+      "zh-Hans": "重新打开",
+      "zh-Hant": "重新打開",
+      "en": "Reopen"
+    },
+    "重新检查": {
+      "zh-Hans": "重新检查",
+      "zh-Hant": "重新檢查",
+      "en": "Check again"
+    },
+    "重新生成 API Key": {
+      "zh-Hans": "重新生成 API Key",
+      "zh-Hant": "重新產生 API Key",
+      "en": "Regenerate API Key"
+    },
+    "重试连接": {
+      "zh-Hans": "重试连接",
+      "zh-Hant": "重試連線",
+      "en": "Retry Connection"
+    },
+    "铺满": {
+      "zh-Hans": "铺满",
+      "zh-Hant": "填滿",
+      "en": "Fill"
+    },
+    "长按主屏幕空白处，选择“编辑”→“添加小组件”，搜索 MoviePilot。锁屏可在自定中添加；向右滑到今天视图，也可添加。编辑小组件可选择服务和内容。": {
+      "zh-Hans": "长按主屏幕空白处，选择“编辑”→“添加小组件”，搜索 MoviePilot。锁屏可在自定中添加；向右滑到今天视图，也可添加。编辑小组件可选择服务和内容。",
+      "zh-Hant": "長按主屏幕空白處，選擇“編輯”→“添加小組件”，搜索 MoviePilot。鎖屏可在自定中添加；向右滑到今天視圖，也可添加。編輯小組件可選擇服務和內容。",
+      "en": "Touch and hold the Home Screen, choose Edit → Add Widget and search for MoviePilot. You can also add widgets from Lock Screen customization or Today View. Edit a widget to select its server and content."
+    },
+    "长按可查看操作": {
+      "zh-Hans": "长按可查看操作",
+      "zh-Hant": "長按可查看操作",
+      "en": "Touch and hold for actions"
+    },
+    "间隔": {
+      "zh-Hans": "间隔",
+      "zh-Hant": "間隔",
+      "en": "Interval"
+    },
+    "隐藏 API Key": {
+      "zh-Hans": "隐藏 API Key",
+      "zh-Hant": "隱藏 API Key",
+      "en": "Hide API Key"
+    },
+    "隐藏密码": {
+      "zh-Hans": "隐藏密码",
+      "zh-Hant": "隱藏密碼",
+      "en": "Hide password"
+    },
+    "音乐": {
+      "zh-Hans": "音乐",
+      "zh-Hant": "音樂",
+      "en": "Music"
+    },
+    "音乐中心": {
+      "zh-Hans": "音乐中心",
+      "zh-Hant": "音樂中心",
+      "en": "Music Center"
+    },
+    "音乐订阅": {
+      "zh-Hans": "音乐订阅",
+      "zh-Hant": "音樂訂閱",
+      "en": "Music subscriptions"
+    },
+    "音乐资源": {
+      "zh-Hans": "音乐资源",
+      "zh-Hant": "音樂資源",
+      "en": "Music torrents"
+    },
+    "音轨": {
+      "zh-Hans": "音轨",
+      "zh-Hant": "音軌",
+      "en": "Audio tracks"
+    },
+    "页面仍在加载，正在等待连接和页面资源就绪。": {
+      "zh-Hans": "页面仍在加载，正在等待连接和页面资源就绪。",
+      "zh-Hant": "頁面仍在加載，正在等待連接和頁面資源就緒。",
+      "en": "Waiting for the connection and page resources to finish loading."
+    },
+    "页面准备完成后会自动进入，也可以立即重试或切换服务地址。": {
+      "zh-Hans": "页面准备完成后会自动进入，也可以立即重试或切换服务地址。",
+      "zh-Hant": "頁面準備完成後會自動進入，也可以立即重試或切換服務地址。",
+      "en": "The page will open when ready. You can also retry now or change the server address."
+    },
+    "页面尚未恢复绘制，请重新打开。未确认的操作不会自动重试。": {
+      "zh-Hans": "页面尚未恢复绘制，请重新打开。未确认的操作不会自动重试。",
+      "zh-Hant": "頁面尚未恢復繪制，請重新打開。未確認的操作不會自動重試。",
+      "en": "The page has not finished restoring. Reopen it. Unconfirmed actions will not be retried automatically."
+    },
+    "页面暂时无法恢复，请检查连接后重新打开。未确认的操作不会自动重试。": {
+      "zh-Hans": "页面暂时无法恢复，请检查连接后重新打开。未确认的操作不会自动重试。",
+      "zh-Hant": "頁面暫時無法恢復，請檢查連接後重新打開。未確認的操作不會自動重試。",
+      "en": "Unable to restore the page. Check the connection and reopen. Unconfirmed actions will not be retried automatically."
+    },
+    "页面状态": {
+      "zh-Hans": "页面状态",
+      "zh-Hant": "頁面狀態",
+      "en": "Page status"
+    },
+    "页面资源或 App 导航未能就绪。请检查网络，并确认实例前端已更新后重试。": {
+      "zh-Hans": "页面资源或 App 导航未能就绪。请检查网络，并确认实例前端已更新后重试。",
+      "zh-Hant": "頁面資源或 App 導航未能就緒。請檢查網路，並確認實例前端已更新後重試。",
+      "en": "The page or App navigation is not ready. Check the network and update the instance frontend, then retry."
+    },
+    "页面资源未能完成加载，请检查连接后重试。": {
+      "zh-Hans": "页面资源未能完成加载，请检查连接后重试。",
+      "zh-Hant": "頁面資源未能完成加載，請檢查連接後重試。",
+      "en": "Page resources failed to load. Check the connection and retry."
+    },
+    "项目 %d": {
+      "zh-Hans": "项目 %d",
+      "zh-Hant": "項目 %d",
+      "en": "Item %d"
+    },
+    "预设选项": {
+      "zh-Hans": "预设选项",
+      "zh-Hant": "預設選項",
+      "en": "Presets"
+    },
+    "首次设置": {
+      "zh-Hans": "首次设置",
+      "zh-Hant": "首次設定",
+      "en": "First-time Setup"
+    },
+    "默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。": {
+      "zh-Hans": "默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。",
+      "zh-Hant": "預設使用 https://movie-pilot.org。更換服務中心時，實例的 AppPush 渠道也須使用相同地址。",
+      "en": "The default is https://movie-pilot.org. When changing servers, use the same address in the instance's AppPush channel."
+    },
+    "默认图标": {
+      "zh-Hans": "默认图标",
+      "zh-Hant": "預設圖標",
+      "en": "Default icon"
+    },
+    "默认头像": {
+      "zh-Hans": "默认头像",
+      "zh-Hant": "預設頭像",
+      "en": "Default avatar"
+    }
+  }
+}

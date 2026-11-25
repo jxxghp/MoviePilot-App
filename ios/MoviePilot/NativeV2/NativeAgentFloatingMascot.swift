@@ -9,6 +9,7 @@ struct NativeAgentFloatingMascot: View {
   @AppStorage("nativeV2.mascot.x") private var normalizedX: Double = 0.88
   @AppStorage("nativeV2.mascot.y") private var normalizedY: Double = 0.72
   @Environment(\.nativeVerticalBarEdge) private var verticalBarEdge
+  @Environment(\.verticalSizeClass) private var verticalSizeClass
   @State private var dragTranslation: CGSize = .zero
   @State private var isDragging: Bool = false
   @State private var isBlinking: Bool = false
@@ -18,18 +19,24 @@ struct NativeAgentFloatingMascot: View {
 
   var body: some View {
     GeometryReader { proxy in
+      let isCompactHeight =
+        verticalSizeClass == .compact
+        || (proxy.size.width > proxy.size.height && proxy.size.height < 500)
       let leadingClearance: CGFloat = verticalBarEdge == .leading ? 76 : 8
       let trailingClearance: CGFloat = verticalBarEdge == .trailing ? 76 : 8
-      let topClearance: CGFloat = NativeDeviceLayout.isIPad ? 72 : 52
+      let topClearance: CGFloat =
+        NativeDeviceLayout.isIPad ? 72 : (isCompactHeight ? 10 : 48)
       let bottomClearance: CGFloat =
-        (NativeDeviceLayout.isIPad || verticalBarEdge.isActive) ? 38 : 110
-      let safeLeft = max(proxy.safeAreaInsets.leading, leadingClearance) + mascotWidth / 2
+        (NativeDeviceLayout.isIPad || verticalBarEdge.isActive)
+        ? 28
+        : (isCompactHeight ? 56 : 88)
+      let safeLeft = leadingClearance + mascotWidth / 2
       let safeRight = max(
-        proxy.size.width - max(proxy.safeAreaInsets.trailing, trailingClearance) - mascotWidth / 2,
+        proxy.size.width - trailingClearance - mascotWidth / 2,
         safeLeft + 1)
-      let safeTop = max(proxy.safeAreaInsets.top, 44) + topClearance
+      let safeTop = topClearance + mascotHeight / 2
       let safeBottom = max(
-        proxy.size.height - max(proxy.safeAreaInsets.bottom, 20) - bottomClearance, safeTop + 1)
+        proxy.size.height - bottomClearance - mascotHeight / 2, safeTop + 1)
       let usableWidth = max(safeRight - safeLeft, 1)
       let usableHeight = max(safeBottom - safeTop, 1)
 
@@ -38,69 +45,72 @@ struct NativeAgentFloatingMascot: View {
       let currentX = min(max(baseX + dragTranslation.width, safeLeft), safeRight)
       let currentY = min(max(baseY + dragTranslation.height, safeTop), safeBottom)
 
-      robotGlyph
-        .frame(width: mascotWidth, height: mascotHeight)
-        .drawingGroup()
-        .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
-        .scaleEffect(isDragging ? 1.06 : 1.0)
-        .animation(.easeOut(duration: 0.14), value: isDragging)
-        .contentShape(Rectangle())
-        .onTapGesture {
-          onOpen()
-        }
-        .contextMenu {
-          Button {
+      ZStack {
+        robotGlyph
+          .frame(width: mascotWidth, height: mascotHeight)
+          .drawingGroup()
+          .shadow(color: .black.opacity(0.18), radius: 4, y: 2)
+          .scaleEffect(isDragging ? 1.06 : 1.0)
+          .animation(.easeOut(duration: 0.14), value: isDragging)
+          .contentShape(Rectangle())
+          .onTapGesture {
             onOpen()
-          } label: {
-            Label("打开智能助手", systemImage: "text.bubble")
           }
-          Button {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-              normalizedX = 0.88
-              normalizedY = 0.72
+          .contextMenu {
+            Button {
+              onOpen()
+            } label: {
+              Label("打开智能助手", systemImage: "text.bubble")
             }
-          } label: {
-            Label("重置默认位置", systemImage: "arrow.uturn.backward")
-          }
-          Button(role: .destructive) {
-            onHide()
-          } label: {
-            Label("隐藏浮动助手", systemImage: "eye.slash")
-          }
-        }
-        .gesture(
-          DragGesture(minimumDistance: 4, coordinateSpace: .global)
-            .onChanged { value in
-              var t = Transaction()
-              t.disablesAnimations = true
-              withTransaction(t) {
-                isDragging = true
-                dragTranslation = value.translation
+            Button {
+              withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                normalizedX = 0.88
+                normalizedY = 0.72
               }
+            } label: {
+              Label("重置默认位置", systemImage: "arrow.uturn.backward")
             }
-            .onEnded { value in
-              let endX = min(max(baseX + value.translation.width, safeLeft), safeRight)
-              let endY = min(max(baseY + value.translation.height, safeTop), safeBottom)
-              var t = Transaction()
-              t.disablesAnimations = true
-              withTransaction(t) {
-                normalizedX = Double((endX - safeLeft) / usableWidth)
-                normalizedY = Double((endY - safeTop) / usableHeight)
-                dragTranslation = .zero
-                isDragging = false
+            Button(role: .destructive) {
+              onHide()
+            } label: {
+              Label("隐藏浮动助手", systemImage: "eye.slash")
+            }
+          }
+          .gesture(
+            DragGesture(minimumDistance: 4, coordinateSpace: .named("native-mascot-space"))
+              .onChanged { value in
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) {
+                  isDragging = true
+                  dragTranslation = value.translation
+                }
               }
-            }
-        )
-        .position(x: currentX, y: currentY)
-        .transaction { transaction in
-          if isDragging { transaction.animation = nil }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("浮动智能助手")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier("native-agent-floating-mascot")
+              .onEnded { value in
+                let endX = min(max(baseX + value.translation.width, safeLeft), safeRight)
+                let endY = min(max(baseY + value.translation.height, safeTop), safeBottom)
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) {
+                  normalizedX = Double((endX - safeLeft) / usableWidth)
+                  normalizedY = Double((endY - safeTop) / usableHeight)
+                  dragTranslation = .zero
+                  isDragging = false
+                }
+              }
+          )
+          .position(x: currentX, y: currentY)
+          .transaction { transaction in
+            if isDragging { transaction.animation = nil }
+          }
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("浮动智能助手")
+          .accessibilityAddTraits(.isButton)
+          .accessibilityIdentifier("native-agent-floating-mascot")
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .coordinateSpace(name: "native-mascot-space")
     }
-    .ignoresSafeArea()
     .task {
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(7.2))

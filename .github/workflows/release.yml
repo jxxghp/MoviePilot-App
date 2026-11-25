@@ -1,4 +1,4 @@
-name: Release IPA
+name: Multiplatform Release
 
 on:
   push:
@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: '需要同版本重建的现有 Release 标签'
+        description: '需要同版本重建或发布的 Release 标签（如 v2.0.3）'
         required: true
         type: string
-        default: v2.0.2
+        default: v2.0.3
       rebuild_existing:
-        description: '确认更新该标签的源码、IPA 和校验文件'
+        description: '若该标签 Release 已存在，确认覆盖更新其三端安装包与校验文件'
         required: true
         type: boolean
         default: false
@@ -24,91 +24,220 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  checks:
-    uses: ./.github/workflows/ci.yml
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      android_version: ${{ steps.ver.outputs.android_version }}
+      harmony_version: ${{ steps.ver.outputs.harmony_version }}
+      release_tag: ${{ steps.ver.outputs.release_tag }}
+      old_tag_object: ${{ steps.ver.outputs.old_tag_object }}
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+      REBUILD_EXISTING: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_existing }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: ver
+        shell: bash
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release tags must use vMAJOR.MINOR.PATCH (got: $RELEASE_TAG)." >&2
+            exit 1
+          fi
+          VER="${RELEASE_TAG#v}"
+          FILE_VER="$(tr -d '[:space:]' < VERSION)"
+          if [[ "$VER" != "$FILE_VER" ]]; then
+            echo "Tag version ($VER) does not match VERSION ($FILE_VER)." >&2
+            exit 1
+          fi
+          ANDROID_VER="$FILE_VER"
+          if [[ -f VERSION_ANDROID ]]; then
+            ANDROID_VER="$(tr -d '[:space:]' < VERSION_ANDROID)"
+          fi
+          HARMONY_VER="$FILE_VER"
+          if [[ -f VERSION_HARMONY ]]; then
+            HARMONY_VER="$(tr -d '[:space:]' < VERSION_HARMONY)"
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            case "$GITHUB_REF" in
+              refs/heads/v2|refs/heads/main|refs/heads/feat/multiplatform) ;;
+              *)
+                echo "Manual release dispatch requires v2, main, or feat/multiplatform (got: $GITHUB_REF)." >&2
+                exit 1
+                ;;
+            esac
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+              if [[ "$REBUILD_EXISTING" != true ]]; then
+                echo "Release $RELEASE_TAG already exists; set rebuild_existing=true to update it." >&2
+                exit 1
+              fi
+              OLD_OBJ="$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha || true)"
+              echo "old_tag_object=$OLD_OBJ" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "android_version=$ANDROID_VER" >> "$GITHUB_OUTPUT"
+          echo "harmony_version=$HARMONY_VER" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+      - name: Verify SSOT & Python tooling tests
+        run: |
+          python3 tools/sync-all.py --check
+          python3 -m unittest discover -s tools/tests
+      - name: Verify Rust core workspace
+        working-directory: shared/core-rust
+        run: |
+          cargo fmt --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
 
-  release:
-    needs: checks
+  build-ios:
+    needs: prepare
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run Swift core tests
+        run: zsh tools/ios/test-core.sh
+      - name: Build and verify unsigned iOS IPA
+        run: bash tools/ios/build-ipa.sh "${{ needs.prepare.outputs.version }}" artifacts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios-release-assets
+          path: artifacts/MoviePilot-${{ needs.prepare.outputs.version }}-ios-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+  build-android:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Rust Android targets & cargo-ndk
+        run: |
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          cargo install cargo-ndk --locked
+      - name: Build and verify Android Release APKs (arm64-v8a & universal)
+        env:
+          BUILD_UNIVERSAL: '1'
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: bash tools/android/build-android.sh artifacts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-release-assets
+          path: artifacts/MoviePilot-${{ needs.prepare.outputs.android_version }}-android-*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  build-harmony:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup HarmonyOS NEXT Command Line Tools
+        uses: ErBWs/setup-ohos@v2
+        with:
+          version: '26.0.0.821'
+          cache: 'true'
+      - name: Build and verify HarmonyOS NEXT HAP
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1
+          rustup target add aarch64-unknown-linux-ohos
+          bash tools/harmony/build-harmony.sh artifacts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: harmony-release-assets
+          path: artifacts/MoviePilot-${{ needs.prepare.outputs.harmony_version }}-harmony-*.hap
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    needs: [prepare, build-ios, build-android, build-harmony]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
-      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      ANDROID_VERSION: ${{ needs.prepare.outputs.android_version }}
+      HARMONY_VERSION: ${{ needs.prepare.outputs.harmony_version }}
+      OLD_TAG_OBJECT: ${{ needs.prepare.outputs.old_tag_object }}
       REBUILD_EXISTING: ${{ github.event_name == 'workflow_dispatch' && inputs.rebuild_existing }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Validate release version
-        shell: bash
-        run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo 'Release tags must use vMAJOR.MINOR.PATCH.' >&2
-            exit 1
-          fi
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] &&
-             { [[ "$GITHUB_REF" != refs/heads/main && "$GITHUB_REF" != refs/heads/v2 ]] || [[ "$REBUILD_EXISTING" != true ]]; }; then
-            echo 'Same-version rebuilds require main or v2 and explicit confirmation.' >&2
-            exit 1
-          fi
-          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
-      - name: Verify existing release for a same-version rebuild
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          gh release view "$RELEASE_TAG" > /dev/null
-          old_tag_object=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha)
-          echo "OLD_TAG_OBJECT=$old_tag_object" >> "$GITHUB_ENV"
-      - name: Build and verify unsigned device IPA
-        run: bash scripts/build-ipa.sh "$RELEASE_VERSION"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/download-artifact@v7
         with:
-          name: MoviePilot-${{ env.RELEASE_VERSION }}-unsigned
-          path: |
-            artifacts/*.ipa
-            artifacts/SHA256SUMS
-          if-no-files-found: error
-          retention-days: 7
-      - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          path: release-assets
+          merge-multiple: true
+      - name: Verify tri-platform artifacts and generate SHA256SUMS
+        working-directory: release-assets
         shell: bash
         run: |
-          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            if [[ "$REBUILD_EXISTING" != true ]]; then
-              echo 'Release already exists; refusing to overwrite its assets.' >&2
-              exit 1
-            fi
-            current_tag_object=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha)
-            current_branch_head=$(gh api "repos/$GH_REPO/commits/${GITHUB_REF_NAME}" --jq .sha)
-            if [[ "$current_tag_object" != "$OLD_TAG_OBJECT" || "$current_branch_head" != "$GITHUB_SHA" ]]; then
-              echo 'The release tag or branch changed during the build; rebuild the current source.' >&2
-              exit 1
-            fi
-            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$RELEASE_TAG" \
-              -f sha="$GITHUB_SHA" -F force=true > /dev/null
-            rebuilt_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
-            test "$rebuilt_sha" = "$GITHUB_SHA"
-          elif [[ "$REBUILD_EXISTING" == true ]]; then
-            echo 'The release selected for rebuilding no longer exists.' >&2
-            exit 1
-          fi
+          ls -lh
+          test -f "MoviePilot-${RELEASE_VERSION}-ios-unsigned.ipa"
+          test -f "MoviePilot-${ANDROID_VERSION}-android-arm64-v8a.apk"
+          test -f "MoviePilot-${ANDROID_VERSION}-android-universal.apk"
+          test -f "MoviePilot-${HARMONY_VERSION}-harmony-unsigned.hap"
+          sha256sum MoviePilot-* > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Create or update GitHub Release
+        shell: bash
+        run: |
           cp .github/RELEASE_NOTES.md "$RUNNER_TEMP/release-notes.md"
           printf '\n构建源码：[%s](https://github.com/%s/commit/%s)。\n' \
             "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA" >> "$RUNNER_TEMP/release-notes.md"
-          if [[ "$REBUILD_EXISTING" == true ]]; then
-            gh release upload "$RELEASE_TAG" \
-              "artifacts/MoviePilot-${RELEASE_VERSION}-unsigned.ipa" artifacts/SHA256SUMS --clobber
-            gh release edit "$RELEASE_TAG" --title "MoviePilot ${RELEASE_VERSION}" \
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if [[ "$REBUILD_EXISTING" != true ]]; then
+              echo "Release $RELEASE_TAG already exists; refusing to overwrite without rebuild_existing=true." >&2
+              exit 1
+            fi
+            if [[ -n "$OLD_TAG_OBJECT" ]]; then
+              CURRENT_TAG_OBJ="$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq .object.sha)"
+              if [[ "$CURRENT_TAG_OBJ" != "$OLD_TAG_OBJECT" ]]; then
+                echo "Release tag $RELEASE_TAG moved during build; aborting." >&2
+                exit 1
+              fi
+              gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$RELEASE_TAG" \
+                -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            fi
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+            gh release edit "$RELEASE_TAG" \
+              --title "MoviePilot ${RELEASE_VERSION}" \
               --notes-file "$RUNNER_TEMP/release-notes.md"
           else
+            if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+              gh api --method POST "repos/$GH_REPO/git/refs" \
+                -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" >/dev/null || true
+            fi
             gh release create "$RELEASE_TAG" --verify-tag \
               --title "MoviePilot ${RELEASE_VERSION}" \
               --notes-file "$RUNNER_TEMP/release-notes.md" \
-              "artifacts/MoviePilot-${RELEASE_VERSION}-unsigned.ipa" artifacts/SHA256SUMS
+              release-assets/*
           fi

@@ -1,53 +1,104 @@
-# MoviePilot-App (v2 全原生 iOS 客户端)
+# MoviePilot-App（iOS · Android · HarmonyOS NEXT 全原生客户端）
 
-MoviePilot 官方全原生 SwiftUI iOS 客户端（`v2` 分支），直接对接 MoviePilot V3 后端 API，提供统一深色紫玫瑰渐变玻璃视觉体系、iOS 26+ Liquid Glass 导航及原生本地播放体验。[查看完整界面图册（60 张）](screenshots/README.md)。
+MoviePilot 官方单仓三端全原生移动与大屏客户端，基于单一事实源（`shared/`）与 Rust 共享业务内核（`shared/core-rust/`），同时驱动 **iOS / iPadOS（SwiftUI + Liquid Glass）**、**Android（Jetpack Compose + Material 3 Expressive）** 与 **HarmonyOS NEXT（ArkTS / ArkUI + 动态光感材质）**，直接对接 MoviePilot V3 后端 REST/SSE API，拒绝跨端套壳与主流程 WebView。
 
-## 核心能力
+👉 **[查看三端实测界面图册（iOS 61 张 · Android 28 张 · HarmonyOS 41 张）](screenshots/README.md)**
 
-- **4+1 Liquid Glass 底部导航**：`发现`、`探索`、`我的`（无大标题仪表盘与无缝插件图表）、`设置`（多层次卡片与列表设置中心），右侧 `+1` 按钮按当前页动态切换主操作或默认全局搜索；重复点击底栏主图标弹出极简 8 项快捷菜单（`订阅`、`日历`、`资源`、`下载`、`文件`、`历史`、`工作流`、`插件`）。
-- **影视发现、探索与详情**：精选透明片名 Logo 主视觉、发现模块显隐与排序编辑、TMDB/豆瓣/Bangumi 多来源探索片库、演职员/分季详情、添加订阅、资源搜索与原生本地播放。
-- **订阅、下载与文件整理**：我的订阅与订阅广场、追剧日历、PT 资源搜索与下载确认、正在下载管理、整理历史（常驻搜索框、整理队列与长按菜单）、多存储文件浏览与本地音视频播放。
-- **自动化与扩展生态**：纯 SwiftUI 工作流节点画布与社区分享、站点管理（双向绿/玫红上下行流量图示）与搜索/订阅站点范围（`IndexerSites`/`RssSites`）、AI 智能助手 SSE 流式对话、插件市场与原生 JSON 配置表单/数据页/仪表盘图表（遗留 Vue 插件提供受控隔离兼容宿主）。
-- **捷径与诊断中心**：内置系统模块健康检查、网络测速、名称识别与过滤规则测试、实时日志及定时服务手动触发。
-- **系统集成与本地播放**：原生 VLCKit/AVKit/PiP 音视频播放与字幕/歌词队列；支持在 iOS「文件」与系统共享菜单中选择音视频文件直接用 MoviePilot 原生播放，以及通过 `moviepilot://` URL Scheme 实现跨应用联动跳转与直链播放；同时提供原生 APNs 推送通知、WidgetKit 桌面小组件与主屏幕快捷方式。
+## 仓库目录结构
 
-## `moviepilot://` 响应链接与系统播放
+```text
+MoviePilot-App/
+├── VERSION                            # 三端统一语义化版本号唯一真相源
+├── shared/
+│   ├── design-tokens/                 # 深浅主题色板、强调色、表面材质、响应式断点与语义图标 Token
+│   ├── l10n/                          # 主界面与桌面小组件三语本地化词表（简体 / 繁体 / English）
+│   ├── assets/                        # 品牌图标、36 枚服务/数据源/渠道 Logo、73 份社区 3D 勋章资产
+│   ├── fixtures/                      # 三端共享插件 UI、表单、DeepLink 与 Markdown 黄金测试夹具
+│   ├── contracts/                     # MoviePilot V3 API 端点、moviepilot:// 路由与动态插件 Schema
+│   └── core-rust/                     # Rust 共享业务内核（UniFFI -> iOS/Android，ohos-rs NAPI -> HarmonyOS）
+├── ios/                               # iOS 16+ / iPadOS / iOS 26+ 全原生 SwiftUI 客户端与 WidgetKit
+├── android/                           # Android 10+（API 29~35）17 模块 Jetpack Compose 客户端与 Glance 微件
+├── harmony/                           # HarmonyOS NEXT（API 12~26）16 模块纯血 ArkTS/ArkUI 客户端与服务卡片
+├── tools/                             # SSOT 同步器、Rust 跨端交叉编译、IPA/APK/HAP 打包校验工具链
+└── screenshots/                       # iOS / Android / HarmonyOS 真机与模拟器实测截图图册
+```
 
-- **系统菜单音视频播放**：已在系统注册常见视频（MP4/MKV/MOV/AVI/TS/M2TS/WebM/FLV/WMV/RMVB 等）与音频（MP3/FLAC/M4A/AAC/WAV/OGG/Opus/ALAC/APE/WMA/MKA 等）文档类型，并支持原位读取（`LSSupportsOpeningDocumentsInPlace`）。在「文件」或任意应用的共享/打开方式菜单中选择 MoviePilot，即可直接调用原生播放器播放（未登录服务也可播放）。
-- **路径联动跳转**：支持主机路径（`moviepilot://subscribe/movie`）、三斜杠路径（`moviepilot:///subscribe/movie`）和统一参数写法（`moviepilot://open?path=/subscribe/movie`），同时兼容 MoviePilot Web 路由：
-  - 主导航：`moviepilot://discover`、`moviepilot://explore/douban_movies`、`moviepilot://dashboard`、`moviepilot://settings`、`moviepilot://search?q=关键词&type=media|library|person|music|collection`
-  - 影视详情：`moviepilot://media/tmdb/550?type=movie`、`moviepilot://media/douban/1292052?type=tv`、`moviepilot://media?mediaid=tmdb:550&type=电影`
-  - 业务功能：`moviepilot://subscribe`（支持 `/movie` `/tv` `/music` `/popular`）、`moviepilot://calendar`、`moviepilot://resource?keyword=关键词`（或 `/browse` 浏览首页）、`moviepilot://downloading`、`moviepilot://files?storage=local&path=/media`、`moviepilot://history?search=关键词`、`moviepilot://workflow`、`moviepilot://sites`、`moviepilot://plugins`（或 `/installed`）、`moviepilot://messages`、`moviepilot://agent?prompt=草稿内容`、`moviepilot://music`、`moviepilot://shortcuts`
-  - 设置与运维：`moviepilot://settings/system`、`moviepilot://settings/playback`、`moviepilot://settings/downloaders`、`moviepilot://settings/mediaservers`、`moviepilot://settings/directories`、`moviepilot://diagnostics/words`、`moviepilot://diagnostics/logs`、`moviepilot://diagnostics/health`
-  - 联动播放：`moviepilot://play?url=https%3A%2F%2F...&title=名称&type=video|audio`（外部直链，不携带任何 MoviePilot 账号凭据）、`moviepilot://play?itemid=媒体ID&server=服务名`（当前实例媒体库条目）、`moviepilot://play?storage=local&path=/media/demo.mkv`（当前实例存储文件）
+## 核心特性与三端原生设计
 
-## 环境与自行构建
+- **地道原生视觉与交互**：
+  - **iOS / iPadOS**：默认「深色 · 极简石墨」原生色板、iOS 26+ Liquid Glass 4+1 悬浮导航（发现、订阅、我的、更多 + 独立搜索）、iPad `sidebarAdaptable` 工作台与多列 Bento 栅格、SceneKit 3D 挤压社区勋章与背面三遍凹雕、MobileVLCKit + AVKit 全格式播放器与画中画、WidgetKit 多尺寸小组件与 APNs 推送。
+  - **Android**：Material 3 Expressive 视觉与 4+1 分体式悬浮/侧栏自适应导航（发现、订阅、我的、更多 + 独立搜索）、染色顶栏与统一大胶囊分页栏（`ExpressivePillTabRow`）、Material You 动态壁纸取色与 AMOLED 纯黑模式、OpenGL ES 3D 勋章实时网格挤压与背面雕刻、Media3 + FFmpeg 全格式音视频播放与 `MediaSessionService` 锁屏播控 / 自动画中画、Jetpack Glance 桌面微件。
+  - **HarmonyOS NEXT**：HarmonyOS 动态光感材质（API 26 `ImmersiveMaterial` / 点光源自动分级回退）与 4+1 分体式悬浮导航、5 套鸿蒙色板、无遮挡渐进模糊沉浸顶栏、原生 `bindSheet` 多档半模态、一多自适应侧栏、3D 透视勋章与背面凹雕、`AVPlayer` + `PiPWindow` 画中画与 `AVSession` 后台长时音视频续播、`FormExtensionAbility` 桌面卡片。
+- **全场景品牌标识识别**：内置 36 枚高清品牌与服务 Logo（TMDB、豆瓣、Bangumi、MusicBrainz、Emby、Jellyfin、Plex、飞牛、绿联、极空间、qBittorrent、Transmission、rTorrent、微信、飞书、Telegram、钉钉、Slack、Discord、115、阿里云盘、Rclone、SMB 等），全面覆盖数据源、下载器、媒体服务器、通知渠道、存储目录及选择弹窗。
+- **Rust 共享核心（`shared/core-rust/`）**：
+  - `mp-core-model`：实例地址规范化与同源边界校验、`moviepilot://` 全路由深度链接解析、音视频后缀判定、Agent Markdown AST 解析、订阅进度与 3D 勋章金属色板。
+  - `mp-core-api`：复用各平台原生网络栈（`URLSession` / `OkHttp` / HarmonyOS 网络栈，兼容 NAS 自签名 HTTPS 与系统代理）、V3 端点安全编码、SSE 流式帧解析与 9 维站点资源筛选/同规格分组引擎。
+  - `mp-core-session`：对接各端安全存储（Keychain / Android Keystore / HUKS）、JWT 载荷解析、RBAC 权限矩阵与 401/403 令牌失效精准识别。
+  - `mp-core-plugin`：动态 Vuetify JSON 表单规划器、实时 `v-if`/`v-show` 条件表达式求值、无损补丁合并、5 字段 Cron 解析与 Combobox 词表处理。
+- **全量业务闭环**：发现首页与模块自定义编排、多源探索片库、全局多域搜索、影视/剧集/人物详情、音乐探索与悬浮迷你播放条、我的订阅/追剧日历/订阅广场、PT 站点多维筛选与下载器管理、多存储文件管理与手动识别整理、原生工作流管理与节点画布、站点流量管理、AI 智能助手 SSE 流式对话（含历史会话、工具调用折叠卡、附件与语音）、动态插件中心（原生 JSON 表单/数据页 + 受控隔离 Vue 容器）、系统诊断与词表中心、渠道授权与用户管理。
 
-- **系统要求**：iOS 16+（桌面小组件需 iOS 17+，Liquid Glass 导航需 iOS 26+）。
-- **构建依赖**：Xcode 26+、XcodeGen。
+## 本地构建与验证指南
+
+### 1. SSOT 同步与 Rust 共享内核
+
+```zsh
+# 同步版本号、Design Tokens、多语言与共享资产并校验零漂移
+python3 tools/sync-all.py && python3 tools/sync-all.py --check
+python3 -m unittest discover -s tools/tests
+
+# Rust 代码格式化、Clippy 静态检查与黄金夹具单元测试
+cd shared/core-rust
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+### 2. iOS（SwiftUI + Xcode）
 
 ```zsh
 # 运行 Swift 核心单元测试
-zsh scripts/test-core.sh
+zsh tools/ios/test-core.sh
 
-# 运行脚本与夹具测试
-python3 -m unittest discover -s scripts/tests
-
-# 重新生成 Xcode 工程并构建模拟器目标
-(cd ios && xcodegen generate)
-xcodebuild build \
-  -project ios/MoviePilot.xcodeproj \
-  -scheme MoviePilot \
-  -destination 'generic/platform=iOS Simulator' \
-  CODE_SIGNING_ALLOWED=NO
+# 构建并校验无签名真机 IPA 安装包
+bash tools/ios/build-ipa.sh "$(cat VERSION)" artifacts
 ```
 
-## 界面图册
+### 3. Android（Jetpack Compose + Rust UniFFI）
 
-完整 60 张实测截图（含连接服务/登录页、4+1 导航、设置中心、发现/探索/豆瓣与剧集详情、捷径词表与日志、站点历史流量图表、订阅/资源/下载/文件/整理历史、工作流画布与插件页面）请见 [screenshots/README.md](screenshots/README.md)。
+```zsh
+# 一键交叉编译 Rust 内核、运行单测并构建校验 Release APK
+bash tools/android/build-android.sh artifacts
+
+# 如需同时产出 arm64-v8a 单架构包与多架构通用包（arm64-v8a + armeabi-v7a + x86_64）
+BUILD_UNIVERSAL=1 bash tools/android/build-android.sh artifacts
+```
+
+### 4. HarmonyOS NEXT（ArkTS / ArkUI + ohos-rs NAPI）
+
+需安装 **DevEco Studio** 或 **HarmonyOS Command Line Tools**（含 `hvigorw` / `ohpm` / OpenHarmony Native NDK）：
+
+```zsh
+# 一键编译 Rust NAPI .so、打包 Release HAP 并校验字节码与共享资产
+bash tools/harmony/build-harmony.sh artifacts
+
+# 安装已签名包至鸿蒙设备或模拟器运行
+hdc install artifacts/entry-default-signed.hap
+hdc shell aa start -a EntryAbility -b com.moviepilot.app
+```
+
+## GitHub Actions CI 与三端联合发布
+
+- **持续集成（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）**：代码提交或 PR 时自动并行校验 SSOT 零漂移、Rust Clippy/单测、iOS 核心测试与模拟器编译、Android 单测与 APK 校验、以及 HarmonyOS NEXT HAP 构建校验，不会自动创建或覆盖 Release。
+- **三端打包发布（[`.github/workflows/release.yml`](.github/workflows/release.yml)）**：仅在推送 `vMAJOR.MINOR.PATCH` 标签或手动触发 `workflow_dispatch` 时运行，自动并行产出并合并校验以下四份产物与统一 `SHA256SUMS`：
+  - `MoviePilot-{version}-ios-unsigned.ipa`
+  - `MoviePilot-{version}-android-arm64-v8a.apk`
+  - `MoviePilot-{version}-android-universal.apk`
+  - `MoviePilot-{version}-harmony-unsigned.hap`
+
+开发规范详见 [AGENTS.md](AGENTS.md)。
 
 ## 许可证
 
 MoviePilot-App 采用 [GNU General Public License v3.0（GPL-3.0-only）](LICENSE)。
 
-特别说明：UI设计风格参考了 [Rex iOS App](https://rexnow.tv)。
+特别说明：UI 设计风格参考了 [Rex iOS App](https://rexnow.tv)。

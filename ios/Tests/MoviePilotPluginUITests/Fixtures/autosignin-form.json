@@ -1,0 +1,299 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VForm",
+      "content": [
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 3
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "enabled",
+                    "label": "启用插件"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 3
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "notify",
+                    "label": "发送通知"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 3
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "rich_notify",
+                    "label": "优化消息通知样式",
+                    "hint": "支持的渠道使用富文本，关闭后恢复原有纯文本样式。",
+                    "persistent-hint": true
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 3
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "onlyonce",
+                    "label": "立即运行一次"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 3
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "clean",
+                    "label": "清理本日缓存"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VCronField",
+                  "props": {
+                    "model": "cron",
+                    "label": "执行周期",
+                    "placeholder": "5位cron表达式，留空自动"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "queue_cnt",
+                    "label": "队列数量"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "retry_keyword",
+                    "label": "重试关键词",
+                    "placeholder": "支持正则表达式，命中才重签"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "auto_cf",
+                    "label": "自动优选",
+                    "placeholder": "命中重试关键词次数（0-关闭）"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "content": [
+                {
+                  "component": "VSelect",
+                  "props": {
+                    "chips": true,
+                    "multiple": true,
+                    "model": "sign_sites",
+                    "label": "签到站点",
+                    "items": [
+                      {
+                        "title": "演示站点",
+                        "value": 1
+                      }
+                    ],
+                    "hint": "选择全部后自动包含后续新增站点",
+                    "persistent-hint": true
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "content": [
+                {
+                  "component": "VSelect",
+                  "props": {
+                    "chips": true,
+                    "multiple": true,
+                    "model": "login_sites",
+                    "label": "登录站点",
+                    "items": [
+                      {
+                        "title": "演示站点",
+                        "value": 1
+                      }
+                    ],
+                    "hint": "选择全部后自动包含后续新增站点",
+                    "persistent-hint": true
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "text": "执行周期支持：1、5位cron表达式；2、配置间隔（小时），如2.3/9-23（9-23点之间每隔2.3小时执行一次）；3、周期不填默认9-23点随机执行2次。每天首次全量执行，其余重试未确认登录或命中重试关键词的站点。已确认登录但签到未确认的站点会单独记录登录成功。"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "text": "自动优选：0-关闭，命中重试关键词次数大于该数量时自动执行Cloudflare IP优选（需要开启且则正确配置Cloudflare IP优选插件和自定义Hosts插件）"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "warning",
+                    "variant": "tonal",
+                    "text": "不是所有的站点都会把程序自动登录/签到定义为用户活跃（比如馒头），提示签到/登录成功仍然存在掉号风险！请结合站点公告说明自行把握。"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model": {
+    "enabled": false,
+    "notify": true,
+    "rich_notify": true,
+    "cron": "",
+    "auto_cf": 0,
+    "onlyonce": false,
+    "clean": false,
+    "queue_cnt": 5,
+    "sign_sites": [],
+    "login_sites": [],
+    "retry_keyword": "错误|失败"
+  }
+}

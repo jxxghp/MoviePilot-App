@@ -46,96 +46,102 @@ struct NativeV2RootView: View {
     ZStack {
       if showsColdBootSplash {
         NativeLaunchSplashView()
-      } else if case .authenticated(let snapshot) = manager.state,
-        let session = manager.currentSession, session.scope == snapshot.scope
-      {
-        NativeV2MainShell(
-          session: session,
-          snapshot: snapshot,
-          showsPlugins: $showsPlugins,
-          currentLanguage: model.language,
-          onSelectLanguage: { model.selectLanguage($0) },
-          onSwitchServer: { model.changeServer() },
-          onLogout: { model.logout() },
-          pluginDestination: {
-            if let current = manager.currentSession, current.scope == snapshot.scope {
-              NativePluginCatalogView(session: current)
-            }
-          }
-        )
-        .nativeProvideVerticalBarEdge()
-        .id(snapshot.scope.generation)
       } else {
-        NavigationStack {
-          ZStack {
-            CinematicBackground()
-            ScrollViewReader { scroll in
-              Form {
-                brand.id("native-v2-top")
-                if let message = model.messageKey {
-                  CinematicFormSection {
-                    CinematicFormRow(symbol: "info.circle") {
-                      Text(L10n.text(message)).font(.callout)
-                        .accessibilityIdentifier("native-v2-message")
-                        .accessibilityAddTraits(.updatesFrequently)
-                    }
-                    if case .failed(_, .api) = manager.state, let selected = model.selected {
-                      CinematicFormDivider()
-                      CinematicFormRow {
-                        rowAction("重试连接", id: "native-v2-retry") { model.connect(selected) }
-                      }
-                    }
-                  }
-                }
-                if model.busy {
-                  CinematicFormSection {
-                    CinematicFormRow {
-                      HStack(spacing: 12) {
-                        ProgressView()
-                        Text(L10n.text("正在连接…"))
-                      }
-                      .accessibilityElement(children: .combine)
-                      .accessibilityIdentifier("native-v2-progress")
-                    }
-                  }
-                }
-                if case .authenticated = manager.state {
-                  CinematicFormSection {
-                    CinematicFormRow {
-                      HStack(spacing: 12) {
-                        ProgressView()
-                        Text("正在准备 MoviePilot…")
-                      }
-                      .accessibilityElement(children: .combine)
-                    }
-                  }
-                } else if model.form == .connection {
-                  connection
-                } else {
-                  authentication
-                }
+        if case .authenticated(let snapshot) = manager.state,
+          let session = manager.currentSession, session.scope == snapshot.scope
+        {
+          NativeV2MainShell(
+            session: session,
+            snapshot: snapshot,
+            showsPlugins: $showsPlugins,
+            currentLanguage: model.language,
+            onSelectLanguage: { model.selectLanguage($0) },
+            onSwitchServer: { model.beginSwitchServer() },
+            onLogout: { model.logout() },
+            pluginDestination: {
+              if let current = manager.currentSession, current.scope == snapshot.scope {
+                NativePluginCatalogView(session: current)
               }
-              .scrollContentBackground(.hidden)
-              .scrollDismissesKeyboard(.interactively)
-              .frame(maxWidth: 680)
-              .onChange(of: authenticated) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
-              .onChange(of: model.form) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
             }
+          )
+          .nativeProvideVerticalBarEdge()
+          .id(snapshot.scope.generation)
+          .opacity(model.isSwitchingServer ? 0 : 1)
+          .allowsHitTesting(!model.isSwitchingServer)
+          .accessibilityHidden(model.isSwitchingServer)
+        }
+        if showingEntryForm {
+          NavigationStack {
+            ZStack {
+              CinematicBackground()
+              ScrollViewReader { scroll in
+                Form {
+                  brand.id("native-v2-top")
+                  if let message = model.messageKey {
+                    CinematicFormSection {
+                      CinematicFormRow(symbol: "info.circle") {
+                        Text(L10n.text(message)).font(.callout)
+                          .accessibilityIdentifier("native-v2-message")
+                          .accessibilityAddTraits(.updatesFrequently)
+                      }
+                      if case .failed(_, .api) = manager.state, let selected = model.selected {
+                        CinematicFormDivider()
+                        CinematicFormRow {
+                          rowAction("重试连接", id: "native-v2-retry") { model.connect(selected) }
+                        }
+                      }
+                    }
+                  }
+                  if model.busy {
+                    CinematicFormSection {
+                      CinematicFormRow {
+                        HStack(spacing: 12) {
+                          ProgressView()
+                          Text(L10n.text("正在连接…"))
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("native-v2-progress")
+                      }
+                    }
+                  }
+                  if !model.isSwitchingServer, case .authenticated = manager.state {
+                    CinematicFormSection {
+                      CinematicFormRow {
+                        HStack(spacing: 12) {
+                          ProgressView()
+                          Text("正在准备 MoviePilot…")
+                        }
+                        .accessibilityElement(children: .combine)
+                      }
+                    }
+                  } else if model.form == .connection {
+                    connection
+                  } else {
+                    authentication
+                  }
+                }
+                .scrollContentBackground(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+                .frame(maxWidth: 680)
+                .onChange(of: authenticated) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
+                .onChange(of: model.form) { _ in scroll.scrollTo("native-v2-top", anchor: .top) }
+              }
+            }
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .nativeTopNavigationBar()
+            .toolbar { toolbar }
           }
-          .navigationTitle("")
-          .navigationBarTitleDisplayMode(.inline)
-          .toolbarBackground(.hidden, for: .navigationBar)
-          .toolbar { toolbar }
-        }
-        if let miniMusic = playbackLauncher.miniMusicState {
-          unauthenticatedMiniMusicBar(miniMusic)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .zIndex(45)
-        }
-        if let banner = routeHub.bannerMessage {
-          unauthenticatedBannerOverlay(banner)
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .zIndex(60)
+          if let miniMusic = playbackLauncher.miniMusicState {
+            unauthenticatedMiniMusicBar(miniMusic)
+              .transition(.move(edge: .bottom).combined(with: .opacity))
+              .zIndex(45)
+          }
+          if let banner = routeHub.bannerMessage {
+            unauthenticatedBannerOverlay(banner)
+              .transition(.move(edge: .top).combined(with: .opacity))
+              .zIndex(60)
+          }
         }
       }
     }
@@ -174,6 +180,15 @@ struct NativeV2RootView: View {
       }
       showsPlugins = false
     }
+    .onChange(of: routeHub.pendingTarget) { target in
+      guard target != nil else { return }
+      if authenticated {
+        hasCompletedInitialBoot = true
+        if model.isSwitchingServer {
+          model.cancelSwitchServer()
+        }
+      }
+    }
     .onChange(of: model.selected?.id) { _ in concealSecrets() }
     .onChange(of: model.form) { _ in concealSecrets() }
     .onChange(of: scenePhase) { phase in
@@ -198,9 +213,14 @@ struct NativeV2RootView: View {
     return false
   }
 
+  /// 是否显示连接/认证表单层（未登录，或用户正在从设置页切换服务）。
+  private var showingEntryForm: Bool {
+    !authenticated || model.isSwitchingServer
+  }
+
   /// 标题只反映真实可用的入口，不把此基础阶段命名为完整首页。
   private var title: String {
-    if case .authenticated = manager.state { return "" }
+    if !model.isSwitchingServer, case .authenticated = manager.state { return "" }
     switch model.form {
     case .connection: return L10n.text("连接服务")
     case .login: return L10n.text("登录")
@@ -538,9 +558,13 @@ struct NativeV2RootView: View {
           footer: L10n.text("密码仅在本机安全保存，验证码不会保存。")
         ) {
           CinematicFormRow(symbol: "checkmark.shield") {
-            Toggle(L10n.text("保持登录"), isOn: $model.rememberSession)
-              .tint(appearance.accentColor)
-              .accessibilityIdentifier("native-v2-remember-session")
+            Toggle(
+              L10n.text("保持登录"),
+              isOn: Binding(
+                get: { model.rememberSession }, set: { model.setRememberSession($0) })
+            )
+            .tint(appearance.accentColor)
+            .accessibilityIdentifier("native-v2-remember-session")
           }
           CinematicFormDivider()
           CinematicFormRow(symbol: "key.horizontal") {
@@ -702,10 +726,25 @@ struct NativeV2RootView: View {
     }
   }
 
-  /// 换地址在忙碌时仍可取消；语言始终用自身名称，误选后也能找回。
+  /// 换地址在忙碌时仍可取消；从设置切换服务进入连接页时提供左上角返回；语言始终用自身名称，误选后也能找回。
   @ToolbarContentBuilder
   private var toolbar: some ToolbarContent {
-    if !authenticated, model.form != .connection {
+    if showingEntryForm, model.form == .connection, authenticated || model.canCancelSwitchServer {
+      ToolbarItem(placement: .navigationBarLeading) {
+        Button {
+          model.cancelSwitchServer()
+        } label: {
+          HStack(spacing: 4) {
+            Image(systemName: "chevron.left")
+              .font(.body.weight(.semibold))
+            Text(L10n.text("返回"))
+          }
+        }
+        .tint(.primary)
+        .accessibilityLabel(L10n.text("返回"))
+        .accessibilityIdentifier("native-v2-cancel-switch")
+      }
+    } else if showingEntryForm, model.form != .connection {
       ToolbarItem(placement: .navigationBarLeading) {
         Button {
           model.changeServer()
@@ -717,7 +756,7 @@ struct NativeV2RootView: View {
         .accessibilityIdentifier("native-v2-change-server")
       }
     }
-    if !authenticated {
+    if showingEntryForm {
       ToolbarItem(placement: .navigationBarTrailing) {
         Menu {
           languageOptions
@@ -729,7 +768,7 @@ struct NativeV2RootView: View {
         .accessibilityIdentifier("native-v2-language")
       }
     }
-    if !authenticated {
+    if showingEntryForm {
       ToolbarItemGroup(placement: .keyboard) {
         Spacer()
         Button(L10n.text("完成")) {
@@ -842,9 +881,11 @@ struct NativeV2RootView: View {
       .onTapGesture {
         playbackLauncher.expandMinimizedAudio()
       }
+      .frame(maxWidth: 520)
       .padding(.horizontal, 16)
       .padding(.bottom, 14)
     }
+    .frame(maxWidth: .infinity)
   }
 
   /// 登录前工具栏和登录后账号页提供同一组系统语言选项。

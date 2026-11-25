@@ -4,12 +4,13 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 登录后的原生「我的」仪表盘：右上角提供消息中心（左）与捷径（右），底部提供编辑仪表盘组件，完整呈现媒体库、存储、最近入库、下载器、CPU/内存/网络实时监控、7 天整理趋势、后台服务、系统信息与插件 JSON 动态卡片。
+/// 登录后的原生「我的」仪表盘：顶部固定呈现当前登录用户头像与身份概览卡片，右上角提供消息中心入口，完整呈现媒体库、存储、最近入库、下载器、CPU/内存/网络实时监控、7 天整理趋势、后台服务、系统信息与插件 JSON 动态卡片。
 @MainActor
 struct NativeDashboardPage: View {
   let session: NativeSession
+  let snapshot: NativeSessionSnapshot
+  let currentLanguage: AppLanguage
   let onOpenMessages: (() -> Void)?
-  let onOpenShortcuts: (() -> Void)?
 
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -18,11 +19,11 @@ struct NativeDashboardPage: View {
   @State private var statistics: NativeDashboardStatistics?
   @State private var storage: NativeDashboardStorage?
   @State private var recentImports: [NativeDashboardRecentImport] = []
-  @State private var downloader: NativeDashboardDownloaderInfo?
   @State private var activeDownloads: [NativeDashboardDownloadTask] = []
-  @State private var cpuSamples: [Double] = []
-  @State private var memory: NativeDashboardMemoryInfo?
-  @State private var networkSamples: [(up: Double, down: Double)] = []
+  /// 实时遥测独立存放：页面只持有引用而不订阅，轮询结果不会让整页重算。
+  @State private var realtime: NativeDashboardRealtimeModel
+  @State private var realtimePresence = NativeDashboardRealtimePresence()
+  @State private var showsAllSchedules = false
   @State private var transferTrend: [Int] = []
   @State private var schedules: [NativeDashboardSchedule]?
   @State private var systemInfo: NativeDashboardSystemInfo?
@@ -41,23 +42,26 @@ struct NativeDashboardPage: View {
   /// 优先从会话级缓存同步恢复数据，避免切换标签时闪烁加载态。
   init(
     session: NativeSession,
-    onOpenMessages: (() -> Void)? = nil,
-    onOpenShortcuts: (() -> Void)? = nil
+    snapshot: NativeSessionSnapshot,
+    currentLanguage: AppLanguage = .current,
+    onOpenMessages: (() -> Void)? = nil
   ) {
     self.session = session
+    self.snapshot = snapshot
+    self.currentLanguage = currentLanguage
     self.onOpenMessages = onOpenMessages
-    self.onOpenShortcuts = onOpenShortcuts
+    let realtimeModel = NativeDashboardRealtimeModel()
     if let cached: NativeDashboardCacheSnapshot = NativePageDataCache.shared.get(
       "dashboard|overview.v3", session: session)
     {
       _statistics = State(initialValue: cached.statistics)
       _storage = State(initialValue: cached.storage)
       _recentImports = State(initialValue: cached.recentImports)
-      _downloader = State(initialValue: cached.downloader)
       _activeDownloads = State(initialValue: cached.activeDownloads)
-      _cpuSamples = State(initialValue: cached.cpuSamples)
-      _memory = State(initialValue: cached.memory)
-      _networkSamples = State(initialValue: cached.networkSamples)
+      realtimeModel.restore(
+        cpuSamples: cached.cpuSamples, memory: cached.memory,
+        networkSamples: cached.networkSamples, downloader: cached.downloader)
+      _realtimePresence = State(initialValue: realtimeModel.presence)
       _transferTrend = State(initialValue: cached.transferTrend)
       _schedules = State(initialValue: cached.schedules)
       _systemInfo = State(initialValue: cached.systemInfo)
@@ -65,36 +69,57 @@ struct NativeDashboardPage: View {
       _communityProfile = State(initialValue: cached.communityProfile)
       _hasLoadedOnce = State(initialValue: true)
     }
+    _realtime = State(initialValue: realtimeModel)
   }
 
   /// 是否已有任意已载入的仪表盘数据块。
   private var hasAnyContent: Bool {
-    statistics != nil || storage != nil || !recentImports.isEmpty || downloader != nil
-      || !activeDownloads.isEmpty || !cpuSamples.isEmpty || memory != nil
-      || !networkSamples.isEmpty || !transferTrend.isEmpty || schedules != nil
+    statistics != nil || storage != nil || !recentImports.isEmpty
+      || realtimePresence.hasDownloader
+      || !activeDownloads.isEmpty || realtimePresence.hasCPU || realtimePresence.hasMemory
+      || realtimePresence.hasNetwork || !transferTrend.isEmpty || schedules != nil
       || systemInfo != nil || !pluginWidgets.isEmpty
       || (communityProfile?.hasEarnedMedals == true)
   }
 
-  /// 首次进入且尚未完成初次载入时仅展示纯粹的居中加载动画，不露出空卡片或底部编辑按钮。
+  /// 首次进入且尚未完成初次载入时展示仪表盘骨架，顶部用户卡片保持首帧直出。
   private var isInitialLoading: Bool {
     !hasLoadedOnce && !hasAnyContent
   }
 
-  /// 主体使用连续渐变底色，所有已启用仪表盘组件依次流式呈现，底部提供「编辑仪表盘组件」胶囊入口。
+  /// 当前已获得的已知社区勋章枚数。
+  private var earnedMedalCount: Int {
+    guard let profile = communityProfile, profile.hasEarnedMedals else { return 0 }
+    return profile.orderedKnownMedals.count
+  }
+
+  /// 主体使用连续渐变底色，首项固定为用户身份卡片，下方流式呈现所有已启用仪表盘组件，底部提供「编辑仪表盘组件」胶囊入口。
   var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let margin = NativeDeviceLayout.horizontalMargin(for: resolvedWidth)
+    let useTwoColumns = resolvedWidth >= 820 && !dynamicTypeSize.isAccessibilitySize
     ZStack {
       CinematicBackground()
-      if isInitialLoading {
-        NativeDashboardSkeletonView()
-          .transition(.opacity)
-          .accessibilityIdentifier("native-dashboard-loading")
-      } else {
-        ScrollView {
-          let useTwoColumns = containerWidth >= 820 && !dynamicTypeSize.isAccessibilitySize
-          let margin = NativeDeviceLayout.horizontalMargin(for: containerWidth)
-          VStack(alignment: .leading, spacing: 20) {
-            if loading { loadingIndicator }
+      ScrollView {
+        VStack(alignment: .leading, spacing: 20) {
+          NativeDashboardUserProfileCard(
+            session: session,
+            user: snapshot.user,
+            earnedMedalCount: earnedMedalCount,
+            currentLanguage: currentLanguage
+          )
+
+          if isInitialLoading {
+            NativeDashboardSkeletonView(
+              containerWidth: resolvedWidth,
+              horizontalMargin: margin,
+              showsUserCard: false,
+              isEmbeddedInScroll: true
+            )
+            .transition(.opacity)
+            .accessibilityIdentifier("native-dashboard-loading")
+          } else {
+            if loading && !hasAnyContent { loadingIndicator }
             if !failedSections.isEmpty { errorPanel }
             if useTwoColumns {
               dashboardAdaptiveBentoContent
@@ -128,22 +153,22 @@ struct NativeDashboardPage: View {
             }
             .padding(.top, 4)
           }
-          .frame(maxWidth: useTwoColumns ? 1200 : 820, alignment: .leading)
-          .padding(.horizontal, margin)
-          .padding(.top, 8)
-          .padding(.bottom, 36)
-          .frame(maxWidth: .infinity)
         }
-        .nativeTrackContainerWidth($containerWidth)
-        .scrollIndicators(.hidden)
-        .modifier(NativeSoftTopScrollEdge())
-        .refreshable { await load(forceRefresh: true) }
-        .accessibilityIdentifier("native-dashboard-scroll")
+        .frame(maxWidth: useTwoColumns ? 1200 : 820, alignment: .leading)
+        .padding(.horizontal, margin)
+        .padding(.top, 8)
+        .padding(.bottom, 36)
+        .frame(maxWidth: .infinity)
       }
+      .scrollIndicators(.hidden)
+      .modifier(NativeSoftTopScrollEdge())
+      .refreshable { await load(forceRefresh: true) }
+      .accessibilityIdentifier("native-dashboard-scroll")
     }
-    .navigationTitle("")
+    .nativeTrackContainerWidth($containerWidth)
+    .navigationTitle(L10n.text("我的", language: currentLanguage))
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .onAppear {
       isPageVisible = true
       syncWidgetsFromStorage()
@@ -177,7 +202,7 @@ struct NativeDashboardPage: View {
       }
     }
     .toolbar {
-      ToolbarItemGroup(placement: .topBarTrailing) {
+      ToolbarItem(placement: .topBarTrailing) {
         if let onOpenMessages {
           Button(action: onOpenMessages) {
             Image(systemName: "bell")
@@ -185,14 +210,6 @@ struct NativeDashboardPage: View {
           .tint(.primary)
           .accessibilityLabel("消息中心")
           .accessibilityIdentifier("native-dashboard-messages-btn")
-        }
-        if let onOpenShortcuts {
-          Button(action: onOpenShortcuts) {
-            Image(systemName: "bolt.fill")
-          }
-          .tint(.primary)
-          .accessibilityLabel("捷径")
-          .accessibilityIdentifier("native-dashboard-shortcuts-btn")
         }
       }
     }
@@ -210,13 +227,13 @@ struct NativeDashboardPage: View {
     case "recentImports":
       return true
     case "downloader":
-      return downloader != nil || !activeDownloads.isEmpty
+      return realtimePresence.hasDownloader || !activeDownloads.isEmpty
     case "cpu":
-      return !cpuSamples.isEmpty
+      return realtimePresence.hasCPU
     case "memory":
-      return memory != nil
+      return realtimePresence.hasMemory
     case "network":
-      return !networkSamples.isEmpty
+      return realtimePresence.hasNetwork
     case "transferTrend":
       return !transferTrend.isEmpty
     case "schedules":
@@ -306,13 +323,13 @@ struct NativeDashboardPage: View {
     case "recentImports":
       recentImportsSummary
     case "downloader":
-      if downloader != nil || !activeDownloads.isEmpty { downloaderSummary }
+      if realtimePresence.hasDownloader || !activeDownloads.isEmpty { downloaderSummary }
     case "cpu":
-      if !cpuSamples.isEmpty { cpuSummary }
+      if realtimePresence.hasCPU { cpuSummary }
     case "memory":
-      if let memory { memorySummary(memory) }
+      if realtimePresence.hasMemory { memorySummary }
     case "network":
-      if !networkSamples.isEmpty { networkSummary }
+      if realtimePresence.hasNetwork { networkSummary }
     case "transferTrend":
       if !transferTrend.isEmpty { transferTrendSummary }
     case "schedules":
@@ -348,8 +365,9 @@ struct NativeDashboardPage: View {
   // MARK: - 1. 媒体库统计
 
   private func librarySummary(_ values: NativeDashboardStatistics) -> some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
     let metricColumnsCount: Int =
-      dynamicTypeSize.isAccessibilitySize ? 1 : (containerWidth >= 740 ? 4 : 2)
+      dynamicTypeSize.isAccessibilitySize ? 1 : (resolvedWidth >= 740 ? 4 : 2)
     let columns = Array(
       repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
       count: metricColumnsCount)
@@ -561,29 +579,7 @@ struct NativeDashboardPage: View {
       )
       CinematicPanel(padding: 15) {
         VStack(alignment: .leading, spacing: 12) {
-          if let dl = downloader {
-            HStack(spacing: 12) {
-              speedTile(
-                title: "实时下载", value: Self.speedText(dl.downloadSpeed),
-                symbol: "arrow.down.circle.fill", tint: NativeTheme.success)
-              speedTile(
-                title: "实时上传", value: Self.speedText(dl.uploadSpeed),
-                symbol: "arrow.up.circle.fill", tint: NativeTheme.info)
-            }
-            HStack(spacing: 10) {
-              Label(
-                "累计下载 \(Self.storageSize(dl.downloadSize))", systemImage: "tray.and.arrow.down"
-              )
-              .font(.caption2.monospacedDigit())
-              .foregroundStyle(.secondary)
-              Spacer(minLength: 6)
-              if dl.freeSpace > 0 {
-                Text("可用 \(Self.storageSize(dl.freeSpace))")
-                  .font(.caption2.monospacedDigit().weight(.medium))
-                  .foregroundStyle(NativeTheme.brand)
-              }
-            }
-          }
+          NativeDashboardDownloaderRates(model: realtime)
           if !activeDownloads.isEmpty {
             Divider().overlay(NativeTheme.divider)
             VStack(alignment: .leading, spacing: 9) {
@@ -629,155 +625,37 @@ struct NativeDashboardPage: View {
     .accessibilityIdentifier("native-dashboard-downloader")
   }
 
-  private func speedTile(title: String, value: String, symbol: String, tint: Color) -> some View {
-    HStack(spacing: 10) {
-      Image(systemName: symbol)
-        .font(.title3)
-        .foregroundStyle(tint)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(value)
-          .font(.subheadline.monospacedDigit().weight(.bold))
-          .foregroundStyle(.primary)
-          .lineLimit(1)
-          .minimumScaleFactor(0.8)
-        Text(title)
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-      }
-      Spacer(minLength: 0)
-    }
-    .padding(10)
-    .background(NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-  }
-
   // MARK: - 6. CPU 占用（实时折线 + 1m/5m/15m 均值）
 
   private var cpuSummary: some View {
-    let current = cpuSamples.last ?? 0
-    let avg1m = Self.average(cpuSamples.suffix(12))
-    let avg5m = Self.average(cpuSamples.suffix(60))
-    let avg15m = Self.average(cpuSamples)
-    let cpuColor =
-      current >= 85 ? NativeTheme.danger : (current >= 60 ? NativeTheme.warning : NativeTheme.info)
-    return VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 10) {
       sectionTitle("CPU 占用", detail: "每 5 秒刷新")
       CinematicPanel(padding: 15) {
-        VStack(alignment: .leading, spacing: 10) {
-          HStack(alignment: .firstTextBaseline) {
-            Text(String(format: "%.1f%%", current))
-              .font(.system(.title, design: .rounded).weight(.bold).monospacedDigit())
-              .foregroundStyle(cpuColor)
-            Spacer()
-            HStack(spacing: 10) {
-              miniStat("1m", value: String(format: "%.0f%%", avg1m))
-              miniStat("5m", value: String(format: "%.0f%%", avg5m))
-              miniStat("15m", value: String(format: "%.0f%%", avg15m))
-            }
-          }
-          NativeSparklineChart(
-            values: cpuSamples, maxScale: 100, lineColor: cpuColor
-          )
-          .frame(height: 54)
-        }
+        NativeDashboardCPUContent(model: realtime)
       }
     }
     .accessibilityIdentifier("native-dashboard-cpu")
   }
 
-  private func miniStat(_ label: String, value: String) -> some View {
-    VStack(alignment: .trailing, spacing: 1) {
-      Text(label).font(.caption2).foregroundStyle(.secondary)
-      Text(value).font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(.primary)
-    }
-  }
-
   // MARK: - 7. 内存占用
 
-  private func memorySummary(_ mem: NativeDashboardMemoryInfo) -> some View {
-    let ratio = mem.usageRatio
-    let cacheRatio =
-      mem.total > 0 ? min(max(Double(mem.cached) / Double(mem.total), 0), 1 - ratio) : 0
-    let memColor =
-      ratio >= 0.85 ? NativeTheme.danger : (ratio >= 0.65 ? NativeTheme.warning : NativeTheme.brand)
-    return VStack(alignment: .leading, spacing: 10) {
-      sectionTitle("内存占用", detail: "总计 \(Self.storageSize(Double(mem.total)))")
+  private var memorySummary: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      NativeDashboardMemoryTitle(model: realtime)
       CinematicPanel(padding: 15) {
-        VStack(alignment: .leading, spacing: 10) {
-          HStack(alignment: .firstTextBaseline) {
-            Text(String(format: "%.1f%%", ratio * 100))
-              .font(.system(.title2, design: .rounded).weight(.bold).monospacedDigit())
-              .foregroundStyle(memColor)
-            Spacer()
-            Text("进程 \(Self.storageSize(Double(mem.used)))")
-              .font(.caption.monospacedDigit().weight(.medium))
-              .foregroundStyle(.primary)
-          }
-          GeometryReader { bar in
-            let w = max(bar.size.width, 1)
-            ZStack(alignment: .leading) {
-              Capsule().fill(NativeTheme.chipFill)
-              HStack(spacing: 0) {
-                Rectangle().fill(memColor).frame(width: w * ratio)
-                if cacheRatio > 0.005 {
-                  Rectangle().fill(NativeTheme.cyan.opacity(0.65)).frame(width: w * cacheRatio)
-                }
-              }
-              .clipShape(Capsule())
-            }
-          }
-          .frame(height: 9)
-          HStack(spacing: 12) {
-            legendItem("已用 \(Self.storageSize(Double(mem.used)))", color: memColor)
-            if mem.cached > 0 {
-              legendItem("缓存 \(Self.storageSize(Double(mem.cached)))", color: NativeTheme.cyan)
-            }
-            Spacer()
-            Text("可用 \(Self.storageSize(Double(mem.available)))")
-              .font(.caption2.monospacedDigit())
-              .foregroundStyle(.secondary)
-          }
-        }
+        NativeDashboardMemoryContent(model: realtime)
       }
     }
     .accessibilityIdentifier("native-dashboard-memory")
   }
 
-  private func legendItem(_ text: String, color: Color) -> some View {
-    HStack(spacing: 4) {
-      Circle().fill(color).frame(width: 6, height: 6)
-      Text(text).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-    }
-  }
-
   // MARK: - 8. 实时网络
 
   private var networkSummary: some View {
-    let latest = networkSamples.last ?? (0, 0)
-    let peak = max(
-      networkSamples.map { max($0.up, $0.down) }.max() ?? 1024,
-      1024
-    )
-    return VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: 10) {
       sectionTitle("实时网络", detail: "主机吞吐")
       CinematicPanel(padding: 15) {
-        VStack(alignment: .leading, spacing: 10) {
-          HStack(spacing: 12) {
-            speedTile(
-              title: "下行速率", value: Self.speedText(latest.down),
-              symbol: "arrow.down.circle.fill", tint: NativeTheme.success)
-            speedTile(
-              title: "上行速率", value: Self.speedText(latest.up),
-              symbol: "arrow.up.circle.fill", tint: NativeTheme.info)
-          }
-          ZStack {
-            NativeSparklineChart(
-              values: networkSamples.map(\.down), maxScale: peak, lineColor: NativeTheme.success)
-            NativeSparklineChart(
-              values: networkSamples.map(\.up), maxScale: peak, lineColor: NativeTheme.info,
-              showFill: false)
-          }
-          .frame(height: 50)
-        }
+        NativeDashboardNetworkContent(model: realtime)
       }
     }
     .accessibilityIdentifier("native-dashboard-network")
@@ -833,9 +711,11 @@ struct NativeDashboardPage: View {
 
   private func serviceSummary(_ values: [NativeDashboardSchedule]) -> some View {
     let ordered = values.filter(\.isRunning) + values.filter { !$0.isRunning }
+    let collapsedLimit = 4
+    let isCollapsible = ordered.count > collapsedLimit
+    let visible = showsAllSchedules ? ordered : Array(ordered.prefix(collapsedLimit))
     return VStack(alignment: .leading, spacing: 10) {
-      sectionTitle(
-        "后台服务", detail: ordered.count > 4 ? "\(values.count) 项 · 可滚动" : "\(values.count) 项")
+      sectionTitle("后台服务", detail: "\(values.count) 项")
       if values.isEmpty {
         CinematicPanel(padding: 14) {
           Label("暂时没有后台服务", systemImage: "checkmark.circle")
@@ -843,24 +723,30 @@ struct NativeDashboardPage: View {
             .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
         }
       } else {
+        // 超过 4 项时默认折叠并提供展开入口，不再在页面内嵌套一个竖向滚动区，避免与整页滚动抢手势。
         CinematicPanel(padding: 0) {
-          if ordered.count > 4 {
-            ScrollView(.vertical) {
-              LazyVStack(spacing: 0) {
-                ForEach(Array(ordered.enumerated()), id: \.offset) { index, service in
-                  if index > 0 { CinematicFormDivider() }
-                  serviceRow(service)
-                }
-              }
+          VStack(spacing: 0) {
+            ForEach(Array(visible.enumerated()), id: \.offset) { index, service in
+              if index > 0 { CinematicFormDivider() }
+              serviceRow(service)
             }
-            .scrollIndicators(.visible)
-            .frame(height: 276)
-          } else {
-            LazyVStack(spacing: 0) {
-              ForEach(Array(ordered.enumerated()), id: \.offset) { index, service in
-                if index > 0 { CinematicFormDivider() }
-                serviceRow(service)
+            if isCollapsible {
+              CinematicFormDivider()
+              Button {
+                withAnimation(.easeInOut(duration: 0.2)) { showsAllSchedules.toggle() }
+              } label: {
+                HStack(spacing: 6) {
+                  Text(showsAllSchedules ? "收起" : "展开全部 \(ordered.count) 项")
+                  Image(systemName: showsAllSchedules ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(appearance.accentColor)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
               }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-dashboard-services-toggle")
             }
           }
         }
@@ -998,16 +884,7 @@ struct NativeDashboardPage: View {
   }
 
   private func sectionTitle(_ title: String, detail: String) -> some View {
-    let layout =
-      dynamicTypeSize.isAccessibilitySize
-      ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
-      : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
-    return layout {
-      Text(title).font(.title3.weight(.bold)).accessibilityAddTraits(.isHeader)
-      if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
-      Text(detail).font(.caption).foregroundStyle(.secondary)
-    }
-    .padding(.horizontal, 2)
+    NativeDashboardSectionTitle(title: title, detail: detail)
   }
 
   private var loadingIndicator: some View {
@@ -1037,11 +914,11 @@ struct NativeDashboardPage: View {
       statistics = cached.statistics
       storage = cached.storage
       recentImports = cached.recentImports
-      downloader = cached.downloader
       activeDownloads = cached.activeDownloads
-      cpuSamples = cached.cpuSamples
-      memory = cached.memory
-      networkSamples = cached.networkSamples
+      realtime.restore(
+        cpuSamples: cached.cpuSamples, memory: cached.memory,
+        networkSamples: cached.networkSamples, downloader: cached.downloader)
+      syncRealtimePresence()
       transferTrend = cached.transferTrend
       schedules = cached.schedules
       systemInfo = cached.systemInfo
@@ -1091,11 +968,9 @@ struct NativeDashboardPage: View {
     if let newStats { statistics = newStats } else if !hadContent { failedSections.append("媒体库统计") }
     if let newStorage { storage = newStorage } else if !hadContent { failedSections.append("存储空间") }
     if let newRecent { recentImports = newRecent }
-    if let newDownloader { downloader = newDownloader }
     if let newDownloads { activeDownloads = newDownloads }
-    if let newCPU { appendCPUSample(newCPU) }
-    if let newMem { memory = newMem }
-    if let newNet, newNet.count >= 2 { appendNetworkSample(up: newNet[0], down: newNet[1]) }
+    realtime.apply(cpu: newCPU, network: newNet, downloader: newDownloader, memory: newMem)
+    syncRealtimePresence()
     if let newTrend { transferTrend = newTrend }
     if let newSchedules { schedules = newSchedules }
     if let newSys { systemInfo = newSys }
@@ -1125,21 +1000,14 @@ struct NativeDashboardPage: View {
 
     let (cpu, net, dl, mem) = await (cpuVal, netVal, dlVal, memVal)
     guard !Task.isCancelled else { return }
-    if let cpu { appendCPUSample(cpu) }
-    if let net, net.count >= 2 { appendNetworkSample(up: net[0], down: net[1]) }
-    if let dl { downloader = dl }
-    if let mem { memory = mem }
+    realtime.apply(cpu: cpu, network: net, downloader: dl, memory: mem)
+    syncRealtimePresence()
   }
 
-  private func appendCPUSample(_ value: Double) {
-    let clamped = min(max(value, 0), 100)
-    cpuSamples.append(clamped)
-    if cpuSamples.count > 30 { cpuSamples.removeFirst(cpuSamples.count - 30) }
-  }
-
-  private func appendNetworkSample(up: Double, down: Double) {
-    networkSamples.append((max(up, 0), max(down, 0)))
-    if networkSamples.count > 24 { networkSamples.removeFirst(networkSamples.count - 24) }
+  /// 仅在某张实时卡片从无数据变为有数据（或相反）时才写入页面状态，数值刷新不触发整页重算。
+  private func syncRealtimePresence() {
+    let latest = realtime.presence
+    if latest != realtimePresence { realtimePresence = latest }
   }
 
   private func saveCache(_ cacheKey: String) {
@@ -1147,8 +1015,9 @@ struct NativeDashboardPage: View {
     NativePageDataCache.shared.set(
       NativeDashboardCacheSnapshot(
         statistics: statistics, storage: storage, recentImports: recentImports,
-        downloader: downloader, activeDownloads: activeDownloads,
-        cpuSamples: cpuSamples, memory: memory, networkSamples: networkSamples,
+        downloader: realtime.downloader, activeDownloads: activeDownloads,
+        cpuSamples: realtime.cpuSamples, memory: realtime.memory,
+        networkSamples: realtime.networkSamples,
         transferTrend: transferTrend, schedules: schedules, systemInfo: systemInfo,
         pluginWidgets: pluginWidgets, communityProfile: communityProfile),
       for: cacheKey, session: session)
@@ -1286,17 +1155,17 @@ struct NativeDashboardPage: View {
     reloadID = UUID()
   }
 
-  private static func average<C: Collection>(_ values: C) -> Double where C.Element == Double {
+  fileprivate static func average<C: Collection>(_ values: C) -> Double where C.Element == Double {
     guard !values.isEmpty else { return 0 }
     return values.reduce(0, +) / Double(values.count)
   }
 
-  private static func storageSize(_ bytes: Double) -> String {
+  fileprivate static func storageSize(_ bytes: Double) -> String {
     let value = Int64(exactly: max(0, bytes).rounded(.towardZero)) ?? .max
     return ByteCountFormatter.string(fromByteCount: value, countStyle: .binary)
   }
 
-  private static func speedText(_ bytesPerSecond: Double) -> String {
+  fileprivate static func speedText(_ bytesPerSecond: Double) -> String {
     let clamped = max(0, bytesPerSecond)
     if clamped < 1024 { return String(format: "%.0f B/s", clamped) }
     if clamped < 1024 * 1024 { return String(format: "%.1f KB/s", clamped / 1024) }
@@ -1322,6 +1191,295 @@ struct NativeDashboardPage: View {
       let daysAgo = count - 1 - offset
       let date = cal.date(byAdding: .day, value: -daysAgo, to: Date()) ?? Date()
       return daysAgo == 0 ? "今天" : formatter.string(from: date)
+    }
+  }
+}
+
+// MARK: - 实时遥测模型与卡片内容
+
+/// 实时卡片是否已有数据；整页只依赖这组布尔值决定卡片显隐，数值刷新不会使页面失效。
+private struct NativeDashboardRealtimePresence: Equatable {
+  var hasCPU = false
+  var hasMemory = false
+  var hasNetwork = false
+  var hasDownloader = false
+}
+
+/// 仪表盘实时遥测数据源：CPU、内存、网络与下载器速率约每 5 秒刷新一次。
+/// 只由对应卡片的内容子视图订阅，轮询结果不再触发整页重算与整页图层重绘。
+@MainActor
+private final class NativeDashboardRealtimeModel: ObservableObject {
+  @Published private(set) var cpuSamples: [Double] = []
+  @Published private(set) var memory: NativeDashboardMemoryInfo?
+  @Published private(set) var networkSamples: [(up: Double, down: Double)] = []
+  @Published private(set) var downloader: NativeDashboardDownloaderInfo?
+
+  /// 当前各实时卡片是否已有可展示的数据。
+  var presence: NativeDashboardRealtimePresence {
+    NativeDashboardRealtimePresence(
+      hasCPU: !cpuSamples.isEmpty, hasMemory: memory != nil,
+      hasNetwork: !networkSamples.isEmpty, hasDownloader: downloader != nil)
+  }
+
+  /// 从会话级缓存整体恢复，切换标签返回时直接沿用上次的曲线。
+  func restore(
+    cpuSamples: [Double], memory: NativeDashboardMemoryInfo?,
+    networkSamples: [(up: Double, down: Double)], downloader: NativeDashboardDownloaderInfo?
+  ) {
+    self.cpuSamples = cpuSamples
+    self.memory = memory
+    self.networkSamples = networkSamples
+    self.downloader = downloader
+  }
+
+  /// 写入一轮接口结果：为 nil 的项保持原值，CPU 保留最近 30 个采样、网络保留最近 24 个采样。
+  func apply(
+    cpu: Double?, network: [Double]?, downloader: NativeDashboardDownloaderInfo?,
+    memory: NativeDashboardMemoryInfo?
+  ) {
+    if let cpu {
+      var samples = cpuSamples
+      samples.append(min(max(cpu, 0), 100))
+      if samples.count > 30 { samples.removeFirst(samples.count - 30) }
+      cpuSamples = samples
+    }
+    if let network, network.count >= 2 {
+      var samples = networkSamples
+      samples.append((max(network[0], 0), max(network[1], 0)))
+      if samples.count > 24 { samples.removeFirst(samples.count - 24) }
+      networkSamples = samples
+    }
+    if let downloader { self.downloader = downloader }
+    if let memory { self.memory = memory }
+  }
+}
+
+/// 仪表盘分区标题：标题与右侧说明在无障碍大字号下改为上下排列。
+private struct NativeDashboardSectionTitle: View {
+  let title: String
+  let detail: String
+
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+  var body: some View {
+    let layout =
+      dynamicTypeSize.isAccessibilitySize
+      ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+      : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+    layout {
+      Text(title).font(.title3.weight(.bold)).accessibilityAddTraits(.isHeader)
+      if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
+      Text(detail).font(.caption).foregroundStyle(.secondary)
+    }
+    .padding(.horizontal, 2)
+  }
+}
+
+/// 速率小方块：下载器与实时网络卡片共用。
+private struct NativeDashboardSpeedTile: View {
+  let title: String
+  let value: String
+  let symbol: String
+  let tint: Color
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: symbol)
+        .font(.title3)
+        .foregroundStyle(tint)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(value)
+          .font(.subheadline.monospacedDigit().weight(.bold))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
+        Text(title)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(10)
+    .background(NativeTheme.chipFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+  }
+}
+
+/// 下载器卡片的实时速率与累计量；订阅实时模型，尚无数据时不占位。
+@MainActor
+private struct NativeDashboardDownloaderRates: View {
+  @ObservedObject var model: NativeDashboardRealtimeModel
+
+  var body: some View {
+    if let dl = model.downloader {
+      HStack(spacing: 12) {
+        NativeDashboardSpeedTile(
+          title: "实时下载", value: NativeDashboardPage.speedText(dl.downloadSpeed),
+          symbol: "arrow.down.circle.fill", tint: NativeTheme.success)
+        NativeDashboardSpeedTile(
+          title: "实时上传", value: NativeDashboardPage.speedText(dl.uploadSpeed),
+          symbol: "arrow.up.circle.fill", tint: NativeTheme.info)
+      }
+      HStack(spacing: 10) {
+        Label(
+          "累计下载 \(NativeDashboardPage.storageSize(dl.downloadSize))",
+          systemImage: "tray.and.arrow.down"
+        )
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.secondary)
+        Spacer(minLength: 6)
+        if dl.freeSpace > 0 {
+          Text("可用 \(NativeDashboardPage.storageSize(dl.freeSpace))")
+            .font(.caption2.monospacedDigit().weight(.medium))
+            .foregroundStyle(NativeTheme.brand)
+        }
+      }
+    }
+  }
+}
+
+/// CPU 卡片内容：当前占用、1m/5m/15m 均值与实时折线；订阅实时模型。
+@MainActor
+private struct NativeDashboardCPUContent: View {
+  @ObservedObject var model: NativeDashboardRealtimeModel
+
+  var body: some View {
+    let samples = model.cpuSamples
+    let current = samples.last ?? 0
+    let avg1m = NativeDashboardPage.average(samples.suffix(12))
+    let avg5m = NativeDashboardPage.average(samples.suffix(60))
+    let avg15m = NativeDashboardPage.average(samples)
+    let cpuColor =
+      current >= 85 ? NativeTheme.danger : (current >= 60 ? NativeTheme.warning : NativeTheme.info)
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(String(format: "%.1f%%", current))
+          .font(.system(.title, design: .rounded).weight(.bold).monospacedDigit())
+          .foregroundStyle(cpuColor)
+        Spacer()
+        HStack(spacing: 10) {
+          miniStat("1m", value: String(format: "%.0f%%", avg1m))
+          miniStat("5m", value: String(format: "%.0f%%", avg5m))
+          miniStat("15m", value: String(format: "%.0f%%", avg15m))
+        }
+      }
+      NativeSparklineChart(
+        values: samples, maxScale: 100, lineColor: cpuColor
+      )
+      .frame(height: 54)
+    }
+  }
+
+  private func miniStat(_ label: String, value: String) -> some View {
+    VStack(alignment: .trailing, spacing: 1) {
+      Text(label).font(.caption2).foregroundStyle(.secondary)
+      Text(value).font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(.primary)
+    }
+  }
+}
+
+/// 内存卡片标题：右侧总量随实时数据变化，单独订阅以免连带重建卡片外壳。
+@MainActor
+private struct NativeDashboardMemoryTitle: View {
+  @ObservedObject var model: NativeDashboardRealtimeModel
+
+  var body: some View {
+    NativeDashboardSectionTitle(
+      title: "内存占用",
+      detail: "总计 \(NativeDashboardPage.storageSize(Double(model.memory?.total ?? 0)))")
+  }
+}
+
+/// 内存卡片内容：占用比例、已用与缓存分段条及图例；订阅实时模型。
+@MainActor
+private struct NativeDashboardMemoryContent: View {
+  @ObservedObject var model: NativeDashboardRealtimeModel
+
+  var body: some View {
+    if let mem = model.memory {
+      let ratio = mem.usageRatio
+      let cacheRatio =
+        mem.total > 0 ? min(max(Double(mem.cached) / Double(mem.total), 0), 1 - ratio) : 0
+      let memColor =
+        ratio >= 0.85
+        ? NativeTheme.danger : (ratio >= 0.65 ? NativeTheme.warning : NativeTheme.brand)
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .firstTextBaseline) {
+          Text(String(format: "%.1f%%", ratio * 100))
+            .font(.system(.title2, design: .rounded).weight(.bold).monospacedDigit())
+            .foregroundStyle(memColor)
+          Spacer()
+          Text("进程 \(NativeDashboardPage.storageSize(Double(mem.used)))")
+            .font(.caption.monospacedDigit().weight(.medium))
+            .foregroundStyle(.primary)
+        }
+        GeometryReader { bar in
+          let w = max(bar.size.width, 1)
+          ZStack(alignment: .leading) {
+            Capsule().fill(NativeTheme.chipFill)
+            HStack(spacing: 0) {
+              Rectangle().fill(memColor).frame(width: w * ratio)
+              if cacheRatio > 0.005 {
+                Rectangle().fill(NativeTheme.cyan.opacity(0.65)).frame(width: w * cacheRatio)
+              }
+            }
+            .clipShape(Capsule())
+          }
+        }
+        .frame(height: 9)
+        HStack(spacing: 12) {
+          legendItem(
+            "已用 \(NativeDashboardPage.storageSize(Double(mem.used)))", color: memColor)
+          if mem.cached > 0 {
+            legendItem(
+              "缓存 \(NativeDashboardPage.storageSize(Double(mem.cached)))",
+              color: NativeTheme.cyan)
+          }
+          Spacer()
+          Text("可用 \(NativeDashboardPage.storageSize(Double(mem.available)))")
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+  }
+
+  private func legendItem(_ text: String, color: Color) -> some View {
+    HStack(spacing: 4) {
+      Circle().fill(color).frame(width: 6, height: 6)
+      Text(text).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+    }
+  }
+}
+
+/// 实时网络卡片内容：上下行速率与双折线；订阅实时模型。
+@MainActor
+private struct NativeDashboardNetworkContent: View {
+  @ObservedObject var model: NativeDashboardRealtimeModel
+
+  var body: some View {
+    let samples = model.networkSamples
+    let latest = samples.last ?? (0, 0)
+    let peak = max(
+      samples.map { max($0.up, $0.down) }.max() ?? 1024,
+      1024
+    )
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 12) {
+        NativeDashboardSpeedTile(
+          title: "下行速率", value: NativeDashboardPage.speedText(latest.down),
+          symbol: "arrow.down.circle.fill", tint: NativeTheme.success)
+        NativeDashboardSpeedTile(
+          title: "上行速率", value: NativeDashboardPage.speedText(latest.up),
+          symbol: "arrow.up.circle.fill", tint: NativeTheme.info)
+      }
+      ZStack {
+        NativeSparklineChart(
+          values: samples.map(\.down), maxScale: peak, lineColor: NativeTheme.success)
+        NativeSparklineChart(
+          values: samples.map(\.up), maxScale: peak, lineColor: NativeTheme.info,
+          showFill: false)
+      }
+      .frame(height: 50)
     }
   }
 }
@@ -1921,7 +2079,7 @@ private struct NativeDashboardWidgetsSheet: View {
       }
       .navigationTitle("编辑仪表盘组件")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -1961,4 +2119,126 @@ private struct NativeDashboardCacheSnapshot {
   let systemInfo: NativeDashboardSystemInfo?
   let pluginWidgets: [NativeDashboardPluginWidget]
   let communityProfile: CommunityProfile?
+}
+
+/// 「我的」页顶部用户身份概览卡片：统一供管理员仪表盘与普通成员个人页置顶展示真实头像、在线状态、角色与认证徽章、社区勋章统计及当前实例地址。
+@MainActor
+struct NativeDashboardUserProfileCard: View {
+  let session: NativeSession
+  let user: SessionUser
+  var earnedMedalCount: Int = 0
+  var currentLanguage: AppLanguage = .current
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
+
+  /// 按当前界面语言解析文案。
+  private func t(_ key: String) -> String {
+    L10n.text(key, language: currentLanguage)
+  }
+
+  /// 服务器主机名或完整连接地址。
+  private var serverHostText: String {
+    session.instance.address.url.host ?? session.instance.address.url.absoluteString
+  }
+
+  var body: some View {
+    let accent = appearance.accentColor
+    CinematicPanel(padding: 16) {
+      HStack(alignment: .center, spacing: 14) {
+        ZStack(alignment: .bottomTrailing) {
+          NativeUserAvatarView(
+            session: session,
+            avatar: user.avatar,
+            name: user.name,
+            isSuperuser: user.isSuperuser,
+            size: 60
+          )
+          .overlay {
+            Circle()
+              .strokeBorder(accent.opacity(colorScheme == .light ? 0.36 : 0.52), lineWidth: 1.5)
+          }
+
+          Circle()
+            .fill(Color(red: 0.22, green: 0.86, blue: 0.48))
+            .frame(width: 13, height: 13)
+            .overlay {
+              Circle()
+                .strokeBorder(
+                  colorScheme == .light ? Color.white : Color(red: 0.14, green: 0.12, blue: 0.20),
+                  lineWidth: 2
+                )
+            }
+            .offset(x: 1, y: 1)
+            .accessibilityHidden(true)
+        }
+
+        VStack(alignment: .leading, spacing: 6) {
+          Text(user.name)
+            .font(.title3.weight(.bold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .accessibilityIdentifier("native-v2-account")
+
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+              profileBadges
+            }
+            VStack(alignment: .leading, spacing: 5) {
+              HStack(spacing: 6) {
+                roleBadge
+                if user.level >= 2 {
+                  levelBadge
+                }
+              }
+              if earnedMedalCount > 0 {
+                medalBadge
+              }
+            }
+          }
+
+          HStack(spacing: 5) {
+            Image(systemName: "server.rack")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(.secondary)
+              .accessibilityHidden(true)
+            Text(serverHostText)
+              .font(.caption.monospaced())
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .truncationMode(.middle)
+          }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("native-dashboard-user-card")
+  }
+
+  @ViewBuilder
+  private var profileBadges: some View {
+    roleBadge
+    if user.level >= 2 {
+      levelBadge
+    }
+    if earnedMedalCount > 0 {
+      medalBadge
+    }
+  }
+
+  private var roleBadge: some View {
+    NativeAdaptiveBadge(
+      user.isSuperuser ? t("超级管理员") : t("普通成员"),
+      tint: user.isSuperuser ? appearance.accentColor : NativeTheme.info
+    )
+  }
+
+  private var levelBadge: some View {
+    NativeAdaptiveBadge("Lv.\(user.level)", tint: NativeTheme.warning)
+  }
+
+  private var medalBadge: some View {
+    NativeAdaptiveBadge("🏅 \(earnedMedalCount) 枚勋章", tint: NativeTheme.pink)
+  }
 }

@@ -33,6 +33,9 @@ struct NativeSitesPage: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let columnCount = NativeDeviceLayout.cardGridCount(
+      for: resolvedWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     ZStack {
       CinematicBackground()
       ScrollView {
@@ -52,15 +55,17 @@ struct NativeSitesPage: View {
           }
 
           if isLoading && sites.isEmpty {
-            NativeCardListSkeletonView(count: 5, style: .iconRow)
-              .transition(.opacity)
+            NativeCardListSkeletonView(
+              count: columnCount * 3,
+              style: .siteCard,
+              columns: columnCount
+            )
+            .transition(.opacity)
           } else if loadFailed && sites.isEmpty {
             failureCard
           } else if filteredSites.isEmpty {
             emptyCard
           } else {
-            let columnCount = NativeDeviceLayout.cardGridCount(
-              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
             let gridColumns = Array(
               repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
             LazyVGrid(columns: gridColumns, spacing: 12) {
@@ -70,8 +75,8 @@ struct NativeSitesPage: View {
             }
           }
         }
-        .frame(maxWidth: containerWidth >= 740 ? 1180 : 840)
-        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
+        .frame(maxWidth: resolvedWidth >= 740 ? 1180 : 840)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: resolvedWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
@@ -83,7 +88,7 @@ struct NativeSitesPage: View {
     }
     .navigationTitle(sites.isEmpty ? "站点管理" : "站点管理 (\(sites.count))")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "搜索站点名称或域名")
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -560,7 +565,7 @@ private struct NativeSiteDataSheet: View {
             }
 
             if isLoading {
-              NativeCardListSkeletonView(count: 2, style: .formPanel)
+              siteDataSkeleton
                 .transition(.opacity)
             } else if let latest = latestData {
               LazyVGrid(
@@ -669,14 +674,16 @@ private struct NativeSiteDataSheet: View {
               }
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
         .accessibilityIdentifier("native-site-data-scroll")
       }
       .navigationTitle("站点数据")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -692,6 +699,55 @@ private struct NativeSiteDataSheet: View {
       .task { await loadUserData() }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
+  }
+
+  /// 站点流量详情加载期间的 1:1 占位骨架：2×3 指标网格 + 趋势折线图卡 + 4 行键值对面板。
+  private var siteDataSkeleton: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      LazyVGrid(
+        columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+        spacing: 10
+      ) {
+        ForEach(0..<6, id: \.self) { _ in
+          CinematicPanel(padding: 13) {
+            VStack(alignment: .leading, spacing: 7) {
+              NativeSkeletonBlock(width: 56, height: 11, cornerRadius: 4)
+              NativeSkeletonBlock(width: 88, height: 20, cornerRadius: 6)
+              NativeSkeletonBlock(width: 44, height: 10, cornerRadius: 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+      }
+
+      CinematicPanel(padding: 15) {
+        VStack(alignment: .leading, spacing: 12) {
+          HStack {
+            NativeSkeletonBlock(width: 108, height: 15, cornerRadius: 5)
+            Spacer()
+            NativeSkeletonBlock(width: 72, height: 11, cornerRadius: 4)
+          }
+          NativeSkeletonBlock(height: 164, cornerRadius: 12)
+        }
+      }
+
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          ForEach(0..<4, id: \.self) { idx in
+            if idx > 0 { CinematicFormDivider() }
+            HStack {
+              NativeSkeletonBlock(width: 64, height: 14, cornerRadius: 5)
+              Spacer()
+              NativeSkeletonBlock(width: 96, height: 14, cornerRadius: 5)
+            }
+            .padding(.horizontal, 15)
+            .padding(.vertical, 12)
+          }
+        }
+      }
+    }
+    .nativeSkeletonShimmer()
   }
 
   /// 历史流量双曲线面积图（上传量绿色 + 下载量琥珀色，支持手指滑动查看每日明细）。
@@ -837,8 +893,11 @@ private struct NativeSiteDataSheet: View {
               .fill(.clear)
               .contentShape(Rectangle())
               .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 12)
                   .onChanged { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) else {
+                      return
+                    }
                     let origin = geo[proxy.plotAreaFrame].origin
                     let xPos = value.location.x - origin.x
                     if let rawIndex: Double = proxy.value(atX: xPos) {
@@ -952,8 +1011,11 @@ private struct NativeSiteDataSheet: View {
               .fill(.clear)
               .contentShape(Rectangle())
               .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 12)
                   .onChanged { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) else {
+                      return
+                    }
                     let origin = geo[proxy.plotAreaFrame].origin
                     let xPos = value.location.x - origin.x
                     if let targetX: Double = proxy.value(atX: xPos) {
@@ -1211,12 +1273,14 @@ private struct NativeSiteEditorSheet: View {
               }
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
       }
       .navigationTitle(isCreate ? "新增站点" : "编辑站点")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -1256,6 +1320,7 @@ private struct NativeSiteEditorSheet: View {
       }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 
   private func rowField(_ label: String, placeholder: String, text: Binding<String>) -> some View {

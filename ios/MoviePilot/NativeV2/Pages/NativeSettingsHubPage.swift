@@ -25,6 +25,7 @@ struct NativeSettingsHubPage: View {
   @State private var approvedAuthCount: Int = 0
   @State private var downloaderCount: Int?
   @State private var mediaServerCount: Int?
+  @State private var isOverviewLoading: Bool
   @State private var cacheBytes: Int64 = 0
   @State private var showsNotificationSettings = false
   @State private var showsWidgetSettings = false
@@ -35,6 +36,43 @@ struct NativeSettingsHubPage: View {
   @AppStorage("nativeV2.playback.aspectFill") private var playbackAspectFill = false
   @AppStorage("nativeV2.playback.defaultRate") private var playbackDefaultRate = 1.0
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  init(
+    session: NativeSession,
+    snapshot: NativeSessionSnapshot,
+    currentLanguage: AppLanguage,
+    onNavigate: @escaping (NativeWorkspaceDestination) -> Void,
+    onOpenModules: @escaping () -> Void,
+    onOpenPlugins: @escaping () -> Void,
+    onSelectLanguage: @escaping (AppLanguage) -> Void,
+    onSwitchServer: @escaping () -> Void,
+    onLogout: @escaping () -> Void
+  ) {
+    self.session = session
+    self.snapshot = snapshot
+    self.currentLanguage = currentLanguage
+    self.onNavigate = onNavigate
+    self.onOpenModules = onOpenModules
+    self.onOpenPlugins = onOpenPlugins
+    self.onSelectLanguage = onSelectLanguage
+    self.onSwitchServer = onSwitchServer
+    self.onLogout = onLogout
+    if snapshot.user.isSuperuser,
+      let cached: NativeSettingsHubOverviewCache = NativePageDataCache.shared.get(
+        "settingsHub|overview.v2", session: session)
+    {
+      _storage = State(initialValue: cached.storage)
+      _siteCount = State(initialValue: cached.siteCount)
+      _userCount = State(initialValue: cached.userCount)
+      _pendingAuthCount = State(initialValue: cached.pendingAuthCount)
+      _approvedAuthCount = State(initialValue: cached.approvedAuthCount)
+      _downloaderCount = State(initialValue: cached.downloaderCount)
+      _mediaServerCount = State(initialValue: cached.mediaServerCount)
+      _isOverviewLoading = State(initialValue: false)
+    } else {
+      _isOverviewLoading = State(initialValue: snapshot.user.isSuperuser)
+    }
+  }
 
   private func t(_ key: String) -> String {
     L10n.text(key, language: currentLanguage)
@@ -48,6 +86,8 @@ struct NativeSettingsHubPage: View {
           if snapshot.user.isSuperuser {
             if let storage, storage.total > 0 {
               storageTelemetryCard(storage)
+            } else if isOverviewLoading && storage == nil {
+              storageTelemetrySkeletonCard
             }
             adminTopStatusGrid
             coreWorkflowSection
@@ -74,7 +114,7 @@ struct NativeSettingsHubPage: View {
     }
     .navigationTitle(t("设置"))
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .sheet(isPresented: $showsNotificationSettings) {
       NativeNotificationSettingsSheet(session: session)
         .nativeAdaptiveSheetSizing()
@@ -112,6 +152,34 @@ struct NativeSettingsHubPage: View {
   }
 
   // MARK: - 1. 顶部概览与快捷状态卡
+
+  /// 概览加载期间预留与 `storageTelemetryCard` 完全等高（~96pt）的存储卡片占位骨架，防止设置页首帧下沉跳动。
+  private var storageTelemetrySkeletonCard: some View {
+    let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
+    return CinematicPanel(padding: 16) {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Circle()
+            .fill(NativeTheme.success)
+            .frame(width: 7, height: 7)
+          Text(host)
+            .font(.footnote.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+          Spacer(minLength: 8)
+          NativeSkeletonBlock(width: 108, height: 13, cornerRadius: 5)
+        }
+        NativeSkeletonBlock(height: 8, cornerRadius: 4)
+        HStack {
+          NativeSkeletonBlock(width: 76, height: 12, cornerRadius: 5)
+          Spacer()
+          NativeSkeletonBlock(width: 86, height: 12, cornerRadius: 5)
+        }
+      }
+      .frame(minHeight: 64)
+    }
+    .nativeSkeletonShimmer()
+  }
 
   private func storageTelemetryCard(_ storage: NativeSettingsStorageBrief) -> some View {
     let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
@@ -178,7 +246,7 @@ struct NativeSettingsHubPage: View {
       compactStatusCard(
         title: t("用户管理"),
         statusText: userCount.map { "\($0) \(t("位成员"))" } ?? t("权限角色"),
-        symbol: "person.2.fill",
+        symbol: "person.2",
         statusTint: NativeTheme.brand,
         id: "native-workspace-users"
       ) { onNavigate(.users) }
@@ -187,7 +255,7 @@ struct NativeSettingsHubPage: View {
         title: t("渠道授权"),
         statusText: pendingAuthCount > 0
           ? "\(pendingAuthCount) \(t("待审批"))" : "\(t("已授")) \(approvedAuthCount)",
-        symbol: "person.badge.key.fill",
+        symbol: "person.badge.key",
         statusTint: pendingAuthCount > 0 ? NativeTheme.warning : NativeTheme.success,
         id: "native-workspace-channel-auth"
       ) { onNavigate(.channelAuth) }
@@ -267,18 +335,18 @@ struct NativeSettingsHubPage: View {
     }
     return settingsGroup(t("基础"), footer: t("底层代理、并发与高级系统参数请在 Web 管理台配置。")) {
       navRow(
-        title: t("订阅与搜索"), subtitle: t("站点范围 · 规则组"), symbol: "magnifyingglass.circle.fill",
+        title: t("订阅与搜索"), subtitle: t("站点范围 · 规则组"), symbol: "magnifyingglass.circle",
         id: "native-settings-subscribe-search"
       ) { onNavigate(.subscribeSearchSettings) }
       settingsRowDivider
       navRow(
-        title: t("媒体数据源"), subtitle: t("搜索与元数据来源"), symbol: "globe.asia.australia.fill",
+        title: t("媒体数据源"), subtitle: t("搜索与元数据来源"), symbol: "globe.asia.australia",
         id: "native-settings-media-sources"
       ) { onNavigate(.mediaSourceSettings) }
       settingsRowDivider
       navRow(
         title: t("下载器"), subtitle: downloaderCount.map(countFmt) ?? t("新增与管理"),
-        symbol: "arrow.down.circle.fill",
+        symbol: "arrow.down.circle",
         id: "native-settings-downloaders"
       ) { onNavigate(.downloadersManage) }
       settingsRowDivider
@@ -289,12 +357,12 @@ struct NativeSettingsHubPage: View {
       ) { onNavigate(.mediaServersManage) }
       settingsRowDivider
       navRow(
-        title: t("整理与目录"), subtitle: t("目录映射与刮削"), symbol: "folder.fill.badge.gearshape",
+        title: t("整理与目录"), subtitle: t("目录映射与刮削"), symbol: "folder.badge.gearshape",
         id: "native-settings-hub-directories"
       ) { onNavigate(.systemModule(.directories)) }
       settingsRowDivider
       navRow(
-        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
+        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle",
         id: "native-settings-playback"
       ) { onNavigate(.playbackSettings) }
     }
@@ -303,7 +371,7 @@ struct NativeSettingsHubPage: View {
   private var memberPlaybackSection: some View {
     settingsGroup(t("播放")) {
       navRow(
-        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle.fill",
+        title: t("播放偏好"), subtitle: playbackSummaryText, symbol: "play.rectangle",
         id: "native-settings-playback"
       ) { onNavigate(.playbackSettings) }
     }
@@ -326,7 +394,7 @@ struct NativeSettingsHubPage: View {
       if snapshot.user.isSuperuser {
         settingsRowDivider
         navRow(
-          title: t("服务端通知渠道"), subtitle: t("消息推送配置"), symbol: "bell.badge.fill",
+          title: t("服务端通知渠道"), subtitle: t("消息推送配置"), symbol: "bell.badge",
           id: "native-settings-hub-notifications"
         ) { onNavigate(.systemModule(.notifications)) }
       }
@@ -340,6 +408,8 @@ struct NativeSettingsHubPage: View {
         Toggle("", isOn: $showFloatingAssistant)
           .labelsHidden()
           .tint(appearance.accentColor)
+          .frame(minHeight: 44)
+          .accessibilityLabel(t("悬浮智能助手"))
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
@@ -353,12 +423,12 @@ struct NativeSettingsHubPage: View {
   private var appearanceAndDeviceSection: some View {
     settingsGroup(t("外观与本机")) {
       navRow(
-        title: t("主题与外观"), subtitle: appearance.summaryText, symbol: "paintpalette.fill",
+        title: t("主题与外观"), subtitle: appearance.summaryText, symbol: "paintpalette",
         id: "native-settings-hub-appearance"
       ) { onNavigate(.appearance) }
       settingsRowDivider
       navRow(
-        title: t("桌面小组件"), subtitle: t("实例与刷新"), symbol: "rectangle.3.group.fill",
+        title: t("桌面小组件"), subtitle: t("实例与刷新"), symbol: "rectangle.3.group",
         id: "native-settings-hub-widgets"
       ) { showsWidgetSettings = true }
       settingsRowDivider
@@ -399,7 +469,7 @@ struct NativeSettingsHubPage: View {
       navRow(
         title: t("本地缓存清理"),
         subtitle: cacheClearedNotice ? t("已清理") : Self.formatBytes(Double(cacheBytes)),
-        symbol: "internaldrive.fill",
+        symbol: "internaldrive",
         id: "native-settings-clear-cache"
       ) { showsClearCacheConfirm = true }
     }
@@ -411,7 +481,7 @@ struct NativeSettingsHubPage: View {
     let host = session.instance.address.url.host ?? session.instance.address.url.absoluteString
     return settingsGroup(t("服务与账号")) {
       navRow(
-        title: t("切换服务"), subtitle: host, symbol: "arrow.left.arrow.right.circle.fill",
+        title: t("切换服务"), subtitle: host, symbol: "arrow.left.arrow.right.circle",
         id: "native-v2-switch"
       ) { onSwitchServer() }
       settingsRowDivider
@@ -533,7 +603,10 @@ struct NativeSettingsHubPage: View {
 
   private func loadOverview(forceRefresh: Bool = false) async {
     cacheBytes = await NativeMediaArtworkCache.shared.diskCacheSizeBytes(for: session)
-    guard snapshot.user.isSuperuser else { return }
+    guard snapshot.user.isSuperuser else {
+      isOverviewLoading = false
+      return
+    }
     let cacheKey = "settingsHub|overview.v2"
     if !forceRefresh,
       let cached: NativeSettingsHubOverviewCache = NativePageDataCache.shared.get(
@@ -546,8 +619,13 @@ struct NativeSettingsHubPage: View {
       approvedAuthCount = cached.approvedAuthCount
       downloaderCount = cached.downloaderCount
       mediaServerCount = cached.mediaServerCount
+      isOverviewLoading = false
       return
     }
+    if storage == nil {
+      isOverviewLoading = true
+    }
+    defer { isOverviewLoading = false }
     async let storageTask: NativeSettingsStorageBrief? = {
       guard let ep = try? APIEndpoint(path: ["dashboard", "storage"]) else { return nil }
       return try? await session.request(
@@ -684,7 +762,7 @@ struct NativeChannelAuthorizationPage: View {
     }
     .navigationTitle("渠道授权")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       if isSuperuser {
         ToolbarItem(placement: .topBarTrailing) {
@@ -810,7 +888,7 @@ struct NativeChannelAuthorizationPage: View {
       }
 
       if isLoading && members.isEmpty {
-        NativeCardListSkeletonView(count: 4, style: .iconRow)
+        NativeCardListSkeletonView(count: 4, style: .groupedIconList)
           .transition(.opacity)
       } else if filteredMembers.isEmpty {
         CinematicPanel(padding: 16) {
@@ -1001,7 +1079,7 @@ private struct NativeChannelAuthCreateSheet: View {
       }
       .navigationTitle("新增渠道授权")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -1169,7 +1247,7 @@ private struct NativeChannelAuthEditSheet: View {
       }
       .navigationTitle("审批与权限")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -1375,7 +1453,7 @@ struct NativeSubscribeSearchSettingsPage: View {
     }
     .navigationTitle("订阅与搜索")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -1566,94 +1644,99 @@ struct NativeMediaSourceSettingsPage: View {
             }
           }
 
-          if isLoading {
-            NativeCardListSkeletonView(count: 5, style: .iconRow)
-              .transition(.opacity)
-          } else {
-            VStack(alignment: .leading, spacing: 10) {
-              HStack {
-                Text("媒体搜索数据源")
-                  .font(.subheadline.weight(.medium))
-                  .foregroundStyle(.secondary)
-                Spacer()
+          VStack(alignment: .leading, spacing: 10) {
+            HStack {
+              Text("媒体搜索数据源")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+              Spacer()
+              if isLoading {
+                NativeSkeletonBlock(width: 52, height: 12, cornerRadius: 5)
+                  .nativeSkeletonShimmer()
+              } else {
                 Text(orderedSelection.isEmpty ? "未选择" : "已选 \(orderedSelection.count) 个")
                   .font(.caption)
                   .foregroundStyle(.secondary)
               }
-              .padding(.horizontal, 8)
+            }
+            .padding(.horizontal, 8)
 
+            if isLoading {
+              NativeCardListSkeletonView(count: 4, style: .iconRow, spacing: 10)
+                .transition(.opacity)
+            } else {
               NativeBrandMultiOptionGrid(
                 kind: .mediaSource,
                 items: availableChoices,
                 selection: selectionSetBinding,
                 columns: 1
               )
-
-              Text("仅展示后端已启用的媒体数据源模块；关闭或启用内置模块请在 Web 高级设置中调整。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
             }
 
-            if orderedSelection.count > 1 {
-              VStack(alignment: .leading, spacing: 10) {
-                Text("搜索优先级顺序")
-                  .font(.subheadline.weight(.medium))
-                  .foregroundStyle(.secondary)
-                  .padding(.horizontal, 8)
-                CinematicPanel(padding: 0) {
-                  VStack(spacing: 0) {
-                    ForEach(Array(orderedSelection.enumerated()), id: \.element) { idx, sourceID in
-                      if idx > 0 { CinematicFormDivider() }
-                      let title =
-                        availableChoices.first(where: { $0.id == sourceID })?.title ?? sourceID
-                      HStack(spacing: 12) {
-                        Text("\(idx + 1)")
-                          .font(.caption.monospacedDigit().weight(.bold))
-                          .foregroundStyle(appearance.accentColor)
-                          .frame(width: 22, height: 22)
-                          .background(appearance.accentColor.opacity(0.14), in: Circle())
-                        NativeBrandIcon(
-                          kind: .mediaSource, type: sourceID, size: 28, cornerRadius: 8)
-                        Text(title)
-                          .font(.subheadline.weight(.medium))
-                          .foregroundStyle(.primary)
-                          .lineLimit(2)
-                        Spacer()
-                        HStack(spacing: 4) {
-                          Button {
-                            guard idx > 0 else { return }
-                            orderedSelection.swapAt(idx, idx - 1)
-                          } label: {
-                            Image(systemName: "chevron.up")
-                              .font(.caption.weight(.semibold))
-                              .frame(width: 30, height: 30)
-                              .contentShape(Rectangle())
-                          }
-                          .buttonStyle(.plain)
-                          .foregroundStyle(idx > 0 ? Color.primary : Color.secondary.opacity(0.3))
-                          .disabled(idx == 0)
+            Text("仅展示后端已启用的媒体数据源模块；关闭或启用内置模块请在 Web 高级设置中调整。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .padding(.horizontal, 8)
+          }
 
-                          Button {
-                            guard idx < orderedSelection.count - 1 else { return }
-                            orderedSelection.swapAt(idx, idx + 1)
-                          } label: {
-                            Image(systemName: "chevron.down")
-                              .font(.caption.weight(.semibold))
-                              .frame(width: 30, height: 30)
-                              .contentShape(Rectangle())
-                          }
-                          .buttonStyle(.plain)
-                          .foregroundStyle(
-                            idx < orderedSelection.count - 1
-                              ? Color.primary : Color.secondary.opacity(0.3)
-                          )
-                          .disabled(idx >= orderedSelection.count - 1)
+          if !isLoading && orderedSelection.count > 1 {
+            VStack(alignment: .leading, spacing: 10) {
+              Text("搜索优先级顺序")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  ForEach(Array(orderedSelection.enumerated()), id: \.element) { idx, sourceID in
+                    if idx > 0 { CinematicFormDivider() }
+                    let title =
+                      availableChoices.first(where: { $0.id == sourceID })?.title ?? sourceID
+                    HStack(spacing: 12) {
+                      Text("\(idx + 1)")
+                        .font(.caption.monospacedDigit().weight(.bold))
+                        .foregroundStyle(appearance.accentColor)
+                        .frame(width: 22, height: 22)
+                        .background(appearance.accentColor.opacity(0.14), in: Circle())
+                      NativeBrandIcon(
+                        kind: .mediaSource, type: sourceID, size: 28, cornerRadius: 8)
+                      Text(title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                      Spacer()
+                      HStack(spacing: 4) {
+                        Button {
+                          guard idx > 0 else { return }
+                          orderedSelection.swapAt(idx, idx - 1)
+                        } label: {
+                          Image(systemName: "chevron.up")
+                            .font(.caption.weight(.semibold))
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(idx > 0 ? Color.primary : Color.secondary.opacity(0.3))
+                        .disabled(idx == 0)
+
+                        Button {
+                          guard idx < orderedSelection.count - 1 else { return }
+                          orderedSelection.swapAt(idx, idx + 1)
+                        } label: {
+                          Image(systemName: "chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(
+                          idx < orderedSelection.count - 1
+                            ? Color.primary : Color.secondary.opacity(0.3)
+                        )
+                        .disabled(idx >= orderedSelection.count - 1)
                       }
-                      .padding(.horizontal, 14)
-                      .padding(.vertical, 10)
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
                   }
                 }
               }
@@ -1670,7 +1753,7 @@ struct NativeMediaSourceSettingsPage: View {
     }
     .navigationTitle("媒体数据源")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -1801,7 +1884,7 @@ private struct NativeSiteScopePickerView: View {
     }
     .navigationTitle(title)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button(selection.isEmpty ? "全选" : "清空") {
@@ -1866,7 +1949,7 @@ private struct NativeStringMultiPickerView: View {
     }
     .navigationTitle(title)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
   }
 }
 
@@ -1902,7 +1985,7 @@ struct NativeDownloadersManagePage: View {
             }
           }
           if isLoading && items.isEmpty {
-            NativeCardListSkeletonView(count: 3, style: .iconRow)
+            NativeCardListSkeletonView(count: 3, style: .groupedIconList)
               .transition(.opacity)
           } else if items.isEmpty {
             CinematicPanel(padding: 16) {
@@ -1973,7 +2056,7 @@ struct NativeDownloadersManagePage: View {
     }
     .navigationTitle("下载器")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -2220,7 +2303,7 @@ private struct NativeDownloaderEditorSheet: View {
       }
       .navigationTitle(initial == nil ? "新增下载器" : "编辑下载器")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -2303,7 +2386,7 @@ struct NativeMediaServersManagePage: View {
             }
           }
           if isLoading && items.isEmpty {
-            NativeCardListSkeletonView(count: 3, style: .iconRow)
+            NativeCardListSkeletonView(count: 3, style: .groupedIconList)
               .transition(.opacity)
           } else if items.isEmpty {
             CinematicPanel(padding: 16) {
@@ -2369,7 +2452,7 @@ struct NativeMediaServersManagePage: View {
     }
     .navigationTitle("媒体服务器")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -2579,7 +2662,7 @@ private struct NativeMediaServerEditorSheet: View {
       }
       .navigationTitle(initial == nil ? "新增媒体服务器" : "编辑媒体服务器")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -2650,6 +2733,7 @@ struct NativePlaybackPreferencesPage: View {
   @AppStorage("nativeV2.playback.aspectFill") private var aspectFill = false
   @AppStorage("nativeV2.playback.defaultRate") private var defaultRate = 1.0
   @AppStorage("nativeV2.playback.preferChineseSub") private var preferChineseSub = true
+  @AppStorage("nativeV2.playback.strmDirectPlay") private var strmDirectPlay = true
   @AppStorage("nativeV2.playback.cellularWarn") private var cellularWarn = false
   @AppStorage("nativeV2.playback.keepMusicMiniBar") private var keepMusicMiniBar = true
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -2692,6 +2776,12 @@ struct NativePlaybackPreferencesPage: View {
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
                 CinematicFormDivider()
+                Toggle("STRM 直链播放", isOn: $strmDirectPlay)
+                  .font(.body).tint(appearance.accentColor)
+                  .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
+                  .accessibilityIdentifier("native-playback-strm-direct")
+                CinematicFormDivider()
                 Toggle("优先选择中文字幕", isOn: $preferChineseSub)
                   .font(.body).tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
@@ -2725,7 +2815,7 @@ struct NativePlaybackPreferencesPage: View {
     }
     .navigationTitle("播放偏好")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
   }
 }
 

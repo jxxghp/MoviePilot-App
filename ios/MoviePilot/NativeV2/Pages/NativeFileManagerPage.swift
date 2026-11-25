@@ -75,7 +75,7 @@ struct NativeFileManagerPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && items.isEmpty {
-            NativeCardListSkeletonView(count: 6, style: .iconRow)
+            NativeCardListSkeletonView(count: 6, style: .fileRow)
               .transition(.opacity)
           } else if loadFailed && items.isEmpty {
             failureCard
@@ -101,7 +101,7 @@ struct NativeFileManagerPage: View {
     }
     .navigationTitle("文件管理")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Menu {
@@ -707,7 +707,7 @@ private struct NativeFileRenameSheet: View {
       }
       .navigationTitle("重命名")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }
@@ -991,7 +991,7 @@ struct NativeManualTransferSheet: View {
       }
       .navigationTitle(historyLogID != nil ? "重新整理" : "手动整理")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -1836,9 +1836,26 @@ private struct NativeManualTransferMediaPickerSheet: View {
 
           if isSearching {
             ScrollView {
-              NativeCardListSkeletonView(count: 4, style: .posterRow)
-                .padding(.horizontal, CinematicStyle.margin)
-                .padding(.vertical, 8)
+              VStack(spacing: 10) {
+                ForEach(0..<4, id: \.self) { _ in
+                  CinematicPanel(padding: 10) {
+                    HStack(spacing: 11) {
+                      NativeSkeletonBlock(width: 44, height: 64, cornerRadius: 8)
+                      VStack(alignment: .leading, spacing: 5) {
+                        NativeSkeletonBlock(height: 15, cornerRadius: 5)
+                        HStack(spacing: 6) {
+                          NativeSkeletonBlock(width: 34, height: 12, cornerRadius: 4)
+                          NativeSkeletonBlock(width: 112, height: 11, cornerRadius: 4)
+                        }
+                      }
+                      Spacer(minLength: 0)
+                    }
+                  }
+                }
+              }
+              .nativeSkeletonShimmer()
+              .padding(.horizontal, CinematicStyle.margin)
+              .padding(.vertical, 8)
             }
             .scrollIndicators(.hidden)
             .transition(.opacity)
@@ -1916,7 +1933,7 @@ private struct NativeManualTransferMediaPickerSheet: View {
       }
       .navigationTitle("选择识别媒体")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

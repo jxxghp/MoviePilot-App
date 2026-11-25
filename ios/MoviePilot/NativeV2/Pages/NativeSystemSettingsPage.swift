@@ -27,7 +27,7 @@ struct NativeSystemSettingsPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && !loaded.isLoaded {
-            NativeCardListSkeletonView(count: 3, style: .formPanel)
+            systemSettingsSkeleton
               .transition(.opacity)
           } else if loadFailed && !loaded.isLoaded {
             failureCard
@@ -50,7 +50,7 @@ struct NativeSystemSettingsPage: View {
     }
     .navigationTitle("高级系统设置")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -72,6 +72,43 @@ struct NativeSystemSettingsPage: View {
 
   /// 当前草稿相对已载入快照是否存在变更。
   private var hasChanges: Bool { draft != loaded }
+
+  /// 高级系统设置加载期间与 4 大分组垂直输入框节奏 1:1 对齐的占位骨架。
+  private var systemSettingsSkeleton: some View {
+    let sections: [(title: String, fieldRows: Int, toggleRows: Int)] = [
+      ("网络与代理", 4, 1),
+      ("媒体与元数据", 3, 1),
+      ("性能与订阅", 2, 2),
+      ("更新与日志", 2, 2),
+    ]
+    return VStack(alignment: .leading, spacing: 20) {
+      ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+        VStack(alignment: .leading, spacing: 8) {
+          mutedSectionHeader(section.title)
+          CinematicPanel {
+            VStack(spacing: 14) {
+              ForEach(0..<section.fieldRows, id: \.self) { idx in
+                if idx > 0 { rowDivider }
+                VStack(alignment: .leading, spacing: 6) {
+                  NativeSkeletonBlock(width: 96, height: 13, cornerRadius: 4)
+                  NativeSkeletonBlock(height: 36, cornerRadius: 10)
+                }
+              }
+              ForEach(0..<section.toggleRows, id: \.self) { _ in
+                rowDivider
+                HStack {
+                  NativeSkeletonBlock(width: 136, height: 15, cornerRadius: 5)
+                  Spacer()
+                  NativeSkeletonBlock(width: 48, height: 28, cornerRadius: 14)
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    .nativeSkeletonShimmer()
+  }
 
   /// 弱化后的统一设置分区标题。
   private func mutedSectionHeader(_ title: String) -> some View {

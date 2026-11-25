@@ -1,0 +1,10 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "moviepilot-harmony",
+  "version": "2.0.3",
+  "description": "MoviePilot 全原生 HarmonyOS NEXT 客户端（ArkTS / ArkUI + Rust 共享内核）",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19"
+  }
+}

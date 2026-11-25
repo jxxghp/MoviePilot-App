@@ -24,6 +24,7 @@ struct NativeSubscribeEditorSheet: View {
   @State private var isSaving = false
   @State private var isDeleting = false
   @State private var showsDeleteConfirm = false
+  @State private var showsFilesSheet = false
   @State private var errorMessage: String?
   @Environment(\.dismiss) private var dismiss
 
@@ -45,6 +46,7 @@ struct NativeSubscribeEditorSheet: View {
               .accessibilityIdentifier("native-subscribe-editor-error")
             }
             if isLoading && loaded == nil {
+              filesEntrySection
               NativeCardListSkeletonView(count: 3, style: .formPanel)
                 .transition(.opacity)
             } else if loadFailed && loaded == nil {
@@ -58,6 +60,7 @@ struct NativeSubscribeEditorSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
               }
             } else {
+              filesEntrySection
               if draft.mediaType == "音乐" {
                 musicQualitySection
               } else {
@@ -79,7 +82,7 @@ struct NativeSubscribeEditorSheet: View {
       }
       .navigationTitle("编辑订阅 · \(title)")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") {
@@ -105,6 +108,12 @@ struct NativeSubscribeEditorSheet: View {
       } message: {
         Text("确认删除「\(title)」的订阅吗？")
       }
+      .sheet(isPresented: $showsFilesSheet) {
+        NativeSubscribeFilesSheet(
+          session: session, subscribeID: subscribeID, fallbackTitle: title
+        )
+        .nativeAdaptiveSheetSizing()
+      }
     }
     .nativeGlassSheet()
     .task { await load() }
@@ -113,6 +122,32 @@ struct NativeSubscribeEditorSheet: View {
   private var hasChanges: Bool {
     guard let loaded else { return false }
     return draft != loaded
+  }
+
+  private var filesEntrySection: some View {
+    CinematicPanel(padding: 0) {
+      Button {
+        showsFilesSheet = true
+      } label: {
+        HStack(spacing: 10) {
+          Image(systemName: "doc.text.magnifyingglass")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(appearance.accentColor)
+          Text("查看订阅文件详情")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.primary)
+          Spacer()
+          Image(systemName: "chevron.right")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary.opacity(0.60))
+        }
+        .padding(.horizontal, 15)
+        .padding(.vertical, 13)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityIdentifier("native-subscribe-editor-open-files")
+    }
   }
 
   // MARK: - 1. 影视画质与洗版 / 音乐音质分组
@@ -588,7 +623,7 @@ private struct NativeSubSiteSelectorView: View {
     }
     .navigationTitle("订阅站点")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Button(selection.isEmpty ? "全选" : "清空") {
@@ -641,7 +676,7 @@ private struct NativeSubRuleGroupSelectorView: View {
     }
     .navigationTitle("优先级规则组")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
   }
 }
 

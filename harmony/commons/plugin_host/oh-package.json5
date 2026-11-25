@@ -1,0 +1,10 @@
+{
+  "name": "@moviepilot/plugin_host",
+  "version": "2.0.3",
+  "description": "MoviePilot HarmonyOS NEXT plugin_host HAR",
+  "main": "Index.ets",
+  "dependencies": {
+    "@moviepilot/core_rust_bridge": "file:../core_rust_bridge",
+    "@moviepilot/design_system": "file:../design_system"
+  }
+}

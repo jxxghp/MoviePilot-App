@@ -6,7 +6,7 @@ options:
   createIntermediateGroups: true
 packages:
   MoviePilotCore:
-    path: ..
+    path: .
   VLCKit:
     url: https://github.com/videolan/vlckit.git
     revision: 3d0f0fa7031eab1a67c817c98a495e1c68fc998c
@@ -15,7 +15,7 @@ settings:
     SWIFT_VERSION: "6.0"
     IPHONEOS_DEPLOYMENT_TARGET: "16.0"
     TARGETED_DEVICE_FAMILY: "1,2"
-    MARKETING_VERSION: 2.0.2
+    MARKETING_VERSION: 2.0.3
     CURRENT_PROJECT_VERSION: 1
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: ""
@@ -26,7 +26,11 @@ targets:
     platform: iOS
     sources:
       - path: MoviePilot
-        excludes: [Resources/Info.plist]
+        excludes: [Resources/Info.plist, Resources/CommunityMedals]
+      # 勋章贴图按 `CommunityMedals/` 子目录从包内加载，必须以文件夹引用整体拷贝，不能平铺到包根目录。
+      - path: MoviePilot/Resources/CommunityMedals
+        type: folder
+        buildPhase: resources
       - path: NativeDesignSystem
     dependencies:
       - package: MoviePilotCore

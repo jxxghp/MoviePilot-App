@@ -44,7 +44,10 @@ struct NativePluginFormView: View {
         }
       } else {
         Form {
-          if form.phase == .loading && form.document == nil {
+          let showsInitialSkeleton =
+            (form.phase == .idle || form.phase == .loading)
+            && form.document == nil && form.failure == nil && !localFailure
+          if showsInitialSkeleton {
             Section {
               NativeCardListSkeletonView(count: 3, style: .formPanel)
                 .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
@@ -90,7 +93,7 @@ struct NativePluginFormView: View {
                 }
               }
             }
-          } else if !busy && form.document == nil {
+          } else if !busy && !showsInitialSkeleton && form.document == nil {
             CinematicFormSection {
               CinematicFormRow(symbol: "arrow.clockwise.circle") {
                 HStack(spacing: 16) {
@@ -166,7 +169,7 @@ struct NativePluginFormView: View {
     }
     .navigationTitle(plugin.name)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .navigationBarBackButtonHidden(!isVuePlugin && (form.draft?.hasChanges == true || busy))
     .toolbar {
       if !isVuePlugin && (form.draft?.hasChanges == true || busy) {
@@ -1020,7 +1023,7 @@ private struct NativePluginSelectionView: View {
           .modifier(ConditionalSearchableModifier(enabled: options.count > 8, text: $searchQuery))
         }
       }
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

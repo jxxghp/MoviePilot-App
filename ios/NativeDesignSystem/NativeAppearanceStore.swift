@@ -65,89 +65,33 @@ enum NativeBackgroundPreset: String, CaseIterable, Identifiable {
     }
   }
 
-  /// 深色模式四段渐变色点。
+  /// 深色模式四段渐变色点（iOS 端针对星夜紫玫单独校准深丝绒酒红至暮光靛紫的低灰雾色阶，其余预设消费同源色板）。
   var darkStops: [Color] {
     switch self {
     case .cinematic:
-      return [
-        Color(red: 0.19, green: 0.20, blue: 0.29),
-        Color(red: 0.29, green: 0.23, blue: 0.34),
-        Color(red: 0.34, green: 0.22, blue: 0.29),
-        Color(red: 0.14, green: 0.18, blue: 0.25),
+      [
+        Color(red: 0.2314, green: 0.1608, blue: 0.1882),  // #3B2930 深丝绒酒红（顶）
+        Color(red: 0.3098, green: 0.2157, blue: 0.3098),  // #4F374F 通透紫梅微光（中左）
+        Color(red: 0.2824, green: 0.2157, blue: 0.3255),  // #483753 清澈紫晶（中下）
+        Color(red: 0.2471, green: 0.2314, blue: 0.3490),  // #3F3B59 暮光蓝紫（中右与底）
       ]
-    case .ocean:
-      return [
-        Color(red: 0.08, green: 0.16, blue: 0.28),
-        Color(red: 0.10, green: 0.24, blue: 0.34),
-        Color(red: 0.12, green: 0.28, blue: 0.34),
-        Color(red: 0.07, green: 0.13, blue: 0.22),
-      ]
-    case .forest:
-      return [
-        Color(red: 0.10, green: 0.20, blue: 0.19),
-        Color(red: 0.14, green: 0.26, blue: 0.22),
-        Color(red: 0.18, green: 0.25, blue: 0.19),
-        Color(red: 0.08, green: 0.15, blue: 0.16),
-      ]
-    case .amber:
-      return [
-        Color(red: 0.24, green: 0.17, blue: 0.15),
-        Color(red: 0.32, green: 0.21, blue: 0.17),
-        Color(red: 0.28, green: 0.18, blue: 0.20),
-        Color(red: 0.16, green: 0.13, blue: 0.16),
-      ]
-    case .graphite:
-      return [
-        Color(red: 0.13, green: 0.14, blue: 0.17),
-        Color(red: 0.18, green: 0.19, blue: 0.23),
-        Color(red: 0.16, green: 0.17, blue: 0.21),
-        Color(red: 0.10, green: 0.11, blue: 0.14),
-      ]
-    case .custom:
-      return NativeBackgroundPreset.cinematic.darkStops
+    case .ocean: GeneratedDesignTokens.BackgroundStops.oceanDark
+    case .forest: GeneratedDesignTokens.BackgroundStops.forestDark
+    case .amber: GeneratedDesignTokens.BackgroundStops.amberDark
+    case .graphite: GeneratedDesignTokens.BackgroundStops.graphiteDark
+    case .custom: GeneratedDesignTokens.BackgroundStops.customDark
     }
   }
 
-  /// 浅色模式通透柔和渐变色点。
+  /// 浅色模式通透柔和渐变色点（消费 shared/design-tokens 自动生成的同源色板）。
   var lightStops: [Color] {
     switch self {
-    case .cinematic:
-      return [
-        Color(red: 0.94, green: 0.93, blue: 0.99),
-        Color(red: 0.96, green: 0.92, blue: 0.97),
-        Color(red: 0.98, green: 0.93, blue: 0.95),
-        Color(red: 0.92, green: 0.94, blue: 0.99),
-      ]
-    case .ocean:
-      return [
-        Color(red: 0.90, green: 0.95, blue: 0.99),
-        Color(red: 0.91, green: 0.97, blue: 0.98),
-        Color(red: 0.93, green: 0.96, blue: 0.99),
-        Color(red: 0.89, green: 0.94, blue: 0.98),
-      ]
-    case .forest:
-      return [
-        Color(red: 0.91, green: 0.97, blue: 0.95),
-        Color(red: 0.94, green: 0.98, blue: 0.94),
-        Color(red: 0.95, green: 0.97, blue: 0.93),
-        Color(red: 0.90, green: 0.95, blue: 0.94),
-      ]
-    case .amber:
-      return [
-        Color(red: 0.99, green: 0.95, blue: 0.91),
-        Color(red: 0.99, green: 0.93, blue: 0.90),
-        Color(red: 0.98, green: 0.94, blue: 0.93),
-        Color(red: 0.96, green: 0.93, blue: 0.92),
-      ]
-    case .graphite:
-      return [
-        Color(red: 0.95, green: 0.95, blue: 0.97),
-        Color(red: 0.93, green: 0.94, blue: 0.96),
-        Color(red: 0.95, green: 0.95, blue: 0.96),
-        Color(red: 0.91, green: 0.92, blue: 0.95),
-      ]
-    case .custom:
-      return NativeBackgroundPreset.cinematic.lightStops
+    case .cinematic: GeneratedDesignTokens.BackgroundStops.cinematicLight
+    case .ocean: GeneratedDesignTokens.BackgroundStops.oceanLight
+    case .forest: GeneratedDesignTokens.BackgroundStops.forestLight
+    case .amber: GeneratedDesignTokens.BackgroundStops.amberLight
+    case .graphite: GeneratedDesignTokens.BackgroundStops.graphiteLight
+    case .custom: GeneratedDesignTokens.BackgroundStops.customLight
     }
   }
 }
@@ -176,12 +120,12 @@ enum NativeAccentPreset: String, CaseIterable, Identifiable {
 
   var color: Color {
     switch self {
-    case .violet: Color(red: 0.62, green: 0.48, blue: 0.96)
-    case .azure: Color(red: 0.28, green: 0.64, blue: 0.98)
-    case .emerald: Color(red: 0.24, green: 0.78, blue: 0.56)
-    case .rose: Color(red: 0.92, green: 0.42, blue: 0.62)
-    case .amber: Color(red: 0.95, green: 0.64, blue: 0.24)
-    case .custom: Color(red: 0.62, green: 0.48, blue: 0.96)
+    case .violet: GeneratedDesignTokens.Accents.violet
+    case .azure: GeneratedDesignTokens.Accents.azure
+    case .emerald: GeneratedDesignTokens.Accents.emerald
+    case .rose: GeneratedDesignTokens.Accents.rose
+    case .amber: GeneratedDesignTokens.Accents.amber
+    case .custom: GeneratedDesignTokens.Accents.custom
     }
   }
 }
@@ -258,7 +202,7 @@ final class NativeAppearanceStore: ObservableObject {
       NativeAppearanceMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .dark
     backgroundPreset =
       NativeBackgroundPreset(rawValue: defaults.string(forKey: Keys.backgroundPreset) ?? "")
-      ?? .cinematic
+      ?? .graphite
     customBackgroundStartHex = defaults.string(forKey: Keys.bgStartHex) ?? "#30334A"
     customBackgroundMidHex = defaults.string(forKey: Keys.bgMidHex) ?? "#4A3B57"
     customBackgroundEndHex = defaults.string(forKey: Keys.bgEndHex) ?? "#242E40"
@@ -271,7 +215,25 @@ final class NativeAppearanceStore: ObservableObject {
     animateBackground =
       defaults.object(forKey: Keys.animateBackground) as? Bool ?? true
     // 导航栏默认入口与返回按钮统一采用系统文本色，避免被主题强调色染成彩色。
-    UINavigationBar.appearance().tintColor = .label
+    let navBar = UINavigationBar.appearance()
+    navBar.tintColor = .label
+    if #unavailable(iOS 26) {
+      let scrollEdge = UINavigationBarAppearance()
+      scrollEdge.configureWithTransparentBackground()
+      scrollEdge.backgroundColor = .clear
+      scrollEdge.shadowColor = .clear
+
+      let standard = UINavigationBarAppearance()
+      standard.configureWithDefaultBackground()
+      standard.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+      standard.backgroundColor = .clear
+      standard.shadowColor = UIColor.separator.withAlphaComponent(0.18)
+
+      navBar.scrollEdgeAppearance = scrollEdge
+      navBar.compactScrollEdgeAppearance = scrollEdge
+      navBar.standardAppearance = standard
+      navBar.compactAppearance = standard
+    }
   }
 
   /// 当前生效的 SwiftUI 外观模式（`nil` 表示跟随系统）。
@@ -360,10 +322,10 @@ final class NativeAppearanceStore: ObservableObject {
     return colors.first ?? CinematicStyle.background
   }
 
-  /// 恢复默认「深色 + 星夜紫玫 + 星耀紫 + 自动文字前景色」。
+  /// 恢复默认「深色 + 极简石墨 + 星耀紫 + 自动文字前景色」。
   func resetToDefaults() {
     mode = .dark
-    backgroundPreset = .cinematic
+    backgroundPreset = .graphite
     customBackgroundStartHex = "#30334A"
     customBackgroundMidHex = "#4A3B57"
     customBackgroundEndHex = "#242E40"

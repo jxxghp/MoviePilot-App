@@ -127,7 +127,9 @@ struct NativeCommunityMedalsWidget: View {
 
   var body: some View {
     let medals = profile.orderedKnownMedals
-    let unseen = store.unseenCount(in: medals, userID: profile.userID)
+    // 已读集合整卡只读取一次，避免每个格子各自访问 UserDefaults 并重建集合。
+    let seenTokens = store.seenTokens(userID: profile.userID)
+    let unseen = medals.filter { !seenTokens.contains($0.seenToken) }.count
     let wornKey = store.wornMedalKey(userID: profile.userID)
     let columnCount = dynamicTypeSize.isAccessibilitySize ? 3 : 4
     let columns = Array(
@@ -167,7 +169,7 @@ struct NativeCommunityMedalsWidget: View {
           ForEach(medals) { record in
             medalGridTile(
               record: record,
-              isUnseen: store.isUnseen(record, userID: profile.userID),
+              isUnseen: !seenTokens.contains(record.seenToken),
               isWorn: wornKey == record.key
             )
           }
@@ -185,9 +187,6 @@ struct NativeCommunityMedalsWidget: View {
   ) -> some View {
     let spec = record.spec
     let tone = CommunityMedalColor.color(hex: spec?.toneHex ?? "#9b7bff")
-    let artwork =
-      CommunityMedalAssetLoader.shared.frontImage(for: record)
-      ?? CommunityMedalAssetLoader.shared.badgeImage(for: record)
 
     return Button {
       onSelectMedal(record)
@@ -209,17 +208,7 @@ struct NativeCommunityMedalsWidget: View {
               )
               .frame(width: 64, height: 64)
 
-            if let artwork {
-              Image(uiImage: artwork)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 58, height: 58)
-                .shadow(color: .black.opacity(colorScheme == .dark ? 0.42 : 0.18), radius: 6, y: 3)
-            } else {
-              Image(systemName: "medal.fill")
-                .font(.title2)
-                .foregroundStyle(tone)
-            }
+            NativeCommunityMedalGridArtwork(record: record, tone: tone)
           }
           .frame(width: 64, height: 64)
 
@@ -267,6 +256,72 @@ struct NativeCommunityMedalsWidget: View {
     .buttonStyle(.plain)
     .accessibilityLabel("\(spec?.name ?? record.key)勋章，轻点查看动态 3D 勋章")
     .accessibilityIdentifier("native-community-medal-\(record.key)")
+  }
+}
+
+/// 勋章网格图：展示降采样并已烘焙投影的缩略图；首帧同步命中内存缓存，未命中时在后台线程生成，不阻塞滚动。
+@MainActor
+private struct NativeCommunityMedalGridArtwork: View {
+  let record: CommunityMedalRecord
+  let tone: Color
+
+  /// 勋章本体显示边长（pt），与原网格保持一致。
+  private static let medalSide: CGFloat = 58
+
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.displayScale) private var displayScale
+  @State private var image: UIImage?
+  @State private var resolvedKey: String?
+
+  var body: some View {
+    let stems = CommunityMedalAssetLoader.gridThumbnailStems(for: record)
+    let isDark = colorScheme == .dark
+    let key = CommunityMedalAssetLoader.gridThumbnailKey(
+      stems: stems, medalSide: Self.medalSide, scale: displayScale, isDark: isDark)
+    let isResolved = resolvedKey == key
+    let thumbnail: UIImage? =
+      if isResolved, let image {
+        image
+      } else {
+        CommunityMedalAssetLoader.shared.cachedGridThumbnail(forKey: key)
+      }
+    let canvasSide = CommunityMedalAssetLoader.gridThumbnailCanvasSide(medalSide: Self.medalSide)
+
+    return Group {
+      if let thumbnail {
+        // 缩略图画布含阴影余量，按画布原尺寸绘制并居中溢出，勋章本体仍占 58pt。
+        Image(uiImage: thumbnail)
+          .resizable()
+          .frame(width: canvasSide, height: canvasSide)
+      } else if isResolved {
+        Image(systemName: "medal.fill")
+          .font(.title2)
+          .foregroundStyle(tone)
+      } else {
+        Color.clear
+      }
+    }
+    .frame(width: Self.medalSide, height: Self.medalSide)
+    .task(id: key) {
+      await load(key: key, stems: stems, scale: displayScale, isDark: isDark)
+    }
+  }
+
+  /// 内存缓存未命中时在后台线程降采样并烘焙投影，完成后回到主线程呈现；素材缺失时回退为符号图标。
+  private func load(key: String, stems: [String], scale: CGFloat, isDark: Bool) async {
+    if let cached = CommunityMedalAssetLoader.shared.cachedGridThumbnail(forKey: key) {
+      image = cached
+      resolvedKey = key
+      return
+    }
+    let side = Self.medalSide
+    let generated: UIImage? = await Task.detached(priority: .userInitiated) {
+      CommunityMedalAssetLoader.shared.makeGridThumbnail(
+        stems: stems, medalSide: side, scale: scale, isDark: isDark)
+    }.value
+    guard !Task.isCancelled else { return }
+    image = generated
+    resolvedKey = key
   }
 }
 
@@ -323,9 +378,18 @@ struct NativeCommunityMedalShowcaseView: View {
         }
 
       GeometryReader { proxy in
-        let stageSize = min(proxy.size.width - 28, min(proxy.size.height * 0.50, 410))
+        let isCompactLandscape = proxy.size.width > proxy.size.height && proxy.size.height < 520
+        let stageSize =
+          isCompactLandscape
+          ? max(120, min(proxy.size.height - 76, proxy.size.width * 0.40))
+          : min(proxy.size.width - 28, min(proxy.size.height * 0.50, 410))
+        let glowX = isCompactLandscape ? (20 + stageSize * 0.5) : proxy.size.width * 0.5
+        let glowY =
+          isCompactLandscape
+          ? (42 + max(proxy.size.height - 42, 0) * 0.48)
+          : proxy.size.height * 0.38
         ZStack {
-          // 勋章背后径向氛围光晕（随切换平滑过渡）
+          // 勋章背后径向氛围光晕（随切换平滑过渡，紧凑横屏对齐左栏舞台中心）
           Circle()
             .fill(
               RadialGradient(
@@ -341,7 +405,7 @@ struct NativeCommunityMedalShowcaseView: View {
             )
             .frame(width: stageSize * 1.24, height: stageSize * 1.24)
             .blur(radius: 18)
-            .position(x: proxy.size.width * 0.5, y: proxy.size.height * 0.38)
+            .position(x: glowX, y: glowY)
             .animation(.easeInOut(duration: 0.45), value: activeKey)
             .allowsHitTesting(false)
 
@@ -427,116 +491,179 @@ struct NativeCommunityMedalShowcaseView: View {
               .accessibilityIdentifier("native-medal-showcase-close")
             }
             .padding(.horizontal, 20)
-            .padding(.top, 10)
+            .padding(.top, isCompactLandscape ? 6 : 10)
 
-            Spacer(minLength: 8)
+            if isCompactLandscape {
+              HStack(alignment: .center, spacing: 24) {
+                VStack(spacing: 6) {
+                  if let record {
+                    NativeMedal3DStageView(
+                      record: record,
+                      login: profile.login,
+                      reducedMotion: reduceMotion
+                    )
+                    .frame(width: stageSize, height: stageSize)
+                    .accessibilityLabel("\(spec?.name ?? record.key)动态 3D 勋章，轻点翻面，拖动转动")
+                    .accessibilityIdentifier("native-medal-3d-stage")
+                  }
 
-            // 中央 3D 动态互动勋章舞台
-            if let record {
-              NativeMedal3DStageView(
-                record: record,
-                login: profile.login,
-                reducedMotion: reduceMotion
-              )
-              .frame(width: stageSize, height: stageSize)
-              .accessibilityLabel("\(spec?.name ?? record.key)动态 3D 勋章，轻点翻面，拖动转动")
-              .accessibilityIdentifier("native-medal-3d-stage")
-            }
-
-            // 交互提示
-            Label("轻点翻面 · 拖动转动", systemImage: "hand.draw")
-              .font(.caption2.weight(.medium))
-              .foregroundStyle(.primary.opacity(0.56))
-              .padding(.top, 2)
-
-            // 标题、金属档位铭牌与致敬文案
-            if let record {
-              VStack(spacing: 8) {
-                Text(spec?.name ?? record.key)
-                  .font(.title2.weight(.bold))
-                  .foregroundStyle(.primary)
-
-                if let tier = record.normalizedTier,
-                  let tierLine = CommunityMedalCatalog.tierLine(for: record)
-                {
-                  NativeMedalTierNameplate(tier: tier, text: tierLine, compact: false)
-                } else if let timeLine = CommunityMedalCatalog.timeLine(for: record) {
-                  Text(timeLine)
-                    .font(.caption.weight(.medium).monospacedDigit())
-                    .foregroundStyle(.secondary)
+                  Label("轻点翻面 · 拖动转动", systemImage: "hand.draw")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.primary.opacity(0.56))
                 }
+                .frame(width: stageSize)
 
-                if let summary = spec?.summary {
-                  Text(summary)
-                    .font(.footnote)
-                    .foregroundStyle(.primary.opacity(0.72))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .padding(.horizontal, 28)
-                }
-              }
-              .padding(.top, 12)
-            }
+                ScrollView(.vertical, showsIndicators: false) {
+                  VStack(alignment: .center, spacing: 10) {
+                    if let record {
+                      Text(spec?.name ?? record.key)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
 
-            Spacer(minLength: 10)
-
-            // 多枚勋章自动换行居中展示，一屏显示全部已获勋章，无需左右滚动
-            if medals.count > 1 {
-              NativeCenteredFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
-                ForEach(medals) { item in
-                  let isSelected = item.key == activeKey
-                  let itemTone = CommunityMedalColor.color(hex: item.spec?.toneHex ?? "#9b7bff")
-                  let itemUnseen = store.isUnseen(item, userID: profile.userID)
-                  Button {
-                    withAnimation(.easeInOut(duration: 0.22)) {
-                      activeKey = item.key
-                    }
-                    store.markSeen(item, userID: profile.userID)
-                  } label: {
-                    HStack(spacing: 5) {
-                      if let badge = CommunityMedalAssetLoader.shared.badgeImage(for: item) {
-                        Image(uiImage: badge)
-                          .resizable()
-                          .scaledToFit()
-                          .frame(width: 19, height: 19)
+                      if let tier = record.normalizedTier,
+                        let tierLine = CommunityMedalCatalog.tierLine(for: record)
+                      {
+                        NativeMedalTierNameplate(tier: tier, text: tierLine, compact: false)
+                      } else if let timeLine = CommunityMedalCatalog.timeLine(for: record) {
+                        Text(timeLine)
+                          .font(.caption.weight(.medium).monospacedDigit())
+                          .foregroundStyle(.secondary)
                       }
-                      Text(item.spec?.name ?? item.key)
-                        .font(.caption.weight(isSelected ? .semibold : .medium))
-                        .foregroundStyle(.primary.opacity(isSelected ? 0.98 : 0.74))
-                      if itemUnseen {
-                        Circle()
-                          .fill(Color.red)
-                          .frame(width: 6, height: 6)
+
+                      if let summary = spec?.summary {
+                        Text(summary)
+                          .font(.footnote)
+                          .foregroundStyle(.primary.opacity(0.74))
+                          .multilineTextAlignment(.center)
+                          .fixedSize(horizontal: false, vertical: true)
                       }
-                    }
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 7)
-                    .background {
-                      Capsule()
-                        .fill(
-                          isSelected
-                            ? itemTone.opacity(colorScheme == .dark ? 0.28 : 0.22)
-                            : Color.primary.opacity(colorScheme == .dark ? 0.09 : 0.06)
-                        )
-                        .overlay {
-                          Capsule()
-                            .strokeBorder(
-                              isSelected
-                                ? itemTone.opacity(0.62)
-                                : Color.primary.opacity(0.14),
-                              lineWidth: 0.7
-                            )
+
+                      HStack(spacing: 8) {
+                        Button {
+                          store.toggleWear(record.key, userID: profile.userID)
+                        } label: {
+                          Label(
+                            isWorn ? "已佩戴" : "佩戴勋章",
+                            systemImage: isWorn ? "checkmark.seal.fill" : "seal"
+                          )
+                          .font(.caption.weight(.semibold))
+                          .foregroundStyle(isWorn ? tone : .primary)
+                          .padding(.horizontal, 11)
+                          .padding(.vertical, 6)
+                          .background {
+                            Capsule()
+                              .fill(
+                                isWorn
+                                  ? tone.opacity(colorScheme == .dark ? 0.24 : 0.18)
+                                  : Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.07)
+                              )
+                              .overlay {
+                                Capsule().strokeBorder(
+                                  isWorn ? tone.opacity(0.55) : Color.primary.opacity(0.16),
+                                  lineWidth: 0.7
+                                )
+                              }
+                          }
                         }
+                        .buttonStyle(.plain)
+
+                        Button {
+                          showsDetailSheet = true
+                        } label: {
+                          Label("勋章详情", systemImage: "info.circle")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary.opacity(0.88))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background {
+                              Capsule()
+                                .fill(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.07))
+                                .overlay {
+                                  Capsule().strokeBorder(
+                                    Color.primary.opacity(0.16), lineWidth: 0.7)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                      }
+                      .padding(.top, 2)
+                    }
+
+                    if medals.count > 1 {
+                      medalSwitcherPills
+                        .padding(.top, 4)
                     }
                   }
-                  .buttonStyle(.plain)
-                  .accessibilityIdentifier("native-medal-switch-\(item.key)")
+                  .frame(maxWidth: .infinity)
+                  .padding(.vertical, 8)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
               }
               .padding(.horizontal, 20)
-              .padding(.bottom, 26)
+              .padding(.top, 6)
+              .padding(.bottom, 10)
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-              Spacer().frame(height: 26)
+              Spacer(minLength: 8)
+
+              // 中央 3D 动态互动勋章舞台
+              if let record {
+                NativeMedal3DStageView(
+                  record: record,
+                  login: profile.login,
+                  reducedMotion: reduceMotion
+                )
+                .frame(width: stageSize, height: stageSize)
+                .accessibilityLabel("\(spec?.name ?? record.key)动态 3D 勋章，轻点翻面，拖动转动")
+                .accessibilityIdentifier("native-medal-3d-stage")
+              }
+
+              // 交互提示
+              Label("轻点翻面 · 拖动转动", systemImage: "hand.draw")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.primary.opacity(0.56))
+                .padding(.top, 2)
+
+              // 标题、金属档位铭牌与致敬文案
+              if let record {
+                VStack(spacing: 8) {
+                  Text(spec?.name ?? record.key)
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.primary)
+
+                  if let tier = record.normalizedTier,
+                    let tierLine = CommunityMedalCatalog.tierLine(for: record)
+                  {
+                    NativeMedalTierNameplate(tier: tier, text: tierLine, compact: false)
+                  } else if let timeLine = CommunityMedalCatalog.timeLine(for: record) {
+                    Text(timeLine)
+                      .font(.caption.weight(.medium).monospacedDigit())
+                      .foregroundStyle(.secondary)
+                  }
+
+                  if let summary = spec?.summary {
+                    Text(summary)
+                      .font(.footnote)
+                      .foregroundStyle(.primary.opacity(0.72))
+                      .multilineTextAlignment(.center)
+                      .lineLimit(2)
+                      .padding(.horizontal, 28)
+                  }
+                }
+                .padding(.top, 12)
+              }
+
+              Spacer(minLength: 10)
+
+              // 多枚勋章自动换行居中展示，一屏显示全部已获勋章，无需左右滚动
+              if medals.count > 1 {
+                medalSwitcherPills
+                  .padding(.horizontal, 20)
+                  .padding(.bottom, 26)
+              } else {
+                Spacer().frame(height: 26)
+              }
             }
           }
           .opacity(showsDetailSheet ? 0.14 : 1.0)
@@ -573,6 +700,61 @@ struct NativeCommunityMedalShowcaseView: View {
       Button("确定", role: .cancel) {}
     } message: {
       Text(shareErrorMessage ?? "请稍后重试。")
+    }
+  }
+
+  /// 多枚勋章自动换行居中切换胶囊栏，供竖屏底部与紧凑横屏右栏共用。
+  private var medalSwitcherPills: some View {
+    NativeCenteredFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+      ForEach(medals) { item in
+        let isSelected = item.key == activeKey
+        let itemTone = CommunityMedalColor.color(hex: item.spec?.toneHex ?? "#9b7bff")
+        let itemUnseen = store.isUnseen(item, userID: profile.userID)
+        Button {
+          withAnimation(.easeInOut(duration: 0.22)) {
+            activeKey = item.key
+          }
+          store.markSeen(item, userID: profile.userID)
+        } label: {
+          HStack(spacing: 5) {
+            if let badge = CommunityMedalAssetLoader.shared.badgeImage(for: item) {
+              Image(uiImage: badge)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 19, height: 19)
+            }
+            Text(item.spec?.name ?? item.key)
+              .font(.caption.weight(isSelected ? .semibold : .medium))
+              .foregroundStyle(.primary.opacity(isSelected ? 0.98 : 0.74))
+            if itemUnseen {
+              Circle()
+                .fill(Color.red)
+                .frame(width: 6, height: 6)
+            }
+          }
+          .padding(.horizontal, 11)
+          .padding(.vertical, 7)
+          .background {
+            Capsule()
+              .fill(
+                isSelected
+                  ? itemTone.opacity(colorScheme == .dark ? 0.28 : 0.22)
+                  : Color.primary.opacity(colorScheme == .dark ? 0.09 : 0.06)
+              )
+              .overlay {
+                Capsule()
+                  .strokeBorder(
+                    isSelected
+                      ? itemTone.opacity(0.62)
+                      : Color.primary.opacity(0.14),
+                    lineWidth: 0.7
+                  )
+              }
+          }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("native-medal-switch-\(item.key)")
+      }
     }
   }
 
@@ -908,13 +1090,15 @@ private struct NativeCommunityMedalDetailSheet: View {
             }
           }
         }
+        .frame(maxWidth: 680)
         .padding(.horizontal, CinematicStyle.margin)
         .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
       }
       .scrollIndicators(.hidden)
       .navigationTitle("勋章详情")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
           Button("完成") { dismiss() }
@@ -924,6 +1108,7 @@ private struct NativeCommunityMedalDetailSheet: View {
       }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
     .presentationDetents([.medium, .large])
   }
 

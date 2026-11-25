@@ -1,0 +1,243 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VForm",
+      "content": [
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "enabled",
+                    "label": "启用插件"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "onlyonce",
+                    "label": "立即运行一次"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VSelect",
+                  "props": {
+                    "model": "media_type",
+                    "label": "媒体类型(辅助识别)",
+                    "items": [
+                      {
+                        "title": "自动识别",
+                        "value": ""
+                      },
+                      {
+                        "title": "电影",
+                        "value": "电影"
+                      },
+                      {
+                        "title": "电视剧",
+                        "value": "电视剧"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VSelect",
+                  "props": {
+                    "model": "scrape_source",
+                    "label": "识别数据源",
+                    "items": [
+                      {
+                        "title": "跟随系统设置",
+                        "value": "system"
+                      },
+                      {
+                        "title": "豆瓣",
+                        "value": "douban"
+                      },
+                      {
+                        "title": "TMDB",
+                        "value": "themoviedb"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "notify",
+                    "label": "新增时MP通知"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VSwitch",
+                  "props": {
+                    "model": "write_nfo",
+                    "label": "写入NFO刮削(生成元数据文件)"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "scan_interval",
+                    "label": "扫描间隔(分钟)",
+                    "type": "number",
+                    "placeholder": "5"
+                  }
+                }
+              ]
+            },
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12,
+                "md": 6
+              },
+              "content": [
+                {
+                  "component": "VTextField",
+                  "props": {
+                    "model": "notify_user",
+                    "label": "通知接收用户ID(留空=默认)",
+                    "placeholder": "选填"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VTextarea",
+                  "props": {
+                    "model": "monitor_paths",
+                    "label": "监控目录(每行一个，容器内能访问到的路径)",
+                    "rows": 5,
+                    "placeholder": "/media/volx/Movies\n/media/volx/TV"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "component": "VRow",
+          "content": [
+            {
+              "component": "VCol",
+              "props": {
+                "cols": 12
+              },
+              "content": [
+                {
+                  "component": "VAlert",
+                  "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "text": "路径需为 MoviePilot 容器内能访问到的路径。容器已挂载宿主 /media -> /media，故一般填写 /media/磁盘/目录 即可。 TV 剧按“剧集文件夹/季文件夹/剧集文件”结构可正确识别为单部剧（不会每集重复通知）。"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "model": {
+    "enabled": false,
+    "onlyonce": false,
+    "monitor_paths": "",
+    "media_type": "",
+    "scrape_source": "system",
+    "notify": true,
+    "write_nfo": false,
+    "scan_interval": 5,
+    "notify_user": ""
+  }
+}

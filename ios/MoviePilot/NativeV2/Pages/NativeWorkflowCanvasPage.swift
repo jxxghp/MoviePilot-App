@@ -25,15 +25,19 @@ struct NativeWorkflowCanvasPage: View {
   @State private var canvasOffset: CGSize = .zero
   @State private var dragCanvasDelta: CGSize = .zero
   @State private var canvasScale: CGFloat = 1.0
+  @State private var lastCanvasSize: CGSize = .zero
   @State private var activeNodeDragID: String?
   @State private var activeNodeDragDelta: CGSize = .zero
 
   @State private var showsAddNodeSheet = false
   @State private var showsInspectorSheet = false
   @State private var showsLinkSheet = false
+  @Environment(\.verticalSizeClass) private var verticalSizeClass
 
   private let nodeWidth: CGFloat = 196
   private let nodeHeight: CGFloat = 86
+
+  private var isCompactHeight: Bool { verticalSizeClass == .compact }
 
   /// 深色紫玫瑰渐变、可缩放拖拽画布、节点卡片、底部选中工具条及顶部保存按钮。
   var body: some View {
@@ -43,7 +47,7 @@ struct NativeWorkflowCanvasPage: View {
     }
     .navigationTitle(detail?.name ?? workflowTitle)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Button {
@@ -103,10 +107,38 @@ struct NativeWorkflowCanvasPage: View {
   @ViewBuilder
   private var mainContent: some View {
     if isLoading && detail == nil {
-      NativeCardListSkeletonView(style: .workflowCanvas)
+      VStack(spacing: 0) {
+        if !isCompactHeight {
+          HStack(spacing: 10) {
+            NativeSkeletonBlock(width: 116, height: 14, cornerRadius: 5)
+            Spacer(minLength: 4)
+            NativeSkeletonBlock(width: 30, height: 30, cornerRadius: 15)
+            NativeSkeletonBlock(width: 52, height: 24, cornerRadius: 12)
+            NativeSkeletonBlock(width: 30, height: 30, cornerRadius: 15)
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 8)
+          .nativeSkeletonShimmer()
+        }
+
+        NativeCardListSkeletonView(
+          style: .workflowCanvas,
+          isCompactCanvas: isCompactHeight
+        )
         .padding(.horizontal, CinematicStyle.margin)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity)
+
+        HStack(spacing: 8) {
+          ForEach(0..<3, id: \.self) { idx in
+            NativeSkeletonBlock(width: idx == 1 ? 96 : 78, height: 28, cornerRadius: 14)
+          }
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.bottom, isCompactHeight ? 6 : 12)
+        .nativeSkeletonShimmer()
+      }
+      .transition(.opacity)
     } else if loadFailed && detail == nil {
       VStack {
         CinematicPanel {
@@ -125,21 +157,23 @@ struct NativeWorkflowCanvasPage: View {
         if let feedback {
           feedbackBanner(feedback)
             .padding(.horizontal, CinematicStyle.margin)
-            .padding(.top, 8)
+            .padding(.top, isCompactHeight ? 4 : 8)
         }
-        canvasToolbar
-          .padding(.horizontal, CinematicStyle.margin)
-          .padding(.vertical, 8)
+        if !isCompactHeight {
+          canvasToolbar
+            .padding(.horizontal, CinematicStyle.margin)
+            .padding(.vertical, 8)
+        }
         graphCanvas
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         if let selected = selectedNode {
           selectedInspectorBar(selected)
             .padding(.horizontal, CinematicStyle.margin)
-            .padding(.bottom, 12)
+            .padding(.bottom, isCompactHeight ? 6 : 12)
         } else {
           nodeListStrip
             .padding(.horizontal, CinematicStyle.margin)
-            .padding(.bottom, 12)
+            .padding(.bottom, isCompactHeight ? 6 : 12)
         }
       }
     }
@@ -275,10 +309,37 @@ struct NativeWorkflowCanvasPage: View {
         }
       }
       .clipped()
+      .overlay(alignment: .top) {
+        if isCompactHeight {
+          canvasToolbar
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background {
+              Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay {
+                  Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6)
+                }
+            }
+            .padding(.horizontal, CinematicStyle.margin)
+            .padding(.top, 6)
+        }
+      }
       .onAppear {
+        lastCanvasSize = proxy.size
         if canvasOffset == .zero && !actions.isEmpty {
           centerCanvas(in: proxy.size)
         }
+      }
+      .onChange(of: proxy.size) { newSize in
+        if lastCanvasSize.width > 0, lastCanvasSize.height > 0,
+          abs(newSize.width - lastCanvasSize.width) > 1
+            || abs(newSize.height - lastCanvasSize.height) > 1
+        {
+          canvasOffset.width += (newSize.width - lastCanvasSize.width) / 2
+          canvasOffset.height += (newSize.height - lastCanvasSize.height) / 2
+        }
+        lastCanvasSize = newSize
       }
       .onChange(of: actions.count) { _ in
         if canvasOffset == .zero && !actions.isEmpty {
@@ -387,44 +448,37 @@ struct NativeWorkflowCanvasPage: View {
     }
   }
 
-  /// 选中节点后的底部玻璃属性工具栏。
+  /// 选中节点后的底部玻璃属性工具栏：紧凑横屏自动折叠为 ~50pt 单行工具栏，释放画布纵向视口。
+  @ViewBuilder
   private func selectedInspectorBar(_ node: NativeWorkflowNode) -> some View {
     let outgoing = flows.filter { $0.source == node.id }.count
-    return CinematicPanel(padding: 12) {
-      VStack(alignment: .leading, spacing: 10) {
-        HStack {
-          VStack(alignment: .leading, spacing: 2) {
-            Text(node.name).font(.headline).foregroundStyle(.primary)
-            Text("\(node.type) · 参数 \(node.data.count) 项 · 出边 \(outgoing) 条")
-              .font(.caption)
-              .foregroundStyle(.primary.opacity(0.68))
-          }
-          Spacer()
-          Button {
-            selectedNodeID = nil
-          } label: {
-            Image(systemName: "xmark")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(.primary.opacity(0.70))
-              .frame(width: 30, height: 30)
-          }
-          .buttonStyle(.plain)
-        }
+    if isCompactHeight {
+      CinematicPanel(padding: 8) {
         HStack(spacing: 8) {
+          VStack(alignment: .leading, spacing: 1) {
+            Text(node.name)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.primary)
+              .lineLimit(1)
+            Text("\(node.type) · 参数 \(node.data.count) · 出边 \(outgoing)")
+              .font(.caption2)
+              .foregroundStyle(.primary.opacity(0.66))
+              .lineLimit(1)
+          }
+          Spacer(minLength: 4)
           Button {
             showsInspectorSheet = true
           } label: {
             Label("编辑参数", systemImage: "slider.horizontal.3")
               .font(.caption.weight(.semibold))
               .foregroundStyle(.primary)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 7)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 6)
               .background {
                 Capsule()
                   .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.78))
                   .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
               }
-              .frame(minHeight: 34)
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier("native-workflow-edit-node")
@@ -435,30 +489,112 @@ struct NativeWorkflowCanvasPage: View {
             Label("连线", systemImage: "arrow.triangle.branch")
               .font(.caption.weight(.semibold))
               .foregroundStyle(.primary)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 7)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 6)
               .background {
                 Capsule()
                   .fill(.primary.opacity(0.14))
                   .overlay { Capsule().strokeBorder(.primary.opacity(0.20), lineWidth: 0.6) }
               }
-              .frame(minHeight: 34)
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier("native-workflow-link-node")
 
-          Spacer()
-
           Button(role: .destructive) {
             deleteNode(node.id)
           } label: {
-            Label("删除", systemImage: "trash")
+            Image(systemName: "trash")
               .font(.caption.weight(.semibold))
               .foregroundStyle(NativeTheme.danger)
-              .frame(minHeight: 34)
+              .frame(width: 30, height: 30)
           }
           .buttonStyle(.plain)
+          .accessibilityLabel("删除")
           .accessibilityIdentifier("native-workflow-delete-node")
+
+          Button {
+            selectedNodeID = nil
+          } label: {
+            Image(systemName: "xmark")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.primary.opacity(0.70))
+              .frame(width: 28, height: 30)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("取消选中")
+        }
+      }
+    } else {
+      CinematicPanel(padding: 12) {
+        VStack(alignment: .leading, spacing: 10) {
+          HStack {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(node.name).font(.headline).foregroundStyle(.primary)
+              Text("\(node.type) · 参数 \(node.data.count) 项 · 出边 \(outgoing) 条")
+                .font(.caption)
+                .foregroundStyle(.primary.opacity(0.68))
+            }
+            Spacer()
+            Button {
+              selectedNodeID = nil
+            } label: {
+              Image(systemName: "xmark")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary.opacity(0.70))
+                .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+          }
+          HStack(spacing: 8) {
+            Button {
+              showsInspectorSheet = true
+            } label: {
+              Label("编辑参数", systemImage: "slider.horizontal.3")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background {
+                  Capsule()
+                    .fill(Color(red: 0.56, green: 0.40, blue: 0.86).opacity(0.78))
+                    .overlay { Capsule().strokeBorder(.primary.opacity(0.24), lineWidth: 0.6) }
+                }
+                .frame(minHeight: 34)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-workflow-edit-node")
+
+            Button {
+              showsLinkSheet = true
+            } label: {
+              Label("连线", systemImage: "arrow.triangle.branch")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background {
+                  Capsule()
+                    .fill(.primary.opacity(0.14))
+                    .overlay { Capsule().strokeBorder(.primary.opacity(0.20), lineWidth: 0.6) }
+                }
+                .frame(minHeight: 34)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-workflow-link-node")
+
+            Spacer()
+
+            Button(role: .destructive) {
+              deleteNode(node.id)
+            } label: {
+              Label("删除", systemImage: "trash")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(NativeTheme.danger)
+                .frame(minHeight: 34)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-workflow-delete-node")
+          }
         }
       }
     }
@@ -767,14 +903,16 @@ private struct NativeWorkflowAddNodeSheet: View {
               }
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin)
           .padding(.vertical, 12)
+          .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
       }
       .navigationTitle("添加工作流节点")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .searchable(text: $query, prompt: "搜索动作名称或类名")
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
@@ -790,6 +928,7 @@ private struct NativeWorkflowAddNodeSheet: View {
       }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 }
 
@@ -927,14 +1066,16 @@ private struct NativeWorkflowNodeEditorSheet: View {
               }
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin)
           .padding(.vertical, 14)
+          .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
       }
       .navigationTitle("节点参数")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }
@@ -954,6 +1095,7 @@ private struct NativeWorkflowNodeEditorSheet: View {
       .onAppear { loadFields() }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 
   private func sectionHeader(_ title: String) -> some View {
@@ -1076,13 +1218,15 @@ private struct NativeWorkflowLinkSheet: View {
               .buttonStyle(.plain)
             }
           }
+          .frame(maxWidth: 680)
           .padding(.horizontal, CinematicStyle.margin)
           .padding(.vertical, 12)
+          .frame(maxWidth: .infinity)
         }
       }
       .navigationTitle("从「\(source.name)」连线")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -1096,6 +1240,7 @@ private struct NativeWorkflowLinkSheet: View {
       }
     }
     .nativeGlassSheet()
+    .nativeAdaptiveSheetSizing()
   }
 }
 

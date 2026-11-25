@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MoviePilot Dynamic Plugin UI Schema",
+  "type": "object",
+  "properties": {
+    "success": { "type": "boolean" },
+    "message": { "type": ["string", "null"] },
+    "data": { "type": ["object", "array", "null"] },
+    "render_mode": { "type": "string", "enum": ["vuetify", "vue"] },
+    "conf": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "page": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "elements": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "model": { "type": ["object", "null"] }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "properties": {
+        "component": { "type": ["string", "null"] },
+        "props": { "type": ["object", "null"] },
+        "text": { "type": ["string", "number", "boolean", "null"] },
+        "html": { "type": ["string", "null"] },
+        "content": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/node" }
+        },
+        "events": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

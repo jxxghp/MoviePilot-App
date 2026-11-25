@@ -3,6 +3,7 @@ import MoviePilotCore
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import UserNotifications
 
 /// 独立原生窗口只承载 SwiftUI；系统深链、`moviepilot://` 联动路径、系统音视频文件打开、小组件与快捷项全部经由原生路由中枢与原生播放器处理。
 @MainActor
@@ -25,14 +26,25 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
     guard let scene = scene as? UIWindowScene else { return }
     let model = NativeAppModel()
     let window = UIWindow(windowScene: scene)
+    let hosting = UIHostingController(rootView: NativeV2RootView(model: model))
     self.model = model
     self.window = window
-    window.overrideUserInterfaceStyle = NativeAppearanceStore.shared.mode.uiInterfaceStyle
+    Self.applyWindowAppearance(
+      mode: NativeAppearanceStore.shared.mode, to: window, hostingView: hosting.view)
     appearanceCancellable = NativeAppearanceStore.shared.$mode
       .receive(on: RunLoop.main)
       .sink { [weak window] mode in
-        window?.overrideUserInterfaceStyle = mode.uiInterfaceStyle
+        guard let window else { return }
+        Self.applyWindowAppearance(
+          mode: mode, to: window, hostingView: window.rootViewController?.view)
       }
+    if let response = connectionOptions.notificationResponse,
+      response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+      let intent = NotificationService.intent(from: response.notification.request.content.userInfo)
+    {
+      NotificationService.shared.receive(
+        intent, notificationID: response.notification.request.identifier)
+    }
     if let item = connectionOptions.shortcutItem {
       _ = receiveHomeShortcut(item)
     }
@@ -50,8 +62,7 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
     if !handledWidgetLaunch {
       model.start()
     }
-    window.rootViewController = UIHostingController(rootView: NativeV2RootView(model: model))
-    NotificationService.shared.attachNative(nil)
+    window.rootViewController = hosting
     window.makeKeyAndVisible()
     DispatchQueue.main.async {
       NativeMediaPlaybackLauncher.shared.presentPendingExternalPlaybackIfNeeded()
@@ -189,5 +200,22 @@ final class NativeV2SceneDelegate: UIResponder, UIWindowSceneDelegate {
       shortcut, instanceID: model?.selected?.id.uuidString)
     model?.resumeSystemIntegrations()
     return true
+  }
+
+  /// 按当前外观模式同步窗口与宿主根视图背景色，确保深色模式下冷启动零非黑闪帧。
+  private static func applyWindowAppearance(
+    mode: NativeAppearanceMode, to window: UIWindow, hostingView: UIView?
+  ) {
+    window.overrideUserInterfaceStyle = mode.uiInterfaceStyle
+    let isDark =
+      mode == .dark
+      || (mode == .system && window.traitCollection.userInterfaceStyle == .dark)
+    let background: UIColor =
+      isDark
+      ? .black
+      : (UIColor(named: "LaunchBackground")
+        ?? UIColor(red: 0.949, green: 0.949, blue: 0.969, alpha: 1))
+    window.backgroundColor = background
+    hostingView?.backgroundColor = background
   }
 }

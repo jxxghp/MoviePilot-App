@@ -1,0 +1,53 @@
+{
+  "render_mode": "vuetify",
+  "page": [
+    {
+      "component": "VDataTable",
+      "props": {
+        "density": "compact",
+        "headers": [
+          {
+            "title": "ID",
+            "key": "id"
+          },
+          {
+            "title": "输入",
+            "key": "input"
+          },
+          {
+            "title": "模型",
+            "key": "model"
+          },
+          {
+            "title": "状态",
+            "key": "status"
+          },
+          {
+            "title": "进度",
+            "key": "progress"
+          },
+          {
+            "title": "FPS",
+            "key": "fps"
+          },
+          {
+            "title": "错误",
+            "key": "error"
+          }
+        ],
+        "items": [
+          {
+            "id": "fixture-job",
+            "input": "/media/example.mkv",
+            "model": "anime",
+            "status": "queued",
+            "progress": 0,
+            "fps": 0,
+            "error": null
+          }
+        ],
+        "items-per-page": 20
+      }
+    }
+  ]
+}

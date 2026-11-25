@@ -44,7 +44,7 @@ struct NativeMusicPage: View {
     }
     .navigationTitle("音乐探索")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "筛选专辑或艺人名称")
   }
 }
@@ -71,8 +71,12 @@ struct NativeMusicExploreSection: View {
       feedBar
       if isLoading && items.isEmpty {
         NativePosterGridSkeletonView(
-          columns: horizontalSizeClass == .regular ? 4 : 2, count: 6, aspectRatio: 1.0,
-          cornerRadius: 12
+          columns: columns.count,
+          count: columns.count * 3,
+          aspectRatio: 1.0,
+          cornerRadius: 12,
+          horizontalSpacing: 13,
+          inPanel: true
         )
         .transition(.opacity)
       } else if loadFailed && items.isEmpty {
@@ -101,11 +105,9 @@ struct NativeMusicExploreSection: View {
 
   /// 随实时容器宽度自适应 2~5 列方形封面网格。
   private var columns: [GridItem] {
-    let count =
-      containerWidth > 0
-      ? NativeDeviceLayout.squareGridCount(
-        for: min(containerWidth, 1200), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
-      : (horizontalSizeClass == .regular ? 4 : 2)
+    let resolved = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let count = NativeDeviceLayout.squareGridCount(
+      for: min(resolved, 1200), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     return Array(repeating: GridItem(.flexible(), spacing: 13, alignment: .top), count: count)
   }
 
@@ -319,8 +321,11 @@ struct NativeMusicAlbumDetailPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && detail == nil {
-            NativeCardListSkeletonView(count: 2, style: .formPanel)
-              .transition(.opacity)
+            VStack(alignment: .leading, spacing: 10) {
+              Text("曲目列表").font(.headline).accessibilityAddTraits(.isHeader)
+              NativeCardListSkeletonView(count: 6, style: .trackList)
+            }
+            .transition(.opacity)
           } else {
             if let overview = resolvedOverview, !overview.isEmpty {
               CinematicPanel {
@@ -349,7 +354,7 @@ struct NativeMusicAlbumDetailPage: View {
     }
     .navigationTitle("专辑详情")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .task { await load() }
     .alert("取消音乐订阅", isPresented: $showsCancelConfirm) {
       Button("取消订阅", role: .destructive) { Task { await cancelSubscribe() } }
@@ -426,11 +431,18 @@ struct NativeMusicAlbumDetailPage: View {
           }
           if let kind = detail?.albumType, !kind.isEmpty {
             metaChip(kind)
+          } else if isLoading && detail == nil {
+            NativeSkeletonBlock(width: 56, height: 22, cornerRadius: 11)
+              .nativeSkeletonShimmer()
           }
           if let trackCount = detail?.totalTracks ?? detail?.tracks?.count, trackCount > 0 {
             metaChip("\(trackCount) 首曲目")
+          } else if isLoading && detail == nil {
+            NativeSkeletonBlock(width: 72, height: 22, cornerRadius: 11)
+              .nativeSkeletonShimmer()
           }
         }
+        .frame(minHeight: 24)
       }
     }
     .frame(maxWidth: .infinity)
@@ -707,8 +719,10 @@ struct NativeMusicArtistDetailPage: View {
   @State private var artist: NativeMusicArtistRaw?
   @State private var albums: [NativeMusicCardItem] = []
   @State private var isLoading = true
+  @State private var containerWidth: CGFloat = 0
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   /// 统一深色紫玫瑰渐变、艺术家头图区与作品专辑网格。
   var body: some View {
@@ -718,9 +732,29 @@ struct NativeMusicArtistDetailPage: View {
         VStack(alignment: .leading, spacing: 18) {
           header
           if isLoading && artist == nil && albums.isEmpty {
-            VStack(alignment: .leading, spacing: 16) {
-              NativeCardListSkeletonView(count: 1, style: .formPanel)
-              NativePosterGridSkeletonView(columns: 2, count: 4, aspectRatio: 1.0, cornerRadius: 12)
+            VStack(alignment: .leading, spacing: 18) {
+              CinematicPanel {
+                VStack(alignment: .leading, spacing: 8) {
+                  Text("艺人简介").font(.headline)
+                  NativeSkeletonBlock(height: 13, cornerRadius: 5)
+                  NativeSkeletonBlock(height: 13, cornerRadius: 5)
+                  NativeSkeletonBlock(width: 196, height: 13, cornerRadius: 5)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+              .nativeSkeletonShimmer()
+
+              VStack(alignment: .leading, spacing: 10) {
+                Text("专辑作品").font(.headline).accessibilityAddTraits(.isHeader)
+                NativePosterGridSkeletonView(
+                  columns: columns.count,
+                  count: columns.count * 2,
+                  aspectRatio: 1.0,
+                  cornerRadius: 12,
+                  horizontalSpacing: 12,
+                  verticalSpacing: 12
+                )
+              }
             }
             .transition(.opacity)
           } else {
@@ -769,24 +803,27 @@ struct NativeMusicArtistDetailPage: View {
             }
           }
         }
-        .frame(maxWidth: 820)
+        .frame(maxWidth: 1120)
         .padding(.horizontal, CinematicStyle.margin)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity)
       }
+      .nativeTrackContainerWidth($containerWidth)
       .scrollIndicators(.hidden)
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-music-artist-scroll")
     }
     .navigationTitle(artist?.displayName ?? artistName)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .task { await load() }
   }
 
-  /// 两列或四列专辑网格。
+  /// 随实时容器宽度自适应 2~5 列方形专辑网格。
   private var columns: [GridItem] {
-    let count = horizontalSizeClass == .regular ? 4 : 2
+    let resolved = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let count = NativeDeviceLayout.squareGridCount(
+      for: min(resolved, 1120), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     return Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: count)
   }
 
@@ -810,6 +847,9 @@ struct NativeMusicArtistDetailPage: View {
         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
       if !meta.isEmpty {
         Text(meta).font(.caption).foregroundStyle(.primary.opacity(0.68))
+      } else if isLoading && artist == nil {
+        NativeSkeletonBlock(width: 110, height: 12, cornerRadius: 5)
+          .nativeSkeletonShimmer()
       }
     }
     .frame(maxWidth: .infinity)

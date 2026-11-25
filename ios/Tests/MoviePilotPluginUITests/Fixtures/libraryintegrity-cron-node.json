@@ -1,0 +1,18 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VCronField",
+      "props": {
+        "model": "cron",
+        "label": "定时扫描周期",
+        "placeholder": "5 位 cron 表达式，留空不定时",
+        "hint": "按标准 crontab 解析，星期 0 和 7 都表示周日",
+        "persistent-hint": true
+      }
+    }
+  ],
+  "model": {
+    "cron": " 0 3 * * 0  "
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "render_mode": "vuetify",
+  "conf": [
+    {
+      "component": "VTextField",
+      "props": {
+        "model": "skip_sync_pattern",
+        "label": "不调轴关键字",
+        "placeholder": "e.g. WEB|NF|Amazon",
+        "v-show": "auto_sync"
+      }
+    }
+  ],
+  "model": {
+    "auto_sync": true,
+    "save_path_strategy": "custom"
+  }
+}

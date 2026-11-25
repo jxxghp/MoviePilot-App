@@ -1,0 +1,54 @@
+{
+  "version": "1.0.0",
+  "panel": {
+    "cornerRadius": 24,
+    "defaultPadding": 18,
+    "borderWidth": 0.7,
+    "highContrastBorderWidth": 1.0,
+    "darkGlassMaterialOpacity": 0.12,
+    "darkGlassHighContrastOpacity": 0.45,
+    "darkAccentTintStartOpacity": 0.08,
+    "darkAccentTintMidOpacity": 0.05,
+    "darkRoseTintEndOpacity": 0.08,
+    "lightGlassMaterialOpacity": 0.76,
+    "lightGlassWhiteFillOpacity": 0.56,
+    "lightAccentTintStartOpacity": 0.05,
+    "darkShadowOpacity": 0.08,
+    "darkShadowRadius": 10,
+    "darkShadowOffsetY": 5,
+    "lightShadowOpacity": 0.055,
+    "lightShadowRadius": 8,
+    "lightShadowOffsetY": 3
+  },
+  "sheet": {
+    "cornerRadius": 28,
+    "darkBackdropOpacity": 0.78,
+    "lightBackdropOpacity": 0.82,
+    "androidWindowBlurRadiusPx": 48,
+    "harmonyBlurStyle": "COMPONENT_THIN"
+  },
+  "navigation": {
+    "floatingBarCornerRadius": 30,
+    "floatingBarHeight": 62,
+    "plusOneButtonSize": 56,
+    "overflowMenuCornerRadius": 24,
+    "androidRenderEffectBlurDp": 22,
+    "harmonyBackgroundEffectRadius": 36,
+    "harmonyBackgroundEffectSaturation": 1.35,
+    "harmonyBackgroundEffectBrightness": 1.04
+  },
+  "ambientGradient": {
+    "fps": 15,
+    "pauseOnLowPower": true,
+    "pauseOnReduceMotion": true,
+    "pauseOnBackground": true
+  },
+  "harmonyPointLight": {
+    "cardIntensity": 1.15,
+    "cardRadiusVp": 160,
+    "navBarIntensity": 1.4,
+    "navBarRadiusVp": 120,
+    "lightUpActive": 0.92,
+    "lightUpPressed": 1.0
+  }
+}

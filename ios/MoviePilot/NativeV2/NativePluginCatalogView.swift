@@ -31,6 +31,8 @@ struct NativePluginCatalogView: View {
               .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
               .listRowBackground(Color.clear)
               .listRowSeparator(.hidden)
+          } header: {
+            Text(L10n.text("已安装")).textCase(nil)
           }
         }
         if failed {
@@ -134,7 +136,7 @@ struct NativePluginCatalogView: View {
     }
     .navigationTitle(L10n.text("插件"))
     .navigationBarTitleDisplayMode(.large)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         NavigationLink {

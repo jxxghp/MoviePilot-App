@@ -84,9 +84,14 @@ struct NativeExplorePage: View {
               filterControls
             }
             if isLoading && items.isEmpty {
-              NativePosterGridSkeletonView(columns: 3, count: 9)
-                .padding(.horizontal, CinematicStyle.margin)
-                .transition(.opacity)
+              NativePosterGridSkeletonView(
+                columns: columns.count,
+                count: columns.count * 3,
+                horizontalSpacing: 11,
+                centeredCaption: true
+              )
+              .padding(.horizontal, CinematicStyle.margin)
+              .transition(.opacity)
             } else if loadFailed && items.isEmpty {
               failureCard
             } else if items.isEmpty {
@@ -120,7 +125,7 @@ struct NativeExplorePage: View {
     }
     .navigationTitle("探索")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .onAppear {
       syncSourceConfigs()
       if let targetSource = externalSource {
@@ -178,11 +183,9 @@ struct NativeExplorePage: View {
 
   /// 随实时容器宽度自适应 3~6 列海报网格（兼容 iPad 全屏、分屏、侧栏展开与 iPhone Duo）。
   private var columns: [GridItem] {
-    let count =
-      containerWidth > 0
-      ? NativeDeviceLayout.posterGridCount(
-        for: min(containerWidth, 1240), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
-      : (horizontalSizeClass == .regular ? 5 : 3)
+    let resolved = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let count = NativeDeviceLayout.posterGridCount(
+      for: min(resolved, 1240), isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
     return Array(repeating: GridItem(.flexible(), spacing: 11, alignment: .top), count: count)
   }
 
@@ -1063,7 +1066,12 @@ private struct NativeExploreAPIItem: Decodable, Sendable {
     guard let idValue = resolvedID else { return nil }
     let resolvedType = MediaSummaryItem.normalizeMediaType(type) ?? fallbackType
     let identity = NativeMediaIdentity(
-      source: source, mediaID: idValue, type: resolvedType)
+      source: source,
+      mediaID: idValue,
+      type: resolvedType,
+      seedTitle: title,
+      seedPoster: posterPath
+    )
     let ratingText = voteAverage.flatMap { $0 > 0 ? String(format: "%.1f", $0) : nil }
     return NativeExploreItem(
       identity: identity,
@@ -1204,7 +1212,7 @@ private struct NativeExploreSourcesSheet: View {
       }
       .navigationTitle("探索来源配置")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button("取消") { dismiss() }

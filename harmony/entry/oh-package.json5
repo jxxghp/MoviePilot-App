@@ -1,0 +1,23 @@
+{
+  "name": "entry",
+  "version": "2.0.3",
+  "description": "MoviePilot HarmonyOS NEXT Entry HAP",
+  "main": "",
+  "dependencies": {
+    "@moviepilot/core_rust_bridge": "file:../commons/core_rust_bridge",
+    "@moviepilot/design_system": "file:../commons/design_system",
+    "@moviepilot/media_player": "file:../commons/media_player",
+    "@moviepilot/medal_3d": "file:../commons/medal_3d",
+    "@moviepilot/plugin_host": "file:../commons/plugin_host",
+    "@moviepilot/auth": "file:../features/auth",
+    "@moviepilot/discover": "file:../features/discover",
+    "@moviepilot/media": "file:../features/media",
+    "@moviepilot/subscribe": "file:../features/subscribe",
+    "@moviepilot/download": "file:../features/download",
+    "@moviepilot/library": "file:../features/library",
+    "@moviepilot/dashboard": "file:../features/dashboard",
+    "@moviepilot/automation": "file:../features/automation",
+    "@moviepilot/agent": "file:../features/agent",
+    "@moviepilot/settings": "file:../features/settings"
+  }
+}

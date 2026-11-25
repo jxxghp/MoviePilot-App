@@ -21,6 +21,8 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
   private(set) var registrationError: String?
   private var pending: (NotificationIntent, Date)?
   private var identityProbe: Task<Void, Never>?
+  private var identityProbeID = UUID()
+  private var lastHandledNotificationID: String?
 
   /// 发布包默认生产 APNs；开发签名须在构建时选择与描述文件一致的环境。
   var environment: String? {
@@ -29,29 +31,77 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     return value == "production" ? "production" : nil
   }
 
-  /// 原生会话接入系统通知生命周期：立即撤销旧身份，按需通过原生 REST 状态接口确认账号不可变 owner。
+  /// 按当前实例 UUID 与已验证用户 ID 构造不可变通知 owner 的本地缓存键，防止跨实例或跨账号串用。
+  private static func ownerCacheKey(for session: NativeSession) -> String {
+    "moviepilot.notification.owner.\(session.instance.id).\(session.user.id)"
+  }
+
+  /// 校验服务端返回的不可变 owner 格式。
+  private static func isValidOwner(_ value: String) -> Bool {
+    value.range(of: "^[a-zA-Z0-9_-]{16,64}$", options: .regularExpression) != nil
+  }
+
+  /// 删除已保存服务时同步清理该实例关联的本机通知身份与开关记录。
+  func clearStoredState(for instanceID: UUID) {
+    let defaults = UserDefaults.standard
+    let ownerPrefix = "moviepilot.notification.owner.\(instanceID)."
+    let enabledPrefix = "moviepilot.notification.enabled.\(instanceID)."
+    for key in defaults.dictionaryRepresentation().keys
+    where key.hasPrefix(ownerPrefix) || key.hasPrefix(enabledPrefix) {
+      defaults.removeObject(forKey: key)
+    }
+  }
+
+  /// 原生会话接入系统通知生命周期：立即撤销旧身份，优先恢复同实例同用户已验证的不可变 owner，并在后台复核远端状态。
   func attachNative(_ session: NativeSession?) {
     identityProbe?.cancel()
     identityProbe = nil
     nativeSession = session
     owner = nil
     guard let session else { return }
+    if let cachedOwner = UserDefaults.standard.string(forKey: Self.ownerCacheKey(for: session)),
+      Self.isValidOwner(cachedOwner)
+    {
+      owner = cachedOwner
+      consumePending()
+      if enabled {
+        UIApplication.shared.registerForRemoteNotifications()
+      }
+    }
     let hasPending = pending != nil
     let prefix = "moviepilot.notification.enabled.\(session.instance.id)."
     let hasSavedPref = UserDefaults.standard.dictionaryRepresentation().keys.contains {
       $0.hasPrefix(prefix) && UserDefaults.standard.bool(forKey: $0)
     }
-    guard hasPending || hasSavedPref else { return }
+    guard hasPending || hasSavedPref || owner != nil else { return }
+    let probeID = UUID()
+    identityProbeID = probeID
     identityProbe = Task { [weak self, weak session] in
-      guard let self, let session else { return }
-      do {
-        let data = try await self.nativeRequest(session: session, action: "status")
-        guard !Task.isCancelled, self.nativeSession === session else { return }
-        if case .string(let resolvedOwner) = data["owner"], !resolvedOwner.isEmpty {
-          self.identified(resolvedOwner)
+      defer {
+        if let self, self.identityProbeID == probeID {
+          self.identityProbe = nil
         }
-      } catch {
-        // 后台无声探针失败不影响正常业务，用户可在推送设置页手动重试。
+      }
+      guard let self, let session else { return }
+      let retryDelays: [Duration] = [.zero, .milliseconds(900), .seconds(2)]
+      for (index, delay) in retryDelays.enumerated() {
+        if index > 0 {
+          guard !Task.isCancelled, self.nativeSession === session,
+            self.pending != nil, self.owner == nil
+          else { return }
+          try? await Task.sleep(for: delay)
+        }
+        guard !Task.isCancelled, self.nativeSession === session else { return }
+        do {
+          let data = try await self.nativeRequest(session: session, action: "status")
+          guard !Task.isCancelled, self.nativeSession === session else { return }
+          if case .string(let resolvedOwner) = data["owner"], Self.isValidOwner(resolvedOwner) {
+            self.identified(resolvedOwner)
+          }
+          return
+        } catch {
+          // 锁屏唤醒瞬间网络切换可能短暂失败；若仍有待消费点击且尚未拿到 owner 则按退避重试，否则静默结束。
+        }
       }
     }
   }
@@ -75,6 +125,9 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
   /// 登录状态从现有已认证接口确认，不能信任推送正文声称的当前用户。
   func identified(_ value: String) {
     owner = value
+    if let session = nativeSession, Self.isValidOwner(value) {
+      UserDefaults.standard.set(value, forKey: Self.ownerCacheKey(for: session))
+    }
     consumePending()
     if enabled {
       UIApplication.shared.registerForRemoteNotifications()
@@ -132,8 +185,12 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     pending = nil
   }
 
-  /// 通知点击可先于认证到达；只在内存中短暂等待，过期后不重放。
-  func receive(_ intent: NotificationIntent) {
+  /// 通知点击可先于认证到达；只在内存中短暂等待，过期后不重放，并对同一通知请求 ID 去重。
+  func receive(_ intent: NotificationIntent, notificationID: String? = nil) {
+    if let notificationID, !notificationID.isEmpty {
+      guard lastHandledNotificationID != notificationID else { return }
+      lastHandledNotificationID = notificationID
+    }
     pending = (intent, Date())
     consumePending()
   }
@@ -221,10 +278,13 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
     withCompletionHandler completionHandler: @escaping @Sendable () -> Void
   ) {
-    let intent = Self.intent(from: response.notification.request.content.userInfo)
+    let isDefaultTap = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+    let requestID = response.notification.request.identifier
+    let intent =
+      isDefaultTap ? Self.intent(from: response.notification.request.content.userInfo) : nil
     Task { @MainActor [weak self] in
       defer { completionHandler() }
-      if let intent { self?.receive(intent) }
+      if let intent { self?.receive(intent, notificationID: requestID) }
     }
   }
 }

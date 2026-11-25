@@ -1,0 +1,21 @@
+[package]
+name = "mp-ffi-ohos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "moviepilot_core_ohos"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mp-core-api = { path = "../mp-core-api" }
+mp-core-model = { path = "../mp-core-model" }
+mp-core-plugin = { path = "../mp-core-plugin" }
+mp-core-session = { path = "../mp-core-session" }
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_env = "ohos")'.dependencies]
+napi-ohos = { version = "1.0", default-features = false, features = ["napi8", "serde-json"] }
+napi-derive-ohos = "1.0"

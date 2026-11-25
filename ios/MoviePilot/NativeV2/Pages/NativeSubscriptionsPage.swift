@@ -4,7 +4,7 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生订阅中心：分类浏览电影、电视剧与音乐订阅，支持进度展示、暂停/恢复、触发搜索与确认取消。
+/// 原生「订阅」旗舰主页面：顶部呈现追剧全景英雄卡、分类与状态排序过滤、离散胶片刻度进度及三键快捷操控，右上角提供追剧日历与订阅广场图标入口。
 @MainActor
 struct NativeSubscriptionsPage: View {
   /// 订阅列表的分类筛选维度。
@@ -36,10 +36,14 @@ struct NativeSubscriptionsPage: View {
   }
 
   let session: NativeSession
+  let isRootTab: Bool
+  @Binding private var requestedFilter: Filter?
+  let onOpenGlobalSearch: (() -> Void)?
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
   @State private var containerWidth: CGFloat = 0
   @State private var items: [NativeSubscribeItem] = []
   @State private var filter: Filter
@@ -50,110 +54,90 @@ struct NativeSubscriptionsPage: View {
   @State private var loadFailed = false
   @State private var attempt = 0
   @State private var mutatingID: Int?
+  @State private var viewingFilesItem: NativeSubscribeItem?
   @State private var editingItem: NativeSubscribeItem?
   @State private var pendingDelete: NativeSubscribeItem?
   @State private var feedback: NativeSubscribeFeedback?
 
-  /// 初始化订阅中心，可选按外部深链或小组件意图直接切换至电影/电视剧/音乐分类。
-  init(session: NativeSession, initialFilter: Filter = .all) {
+  /// 初始化订阅主页面，支持作为主标签挂载或按指定初始分类推入，并响应外部深链切换请求。
+  init(
+    session: NativeSession,
+    initialFilter: Filter = .all,
+    isRootTab: Bool = true,
+    requestedFilter: Binding<Filter?> = .constant(nil),
+    onOpenGlobalSearch: (() -> Void)? = nil
+  ) {
     self.session = session
+    self.isRootTab = isRootTab
+    _requestedFilter = requestedFilter
+    self.onOpenGlobalSearch = onOpenGlobalSearch
     _filter = State(initialValue: initialFilter)
+    if let cached: [NativeSubscribeItem] = NativePageDataCache.shared.get(
+      "subscriptions|list", session: session)
+    {
+      _items = State(initialValue: cached)
+      _isLoading = State(initialValue: false)
+    }
   }
 
-  /// 采用统一深色紫玫瑰渐变与透色海报玻璃卡，卡片可直达原生影视详情页。
+  /// 主体使用连续渐变底色，直接呈现我的订阅全景列表，右上角通过图标进入追剧日历与订阅广场。
   var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let margin = NativeDeviceLayout.horizontalMargin(for: resolvedWidth)
     ZStack {
       CinematicBackground()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          filterBar
-          if let feedback {
-            feedbackBanner(feedback)
-          }
-          if isLoading && items.isEmpty {
-            NativeCardListSkeletonView(count: 5, style: .posterRow)
-              .transition(.opacity)
-          } else if loadFailed && items.isEmpty {
-            failureCard
-          } else if filteredItems.isEmpty {
-            emptyCard
-          } else {
-            let columnCount = NativeDeviceLayout.cardGridCount(
-              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
-            let gridColumns = Array(
-              repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
-            LazyVGrid(columns: gridColumns, spacing: 12) {
-              ForEach(filteredItems) { item in
-                subscribeCard(item)
-              }
-            }
-          }
-        }
-        .frame(maxWidth: containerWidth >= 740 ? 1180 : 820)
-        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity)
-      }
-      .nativeTrackContainerWidth($containerWidth)
-      .scrollIndicators(.hidden)
-      .refreshable { await load(forceRefresh: true) }
-      .modifier(NativeSoftTopScrollEdge())
-      .accessibilityIdentifier("native-subscriptions-scroll")
+      mineSubscriptionsScroll(resolvedWidth: resolvedWidth, margin: margin)
     }
-    .navigationTitle("我的订阅")
+    .nativeTrackContainerWidth($containerWidth)
+    .navigationTitle(isRootTab ? L10n.text("订阅") : L10n.text("我的订阅"))
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
-    .searchable(text: $searchText, prompt: "筛选订阅片名")
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
-        Menu {
-          Section("订阅状态") {
-            ForEach(StateFilter.allCases) { option in
-              Button {
-                stateFilter = option
-              } label: {
-                if stateFilter == option {
-                  Label(option.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(option.rawValue)
-                }
-              }
-            }
-          }
-          Section("排序方式") {
-            ForEach(SortMode.allCases) { option in
-              Button {
-                sortMode = option
-              } label: {
-                if sortMode == option {
-                  Label(option.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(option.rawValue)
-                }
-              }
-            }
-          }
+        NavigationLink {
+          NativeCalendarPage(session: session)
         } label: {
-          Image(systemName: "line.3.horizontal.decrease.circle")
+          Image(systemName: "calendar")
         }
         .tint(.primary)
-        .accessibilityLabel("筛选与排序")
-        .accessibilityIdentifier("native-subscriptions-filter-menu")
+        .accessibilityLabel(L10n.text("追剧日历"))
+        .accessibilityIdentifier("native-subscriptions-calendar")
 
         NavigationLink {
-          NativeSubscribeCommunityPage(session: session)
+          NativeSubscribeCommunityPage(
+            session: session,
+            onSubscribed: {
+              NativePageDataCache.shared.remove("subscriptions|list", session: session)
+              attempt += 1
+            }
+          )
         } label: {
           Image(systemName: "flame.fill")
         }
         .tint(.primary)
-        .accessibilityLabel("订阅广场")
+        .accessibilityLabel(L10n.text("订阅广场"))
         .accessibilityIdentifier("native-subscriptions-community")
       }
     }
-    .task(id: attempt) { await load(forceRefresh: attempt > 0) }
+    .onAppear {
+      consumeExternalRequestsIfNeeded()
+    }
+    .onChange(of: requestedFilter) { _ in
+      consumeExternalRequestsIfNeeded()
+    }
+    .task(id: attempt) {
+      await load(forceRefresh: attempt > 0)
+    }
+    .sheet(item: $viewingFilesItem) { item in
+      NativeSubscribeFilesSheet(
+        session: session, subscribeID: item.id, fallbackTitle: item.displayTitle
+      )
+      .nativeAdaptiveSheetSizing()
+    }
     .sheet(item: $editingItem) { item in
       NativeSubscribeEditorSheet(session: session, subscribeID: item.id, title: item.displayTitle) {
         feedback = NativeSubscribeFeedback(isError: false, message: "订阅规则已更新。")
+        NativePageDataCache.shared.remove("subscriptions|list", session: session)
         attempt += 1
       }
       .nativeAdaptiveSheetSizing()
@@ -172,6 +156,286 @@ struct NativeSubscriptionsPage: View {
       Button("保留", role: .cancel) {}
     } message: { item in
       Text("确认删除「\(item.displayTitle)」订阅吗？")
+    }
+  }
+
+  /// 消费来自深链或小组件的分类筛选请求。
+  private func consumeExternalRequestsIfNeeded() {
+    if let targetFilter = requestedFilter {
+      filter = targetFilter
+      requestedFilter = nil
+    }
+  }
+
+  // MARK: - 「我的订阅」主视图与全景总览卡
+
+  private func mineSubscriptionsScroll(resolvedWidth: CGFloat, margin: CGFloat) -> some View {
+    let columnCount = NativeDeviceLayout.cardGridCount(
+      for: resolvedWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+    return ScrollView {
+      VStack(alignment: .leading, spacing: 15) {
+        if let feedback {
+          feedbackBanner(feedback)
+        }
+        if isLoading && items.isEmpty {
+          NativeSubscriptionsHubSkeletonView(columns: columnCount)
+            .transition(.opacity)
+        } else if loadFailed && items.isEmpty {
+          failureCard
+        } else if items.isEmpty {
+          welcomingEmptyCard
+        } else {
+          subscriptionHeroCard
+          filterAndSearchControls(resolvedWidth: resolvedWidth)
+          if filteredItems.isEmpty {
+            filteredEmptyCard
+          } else {
+            let gridColumns = Array(
+              repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
+            LazyVGrid(columns: gridColumns, spacing: 12) {
+              ForEach(filteredItems) { item in
+                subscribeCard(item)
+              }
+            }
+          }
+        }
+      }
+      .frame(maxWidth: resolvedWidth >= 740 ? 1180 : 860, alignment: .leading)
+      .padding(.horizontal, margin)
+      .padding(.top, 8)
+      .padding(.bottom, 34)
+      .frame(maxWidth: .infinity)
+    }
+    .scrollIndicators(.hidden)
+    .refreshable { await load(forceRefresh: true) }
+    .modifier(NativeSoftTopScrollEdge())
+    .accessibilityIdentifier("native-subscriptions-scroll")
+  }
+
+  /// 真实订阅统计指标汇总。
+  private var overviewStats:
+    (
+      activeCount: Int, pausedCount: Int, washingCount: Int,
+      totalEpisodes: Int, completedEpisodes: Int, lackEpisodes: Int
+    )
+  {
+    let activeCount = items.filter { !$0.isPaused }.count
+    let pausedCount = items.filter(\.isPaused).count
+    let washingCount = items.filter { !$0.isPaused && $0.bestVersion == 1 }.count
+    let episodeProjections = items.compactMap(\.progressProjection).filter { $0.unit == .episode }
+    let totalEpisodes = episodeProjections.reduce(0) { $0 + $1.total }
+    let completedEpisodes = episodeProjections.reduce(0) { $0 + $1.completed }
+    let lackEpisodes = max(totalEpisodes - completedEpisodes, 0)
+    return (activeCount, pausedCount, washingCount, totalEpisodes, completedEpisodes, lackEpisodes)
+  }
+
+  /// 追剧总览英雄玻璃卡：基于真实订阅数据展示在追部数与总体集数完成进度（分类筛选由下方筛选栏承载，追剧日历与订阅广场由右上角导航图标进入）。
+  private var subscriptionHeroCard: some View {
+    let stats = overviewStats
+    let accent = appearance.accentColor
+    let episodeFraction: Double =
+      stats.totalEpisodes > 0
+      ? min(max(Double(stats.completedEpisodes) / Double(stats.totalEpisodes), 0), 1)
+      : 0
+    let completionPercent = Int((episodeFraction * 100).rounded())
+
+    return CinematicPanel(padding: 16) {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
+          VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+              Text("\(stats.activeCount)")
+                .font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(.primary)
+              Text("部在追")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+              if stats.pausedCount > 0 {
+                NativeAdaptiveBadge("已暂停 \(stats.pausedCount)", tint: NativeTheme.badgeMutedText)
+              }
+              if stats.washingCount > 0 {
+                NativeAdaptiveBadge("洗版 \(stats.washingCount) 部", tint: NativeTheme.warning)
+              }
+              if stateFilter != .all || sortMode != .defaultOrder {
+                NativeAdaptiveBadge(
+                  stateFilter != .all ? stateFilter.rawValue : sortMode.rawValue,
+                  tint: NativeTheme.info
+                )
+              }
+            }
+
+            if stats.totalEpisodes > 0 {
+              Text(
+                "已完成 \(stats.completedEpisodes)/\(stats.totalEpisodes) 集 · 待更 \(stats.lackEpisodes) 集"
+              )
+              .font(.caption.monospacedDigit().weight(.medium))
+              .foregroundStyle(.secondary)
+            } else {
+              Text("自动追踪站点更新并匹配最佳资源")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+          }
+
+          Spacer(minLength: 6)
+
+          if stats.totalEpisodes > 0 {
+            VStack(alignment: .trailing, spacing: 2) {
+              Text("\(completionPercent)%")
+                .font(.system(size: 20, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(accent)
+              Text("集数进度")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+            }
+            .padding(.top, 2)
+          }
+        }
+
+        if stats.totalEpisodes > 0 {
+          GeometryReader { proxy in
+            let fullWidth = max(proxy.size.width, 1)
+            let filledWidth =
+              stats.completedEpisodes > 0
+              ? max(fullWidth * episodeFraction, 8)
+              : 0
+            ZStack(alignment: .leading) {
+              Capsule()
+                .fill(NativeTheme.chipFill)
+              if filledWidth > 0 {
+                Capsule()
+                  .fill(
+                    LinearGradient(
+                      colors: [accent, NativeTheme.pink],
+                      startPoint: .leading,
+                      endPoint: .trailing
+                    )
+                  )
+                  .frame(width: filledWidth)
+              }
+            }
+          }
+          .frame(height: 6.5)
+          .accessibilityHidden(true)
+        }
+      }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("native-subscriptions-overview")
+  }
+
+  /// 分类筛选胶囊栏 + 紧凑片名快速过滤框与状态排序菜单（宽屏单行并排，窄屏上下排布防挤压）。
+  @ViewBuilder
+  private func filterAndSearchControls(resolvedWidth: CGFloat) -> some View {
+    if resolvedWidth >= 640 && !dynamicTypeSize.isAccessibilitySize {
+      HStack(spacing: 10) {
+        filterBar
+        Spacer(minLength: 4)
+        searchAndSortRow
+          .frame(width: 284)
+      }
+    } else {
+      VStack(alignment: .leading, spacing: 10) {
+        filterBar
+        searchAndSortRow
+      }
+    }
+  }
+
+  /// 内联搜索框 + 右侧状态与排序下拉胶囊按钮。
+  private var searchAndSortRow: some View {
+    HStack(spacing: 8) {
+      inlineSearchField
+      Menu {
+        Section("订阅状态") {
+          ForEach(StateFilter.allCases) { option in
+            Button {
+              stateFilter = option
+            } label: {
+              if stateFilter == option {
+                Label(option.rawValue, systemImage: "checkmark")
+              } else {
+                Text(option.rawValue)
+              }
+            }
+          }
+        }
+        Section("排序方式") {
+          ForEach(SortMode.allCases) { option in
+            Button {
+              sortMode = option
+            } label: {
+              if sortMode == option {
+                Label(option.rawValue, systemImage: "checkmark")
+              } else {
+                Text(option.rawValue)
+              }
+            }
+          }
+        }
+      } label: {
+        let hasActiveSortOrState = stateFilter != .all || sortMode != .defaultOrder
+        Image(systemName: "line.3.horizontal.decrease")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(hasActiveSortOrState ? appearance.accentColor : .primary.opacity(0.82))
+          .frame(width: 36, height: 36)
+          .background {
+            Circle()
+              .fill(
+                hasActiveSortOrState
+                  ? appearance.accentColor.opacity(colorScheme == .light ? 0.14 : 0.20)
+                  : NativeTheme.fieldFill
+              )
+              .overlay {
+                Circle()
+                  .strokeBorder(
+                    hasActiveSortOrState
+                      ? appearance.accentColor.opacity(0.36)
+                      : NativeTheme.fieldBorder,
+                    lineWidth: 0.7
+                  )
+              }
+          }
+      }
+      .accessibilityLabel("筛选与排序")
+      .accessibilityIdentifier("native-subscriptions-filter-menu")
+    }
+  }
+
+  /// 紧凑内联片名筛选框（替代系统 UISearchController，避免推挤顶部分区栏）。
+  private var inlineSearchField: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "magnifyingglass")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+      TextField("筛选已订阅片名…", text: $searchText)
+        .font(.subheadline)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .submitLabel(.search)
+        .accessibilityIdentifier("native-subscriptions-search")
+      if !searchText.isEmpty {
+        Button {
+          searchText = ""
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("清除筛选关键词")
+      }
+    }
+    .padding(.horizontal, 12)
+    .frame(height: 36)
+    .background {
+      Capsule()
+        .fill(NativeTheme.fieldFill)
+        .overlay {
+          Capsule().strokeBorder(NativeTheme.fieldBorder, lineWidth: 0.7)
+        }
     }
   }
 
@@ -215,13 +479,15 @@ struct NativeSubscriptionsPage: View {
 
   /// 顶部分类胶囊筛选栏，同时展示各分类真实条数。
   private var filterBar: some View {
-    ScrollView(.horizontal) {
+    ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: 8) {
         ForEach(Filter.allCases) { option in
           let count = countFor(option)
           let selected = filter == option
           Button {
-            filter = option
+            withAnimation(.easeOut(duration: 0.18)) {
+              filter = option
+            }
           } label: {
             Text(count > 0 ? "\(option.rawValue) \(count)" : option.rawValue)
               .font(.subheadline.weight(selected ? .semibold : .regular))
@@ -230,19 +496,26 @@ struct NativeSubscriptionsPage: View {
               .padding(.vertical, 7)
               .background {
                 Capsule()
-                  .fill(selected ? NativeTheme.brand.opacity(0.18) : NativeTheme.chipFill)
+                  .fill(
+                    selected
+                      ? appearance.accentColor.opacity(colorScheme == .light ? 0.16 : 0.22)
+                      : NativeTheme.chipFill
+                  )
                   .overlay {
-                    Capsule().strokeBorder(.primary.opacity(selected ? 0.28 : 0.14), lineWidth: 0.6)
+                    Capsule()
+                      .strokeBorder(
+                        selected ? appearance.accentColor.opacity(0.42) : NativeTheme.chipBorder,
+                        lineWidth: 0.7
+                      )
                   }
               }
-              .frame(minHeight: 38)
+              .frame(minHeight: 36)
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier("native-subscriptions-filter-\(option.rawValue)")
         }
       }
     }
-    .scrollIndicators(.hidden)
   }
 
   /// 统计单个分类下的真实订阅条目数。
@@ -255,97 +528,124 @@ struct NativeSubscriptionsPage: View {
     }
   }
 
-  /// 单条订阅透色玻璃卡片：2:3 竖版海报、状态/进度与原生上下文动作。
+  // MARK: - 单条订阅卡片
+
+  /// 单条订阅高质感透色玻璃卡片：`76×114pt` 2:3 海报（含角标评分）、季号胶囊、语义状态角标、离散胶片刻度与三键内联动作栏。
   private func subscribeCard(_ item: NativeSubscribeItem) -> some View {
     let poster = NativeMediaDetailPage.resolveArtwork(
       item.poster, source: item.mediaSource ?? "themoviedb")
     let isMutating = mutatingID == item.id
-    return CinematicPanel(padding: 12) {
+    return CinematicPanel(padding: 13) {
       HStack(alignment: .top, spacing: 13) {
         Group {
           if let identity = item.detailIdentity {
             NavigationLink {
               NativeMediaDetailPage(session: session, identity: identity)
             } label: {
-              posterView(poster)
+              posterView(poster, vote: item.vote)
             }
             .buttonStyle(.plain)
           } else {
-            posterView(poster)
+            posterView(poster, vote: item.vote)
           }
         }
-        VStack(alignment: .leading, spacing: 6) {
+
+        VStack(alignment: .leading, spacing: 7) {
           HStack(alignment: .top, spacing: 8) {
-            if let identity = item.detailIdentity {
-              NavigationLink {
-                NativeMediaDetailPage(session: session, identity: identity)
-              } label: {
-                Text(item.displayTitle)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+              if let identity = item.detailIdentity {
+                NavigationLink {
+                  NativeMediaDetailPage(session: session, identity: identity)
+                } label: {
+                  Text(item.name)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                }
+                .buttonStyle(.plain)
+              } else {
+                Text(item.name)
                   .font(.headline)
                   .foregroundStyle(.primary)
                   .lineLimit(2)
-                  .multilineTextAlignment(.leading)
               }
-              .buttonStyle(.plain)
-            } else {
-              Text(item.displayTitle)
-                .font(.headline)
-                .foregroundStyle(.primary)
-                .lineLimit(2)
+
+              if let seasonTag = item.seasonTag {
+                NativeAdaptiveBadge(seasonTag, tint: appearance.accentColor)
+              }
             }
+
             Spacer(minLength: 4)
             stateBadge(item)
           }
+
           HStack(spacing: 8) {
             if let year = item.year, !year.isEmpty {
-              Text(year).font(.caption).foregroundStyle(.primary.opacity(0.66))
+              Text(year)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
             }
             if let type = item.type, !type.isEmpty {
-              Text(type).font(.caption).foregroundStyle(.primary.opacity(0.66))
+              Text(type)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            if let vote = item.vote, vote > 0 {
-              Label(String(format: "%.1f", vote), systemImage: "star.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.yellow)
+            if item.type == "电影" {
+              Text(item.bestVersion == 1 ? "持续匹配更优洗版资源" : "等待高优先级资源命中")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             }
           }
+
           if let projection = item.progressProjection {
             subscribeTickStrip(projection, item: item)
-              .padding(.top, 2)
+              .padding(.top, 1)
           }
-          HStack(spacing: 10) {
-            Button {
+
+          HStack(spacing: 8) {
+            cardActionButton(
+              title: item.isPaused ? "恢复" : "暂停",
+              symbol: item.isPaused ? "play.fill" : "pause.fill",
+              isLoading: isMutating,
+              disabled: mutatingID != nil,
+              accessibilityLabel: item.isPaused ? "恢复订阅" : "暂停订阅",
+              accessibilityID: "native-subscribe-toggle-\(item.id)"
+            ) {
               Task { await toggleStatus(item) }
-            } label: {
-              HStack(spacing: 4) {
-                if isMutating {
-                  ProgressView().controlSize(.mini).tint(.primary)
-                } else {
-                  Image(systemName: item.isPaused ? "play.fill" : "pause.fill")
-                    .font(.caption2.weight(.semibold))
-                }
-                Text(item.isPaused ? "恢复" : "暂停").font(.caption.weight(.semibold))
-              }
-              .foregroundStyle(.primary)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 5)
-              .background {
-                Capsule()
-                  .fill(.primary.opacity(0.13))
-                  .overlay { Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6) }
-              }
-              .frame(minHeight: 32)
             }
-            .buttonStyle(.plain)
-            .disabled(mutatingID != nil)
-            .accessibilityIdentifier("native-subscribe-toggle-\(item.id)")
-            Spacer()
+
+            cardActionButton(
+              title: "规则",
+              symbol: "slider.horizontal.3",
+              accessibilityLabel: "编辑订阅规则",
+              accessibilityID: "native-subscribe-edit-\(item.id)"
+            ) {
+              editingItem = item
+            }
+
+            cardActionButton(
+              title: "文件",
+              symbol: "doc.text.magnifyingglass",
+              accessibilityLabel: "查看订阅文件详情",
+              accessibilityID: "native-subscribe-files-\(item.id)"
+            ) {
+              viewingFilesItem = item
+            }
+
+            Spacer(minLength: 0)
           }
           .padding(.top, 2)
         }
       }
     }
     .contextMenu {
+      Button {
+        viewingFilesItem = item
+      } label: {
+        Label("文件详情", systemImage: "doc.text.magnifyingglass")
+      }
       Button {
         editingItem = item
       } label: {
@@ -355,7 +655,9 @@ struct NativeSubscriptionsPage: View {
         Task { await toggleStatus(item) }
       } label: {
         Label(
-          item.isPaused ? "恢复订阅" : "暂停订阅", systemImage: item.isPaused ? "play.fill" : "pause.fill")
+          item.isPaused ? "恢复订阅" : "暂停订阅",
+          systemImage: item.isPaused ? "play.fill" : "pause.fill"
+        )
       }
       Button(role: .destructive) {
         pendingDelete = item
@@ -365,6 +667,46 @@ struct NativeSubscriptionsPage: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("native-subscribe-card-\(item.id)")
+  }
+
+  /// 订阅卡片底部统一 34pt 胶囊操作按钮。
+  private func cardActionButton(
+    title: String,
+    symbol: String,
+    isLoading: Bool = false,
+    disabled: Bool = false,
+    accessibilityLabel: String,
+    accessibilityID: String,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 4) {
+        if isLoading {
+          ProgressView().controlSize(.mini).tint(.primary)
+        } else {
+          Image(systemName: symbol)
+            .font(.caption2.weight(.semibold))
+        }
+        Text(title)
+          .font(.caption.weight(.semibold))
+          .lineLimit(1)
+      }
+      .foregroundStyle(.primary.opacity(0.92))
+      .padding(.horizontal, 10)
+      .frame(minHeight: 34)
+      .background {
+        Capsule()
+          .fill(NativeTheme.chipFill)
+          .overlay {
+            Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.65)
+          }
+      }
+      .contentShape(Capsule())
+    }
+    .buttonStyle(.plain)
+    .disabled(disabled)
+    .accessibilityLabel(accessibilityLabel)
+    .accessibilityIdentifier(accessibilityID)
   }
 
   /// 离散剧集/曲目胶片刻度格：以独立分格替代下载式连续进度条，支持逐集缺口与洗版三态呈现。
@@ -464,15 +806,35 @@ struct NativeSubscriptionsPage: View {
     .frame(maxWidth: fixedCompactWidth ? nil : .infinity)
   }
 
-  /// 2:3 竖版海报，沿用全应用统一的 420px 内存缓存档位。
-  private func posterView(_ reference: String?) -> some View {
-    NativeMediaArtwork(session: session, reference: reference, role: .poster, maximumWidth: 420)
-      .frame(width: 68, height: 102)
-      .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-      .overlay {
-        RoundedRectangle(cornerRadius: 11, style: .continuous)
-          .strokeBorder(.primary.opacity(0.12), lineWidth: 0.5)
+  /// `76×114pt` 2:3 竖版海报，带微光玻璃描边与左下角评分徽标。
+  private func posterView(_ reference: String?, vote: Double?) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+    return NativeMediaArtwork(
+      session: session, reference: reference, role: .poster, maximumWidth: 420
+    )
+    .frame(width: 76, height: 114)
+    .clipShape(shape)
+    .overlay {
+      shape.strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
+    }
+    .overlay(alignment: .bottomLeading) {
+      if let vote, vote > 0 {
+        HStack(spacing: 2.5) {
+          Image(systemName: "star.fill")
+            .font(.system(size: 8.5, weight: .bold))
+            .foregroundStyle(.yellow)
+          Text(String(format: "%.1f", vote))
+            .font(.system(size: 10, weight: .bold).monospacedDigit())
+            .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 5.5)
+        .padding(.vertical, 2.5)
+        .background {
+          Capsule().fill(.black.opacity(0.68))
+        }
+        .padding(5)
       }
+    }
   }
 
   /// 订阅运行状态徽标。
@@ -481,9 +843,7 @@ struct NativeSubscriptionsPage: View {
     let tint: Color =
       item.isPaused
       ? NativeTheme.badgeMutedText
-      : (item.bestVersion == 1
-        ? NativeTheme.warning
-        : NativeTheme.success)
+      : (item.bestVersion == 1 ? NativeTheme.warning : NativeTheme.success)
     return Text(text)
       .font(.caption2.weight(.semibold))
       .foregroundStyle(tint)
@@ -491,10 +851,12 @@ struct NativeSubscriptionsPage: View {
       .padding(.vertical, 4)
       .background {
         Capsule()
-          .fill(.primary.opacity(0.10))
-          .overlay { Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.6) }
+          .fill(tint.opacity(0.13))
+          .overlay { Capsule().strokeBorder(tint.opacity(0.32), lineWidth: 0.6) }
       }
   }
+
+  // MARK: - 提示条与空/错态
 
   /// 轻量反馈提示条。
   private func feedbackBanner(_ feedback: NativeSubscribeFeedback) -> some View {
@@ -518,19 +880,111 @@ struct NativeSubscriptionsPage: View {
     .accessibilityIdentifier("native-subscriptions-feedback")
   }
 
-  /// 无订阅空态卡片。
-  private var emptyCard: some View {
-    CinematicPanel {
-      VStack(spacing: 10) {
-        Image(systemName: "bookmark")
-          .font(.largeTitle)
-          .foregroundStyle(.primary.opacity(0.55))
-        Text("暂无匹配的订阅").font(.headline)
-        Text("你可以在发现页或媒体详情中一键添加订阅。")
-          .font(.footnote)
-          .foregroundStyle(.primary.opacity(0.65))
+  /// 尚无任何订阅时的引导空态卡片：一键前往订阅广场或打开全局搜索。
+  private var welcomingEmptyCard: some View {
+    let accent = appearance.accentColor
+    return CinematicPanel(padding: 24) {
+      VStack(spacing: 14) {
+        ZStack {
+          Circle()
+            .fill(accent.opacity(colorScheme == .light ? 0.12 : 0.18))
+            .frame(width: 60, height: 60)
+          Image(systemName: "bookmark.fill")
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(accent)
+        }
+        VStack(spacing: 6) {
+          Text("还没有正在追踪的订阅")
+            .font(.title3.weight(.bold))
+            .foregroundStyle(.primary)
+          Text("去订阅广场发现热门榜单与社区规则，或直接搜索想看的电影与剧集。")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+        }
+
+        HStack(spacing: 10) {
+          NavigationLink {
+            NativeSubscribeCommunityPage(
+              session: session,
+              onSubscribed: {
+                NativePageDataCache.shared.remove("subscriptions|list", session: session)
+                attempt += 1
+              }
+            )
+          } label: {
+            Label("逛逛订阅广场", systemImage: "flame.fill")
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 16)
+              .frame(minHeight: 40)
+              .background {
+                Capsule().fill(accent)
+              }
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("native-subscriptions-empty-community")
+
+          if let onOpenGlobalSearch {
+            Button(action: onOpenGlobalSearch) {
+              Label("全局搜索", systemImage: "magnifyingglass")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 40)
+                .background {
+                  Capsule()
+                    .fill(NativeTheme.chipFill)
+                    .overlay {
+                      Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("native-subscriptions-empty-search")
+          }
+        }
+        .padding(.top, 2)
       }
-      .frame(maxWidth: .infinity, minHeight: 150)
+      .frame(maxWidth: .infinity, minHeight: 200)
+    }
+    .accessibilityIdentifier("native-subscriptions-empty")
+  }
+
+  /// 当前筛选条件下无匹配项的空态卡片。
+  private var filteredEmptyCard: some View {
+    CinematicPanel(padding: 20) {
+      VStack(spacing: 10) {
+        Image(systemName: "line.3.horizontal.decrease.circle")
+          .font(.title)
+          .foregroundStyle(.secondary)
+        Text("暂无匹配的订阅")
+          .font(.headline)
+        Text("尝试切换上方分类、状态过滤或清空搜索关键词。")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+        if filter != .all || stateFilter != .all || !searchText.isEmpty {
+          Button {
+            withAnimation(.easeOut(duration: 0.18)) {
+              filter = .all
+              stateFilter = .all
+              searchText = ""
+            }
+          } label: {
+            Text("重置筛选条件")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(appearance.accentColor)
+              .padding(.horizontal, 14)
+              .frame(minHeight: 34)
+              .background {
+                Capsule()
+                  .fill(appearance.accentColor.opacity(0.14))
+              }
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .frame(maxWidth: .infinity, minHeight: 140)
     }
   }
 
@@ -546,6 +1000,8 @@ struct NativeSubscriptionsPage: View {
       .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
+
+  // MARK: - 数据请求与状态变更
 
   /// 从 `GET /api/v1/subscribe/` 拉取当前用户可见的全部订阅；命中缓存时静默复用，下拉刷新强制重拉。
   private func load(forceRefresh: Bool = false) async {
@@ -611,6 +1067,7 @@ struct NativeSubscriptionsPage: View {
       try await session.perform(endpoint, requiring: .init(category: .subscribe))
       try Task.checkCancellation()
       items.removeAll { $0.id == item.id }
+      NativePageDataCache.shared.set(items, for: "subscriptions|list", session: session)
       feedback = NativeSubscribeFeedback(isError: false, message: "已取消订阅。")
     } catch is CancellationError {
       return
@@ -651,12 +1108,18 @@ private struct NativeSubscribeItem: Decodable, Sendable, Identifiable {
   let totalTracks: Int?
   let completedTracks: Int?
 
-  /// 标题附带季号。
+  /// 标题附带季号（供搜索过滤与编辑弹窗标题使用）。
   var displayTitle: String {
-    if let season, type == "电视剧" {
-      return "\(name) S\(String(format: "%02d", season))"
+    if let seasonTag {
+      return "\(name) \(seasonTag)"
     }
     return name
+  }
+
+  /// 电视剧季号标签（如 `S01`）。
+  var seasonTag: String? {
+    guard type == "电视剧", let season else { return nil }
+    return "S\(String(format: "%02d", season))"
   }
 
   /// `S` 表示暂停。
@@ -687,7 +1150,13 @@ private struct NativeSubscribeItem: Decodable, Sendable, Identifiable {
       let source = mediaSource, !source.isEmpty,
       let mediaID, !mediaID.isEmpty
     else { return nil }
-    return NativeMediaIdentity(source: source, mediaID: mediaID, type: type)
+    return NativeMediaIdentity(
+      source: source,
+      mediaID: mediaID,
+      type: type,
+      seedTitle: name,
+      seedPoster: poster
+    )
   }
 
   /// 容错解码后端扩展字段（如历史字符串型 `note` 或不同版本缺失字段）。

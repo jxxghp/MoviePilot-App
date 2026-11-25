@@ -21,6 +21,7 @@ struct NativeMessagesPage: View {
 
   let session: NativeSession
 
+  @ObservedObject private var routeHub = NativeSystemRouteHub.shared
   @State private var messages: [NativeMessageItem] = []
   @State private var category: Category = .all
   @State private var page = 1
@@ -71,7 +72,7 @@ struct NativeMessagesPage: View {
     }
     .navigationTitle("消息中心")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Menu {
@@ -97,6 +98,10 @@ struct NativeMessagesPage: View {
       }
     }
     .task(id: attempt) { await reload(forceRefresh: attempt > 0) }
+    .onChange(of: routeHub.messagesRefreshRevision) { _ in
+      category = .all
+      Task { await reload(forceRefresh: true) }
+    }
   }
 
   /// 经分类过滤后的消息列表。

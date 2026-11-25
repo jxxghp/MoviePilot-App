@@ -1,0 +1,11 @@
+{
+  "name": "@moviepilot/dashboard",
+  "version": "2.0.3",
+  "description": "MoviePilot HarmonyOS NEXT dashboard HAR",
+  "main": "Index.ets",
+  "dependencies": {
+    "@moviepilot/core_rust_bridge": "file:../../commons/core_rust_bridge",
+    "@moviepilot/design_system": "file:../../commons/design_system",
+    "@moviepilot/medal_3d": "file:../../commons/medal_3d"
+  }
+}

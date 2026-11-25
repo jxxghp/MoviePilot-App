@@ -140,7 +140,7 @@ struct NativePluginDataPageView: View {
     }
     .navigationTitle(pluginName)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .toolbar {
       if navKey == nil, renderMode.lowercased() != "vue" {
         ToolbarItem(placement: .topBarTrailing) {
@@ -1442,8 +1442,10 @@ struct NativeVuePluginWebContainer: View {
         } else if showsLoader {
           ScrollView {
             NativeCardListSkeletonView(count: 3, style: .formPanel)
+              .frame(maxWidth: 880)
               .padding(.horizontal, CinematicStyle.margin)
               .padding(.vertical, 16)
+              .frame(maxWidth: .infinity)
           }
           .scrollIndicators(.hidden)
           .transition(.opacity)
@@ -1453,8 +1455,10 @@ struct NativeVuePluginWebContainer: View {
       } else {
         ScrollView {
           NativeCardListSkeletonView(count: 3, style: .formPanel)
+            .frame(maxWidth: 880)
             .padding(.horizontal, CinematicStyle.margin)
             .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
         .transition(.opacity)

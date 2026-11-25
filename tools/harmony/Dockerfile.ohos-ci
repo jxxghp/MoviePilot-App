@@ -1,0 +1,31 @@
+# HarmonyOS NEXT CI 构建镜像（含 JDK 17、Rust ohos 交叉编译目标与 HarmonyOS Command Line Tools）
+FROM ubuntu:24.04
+
+ARG OHOS_SDK_TAG=26.0.0.821
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    OHOS_TOOLS_HOME=/opt/harmony/command-line-tools \
+    DEVECO_SDK_HOME=/opt/harmony/command-line-tools/sdk \
+    OHOS_NDK_HOME=/opt/harmony/command-line-tools/sdk/default/openharmony/native \
+    RUSTUP_HOME=/opt/rustup \
+    CARGO_HOME=/opt/cargo
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git jq openjdk-17-jdk-headless libgl1 python3 unzip xz-utils build-essential pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Rust 工具链与 OpenHarmony / HarmonyOS NEXT 原生编译 targets
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+    && /opt/cargo/bin/rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
+
+# 下载并校验 HarmonyOS Command Line Tools + SDK
+RUN mkdir -p /opt/harmony && cd /opt/harmony \
+    && curl -fsSL "https://github.com/ErBWs/ohos-sdk/releases/download/${OHOS_SDK_TAG}/ohos-sdk-linux-amd64.tar.gz.aa" -o sdk.aa \
+    && curl -fsSL "https://github.com/ErBWs/ohos-sdk/releases/download/${OHOS_SDK_TAG}/ohos-sdk-linux-amd64.tar.gz.ab" -o sdk.ab \
+    && cat sdk.aa sdk.ab > ohos-sdk-linux-amd64.tar.gz \
+    && tar -xzf ohos-sdk-linux-amd64.tar.gz \
+    && rm -f sdk.aa sdk.ab ohos-sdk-linux-amd64.tar.gz
+
+ENV PATH="/opt/cargo/bin:${OHOS_TOOLS_HOME}/bin:${OHOS_TOOLS_HOME}/tool/node/bin:${PATH}"
+
+WORKDIR /workspace

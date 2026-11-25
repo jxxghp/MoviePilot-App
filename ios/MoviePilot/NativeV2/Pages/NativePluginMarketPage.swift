@@ -77,7 +77,10 @@ struct NativePluginMarketPage: View {
   }
 
   private var scrollContent: some View {
-    ZStack {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let columnCount = NativeDeviceLayout.cardGridCount(
+      for: resolvedWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+    return ZStack {
       CinematicBackground()
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
@@ -85,15 +88,17 @@ struct NativePluginMarketPage: View {
             feedbackBanner(feedback)
           }
           if isLoading && installedPlugins.isEmpty {
-            NativeCardListSkeletonView(count: 5, style: .pluginCard)
-              .transition(.opacity)
+            NativeCardListSkeletonView(
+              count: columnCount * 3,
+              style: .pluginCard,
+              columns: columnCount
+            )
+            .transition(.opacity)
           } else if loadFailed && installedPlugins.isEmpty {
             failureCard
           } else if filteredItems.isEmpty {
             emptyCard
           } else {
-            let columnCount = NativeDeviceLayout.cardGridCount(
-              for: containerWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
             let gridColumns = Array(
               repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
             LazyVGrid(columns: gridColumns, spacing: 12) {
@@ -103,8 +108,8 @@ struct NativePluginMarketPage: View {
             }
           }
         }
-        .frame(maxWidth: containerWidth >= 740 ? 1180 : 820)
-        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: containerWidth))
+        .frame(maxWidth: resolvedWidth >= 740 ? 1180 : 820)
+        .padding(.horizontal, NativeDeviceLayout.horizontalMargin(for: resolvedWidth))
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
       }
@@ -120,7 +125,7 @@ struct NativePluginMarketPage: View {
     scrollContent
       .navigationTitle("插件")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .searchable(text: $searchText, prompt: "搜索已安装插件、作者或标签")
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
@@ -869,7 +874,7 @@ private struct NativePluginStorePage: View {
     }
     .navigationTitle("插件市场")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
+    .nativeTopNavigationBar()
     .searchable(text: $searchText, prompt: "搜索插件名称、作者或标签")
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -1348,7 +1353,7 @@ private struct NativePluginMarketDetailSheet: View {
       }
       .navigationTitle(plugin.installed ? "插件详情" : "安装插件")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -1971,8 +1976,31 @@ private struct NativePluginVersionHistorySheet: View {
             }
 
             if isLoading && mergedRows.isEmpty {
-              NativeCardListSkeletonView(count: 2, style: .formPanel)
-                .transition(.opacity)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  ForEach(0..<4, id: \.self) { idx in
+                    if idx > 0 { CinematicFormDivider() }
+                    VStack(alignment: .leading, spacing: 6) {
+                      HStack(spacing: 8) {
+                        NativeSkeletonBlock(width: 58, height: 15, cornerRadius: 5)
+                        if idx == 0 {
+                          NativeSkeletonBlock(width: 52, height: 18, cornerRadius: 9)
+                        }
+                        Spacer(minLength: 4)
+                        if idx > 0 {
+                          NativeSkeletonBlock(width: 64, height: 24, cornerRadius: 12)
+                        }
+                      }
+                      NativeSkeletonBlock(height: 12, cornerRadius: 4)
+                      NativeSkeletonBlock(width: 196, height: 12, cornerRadius: 4)
+                    }
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 12)
+                  }
+                }
+              }
+              .nativeSkeletonShimmer()
+              .transition(.opacity)
             } else if mergedRows.isEmpty {
               CinematicPanel(padding: 16) {
                 Text("暂无版本更新历史记录")
@@ -2035,7 +2063,7 @@ private struct NativePluginVersionHistorySheet: View {
       }
       .navigationTitle("版本历史")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2325,7 +2353,7 @@ private struct NativePluginCloneSheet: View {
       }
       .navigationTitle("创建插件分身")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("取消") { dismiss() }
@@ -2430,9 +2458,14 @@ private struct NativePluginLogSheet: View {
         CinematicBackground()
         if isLoading && lines.isEmpty {
           ScrollView {
-            NativeCardListSkeletonView(count: 5, style: .messageCard)
-              .padding(.horizontal, CinematicStyle.margin)
-              .padding(.vertical, 12)
+            NativeCardListSkeletonView(
+              count: 14,
+              style: .logLines,
+              spacing: 6,
+              showsIcon: false
+            )
+            .padding(.horizontal, CinematicStyle.margin)
+            .padding(.vertical, 12)
           }
           .scrollIndicators(.hidden)
           .transition(.opacity)
@@ -2466,7 +2499,7 @@ private struct NativePluginLogSheet: View {
       }
       .navigationTitle("\(plugin.displayName) 日志")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2541,8 +2574,30 @@ private struct NativePluginCapabilitiesSheet: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
             if isLoading {
-              NativeCardListSkeletonView(count: 2, style: .formPanel)
-                .transition(.opacity)
+              VStack(alignment: .leading, spacing: 14) {
+                ForEach(["注册命令", "定时服务", "工作流动作"], id: \.self) { sectionTitle in
+                  VStack(alignment: .leading, spacing: 6) {
+                    Text(sectionTitle)
+                      .font(.caption.weight(.semibold))
+                      .foregroundStyle(.secondary)
+                      .padding(.horizontal, 4)
+                    CinematicPanel(padding: 13) {
+                      VStack(alignment: .leading, spacing: 8) {
+                        ForEach(0..<2, id: \.self) { idx in
+                          if idx > 0 { Divider().overlay(NativeTheme.divider) }
+                          HStack {
+                            NativeSkeletonBlock(width: 112, height: 14, cornerRadius: 5)
+                            Spacer(minLength: 8)
+                            NativeSkeletonBlock(width: 84, height: 12, cornerRadius: 4)
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              .nativeSkeletonShimmer()
+              .transition(.opacity)
             } else if let cap = capabilities {
               capabilityCard(
                 title: "注册命令 (\(cap.commands.count))",
@@ -2565,7 +2620,7 @@ private struct NativePluginCapabilitiesSheet: View {
       }
       .navigationTitle("运行能力")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2641,8 +2696,35 @@ private struct NativePluginDataSummarySheet: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
             if isLoading {
-              NativeCardListSkeletonView(count: 2, style: .formPanel)
-                .transition(.opacity)
+              VStack(alignment: .leading, spacing: 14) {
+                CinematicPanel(padding: 13) {
+                  HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                      Text("持久化键总数").font(.caption).foregroundStyle(.secondary)
+                      NativeSkeletonBlock(width: 48, height: 22, cornerRadius: 6)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 5) {
+                      Text("总字符估算").font(.caption).foregroundStyle(.secondary)
+                      NativeSkeletonBlock(width: 68, height: 22, cornerRadius: 6)
+                    }
+                  }
+                }
+                CinematicPanel(padding: 13) {
+                  VStack(alignment: .leading, spacing: 8) {
+                    ForEach(0..<4, id: \.self) { idx in
+                      if idx > 0 { Divider().overlay(NativeTheme.divider) }
+                      HStack {
+                        NativeSkeletonBlock(width: 128, height: 13, cornerRadius: 4)
+                        Spacer()
+                        NativeSkeletonBlock(width: 48, height: 18, cornerRadius: 9)
+                      }
+                    }
+                  }
+                }
+              }
+              .nativeSkeletonShimmer()
+              .transition(.opacity)
             } else if let s = summary {
               CinematicPanel(padding: 13) {
                 HStack {
@@ -2682,7 +2764,7 @@ private struct NativePluginDataSummarySheet: View {
       }
       .navigationTitle("数据摘要")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2831,7 +2913,7 @@ private struct NativePluginInstanceManageSheet: View {
       }
       .navigationTitle("实例管理")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.hidden, for: .navigationBar)
+      .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {

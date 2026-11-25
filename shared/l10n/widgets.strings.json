@@ -1,0 +1,80 @@
+{
+  "version": "1.0.0",
+  "entries": {
+    "MoviePilot 小组件": {
+      "zh-Hans": "MoviePilot 小组件",
+      "zh-Hant": "MoviePilot 小組件",
+      "en": "MoviePilot widgets"
+    },
+    "MoviePilot 状态": {
+      "zh-Hans": "MoviePilot 状态",
+      "zh-Hant": "MoviePilot 狀態",
+      "en": "MoviePilot Status"
+    },
+    "下载状态": {
+      "zh-Hans": "下载状态",
+      "zh-Hant": "下載狀態",
+      "en": "Download status"
+    },
+    "内容": {
+      "zh-Hans": "内容",
+      "zh-Hant": "內容",
+      "en": "Content"
+    },
+    "剧集订阅": {
+      "zh-Hans": "剧集订阅",
+      "zh-Hant": "劇集訂閱",
+      "en": "TV subscriptions"
+    },
+    "在锁屏查看下载、上传速度及只读状态。": {
+      "zh-Hans": "在锁屏查看下载、上传速度及只读状态。",
+      "zh-Hant": "在鎖定畫面查看下載、上傳速度及唯讀狀態。",
+      "en": "View download and upload speeds and read-only status on the Lock Screen."
+    },
+    "显示媒体名称": {
+      "zh-Hans": "显示媒体名称",
+      "zh-Hant": "顯示媒體名稱",
+      "en": "Show media names"
+    },
+    "服务": {
+      "zh-Hans": "服务",
+      "zh-Hant": "服務",
+      "en": "Server"
+    },
+    "查看服务概览、下载、近期入库与订阅。": {
+      "zh-Hans": "查看服务概览、下载、近期入库与订阅。",
+      "zh-Hant": "查看服務概覽、下載、近期入庫與訂閱。",
+      "en": "View the server overview, downloads, recent imports and subscriptions."
+    },
+    "电影订阅": {
+      "zh-Hans": "电影订阅",
+      "zh-Hant": "電影訂閱",
+      "en": "Movie subscriptions"
+    },
+    "系统概览": {
+      "zh-Hans": "系统概览",
+      "zh-Hant": "系統概覽",
+      "en": "System overview"
+    },
+    "订阅": {
+      "zh-Hans": "订阅",
+      "zh-Hant": "訂閱",
+      "en": "Subscriptions"
+    },
+    "近期入库": {
+      "zh-Hans": "近期入库",
+      "zh-Hant": "近期入庫",
+      "en": "Recent imports"
+    },
+    "选择已在 App 中启用的服务与只读内容。": {
+      "zh-Hans": "选择已在 App 中启用的服务与只读内容。",
+      "zh-Hant": "選擇已在 App 中啓用的服務與只讀內容。",
+      "en": "Choose a server enabled in the App and its read-only content."
+    },
+    "音乐订阅": {
+      "zh-Hans": "音乐订阅",
+      "zh-Hant": "音樂訂閱",
+      "en": "Music subscriptions"
+    }
+  }
+}
