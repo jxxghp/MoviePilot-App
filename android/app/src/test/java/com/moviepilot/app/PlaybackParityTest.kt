@@ -245,4 +245,47 @@ class PlaybackParityTest {
         assertNull(com.moviepilot.rustbridge.RustCoreBridge.parseStrm("file:///etc/passwd", null))
         assertNull(com.moviepilot.rustbridge.RustCoreBridge.parseStrm("http://user:pass@192.168.1.1/a.mp4", null))
     }
+
+    @Test
+    fun mainTabNavigationReturnsToDiscoverAfterVisitingOtherTabs() {
+        var selectedTabId = com.moviepilot.designsystem.MainTab.Discover.id
+        val subStacks = mutableMapOf(
+            com.moviepilot.designsystem.MainTab.Discover to mutableListOf<String>(),
+            com.moviepilot.designsystem.MainTab.Subscribe to mutableListOf<String>(),
+            com.moviepilot.designsystem.MainTab.Dashboard to mutableListOf<String>(),
+            com.moviepilot.designsystem.MainTab.Workspace to mutableListOf<String>(),
+        )
+        fun currentTab(): com.moviepilot.designsystem.MainTab =
+            com.moviepilot.designsystem.MainTab.entries.firstOrNull { it.id == selectedTabId }
+                ?: com.moviepilot.designsystem.MainTab.Discover
+
+        // 模拟记忆化后的稳定回调：即使不重新创建闭包，点击任意 Tab 也必须读取实时 selectedTabId
+        val memoizedOnTabClick: (com.moviepilot.designsystem.MainTab) -> Unit = { tab ->
+            when (resolveMainTabClick(currentTab(), tab, subStacks[tab].orEmpty().isNotEmpty())) {
+                MainTabClickAction.SwitchTab -> selectedTabId = tab.id
+                MainTabClickAction.ClearActiveStack -> subStacks[tab]?.clear()
+                MainTabClickAction.NoOp -> Unit
+            }
+        }
+
+        // 首次在「发现」切到「订阅」，再点回「发现」必须切回 Discover
+        memoizedOnTabClick(com.moviepilot.designsystem.MainTab.Subscribe)
+        assertEquals(com.moviepilot.designsystem.MainTab.Subscribe, currentTab())
+        memoizedOnTabClick(com.moviepilot.designsystem.MainTab.Discover)
+        assertEquals(com.moviepilot.designsystem.MainTab.Discover, currentTab())
+
+        // 依次访问「我的」「更多」后再点「发现」依然能切回 Discover
+        memoizedOnTabClick(com.moviepilot.designsystem.MainTab.Dashboard)
+        assertEquals(com.moviepilot.designsystem.MainTab.Dashboard, currentTab())
+        memoizedOnTabClick(com.moviepilot.designsystem.MainTab.Workspace)
+        assertEquals(com.moviepilot.designsystem.MainTab.Workspace, currentTab())
+        memoizedOnTabClick(com.moviepilot.designsystem.MainTab.Discover)
+        assertEquals(com.moviepilot.designsystem.MainTab.Discover, currentTab())
+
+        // 停留在当前 Tab 且存在二级页面时，再次点击清空该 Tab 子栈
+        subStacks[com.moviepilot.designsystem.MainTab.Discover]?.add("explore")
+        memoizedOnTabClick(com.moviepilot.designsystem.MainTab.Discover)
+        assertTrue(subStacks[com.moviepilot.designsystem.MainTab.Discover].orEmpty().isEmpty())
+        assertEquals(com.moviepilot.designsystem.MainTab.Discover, currentTab())
+    }
 }

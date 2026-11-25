@@ -46,6 +46,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -204,6 +205,8 @@ fun MoviePilotBottomNavigationBar(
     val activeFg = if (colors.isDark) scheme.primary else scheme.onSecondaryContainer
     val activePillTarget = scheme.secondaryContainer.copy(alpha = if (colors.isDark) 0.90f else 0.94f)
     val searchInteraction = remember { MutableInteractionSource() }
+    val currentOnTabClick by rememberUpdatedState(onTabClick)
+    val currentOnSearchClick by rememberUpdatedState(onSearchClick)
 
     Row(
         modifier = modifier
@@ -255,7 +258,7 @@ fun MoviePilotBottomNavigationBar(
                                 role = Role.Tab,
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onTabClick(tab)
+                                    currentOnTabClick(tab)
                                 },
                             ),
                         contentAlignment = Alignment.Center,
@@ -305,7 +308,7 @@ fun MoviePilotBottomNavigationBar(
                         role = Role.Button,
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onSearchClick()
+                            currentOnSearchClick()
                         },
                     ),
                 contentAlignment = Alignment.Center,
@@ -341,6 +344,8 @@ fun FloatingNavigationRail(
     val haptic = LocalHapticFeedback.current
     val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val activeFg = if (colors.isDark) scheme.primary else scheme.onSecondaryContainer
+    val currentOnTabClick by rememberUpdatedState(onTabClick)
+    val currentOnSearchClick by rememberUpdatedState(onSearchClick)
 
     Surface(
         color = scheme.surfaceContainerLow,
@@ -364,7 +369,7 @@ fun FloatingNavigationRail(
                 Surface(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onSearchClick()
+                        currentOnSearchClick()
                     },
                     shape = CircleShape,
                     color = scheme.primary,
@@ -406,7 +411,7 @@ fun FloatingNavigationRail(
                                 role = Role.Tab,
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onTabClick(tab)
+                                    currentOnTabClick(tab)
                                 },
                             )
                             .padding(vertical = if (compactHeight) 2.dp else 4.dp),

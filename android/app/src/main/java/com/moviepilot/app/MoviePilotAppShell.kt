@@ -330,11 +330,16 @@ fun MoviePilotRootShell(
         }
     }
 
-    val activeInstanceUrl = when (val cur = session) {
+    fun currentSelectedTab(): MainTab =
+        MainTab.entries.firstOrNull { it.id == selectedTabId } ?: MainTab.Discover
+
+    fun currentActiveInstanceUrl(): String = when (val cur = repository.session.value) {
         is SessionState.Authenticated -> cur.serverUrl
         is SessionState.NeedsLogin -> cur.serverUrl
         SessionState.Unconnected -> ""
     }
+
+    val activeInstanceUrl = currentActiveInstanceUrl()
 
     // 启动时清扫上次异常退出遗留的远程存储播放临时缓存文件
     LaunchedEffect(Unit) {
@@ -379,22 +384,21 @@ fun MoviePilotRootShell(
     }
 
     fun onTabBarClick(tab: MainTab) {
-        if (tab == selectedTab) {
-            if (tabStacks[tab].orEmpty().isNotEmpty()) {
-                clearTabStack(tab)
-            }
-        } else {
-            selectedTabId = tab.id
+        // 始终实时读取 MutableState 中的 selectedTabId，避免 Compose Strong Skipping 记忆化局部函数引用时捕获首帧 Discover 快照。
+        when (resolveMainTabClick(currentTab = currentSelectedTab(), clickedTab = tab, hasSubStack = tabStacks[tab].orEmpty().isNotEmpty())) {
+            MainTabClickAction.SwitchTab -> selectedTabId = tab.id
+            MainTabClickAction.ClearActiveStack -> clearTabStack(tab)
+            MainTabClickAction.NoOp -> Unit
         }
     }
 
-    fun pushRoute(route: AppRoute, targetTab: MainTab = selectedTab) {
+    fun pushRoute(route: AppRoute, targetTab: MainTab = currentSelectedTab()) {
         if (route == AppRoute.TabRoot) {
             clearTabStack(targetTab)
             selectedTabId = targetTab.id
             return
         }
-        val auth = session as? SessionState.Authenticated
+        val auth = repository.session.value as? SessionState.Authenticated
         if (auth != null) {
             val deniedReason = checkRoutePermission(route, auth.permissions)
             if (deniedReason != null) {
@@ -402,7 +406,7 @@ fun MoviePilotRootShell(
                 return
             }
         }
-        if (targetTab != selectedTab) {
+        if (targetTab != currentSelectedTab()) {
             selectedTabId = targetTab.id
         }
         val currentList = tabStacks[targetTab].orEmpty()
@@ -414,11 +418,12 @@ fun MoviePilotRootShell(
     }
 
     fun popRoute() {
-        val currentList = tabStacks[selectedTab].orEmpty()
+        val activeTab = currentSelectedTab()
+        val currentList = tabStacks[activeTab].orEmpty()
         if (currentList.isNotEmpty()) {
             val popped = currentList.last()
             saveableStateHolder.removeState(popped.stateKey)
-            tabStacks[selectedTab] = currentList.dropLast(1)
+            tabStacks[activeTab] = currentList.dropLast(1)
         }
     }
 
@@ -457,10 +462,11 @@ fun MoviePilotRootShell(
     fun releaseBackgroundAudio(reportStopped: Boolean = true) {
         val prevPlayer = bgAudioPlayer
         val prevReq = bgAudioRequest
+        val instanceUrl = currentActiveInstanceUrl()
         if (prevPlayer != null && prevReq != null) {
             val pos = prevPlayer.currentPosition.coerceAtLeast(0L)
             val dur = prevPlayer.duration.coerceAtLeast(0L)
-            localHistoryStore.recordPlaybackProgress(activeInstanceUrl, prevReq.server, prevReq.localResumeId, pos, dur)
+            localHistoryStore.recordPlaybackProgress(instanceUrl, prevReq.server, prevReq.localResumeId, pos, dur)
             if (reportStopped) {
                 reportAudioProgressAsync(prevReq, pos, dur, isPaused = true, state = "stopped")
             }
@@ -485,10 +491,11 @@ fun MoviePilotRootShell(
     }
 
     suspend fun resolvePlayableRequest(rawReq: MediaPlaybackRequest): MediaPlaybackRequest? {
+        val instanceUrl = currentActiveInstanceUrl()
         if (rawReq.url.isNotBlank()) {
-            val resolvedOrigin = rawReq.originUrl.ifBlank { activeInstanceUrl.ifBlank { rawReq.url } }
+            val resolvedOrigin = rawReq.originUrl.ifBlank { instanceUrl.ifBlank { rawReq.url } }
             val resolvedSameOriginHeaders = rawReq.sameOriginHeaders.ifEmpty {
-                if (activeInstanceUrl.isNotBlank()) repository.buildPlaybackHeaders(activeInstanceUrl) else rawReq.headers
+                if (instanceUrl.isNotBlank()) repository.buildPlaybackHeaders(instanceUrl) else rawReq.headers
             }
             val inferredFallback = rawReq.proxyFallbackUrl ?: run {
                 if (
@@ -497,15 +504,15 @@ fun MoviePilotRootShell(
                     !rawReq.itemId.startsWith("file:") &&
                     !rawReq.itemId.startsWith("local:") &&
                     !rawReq.itemId.startsWith("external:") &&
-                    activeInstanceUrl.isNotBlank() &&
-                    !RustCoreBridge.containsUrl(activeInstanceUrl, rawReq.url)
+                    instanceUrl.isNotBlank() &&
+                    !RustCoreBridge.containsUrl(instanceUrl, rawReq.url)
                 ) {
                     val q = buildList {
                         add("itemid" to rawReq.itemId)
                         if (rawReq.server.isNotBlank()) add("server" to rawReq.server)
                         if (rawReq.mediaSourceId.isNotBlank()) add("media_source_id" to rawReq.mediaSourceId)
                     }
-                    runCatching { RustCoreBridge.buildEndpointUrl(activeInstanceUrl, listOf("mediaserver", "stream"), q) }.getOrNull()
+                    runCatching { RustCoreBridge.buildEndpointUrl(instanceUrl, listOf("mediaserver", "stream"), q) }.getOrNull()
                 } else {
                     null
                 }
@@ -520,9 +527,9 @@ fun MoviePilotRootShell(
         return when (val spec = rawReq.lazySpec) {
             is QueueTrackSpec.DirectUrl -> rawReq.copy(
                 url = spec.url,
-                originUrl = rawReq.originUrl.ifBlank { activeInstanceUrl.ifBlank { spec.url } },
+                originUrl = rawReq.originUrl.ifBlank { instanceUrl.ifBlank { spec.url } },
                 sameOriginHeaders = rawReq.sameOriginHeaders.ifEmpty {
-                    if (activeInstanceUrl.isNotBlank()) repository.buildPlaybackHeaders(activeInstanceUrl) else rawReq.headers
+                    if (instanceUrl.isNotBlank()) repository.buildPlaybackHeaders(instanceUrl) else rawReq.headers
                 },
                 allowSelfSignedTls = rawReq.allowSelfSignedTls || repository.secretStore.allowSelfSignedTls,
             )
@@ -542,7 +549,7 @@ fun MoviePilotRootShell(
                     headers = manifest.headers,
                     sameOriginHeaders = manifest.sameOriginHeaders,
                     proxyFallbackUrl = manifest.proxyFallbackUrl,
-                    originUrl = manifest.originUrl.ifBlank { activeInstanceUrl.ifBlank { manifest.contentUrl } },
+                    originUrl = manifest.originUrl.ifBlank { instanceUrl.ifBlank { manifest.contentUrl } },
                     allowSelfSignedTls = repository.secretStore.allowSelfSignedTls,
                     itemId = manifest.itemId,
                     server = manifest.server,
@@ -565,7 +572,7 @@ fun MoviePilotRootShell(
                     headers = manifest.headers,
                     sameOriginHeaders = manifest.sameOriginHeaders,
                     proxyFallbackUrl = manifest.proxyFallbackUrl,
-                    originUrl = manifest.originUrl.ifBlank { activeInstanceUrl.ifBlank { manifest.contentUrl } },
+                    originUrl = manifest.originUrl.ifBlank { instanceUrl.ifBlank { manifest.contentUrl } },
                     allowSelfSignedTls = repository.secretStore.allowSelfSignedTls,
                     itemId = manifest.itemId,
                     server = manifest.server.ifBlank { spec.server },
@@ -665,16 +672,17 @@ fun MoviePilotRootShell(
                 val prevReq = bgAudioRequest
                 val prevPlayer = bgAudioPlayer
                 if (prevReq?.url != req.url || prevPlayer == null) {
+                    val instanceUrl = currentActiveInstanceUrl()
                     if (prevPlayer != null && prevReq != null) {
                         val prevPos = prevPlayer.currentPosition.coerceAtLeast(0L)
                         val prevDur = prevPlayer.duration.coerceAtLeast(0L)
-                        localHistoryStore.recordPlaybackProgress(activeInstanceUrl, prevReq.server, prevReq.localResumeId, prevPos, prevDur)
+                        localHistoryStore.recordPlaybackProgress(instanceUrl, prevReq.server, prevReq.localResumeId, prevPos, prevDur)
                         reportAudioProgressAsync(prevReq, prevPos, prevDur, isPaused = true, state = "stopped")
                         PlaybackServiceBridge.detachIfMatching(prevPlayer)
                         prevPlayer.release()
                         deleteTempFileIfUnused(prevReq.tempFilePath, keepPaths = setOf(req.tempFilePath))
                     }
-                    val savedMs = localHistoryStore.readResumePositionMs(activeInstanceUrl, req.server, req.localResumeId)
+                    val savedMs = localHistoryStore.readResumePositionMs(instanceUrl, req.server, req.localResumeId)
                     val bestMs = LocalPlaybackHistoryStore.resolveBestResumeMs(savedMs, req.resumePositionMs)
                     val player = buildConfiguredExoPlayer(context, req, resumePositionOverrideMs = bestMs).apply {
                         shuffleModeEnabled = audioShuffleEnabled
@@ -686,7 +694,7 @@ fun MoviePilotRootShell(
                             val curReq = latestBgAudioReq ?: req
                             val pos = player.currentPosition.coerceAtLeast(0L)
                             val dur = player.duration.coerceAtLeast(0L)
-                            localHistoryStore.recordPlaybackProgress(activeInstanceUrl, curReq.server, curReq.localResumeId, pos, dur)
+                            localHistoryStore.recordPlaybackProgress(currentActiveInstanceUrl(), curReq.server, curReq.localResumeId, pos, dur)
                             reportAudioProgressAsync(
                                 req = curReq,
                                 posMs = pos,
@@ -699,7 +707,7 @@ fun MoviePilotRootShell(
                         override fun onPlaybackStateChanged(playbackState: Int) {
                             if (playbackState == Player.STATE_ENDED) {
                                 val curReq = latestBgAudioReq ?: req
-                                localHistoryStore.clearResumePosition(activeInstanceUrl, curReq.server, curReq.localResumeId)
+                                localHistoryStore.clearResumePosition(currentActiveInstanceUrl(), curReq.server, curReq.localResumeId)
                                 reportAudioProgressAsync(
                                     req = curReq,
                                     posMs = player.duration.coerceAtLeast(0L),
@@ -1058,7 +1066,7 @@ fun MoviePilotRootShell(
                     val authed = authSession!!
                     FloatingNavigationRail(
                         selectedTab = selectedTab,
-                        onTabClick = ::onTabBarClick,
+                        onTabClick = { onTabBarClick(it) },
                         onSearchClick = { pushRoute(AppRoute.GlobalSearch()) },
                         userAvatarUrl = repository.resolveImageUrl(authed.identity.avatar),
                         userInitial = authed.identity.name.ifBlank { "M" },
@@ -1467,7 +1475,7 @@ fun MoviePilotRootShell(
                                 val authed = authSession!!
                                 MoviePilotBottomNavigationBar(
                                     selectedTab = selectedTab,
-                                    onTabClick = ::onTabBarClick,
+                                    onTabClick = { onTabBarClick(it) },
                                     onSearchClick = { pushRoute(AppRoute.GlobalSearch()) },
                                     userAvatarUrl = repository.resolveImageUrl(authed.identity.avatar),
                                     userInitial = authed.identity.name.ifBlank { "M" },
@@ -1593,4 +1601,21 @@ fun MoviePilotRootShell(
             }
         }
     }
+}
+
+internal enum class MainTabClickAction {
+    SwitchTab,
+    ClearActiveStack,
+    NoOp,
+}
+
+/** 根据当前激活的一级 Tab 与子栈状态判定点击底部/侧栏导航项应执行的动作。 */
+internal fun resolveMainTabClick(
+    currentTab: MainTab,
+    clickedTab: MainTab,
+    hasSubStack: Boolean,
+): MainTabClickAction = when {
+    clickedTab != currentTab -> MainTabClickAction.SwitchTab
+    hasSubStack -> MainTabClickAction.ClearActiveStack
+    else -> MainTabClickAction.NoOp
 }
