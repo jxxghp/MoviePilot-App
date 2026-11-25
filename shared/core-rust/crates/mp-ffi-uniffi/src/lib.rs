@@ -15,6 +15,7 @@ use mp_core_model::{
     generate_pkce_pair as model_generate_pkce_pair,
     merge_cf_access_cookie as model_merge_cf_access_cookie,
     normalize_danmaku_query_title as model_normalize_danmaku_query_title,
+    parse_audio_embedded_metadata as model_parse_audio_embedded_metadata,
     parse_oauth_callback_url as model_parse_oauth_callback_url,
     parse_oauth_server_metadata as model_parse_oauth_server_metadata,
     parse_protected_resource_metadata as model_parse_protected_resource_metadata,
@@ -663,6 +664,39 @@ pub fn parse_oauth_callback_url_json(callback_url: String, expected_state: Strin
 #[uniffi::export]
 pub fn merge_cf_access_cookie(existing_cookie_header: String, cf_token: String) -> String {
     model_merge_cf_access_cookie(&existing_cookie_header, &cf_token)
+}
+
+/// 音频内嵌元数据解析结果（FLAC / ID3v2 / MP4·M4A / Ogg Vorbis·Opus）。
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AudioEmbeddedMetadataFfi {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub lyrics: Option<String>,
+    pub cover_mime: Option<String>,
+    pub cover_bytes: Option<Vec<u8>>,
+    pub needed_head_bytes: Option<u64>,
+    pub needed_tail_bytes: Option<u64>,
+}
+
+/// 解析音频文件头部（及可选尾部）字节中的内嵌标题、歌手、专辑、歌词与封面字节。
+#[uniffi::export]
+pub fn parse_audio_embedded_metadata(
+    head_bytes: Vec<u8>,
+    tail_bytes: Vec<u8>,
+) -> AudioEmbeddedMetadataFfi {
+    let tail = (!tail_bytes.is_empty()).then_some(tail_bytes.as_slice());
+    let parsed = model_parse_audio_embedded_metadata(&head_bytes, tail);
+    AudioEmbeddedMetadataFfi {
+        title: parsed.title,
+        artist: parsed.artist,
+        album: parsed.album,
+        lyrics: parsed.lyrics,
+        cover_mime: parsed.cover_mime,
+        cover_bytes: parsed.cover_bytes,
+        needed_head_bytes: parsed.needed_head_bytes,
+        needed_tail_bytes: parsed.needed_tail_bytes,
+    }
 }
 
 /// 返回 Rust 共享内核版本号，用于三端 FFI 冒烟健康检查。

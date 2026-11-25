@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.graphics.drawable.BitmapDrawable
 import android.media.AudioManager
@@ -527,7 +528,10 @@ private data class PlayerExpressivePalette(
  * 从当前播放封面采样主色相，合成深丝绒底色 + 柔和粉彩高光主色 + 沉入式胶囊坞色，平滑过渡切换。
  */
 @Composable
-private fun rememberArtworkPlayerPalette(artworkUrl: String?): PlayerExpressivePalette {
+private fun rememberArtworkPlayerPalette(
+    artworkUrl: String?,
+    artworkBytes: ByteArray? = null,
+): PlayerExpressivePalette {
     val colors = LocalMoviePilotColors.current
     val store = LocalAppearanceStore.current
     val context = LocalContext.current
@@ -540,26 +544,34 @@ private fun rememberArtworkPlayerPalette(artworkUrl: String?): PlayerExpressiveP
             buttonBg = colors.playerButtonBg,
         )
     }
-    var extracted by remember(artworkUrl, fallback, store.albumArtDynamicColor) {
+    val bytesKey = artworkBytes?.size ?: 0
+    var extracted by remember(artworkUrl, bytesKey, fallback, store.albumArtDynamicColor) {
         mutableStateOf(fallback)
     }
 
-    LaunchedEffect(artworkUrl, store.albumArtDynamicColor) {
-        if (!store.albumArtDynamicColor || artworkUrl.isNullOrBlank()) {
+    LaunchedEffect(artworkUrl, bytesKey, store.albumArtDynamicColor) {
+        val hasUrl = !artworkUrl.isNullOrBlank()
+        val hasBytes = artworkBytes != null && artworkBytes.isNotEmpty()
+        if (!store.albumArtDynamicColor || (!hasUrl && !hasBytes)) {
             extracted = fallback
             return@LaunchedEffect
         }
         val derived = withContext(Dispatchers.IO) {
             runCatching {
-                val loader = context.imageLoader
-                val req = ImageRequest.Builder(context)
-                    .data(artworkUrl)
-                    .size(48)
-                    .allowHardware(false)
-                    .build()
-                val res = loader.execute(req) as? SuccessResult ?: return@runCatching null
-                val bmp = (res.drawable as? BitmapDrawable)?.bitmap ?: return@runCatching null
-                derivePaletteFromBitmap(bmp)
+                val bmp: Bitmap? = if (hasUrl) {
+                    val loader = context.imageLoader
+                    val req = ImageRequest.Builder(context)
+                        .data(artworkUrl)
+                        .size(48)
+                        .allowHardware(false)
+                        .build()
+                    val res = loader.execute(req) as? SuccessResult
+                    (res?.drawable as? BitmapDrawable)?.bitmap
+                } else {
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                    BitmapFactory.decodeByteArray(artworkBytes, 0, artworkBytes!!.size, opts)
+                }
+                bmp?.let { derivePaletteFromBitmap(it) }
             }.getOrNull()
         }
         extracted = derived ?: fallback
@@ -645,13 +657,21 @@ fun NativeMediaPlayerOverlay(
     onClose: () -> Unit,
     onMinimizeToMiniBar: (() -> Unit)? = null,
     onSwitchRequest: ((MediaPlaybackRequest) -> Unit)? = null,
+    onMetadataEnriched: ((MediaPlaybackRequest) -> Unit)? = null,
     repository: MoviePilotRepository? = null,
     onReportProgress: ((positionMs: Long, durationMs: Long, isPaused: Boolean, state: String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val hostView = LocalView.current
     val colors = LocalMoviePilotColors.current
-    val playerPalette = rememberArtworkPlayerPalette(request.artworkUrl)
+    var embeddedAudioMeta by remember(request.url) { mutableStateOf<ResolvedEmbeddedAudioMetadata?>(null) }
+    val displayRequest = remember(request, embeddedAudioMeta) {
+        EmbeddedAudioMetadataFetcher.applyToRequest(request, embeddedAudioMeta)
+    }
+    val resolvedArtworkModel: Any? = displayRequest.artworkUrl?.takeIf { it.isNotBlank() }
+        ?: displayRequest.artworkBytes?.takeIf { it.isNotEmpty() }
+    val playerPalette = rememberArtworkPlayerPalette(displayRequest.artworkUrl, displayRequest.artworkBytes)
+    val latestMetadataEnriched by rememberUpdatedState(onMetadataEnriched)
     val cfg = LocalConfiguration.current
     val isLandscape = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE || cfg.screenWidthDp > cfg.screenHeightDp
     val compactHeight = cfg.screenHeightDp < 480
@@ -1240,8 +1260,24 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    val lrcLines = remember(request.lyricsLrc) { parseLrcLyrics(request.lyricsLrc) }
+    val lrcLines = remember(displayRequest.lyricsLrc) { parseLrcLyrics(displayRequest.lyricsLrc) }
+    val plainLyricsLines = remember(displayRequest.lyricsLrc, lrcLines) {
+        if (lrcLines.isEmpty()) EmbeddedAudioMetadataFetcher.extractPlainLyricsLines(displayRequest.lyricsLrc) else emptyList()
+    }
     val lrcListState = rememberLazyListState()
+
+    // 音频内嵌封面与歌词异步提取（零阻塞主播放流：FLAC / ID3v2 / MP4·M4A / Ogg Vorbis·Opus）
+    LaunchedEffect(request.url, request.isAudio) {
+        if (!request.isAudio || !EmbeddedAudioMetadataFetcher.needsExtraction(request)) {
+            return@LaunchedEffect
+        }
+        val fetched = EmbeddedAudioMetadataFetcher.fetchEmbeddedMetadata(context, request)
+        if (fetched != null) {
+            embeddedAudioMeta = fetched
+            val merged = EmbeddedAudioMetadataFetcher.applyToRequest(request, fetched)
+            latestMetadataEnriched?.invoke(merged)
+        }
+    }
 
     // 初始音轨/中文字幕偏好应用辅助方法
     fun applyInitialTrackPreferencesIfReady(tracks: Tracks) {
@@ -1426,10 +1462,51 @@ fun NativeMediaPlayerOverlay(
                 }
             }
 
+            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+                if (request.isAudio && EmbeddedAudioMetadataFetcher.needsExtraction(displayRequest)) {
+                    val liveMeta = EmbeddedAudioMetadataFetcher.extractFromExoPlayer(
+                        context = context,
+                        player = ep,
+                        cacheKey = request.localResumeId.ifBlank { request.url },
+                    )
+                    if (liveMeta != null) {
+                        val mergedMeta = ResolvedEmbeddedAudioMetadata(
+                            title = embeddedAudioMeta?.title ?: liveMeta.title,
+                            artist = embeddedAudioMeta?.artist ?: liveMeta.artist,
+                            album = embeddedAudioMeta?.album ?: liveMeta.album,
+                            lyrics = embeddedAudioMeta?.lyrics ?: liveMeta.lyrics,
+                            artworkFileUri = embeddedAudioMeta?.artworkFileUri ?: liveMeta.artworkFileUri,
+                            artworkBytes = embeddedAudioMeta?.artworkBytes ?: liveMeta.artworkBytes,
+                        )
+                        embeddedAudioMeta = mergedMeta
+                        latestMetadataEnriched?.invoke(EmbeddedAudioMetadataFetcher.applyToRequest(request, mergedMeta))
+                    }
+                }
+            }
+
             override fun onTracksChanged(tracks: Tracks) {
                 val hadInitial = appliedInitialTracks
                 tracksVersion++
                 applyInitialTrackPreferencesIfReady(tracks)
+                if (request.isAudio && EmbeddedAudioMetadataFetcher.needsExtraction(displayRequest)) {
+                    val liveMeta = EmbeddedAudioMetadataFetcher.extractFromExoPlayer(
+                        context = context,
+                        player = ep,
+                        cacheKey = request.localResumeId.ifBlank { request.url },
+                    )
+                    if (liveMeta != null) {
+                        val mergedMeta = ResolvedEmbeddedAudioMetadata(
+                            title = embeddedAudioMeta?.title ?: liveMeta.title,
+                            artist = embeddedAudioMeta?.artist ?: liveMeta.artist,
+                            album = embeddedAudioMeta?.album ?: liveMeta.album,
+                            lyrics = embeddedAudioMeta?.lyrics ?: liveMeta.lyrics,
+                            artworkFileUri = embeddedAudioMeta?.artworkFileUri ?: liveMeta.artworkFileUri,
+                            artworkBytes = embeddedAudioMeta?.artworkBytes ?: liveMeta.artworkBytes,
+                        )
+                        embeddedAudioMeta = mergedMeta
+                        latestMetadataEnriched?.invoke(EmbeddedAudioMetadataFetcher.applyToRequest(request, mergedMeta))
+                    }
+                }
                 if (ownsPlayer && !request.isAudio && hadInitial && hasEmittedVideoStart) {
                     dispatchVideoSync("track_change")
                 }
@@ -2110,10 +2187,10 @@ fun NativeMediaPlayerOverlay(
                                 .background(playerPalette.buttonBg),
                             contentAlignment = Alignment.Center,
                         ) {
-                            if (!request.artworkUrl.isNullOrBlank()) {
+                            if (resolvedArtworkModel != null) {
                                 AsyncImage(
-                                    model = request.artworkUrl,
-                                    contentDescription = request.title,
+                                    model = resolvedArtworkModel,
+                                    contentDescription = displayRequest.title,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize(),
                                 )
@@ -2152,7 +2229,7 @@ fun NativeMediaPlayerOverlay(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     Text(
-                                        text = request.title,
+                                        text = displayRequest.title,
                                         color = Color.White,
                                         fontSize = if (compactHeight) 20.sp else 24.sp,
                                         fontWeight = FontWeight.Bold,
@@ -2160,10 +2237,10 @@ fun NativeMediaPlayerOverlay(
                                         overflow = TextOverflow.Ellipsis,
                                         textAlign = TextAlign.Center,
                                     )
-                                    if (request.subtitle.isNotBlank()) {
+                                    if (displayRequest.subtitle.isNotBlank()) {
                                         Spacer(Modifier.height(4.dp))
                                         Text(
-                                            text = request.subtitle,
+                                            text = displayRequest.subtitle,
                                             color = Color.White.copy(alpha = 0.72f),
                                             fontSize = if (compactHeight) 13.5.sp else 15.sp,
                                             maxLines = 1,
@@ -2186,6 +2263,18 @@ fun NativeMediaPlayerOverlay(
                                                 modifier = Modifier.clickable { showLyricsView = true },
                                             )
                                         }
+                                    } else if (plainLyricsLines.isNotEmpty()) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Text(
+                                            text = plainLyricsLines.first(),
+                                            color = playerPalette.accent.copy(alpha = 0.88f),
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.clickable { showLyricsView = true },
+                                        )
                                     }
                                 }
                             } else {
@@ -2194,7 +2283,7 @@ fun NativeMediaPlayerOverlay(
                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
                                     Text(
-                                        text = listOfNotNull(request.title, request.subtitle.takeIf { it.isNotBlank() }).joinToString(" · "),
+                                        text = listOfNotNull(displayRequest.title, displayRequest.subtitle.takeIf { it.isNotBlank() }).joinToString(" · "),
                                         color = Color.White.copy(alpha = 0.88f),
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -2220,9 +2309,32 @@ fun NativeMediaPlayerOverlay(
                                                 )
                                             }
                                         }
+                                    } else if (plainLyricsLines.isNotEmpty()) {
+                                        LazyColumn(
+                                            modifier = Modifier.fillMaxWidth().weight(1f),
+                                            contentPadding = PaddingValues(vertical = 8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            item {
+                                                Text(
+                                                    text = "内嵌歌词（纯文本，无时间轴）",
+                                                    color = Color.White.copy(alpha = 0.50f),
+                                                    fontSize = 12.sp,
+                                                )
+                                            }
+                                            itemsIndexed(plainLyricsLines) { _, line ->
+                                                Text(
+                                                    text = line,
+                                                    color = Color.White.copy(alpha = 0.88f),
+                                                    fontSize = if (compactHeight) 14.sp else 15.5.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    lineHeight = if (compactHeight) 21.sp else 24.sp,
+                                                )
+                                            }
+                                        }
                                     } else {
                                         Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                                            Text("当前曲目暂未附带同步歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 14.sp)
+                                            Text("当前曲目暂未附带歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 14.sp)
                                         }
                                     }
                                 }
@@ -2310,10 +2422,10 @@ fun NativeMediaPlayerOverlay(
                                         .background(playerPalette.buttonBg),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    if (!request.artworkUrl.isNullOrBlank()) {
+                                    if (resolvedArtworkModel != null) {
                                         AsyncImage(
-                                            model = request.artworkUrl,
-                                            contentDescription = request.title,
+                                            model = resolvedArtworkModel,
+                                            contentDescription = displayRequest.title,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize(),
                                         )
@@ -2328,7 +2440,7 @@ fun NativeMediaPlayerOverlay(
                                 }
                                 Spacer(Modifier.height(26.dp))
                                 Text(
-                                    text = request.title,
+                                    text = displayRequest.title,
                                     color = Color.White,
                                     fontSize = 24.sp,
                                     fontWeight = FontWeight.Bold,
@@ -2336,15 +2448,43 @@ fun NativeMediaPlayerOverlay(
                                     overflow = TextOverflow.Ellipsis,
                                     textAlign = TextAlign.Center,
                                 )
-                                if (request.subtitle.isNotBlank()) {
+                                if (displayRequest.subtitle.isNotBlank()) {
                                     Spacer(Modifier.height(6.dp))
                                     Text(
-                                        text = request.subtitle,
+                                        text = displayRequest.subtitle,
                                         color = Color.White.copy(alpha = 0.72f),
                                         fontSize = 15.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         textAlign = TextAlign.Center,
+                                    )
+                                }
+                                if (lrcLines.isNotEmpty()) {
+                                    val curLine = lrcLines.getOrNull(activeLrcIdx)?.text.orEmpty()
+                                    if (curLine.isNotBlank()) {
+                                        Spacer(Modifier.height(10.dp))
+                                        Text(
+                                            text = curLine,
+                                            color = playerPalette.accent,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.clickable { showLyricsView = true },
+                                        )
+                                    }
+                                } else if (plainLyricsLines.isNotEmpty()) {
+                                    Spacer(Modifier.height(10.dp))
+                                    Text(
+                                        text = plainLyricsLines.first(),
+                                        color = playerPalette.accent.copy(alpha = 0.88f),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.clickable { showLyricsView = true },
                                     )
                                 }
                                 if (request.server.isNotBlank() && currentRouteKind.isNotBlank()) {
@@ -2369,10 +2509,10 @@ fun NativeMediaPlayerOverlay(
                                             .background(playerPalette.buttonBg),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        if (!request.artworkUrl.isNullOrBlank()) {
+                                        if (resolvedArtworkModel != null) {
                                             AsyncImage(
-                                                model = request.artworkUrl,
-                                                contentDescription = request.title,
+                                                model = resolvedArtworkModel,
+                                                contentDescription = displayRequest.title,
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier.fillMaxSize(),
                                             )
@@ -2381,9 +2521,9 @@ fun NativeMediaPlayerOverlay(
                                         }
                                     }
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(request.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (request.subtitle.isNotBlank()) {
-                                            Text(request.subtitle, color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, maxLines = 1)
+                                        Text(displayRequest.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        if (displayRequest.subtitle.isNotBlank()) {
+                                            Text(displayRequest.subtitle, color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
                                     }
                                 }
@@ -2407,9 +2547,33 @@ fun NativeMediaPlayerOverlay(
                                             )
                                         }
                                     }
+                                } else if (plainLyricsLines.isNotEmpty()) {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxWidth().weight(1f),
+                                        contentPadding = PaddingValues(vertical = 16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        horizontalAlignment = Alignment.Start,
+                                    ) {
+                                        item {
+                                            Text(
+                                                text = "内嵌歌词（纯文本，无时间轴）",
+                                                color = Color.White.copy(alpha = 0.52f),
+                                                fontSize = 12.5.sp,
+                                            )
+                                        }
+                                        itemsIndexed(plainLyricsLines) { _, line ->
+                                            Text(
+                                                text = line,
+                                                color = Color.White.copy(alpha = 0.88f),
+                                                fontSize = 16.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                lineHeight = 26.sp,
+                                            )
+                                        }
+                                    }
                                 } else {
                                     Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                                        Text("当前曲目暂未附带同步歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 15.sp)
+                                        Text("当前曲目暂未附带歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 15.sp)
                                     }
                                 }
                             }
@@ -3676,7 +3840,9 @@ fun FloatingMiniMusicBar(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val playerPalette = rememberArtworkPlayerPalette(request.artworkUrl)
+    val miniArtModel: Any? = request.artworkUrl?.takeIf { it.isNotBlank() }
+        ?: request.artworkBytes?.takeIf { it.isNotEmpty() }
+    val playerPalette = rememberArtworkPlayerPalette(request.artworkUrl, request.artworkBytes)
     val shape = RoundedCornerShape(22.dp)
     Surface(
         onClick = onExpand,
@@ -3701,9 +3867,9 @@ fun FloatingMiniMusicBar(
                     .background(playerPalette.buttonBg),
                 contentAlignment = Alignment.Center,
             ) {
-                if (!request.artworkUrl.isNullOrBlank()) {
+                if (miniArtModel != null) {
                     AsyncImage(
-                        model = request.artworkUrl,
+                        model = miniArtModel,
                         contentDescription = request.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),

@@ -34,6 +34,7 @@ import com.moviepilot.rustcore.normalizePendingPlaybackStopsJson
 import com.moviepilot.rustcore.normalizePluginRemoteEntryJson
 import com.moviepilot.rustcore.normalizeServerAddress
 import com.moviepilot.rustcore.parseAgentMarkdown
+import com.moviepilot.rustcore.parseAudioEmbeddedMetadata as ffiParseAudioEmbeddedMetadata
 import com.moviepilot.rustcore.parseDeepLinkJson
 import com.moviepilot.rustcore.parseOauthCallbackUrlJson
 import com.moviepilot.rustcore.parseOauthServerMetadataJson
@@ -63,6 +64,18 @@ data class ParsedStrmStream(
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val mediaKind: String = "video",
+)
+
+/** 音频内嵌元数据解析结果（FLAC / ID3v2 / MP4·M4A / Ogg Vorbis·Opus）。 */
+data class AudioEmbeddedMetadataDto(
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    val lyrics: String? = null,
+    val coverMime: String? = null,
+    val coverBytes: ByteArray? = null,
+    val neededHeadBytes: Long? = null,
+    val neededTailBytes: Long? = null,
 )
 
 @Serializable
@@ -1359,4 +1372,27 @@ object RustCoreBridge {
 
     private fun unescapeJsonString(raw: String): String =
         raw.replace("\\\"", "\"").replace("\\\\", "\\").replace("\\n", "\n").replace("\\t", "\t")
+
+    /**
+     * 解析音频头部（及可选尾部）字节中的内嵌标题、歌手、专辑、歌词与封面字节。
+     */
+    fun parseAudioEmbeddedMetadata(
+        headBytes: ByteArray,
+        tailBytes: ByteArray = ByteArray(0),
+    ): AudioEmbeddedMetadataDto {
+        if (headBytes.size < 4) return AudioEmbeddedMetadataDto()
+        return runCatching {
+            val res = ffiParseAudioEmbeddedMetadata(headBytes, tailBytes)
+            AudioEmbeddedMetadataDto(
+                title = res.title,
+                artist = res.artist,
+                album = res.album,
+                lyrics = res.lyrics,
+                coverMime = res.coverMime,
+                coverBytes = res.coverBytes,
+                neededHeadBytes = res.neededHeadBytes?.toLong(),
+                neededTailBytes = res.neededTailBytes?.toLong(),
+            )
+        }.getOrElse { AudioEmbeddedMetadataDto() }
+    }
 }

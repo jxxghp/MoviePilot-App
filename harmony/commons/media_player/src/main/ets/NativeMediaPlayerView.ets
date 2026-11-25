@@ -212,6 +212,7 @@ export struct NativeMediaPlayerView {
   // 音乐舞台状态
   @State private showLyricsStage: boolean = false;
   @State private lyricCues: LyricLineCue[] = [];
+  @State private plainLyricsLines: string[] = [];
   @State private activeLyricIdx: number = -1;
   @State private audioRepeatMode: HarmonyRepeatMode = 'sequence';
   @State private audioQueue: HarmonyQueueItem[] = [];
@@ -550,6 +551,7 @@ export struct NativeMediaPlayerView {
     this.audioQueue = sess.queueItems();
     this.audioQueueIdx = sess.currentQueueIndex();
     this.lyricCues = sess.lyricsCues();
+    this.plainLyricsLines = sess.plainLyrics();
     const nextLyricIdx = sess.activeLyricIndex();
     this.activeLyricIdx = nextLyricIdx;
     if (this.showLyricsStage && nextLyricIdx >= 0 && nextLyricIdx !== this.lastScrolledLyricIdx) {
@@ -2100,19 +2102,19 @@ export struct NativeMediaPlayerView {
 
   @Builder
   private musicLyricsList(listHeight: Length) {
-    if (this.lyricCues.length === 0) {
+    if (this.lyricCues.length === 0 && this.plainLyricsLines.length === 0) {
       Column({ space: 10 }) {
         SymbolGlyph($r('sys.symbol.lyrics_square'))
           .fontSize(34)
           .fontColor(['#66FFFFFF'])
-        Text('当前曲目暂无同步歌词')
+        Text('当前曲目暂未附带歌词')
           .fontSize(14)
           .fontColor('#99FFFFFF')
       }
       .width('100%')
       .height(listHeight)
       .justifyContent(FlexAlign.Center)
-    } else {
+    } else if (this.lyricCues.length > 0) {
       List({ space: 14, scroller: this.lyricsScroller }) {
         ForEach(this.lyricCues, (cue: LyricLineCue, idx: number) => {
           ListItem() {
@@ -2129,6 +2131,31 @@ export struct NativeMediaPlayerView {
               })
           }
         }, (cue: LyricLineCue, idx: number) => `lyric_${idx}_${cue.timeMs}`)
+      }
+      .width('100%')
+      .height(listHeight)
+      .scrollBar(BarState.Off)
+    } else {
+      List({ space: 12 }) {
+        ListItem() {
+          Text('内嵌歌词（纯文本，无时间轴）')
+            .width('100%')
+            .fontSize(12)
+            .fontColor('#80FFFFFF')
+            .textAlign(TextAlign.Center)
+            .padding({ top: 4, bottom: 6 })
+        }
+        ForEach(this.plainLyricsLines, (line: string, idx: number) => {
+          ListItem() {
+            Text(line)
+              .width('100%')
+              .fontSize(15.5)
+              .fontColor('#E0FFFFFF')
+              .textAlign(TextAlign.Center)
+              .lineHeight(23)
+              .padding({ left: 20, right: 20, top: 2, bottom: 2 })
+          }
+        }, (line: string, idx: number) => `plain_lyric_${idx}_${line.length}`)
       }
       .width('100%')
       .height(listHeight)
@@ -2158,6 +2185,17 @@ export struct NativeMediaPlayerView {
           [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
           [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END]
         )
+      } else if (this.localCoverPixelMap) {
+        Image(this.localCoverPixelMap)
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Cover)
+          .blur(54)
+          .opacity(0.45)
+          .expandSafeArea(
+            [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+            [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END]
+          )
       }
       Column()
         .width('100%')

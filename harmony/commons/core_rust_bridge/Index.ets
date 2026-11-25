@@ -21,7 +21,8 @@ export {
   CloudflareChallengeResult,
   PkcePair,
   OAuthServerMetadata,
-  OAuthCallbackResult
+  OAuthCallbackResult,
+  AudioEmbeddedMetadataResult
 } from './src/main/ets/bridge/RustCoreBridge';
 
 export {
@@ -36,7 +37,8 @@ export {
 export {
   NativeRcpTransport,
   NativeHttpResponse,
-  SseEventChunk
+  SseEventChunk,
+  ByteRangeFetchResult
 } from './src/main/ets/network/NativeRcpTransport';
 
 export {

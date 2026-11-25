@@ -121,6 +121,7 @@ import com.moviepilot.medal3d.CommunityProfile
 import com.moviepilot.medal3d.NativeCommunityMedalShowcaseOverlay
 import com.moviepilot.media.FloatingMiniMusicBar
 import com.moviepilot.media.LocalPlaybackHistoryStore
+import com.moviepilot.media.EmbeddedAudioMetadataFetcher
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.NativeMediaPlayerOverlay
 import com.moviepilot.media.PlaybackServiceBridge
@@ -725,6 +726,37 @@ fun MoviePilotRootShell(
         )
     }
 
+    fun syncEnrichedAudioMetadata(enriched: MediaPlaybackRequest) {
+        if (bgAudioRequest?.url == enriched.url) {
+            bgAudioRequest = enriched
+            val player = bgAudioPlayer
+            val curItem = player?.currentMediaItem
+            if (player != null && curItem != null && player.currentMediaItemIndex >= 0) {
+                val metaBuilder = curItem.mediaMetadata.buildUpon()
+                    .setTitle(enriched.title)
+                    .setDisplayTitle(enriched.title)
+                if (enriched.subtitle.isNotBlank()) {
+                    metaBuilder.setArtist(enriched.subtitle)
+                    metaBuilder.setSubtitle(enriched.subtitle)
+                }
+                if (enriched.albumTitle.isNotBlank()) {
+                    metaBuilder.setAlbumTitle(enriched.albumTitle)
+                }
+                enriched.artworkBytes?.takeIf { it.isNotEmpty() }?.let { bytes ->
+                    metaBuilder.setArtworkData(bytes, androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                }
+                enriched.artworkUrl?.takeIf { it.isNotBlank() }?.let { art ->
+                    metaBuilder.setArtworkUri(android.net.Uri.parse(art))
+                }
+                val updatedItem = curItem.buildUpon().setMediaMetadata(metaBuilder.build()).build()
+                runCatching { player.replaceMediaItem(player.currentMediaItemIndex, updatedItem) }
+            }
+        }
+        if (activePlayerRequest?.url == enriched.url) {
+            activePlayerRequest = enriched
+        }
+    }
+
     fun executeStartPlayback(rawReq: MediaPlaybackRequest, expandOverlay: Boolean = true) {
         scope.launch {
             val req = resolvePlayableRequest(rawReq)
@@ -812,6 +844,15 @@ fun MoviePilotRootShell(
                     bgAudioRequest = req
                     bgAudioPlaying = true
                     attachAudioMediaSession(player, req)
+                    if (EmbeddedAudioMetadataFetcher.needsExtraction(req)) {
+                        scope.launch {
+                            val extracted = EmbeddedAudioMetadataFetcher.fetchEmbeddedMetadata(context, req)
+                            if (extracted != null && bgAudioRequest?.url == req.url) {
+                                val latest = bgAudioRequest ?: req
+                                syncEnrichedAudioMetadata(EmbeddedAudioMetadataFetcher.applyToRequest(latest, extracted))
+                            }
+                        }
+                    }
                 } else {
                     prevPlayer.playWhenReady = true
                     bgAudioRequest = req
@@ -1695,6 +1736,7 @@ fun MoviePilotRootShell(
                         null
                     },
                     onSwitchRequest = { next -> executeStartPlayback(next, expandOverlay = true) },
+                    onMetadataEnriched = { enriched -> syncEnrichedAudioMetadata(enriched) },
                     repository = repository,
                 )
             }

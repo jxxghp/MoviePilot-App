@@ -459,6 +459,59 @@ final class MediaPlaybackClient {
     return UIImage(cgImage: image)
   }
 
+  /// 通过受控有界 HTTP Range 拉取音频头/尾片段（供内嵌封面与歌词解析器使用，同源附加实例凭据，跨源严格剥离）。
+  func fetchByteRange(
+    _ url: URL,
+    start: Int64,
+    endInclusive: Int64,
+    customHeaders: [String: String] = [:]
+  ) async -> (data: Data, totalSize: Int64?, isPartial: Bool)? {
+    guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+      return nil
+    }
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.setValue("bytes=\(start)-\(endInclusive)", forHTTPHeaderField: "Range")
+    request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+    if address.contains(url) {
+      request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+      if let cookie = resourceCookie {
+        let baseCookie = "\(cookie.name)=\(cookie.value)"
+        let merged =
+          CloudflareAccessCredentialRegistry.shared.mergedCookieHeader(
+            existing: baseCookie, for: address) ?? baseCookie
+        request.setValue(merged, forHTTPHeaderField: "Cookie")
+      }
+      CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
+    } else {
+      for (k, v) in customHeaders {
+        let lower = k.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !lower.isEmpty, !v.isEmpty, lower != "range", lower != "accept-encoding" {
+          request.setValue(v, forHTTPHeaderField: k)
+        }
+      }
+    }
+    guard let (data, response) = try? await session.data(for: request),
+      let http = response as? HTTPURLResponse,
+      http.statusCode == 206 || http.statusCode == 200,
+      !data.isEmpty
+    else { return nil }
+    let isPartial = http.statusCode == 206
+    let maxAllowed = Int(max(endInclusive - start + 1, 0)) + 4096
+    let bounded = data.count > maxAllowed ? data.prefix(maxAllowed) : data
+    var totalSize: Int64?
+    if let contentRange = http.value(forHTTPHeaderField: "Content-Range"),
+      let slash = contentRange.lastIndex(of: "/")
+    {
+      let tail = contentRange[contentRange.index(after: slash)...]
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      totalSize = Int64(tail)
+    } else if !isPartial, let lenStr = http.value(forHTTPHeaderField: "Content-Length") {
+      totalSize = Int64(lenStr.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    return (Data(bounded), totalSize, isPartial)
+  }
+
   /// 通过音乐曲目元数据匹配媒体服务器音频流与 LRC 歌词。
   func loadMusicManifest(title: String, artist: String?, album: String?) async throws
     -> MediaPlaybackManifest
@@ -1108,11 +1161,13 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private var subtitleTask: Task<Void, Never>?
   private var lyricsTask: Task<Void, Never>?
   private var artworkTask: Task<Void, Never>?
+  private var embeddedMetadataTask: Task<Void, Never>?
   private var trackSwitchTask: Task<Void, Never>?
   private var nowPlayingArtwork: MPMediaItemArtwork?
   private var subtitleFiles: [URL] = []
   private var activeSubtitleFile: URL?
   private var lyricCues: [MediaPlaybackLyricCue] = []
+  private var hasPlainLyrics = false
   private var lyricButtons: [UIButton] = []
   private var activeLyricIndex: Int?
   private var savedProgress: Int?
@@ -1229,6 +1284,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       }
       loadLyrics()
       loadArtwork()
+      loadEmbeddedAudioMetadata()
     } else {
       danmakuRepository = client?.makeDanmakuRepository()
       danmakuOverlay.applyPreferences(danmakuPrefs)
@@ -3457,7 +3513,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 通过授权歌词地址下载 LRC 并将时间轴绑定到当前播放器。
   private func loadLyrics() {
     guard let lyricsURL = manifest.lyricsUrl, let client else {
-      replaceLyrics(with: [])
+      if lyricCues.isEmpty && !hasPlainLyrics {
+        replaceLyrics(with: [])
+      }
       return
     }
     lyricsTask?.cancel()
@@ -3466,11 +3524,267 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       do {
         let text = try await client.downloadLyrics(lyricsURL, itemId: self.itemId)
         guard !Task.isCancelled, !self.closed else { return }
-        self.replaceLyrics(with: Self.parseLyrics(text))
+        self.applyRawLyricsText(text)
       } catch {
         guard !Task.isCancelled, !self.closed else { return }
-        self.replaceLyrics(with: [])
+        if self.lyricCues.isEmpty && !self.hasPlainLyrics {
+          self.replaceLyrics(with: [])
+        }
       }
+    }
+  }
+
+  /// 异步从音频文件或 HTTP Range 头部解析内嵌封面（FLAC/ID3/M4A/Ogg）与内嵌歌词，不阻塞起播。
+  private func loadEmbeddedAudioMetadata() {
+    guard isAudioPlayback else { return }
+    let needsArt = artworkURL == nil && musicArtwork.image == nil
+    let needsLyrics = lyricCues.isEmpty && !hasPlainLyrics
+    let looksLikeRawFilename = Self.isRawAudioFilename(displayTitle)
+    guard needsArt || needsLyrics || looksLikeRawFilename else { return }
+
+    let targetURL = activeRoute.flatMap { URL(string: $0.url) } ?? manifest.contentUrl
+    let customHeaders = (activeRoute?.headers.isEmpty == false ? activeRoute?.headers : nil) ?? manifest.customHeaders
+    let currentClient = client
+
+    embeddedMetadataTask?.cancel()
+    embeddedMetadataTask = Task { [weak self] in
+      let parsed = await Self.fetchAndParseEmbeddedAudioMetadata(
+        url: targetURL,
+        customHeaders: customHeaders,
+        client: currentClient
+      )
+      guard !Task.isCancelled, let self, !self.closed, let parsed else { return }
+
+      // 1. 补全内嵌封面（仅当尚未展示封面时应用）
+      if self.musicArtwork.image == nil,
+        let coverData = parsed.coverData,
+        let decoded = Self.decodeBoundedArtworkImage(coverData)
+      {
+        self.applyResolvedArtwork(decoded, animated: true)
+      }
+
+      // 2. 补全内嵌歌词（不覆盖已成功加载的外挂同步 LRC）
+      if self.lyricCues.isEmpty, !self.hasPlainLyrics,
+        let lyrics = parsed.lyrics, !lyrics.isEmpty
+      {
+        self.applyRawLyricsText(lyrics)
+      }
+
+      // 3. 若曲名为原始文件名或缺少艺人/专辑，使用内嵌标签补齐展示与锁屏信息
+      var metadataChanged = false
+      if Self.isRawAudioFilename(self.displayTitle), let tagTitle = parsed.title, !tagTitle.isEmpty {
+        self.displayTitle = tagTitle
+        self.musicTitleLabel.text = tagTitle
+        self.musicMiniTitleLabel.text = tagTitle
+        metadataChanged = true
+      }
+      let existingArtist = self.manifest.artist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      let existingAlbum = self.manifest.album?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      if existingArtist.isEmpty || existingAlbum.isEmpty {
+        let resolvedArtist = existingArtist.isEmpty ? (parsed.artist ?? "") : existingArtist
+        let resolvedAlbum = existingAlbum.isEmpty ? (parsed.album ?? "") : existingAlbum
+        let parts = [resolvedArtist, resolvedAlbum].filter { !$0.isEmpty }
+        if !parts.isEmpty {
+          let sub = parts.joined(separator: " — ")
+          self.musicArtistLabel.text = sub
+          self.musicMiniSubtitleLabel.text = sub
+          if !resolvedAlbum.isEmpty {
+            self.titleLabel.text = resolvedAlbum
+          }
+          metadataChanged = true
+        }
+      }
+      if metadataChanged {
+        self.notifyMiniMusicStateIfNeeded()
+        self.refreshNowPlayingInfo()
+      }
+    }
+  }
+
+  private static func isRawAudioFilename(_ title: String) -> Bool {
+    let ext = (title.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).pathExtension.lowercased()
+    guard !ext.isEmpty else { return false }
+    return PlayableMediaFormat.isAudioExtension(ext)
+  }
+
+  nonisolated private static func decodeBoundedArtworkImage(_ data: Data) -> UIImage? {
+    guard !data.isEmpty, data.count <= AudioEmbeddedMetadataParser.maxCoverBytes,
+      let source = CGImageSourceCreateWithData(data as CFData, nil),
+      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+      let width = properties[kCGImagePropertyPixelWidth] as? Int,
+      let height = properties[kCGImagePropertyPixelHeight] as? Int,
+      width <= 16_384, height <= 16_384, width * height <= 80_000_000,
+      let cgImage = CGImageSourceCreateThumbnailAtIndex(
+        source, 0,
+        [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceThumbnailMaxPixelSize: 960,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+        ] as CFDictionary)
+    else { return nil }
+    return UIImage(cgImage: cgImage)
+  }
+
+  nonisolated private static func fetchAndParseEmbeddedAudioMetadata(
+    url: URL,
+    customHeaders: [String: String],
+    client: MediaPlaybackClient?
+  ) async -> AudioEmbeddedMetadata? {
+    let initialHead = 256 * 1024
+    let maxHead = Int(AudioEmbeddedMetadataParser.maxRecommendedRangeBytes)
+    let tailWindow = 512 * 1024
+
+    if url.isFileURL {
+      return await Task.detached(priority: .utility) {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let fileSize = (try? handle.seekToEnd()) ?? 0
+        guard fileSize > 4 else { return nil }
+        try? handle.seek(toOffset: 0)
+        guard var head = try? handle.read(upToCount: min(Int(fileSize), initialHead)),
+          !head.isEmpty
+        else { return nil }
+        var parsed = AudioEmbeddedMetadataParser.parse(head: head)
+        if let needed = parsed.neededHeadBytes, needed > UInt64(head.count), fileSize > UInt64(head.count) {
+          let target = min(Int(fileSize), min(Int(needed), maxHead))
+          if target > head.count {
+            try? handle.seek(toOffset: UInt64(head.count))
+            if let more = try? handle.read(upToCount: target - head.count), !more.isEmpty {
+              head.append(more)
+              parsed = AudioEmbeddedMetadataParser.parse(head: head)
+            }
+          }
+        }
+        if let neededTail = parsed.neededTailBytes, fileSize > UInt64(head.count) {
+          let tailLen = min(fileSize, max(neededTail, UInt64(tailWindow)))
+          let startOff = fileSize - tailLen
+          try? handle.seek(toOffset: startOff)
+          if let tail = try? handle.read(upToCount: Int(min(tailLen, 2 * 1024 * 1024))), !tail.isEmpty {
+            parsed = AudioEmbeddedMetadataParser.parse(head: head, tail: tail)
+          }
+        }
+        return parsed
+      }.value
+    }
+
+    guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+      return nil
+    }
+
+    func fetchRange(_ start: Int64, _ end: Int64) async -> (data: Data, totalSize: Int64?, isPartial: Bool)? {
+      if let client {
+        return await client.fetchByteRange(url, start: start, endInclusive: end, customHeaders: customHeaders)
+      }
+      var req = URLRequest(url: url)
+      req.httpMethod = "GET"
+      req.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
+      req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+      for (k, v) in customHeaders where !k.isEmpty && !v.isEmpty {
+        req.setValue(v, forHTTPHeaderField: k)
+      }
+      guard let (data, response) = try? await URLSession.shared.data(for: req),
+        let http = response as? HTTPURLResponse,
+        http.statusCode == 206 || http.statusCode == 200,
+        !data.isEmpty
+      else { return nil }
+      let isPartial = http.statusCode == 206
+      var total: Int64?
+      if let cr = http.value(forHTTPHeaderField: "Content-Range"), let slash = cr.lastIndex(of: "/") {
+        total = Int64(cr[cr.index(after: slash)...].trimmingCharacters(in: .whitespacesAndNewlines))
+      }
+      return (data, total, isPartial)
+    }
+
+    guard let first = await fetchRange(0, Int64(initialHead - 1)) else { return nil }
+    var head = first.data
+    var parsed = AudioEmbeddedMetadataParser.parse(head: head)
+
+    if first.isPartial, let needed = parsed.neededHeadBytes, needed > UInt64(head.count) {
+      let capped = min(Int64(needed), Int64(maxHead))
+      let targetEnd = first.totalSize.map { min(capped, $0) } ?? capped
+      if targetEnd > Int64(head.count),
+        let more = await fetchRange(Int64(head.count), targetEnd - 1)
+      {
+        head.append(more.data)
+        parsed = AudioEmbeddedMetadataParser.parse(head: head)
+      }
+    }
+
+    if first.isPartial, let neededTail = parsed.neededTailBytes,
+      let total = first.totalSize, total > Int64(head.count)
+    {
+      let tailLen = min(total, min(max(Int64(neededTail), Int64(tailWindow)), 2 * 1024 * 1024))
+      let start = max(0, total - tailLen)
+      if let tail = await fetchRange(start, total - 1) {
+        parsed = AudioEmbeddedMetadataParser.parse(head: head, tail: tail.data)
+      }
+    }
+
+    return parsed
+  }
+
+  /// 将原始歌词文本应用到舞台：优先解析带时间轴的同步 LRC，无时间轴时以纯文本内嵌歌词展示。
+  private func applyRawLyricsText(_ text: String) {
+    let cues = Self.parseLyrics(text)
+    if !cues.isEmpty {
+      replaceLyrics(with: cues)
+      return
+    }
+    let plainLines = Self.parsePlainLyricsLines(text)
+    if !plainLines.isEmpty {
+      replacePlainLyrics(with: plainLines)
+    } else if lyricCues.isEmpty && !hasPlainLyrics {
+      replaceLyrics(with: [])
+    }
+  }
+
+  private static func parsePlainLyricsLines(_ text: String) -> [String] {
+    let metaPattern = try? NSRegularExpression(
+      pattern: #"^\[(ti|ar|al|au|by|offset|re|ve|length):.*\]$"#,
+      options: [.caseInsensitive]
+    )
+    return text.components(separatedBy: .newlines)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { line in
+        guard !line.isEmpty else { return false }
+        if let metaPattern {
+          let range = NSRange(line.startIndex..<line.endIndex, in: line)
+          if metaPattern.firstMatch(in: line, range: range) != nil { return false }
+        }
+        return true
+      }
+  }
+
+  /// 展示无时间轴的纯文本内嵌歌词，避免误提示「暂无歌词」。
+  private func replacePlainLyrics(with lines: [String]) {
+    for arranged in lyricsStack.arrangedSubviews {
+      lyricsStack.removeArrangedSubview(arranged)
+      arranged.removeFromSuperview()
+    }
+    lyricCues = []
+    lyricButtons.removeAll()
+    activeLyricIndex = nil
+    hasPlainLyrics = !lines.isEmpty
+    guard !lines.isEmpty else {
+      appendLyricPlaceholder(L10n.text("当前曲目暂未附带歌词"))
+      return
+    }
+    musicLyricPreviewButton.isHidden = shouldUseCompactAudioLandscapeLayout && showsFullLyrics
+    updateLyricPreview(lines.first ?? "")
+    let hintLabel = UILabel()
+    hintLabel.text = L10n.text("内嵌歌词（纯文本，无时间轴）")
+    hintLabel.font = .systemFont(ofSize: 13, weight: .medium)
+    hintLabel.textColor = UIColor.white.withAlphaComponent(0.55)
+    hintLabel.numberOfLines = 1
+    lyricsStack.addArrangedSubview(hintLabel)
+    for line in lines {
+      let label = UILabel()
+      label.text = line
+      label.font = .systemFont(ofSize: 18, weight: .medium)
+      label.textColor = UIColor.white.withAlphaComponent(0.88)
+      label.numberOfLines = 0
+      label.textAlignment = .left
+      lyricsStack.addArrangedSubview(label)
     }
   }
 
@@ -3555,9 +3869,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     lyricCues = cues
     lyricButtons.removeAll()
     activeLyricIndex = nil
+    hasPlainLyrics = false
     guard !cues.isEmpty else {
       musicLyricPreviewButton.isHidden = true
-      appendLyricPlaceholder(L10n.text("暂无同名 LRC 歌词"))
+      appendLyricPlaceholder(L10n.text("当前曲目暂未附带歌词"))
       return
     }
     musicLyricPreviewButton.isHidden = shouldUseCompactAudioLandscapeLayout && showsFullLyrics
@@ -4207,8 +4522,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
             self.loadArtwork()
           }
           self.lyricsTask?.cancel()
+          self.embeddedMetadataTask?.cancel()
+          self.hasPlainLyrics = false
           self.replaceLyrics(with: [])
           self.loadLyrics()
+          self.loadEmbeddedAudioMetadata()
           self.savedProgress = nil
           self.resumePromptShown = true
         } else {
@@ -4704,6 +5022,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     subtitleTask?.cancel()
     lyricsTask?.cancel()
     artworkTask?.cancel()
+    embeddedMetadataTask?.cancel()
+    embeddedMetadataTask = nil
     danmakuTask?.cancel()
     danmakuTask = nil
     danmakuOverlay.stopAndClear()

@@ -345,6 +345,24 @@ object LocalMediaMetadataExtractor {
             runCatching { retriever.release() }
         }
 
+        var embeddedLyrics: String? = null
+        val embeddedTags = EmbeddedAudioMetadataFetcher.extractFromLocalUriBlocking(context, uri)
+        if (embeddedTags != null) {
+            if (metaTitle.isNullOrBlank()) metaTitle = embeddedTags.title?.takeIf { it.isNotBlank() }
+            if (metaArtist.isNullOrBlank()) metaArtist = embeddedTags.artist?.takeIf { it.isNotBlank() }
+            if (metaAlbum.isNullOrBlank()) metaAlbum = embeddedTags.album?.takeIf { it.isNotBlank() }
+            embeddedLyrics = embeddedTags.lyrics?.takeIf { it.isNotBlank() }
+            if (embeddedBytes == null && embeddedTags.coverBytes != null && embeddedTags.coverBytes!!.isNotEmpty()) {
+                embeddedBytes = embeddedTags.coverBytes
+                runCatching {
+                    val artDir = File(context.cacheDir, "mp_local_artwork").apply { mkdirs() }
+                    val artFile = File(artDir, "art_${uri.toString().hashCode()}.jpg")
+                    artFile.writeBytes(embeddedBytes!!)
+                    cachedArtworkUri = Uri.fromFile(artFile).toString()
+                }
+            }
+        }
+
         val detectedByName = RustCoreBridge.detectMediaKind(displayName, false)
         val isAudio = when {
             resolvedMime.startsWith("audio/", ignoreCase = true) -> true
@@ -375,6 +393,7 @@ object LocalMediaMetadataExtractor {
             artworkUrl = cachedArtworkUri,
             artworkBytes = embeddedBytes,
             isAudio = isAudio,
+            lyricsLrc = embeddedLyrics,
             isSessionBound = false,
         )
     }

@@ -10,6 +10,7 @@ import { PlaybackPreferencesStore } from '@moviepilot/design_system';
 import {
   MoviePilotRepository,
   RustCoreBridge,
+  AudioEmbeddedMetadataResult,
   ParsedStrmStream,
   PlaybackRouteCandidate,
   HarmonyPlaybackSyncTracker,
@@ -29,6 +30,7 @@ import {
 import {
   LyricLineCue,
   parseLrcLyrics,
+  extractPlainLyricsLines,
   findActiveLyricIndex
 } from './SubtitleAndLyricsParser';
 
@@ -276,6 +278,7 @@ export class HarmonyAudioSession {
 
   private rawLyricsText: string = '';
   private lyricCues: LyricLineCue[] = [];
+  private plainLyricsLines: string[] = [];
   private currentLyricIdx: number = -1;
   private artworkPixelMap: image.PixelMap | null = null;
 
@@ -364,6 +367,10 @@ export class HarmonyAudioSession {
 
   lyricsCues(): LyricLineCue[] {
     return this.lyricCues;
+  }
+
+  plainLyrics(): string[] {
+    return this.plainLyricsLines;
   }
 
   activeLyricIndex(): number {
@@ -486,6 +493,7 @@ export class HarmonyAudioSession {
     this.interruptedWhilePlaying = false;
     this.rawLyricsText = '';
     this.lyricCues = [];
+    this.plainLyricsLines = [];
     this.currentLyricIdx = -1;
     this.notify();
 
@@ -524,11 +532,12 @@ export class HarmonyAudioSession {
       }).catch(() => {});
     }
 
-    // 异步加载歌词与锁屏封面 PixelMap
+    // 异步加载歌词、锁屏封面 PixelMap 以及内嵌封面与歌词（支持本地与远端 HTTP Range 流）
     this.loadLyricsForTrack(enrichedReq, gen).catch(() => {});
     if (!this.artworkPixelMap && (enrichedReq.artworkUrl ?? '').trim().length > 0) {
       this.loadRemoteArtwork(enrichedReq.artworkUrl ?? '', gen).catch(() => {});
     }
+    this.loadEmbeddedAudioMetadata(enrichedReq, gen).catch(() => {});
 
     if (this.hostContext) {
       this.ensureAvSession(this.hostContext, enrichedReq).catch(() => {});
@@ -747,9 +756,237 @@ export class HarmonyAudioSession {
     }
     this.rawLyricsText = raw;
     this.lyricCues = parseLrcLyrics(raw);
+    this.plainLyricsLines = this.lyricCues.length === 0 ? extractPlainLyricsLines(raw) : [];
     this.currentLyricIdx = findActiveLyricIndex(this.lyricCues, this.posMs);
     this.syncAvSessionMetadata();
     this.notify();
+  }
+
+  private async decodeCoverBase64ToPixelMap(base64Str: string): Promise<image.PixelMap | null> {
+    if (!base64Str || base64Str.length === 0) {
+      return null;
+    }
+    try {
+      const helper = new util.Base64Helper();
+      const u8 = helper.decodeSync(base64Str);
+      if (!u8 || u8.byteLength === 0) {
+        return null;
+      }
+      const buf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+      const source = image.createImageSource(buf);
+      if (!source) {
+        return null;
+      }
+      let decodeOpts: image.DecodingOptions = {
+        desiredSize: { width: 512, height: 512 }
+      };
+      try {
+        const info = await source.getImageInfo();
+        if (info && info.size && info.size.width > 0 && info.size.height > 0) {
+          const maxDim = Math.max(info.size.width, info.size.height);
+          if (maxDim > 512) {
+            const scale = 512 / maxDim;
+            decodeOpts = {
+              desiredSize: {
+                width: Math.max(1, Math.round(info.size.width * scale)),
+                height: Math.max(1, Math.round(info.size.height * scale))
+              }
+            };
+          } else {
+            decodeOpts = {
+              desiredSize: { width: info.size.width, height: info.size.height }
+            };
+          }
+        }
+      } catch {
+        // fallback 512x512
+      }
+      const pm = await source.createPixelMap(decodeOpts);
+      try { source.release(); } catch { /* ignore */ }
+      return pm;
+    } catch {
+      return null;
+    }
+  }
+
+  private isRawAudioFilename(title: string): boolean {
+    return /\.(flac|mp3|m4a|aac|ogg|oga|opus|wav|aiff|aif|alac|ape|wv|wma|dsf|dff|mka)$/i.test(title.trim());
+  }
+
+  /**
+   * 异步从本地文件或远端 HTTP Range 音频头/尾字节提取内嵌封面与歌词（委托 Rust 核心解析 FLAC / ID3v2 / MP4·M4A / Ogg）。
+   */
+  private async loadEmbeddedAudioMetadata(req: HarmonyPlaybackRequest, gen: number): Promise<void> {
+    const needsArt = (req.artworkUrl ?? '').trim().length === 0 && !this.artworkPixelMap;
+    const needsLyrics = (req.lyricsLrc ?? '').trim().length === 0 && this.lyricCues.length === 0 && this.plainLyricsLines.length === 0;
+    const rawTitle = this.isRawAudioFilename(req.title);
+    if (!needsArt && !needsLyrics && !rawTitle) {
+      return;
+    }
+
+    const INITIAL_HEAD = 256 * 1024;
+    const MAX_HEAD = 6 * 1024 * 1024;
+    const TAIL_SIZE = 512 * 1024;
+    const b64 = new util.Base64Helper();
+
+    let parsed: AudioEmbeddedMetadataResult | null = null;
+    const localTarget = (req.fdPath ?? '').trim() ||
+      (req.url.startsWith('file://') || req.url.startsWith('/') ? req.url.trim() : '');
+
+    if (localTarget.length > 0) {
+      const opened = openLocalPlaybackFd(localTarget, false);
+      if (opened) {
+        try {
+          const stat = fileIo.statSync(opened.fd);
+          const fileSize = stat.size;
+          if (fileSize > 4) {
+            const firstLen = Math.min(fileSize, INITIAL_HEAD);
+            let headBuf = new ArrayBuffer(firstLen);
+            const n1 = fileIo.readSync(opened.fd, headBuf, { offset: 0, length: firstLen });
+            if (n1 > 0) {
+              let headU8 = new Uint8Array(headBuf, 0, n1);
+              let headB64 = b64.encodeToStringSync(headU8);
+              parsed = RustCoreBridge.parseAudioEmbeddedMetadata(headB64, '');
+
+              const neededHead = parsed.needed_head_bytes ?? 0;
+              if (neededHead > headU8.byteLength && fileSize > headU8.byteLength) {
+                const targetLen = Math.min(fileSize, Math.min(neededHead, MAX_HEAD));
+                if (targetLen > headU8.byteLength) {
+                  const fullBuf = new ArrayBuffer(targetLen);
+                  const nFull = fileIo.readSync(opened.fd, fullBuf, { offset: 0, length: targetLen });
+                  if (nFull > headU8.byteLength) {
+                    headU8 = new Uint8Array(fullBuf, 0, nFull);
+                    headB64 = b64.encodeToStringSync(headU8);
+                    parsed = RustCoreBridge.parseAudioEmbeddedMetadata(headB64, '');
+                  }
+                }
+              }
+
+              const neededTail = parsed.needed_tail_bytes ?? 0;
+              if (neededTail > 0 && fileSize > headU8.byteLength) {
+                const tailLen = Math.min(fileSize, Math.min(Math.max(neededTail, TAIL_SIZE), 2 * 1024 * 1024));
+                const tailStart = Math.max(0, fileSize - tailLen);
+                const tailBuf = new ArrayBuffer(tailLen);
+                const nTail = fileIo.readSync(opened.fd, tailBuf, { offset: tailStart, length: tailLen });
+                if (nTail > 0) {
+                  const tailB64 = b64.encodeToStringSync(new Uint8Array(tailBuf, 0, nTail));
+                  parsed = RustCoreBridge.parseAudioEmbeddedMetadata(headB64, tailB64);
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore local tag read failure
+        } finally {
+          closeLocalPlaybackFd(opened);
+        }
+      }
+    } else if (req.url.startsWith('http://') || req.url.startsWith('https://')) {
+      const repo = MoviePilotRepository.shared();
+      const first = await repo.fetchAudioByteRange(req.url, 0, INITIAL_HEAD - 1, req.headers);
+      if (gen !== this.loadGeneration || !first || first.data.byteLength === 0) {
+        return;
+      }
+      let headU8 = new Uint8Array(first.data);
+      let headB64 = b64.encodeToStringSync(headU8);
+      parsed = RustCoreBridge.parseAudioEmbeddedMetadata(headB64, '');
+
+      const neededHead = parsed.needed_head_bytes ?? 0;
+      if (first.isPartial && neededHead > headU8.byteLength) {
+        const capped = Math.min(neededHead, MAX_HEAD);
+        const targetEnd = first.totalSize > 0 ? Math.min(capped, first.totalSize) : capped;
+        if (targetEnd > headU8.byteLength) {
+          const more = await repo.fetchAudioByteRange(req.url, headU8.byteLength, targetEnd - 1, req.headers);
+          if (gen !== this.loadGeneration) {
+            return;
+          }
+          if (more && more.data.byteLength > 0) {
+            const moreU8 = new Uint8Array(more.data);
+            const combined = new Uint8Array(headU8.byteLength + moreU8.byteLength);
+            combined.set(headU8, 0);
+            combined.set(moreU8, headU8.byteLength);
+            headU8 = combined;
+            headB64 = b64.encodeToStringSync(headU8);
+            parsed = RustCoreBridge.parseAudioEmbeddedMetadata(headB64, '');
+          }
+        }
+      }
+
+      const neededTail = parsed.needed_tail_bytes ?? 0;
+      if (first.isPartial && neededTail > 0 && first.totalSize > headU8.byteLength) {
+        const tailLen = Math.min(first.totalSize, Math.min(Math.max(neededTail, TAIL_SIZE), 2 * 1024 * 1024));
+        const tailStart = Math.max(0, first.totalSize - tailLen);
+        const tail = await repo.fetchAudioByteRange(req.url, tailStart, first.totalSize - 1, req.headers);
+        if (gen !== this.loadGeneration) {
+          return;
+        }
+        if (tail && tail.data.byteLength > 0) {
+          const tailB64 = b64.encodeToStringSync(new Uint8Array(tail.data));
+          parsed = RustCoreBridge.parseAudioEmbeddedMetadata(headB64, tailB64);
+        }
+      }
+    }
+
+    if (gen !== this.loadGeneration || !parsed) {
+      return;
+    }
+
+    let changed = false;
+    const tagTitle = (parsed.title ?? '').trim();
+    const tagArtist = (parsed.artist ?? '').trim();
+    const tagAlbum = (parsed.album ?? '').trim();
+    const tagLyrics = (parsed.lyrics ?? '').trim();
+    const tagCoverB64 = (parsed.cover_base64 ?? '').trim();
+
+    if (tagTitle.length > 0 && (req.title.trim().length === 0 || this.isRawAudioFilename(req.title))) {
+      req.title = tagTitle;
+      changed = true;
+    }
+    if (tagArtist.length > 0 && (req.artist ?? '').trim().length === 0) {
+      req.artist = tagArtist;
+      changed = true;
+    }
+    if (tagAlbum.length > 0 && (req.album ?? '').trim().length === 0) {
+      req.album = tagAlbum;
+      changed = true;
+    }
+    const artistNow = (req.artist ?? '').trim();
+    const albumNow = (req.album ?? '').trim();
+    if (
+      (artistNow.length > 0 || albumNow.length > 0) &&
+      (req.subtitle.trim().length === 0 || req.subtitle.includes(' · /') || req.subtitle.startsWith('local ·') || req.subtitle.startsWith('smb ·'))
+    ) {
+      req.subtitle = artistNow.length > 0 && albumNow.length > 0 ? `${artistNow} · ${albumNow}` : (artistNow || albumNow);
+      changed = true;
+    }
+
+    if (tagLyrics.length > 0 && this.lyricCues.length === 0 && this.plainLyricsLines.length === 0) {
+      this.rawLyricsText = tagLyrics;
+      this.lyricCues = parseLrcLyrics(tagLyrics);
+      this.plainLyricsLines = this.lyricCues.length === 0 ? extractPlainLyricsLines(tagLyrics) : [];
+      this.currentLyricIdx = findActiveLyricIndex(this.lyricCues, this.posMs);
+      changed = true;
+    }
+
+    if (tagCoverB64.length > 0 && !this.artworkPixelMap && (req.artworkUrl ?? '').trim().length === 0) {
+      const pm = await this.decodeCoverBase64ToPixelMap(tagCoverB64);
+      if (gen !== this.loadGeneration) {
+        if (pm) {
+          try { pm.release(); } catch { /* ignore */ }
+        }
+        return;
+      }
+      if (pm) {
+        this.releaseArtworkPixelMap();
+        this.artworkPixelMap = pm;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.syncAvSessionMetadata();
+      this.notify();
+    }
   }
 
   private async loadRemoteArtwork(artworkUrl: string, gen: number): Promise<void> {
@@ -1275,6 +1512,7 @@ export class HarmonyAudioSession {
     this.durMs = 0;
     this.rawLyricsText = '';
     this.lyricCues = [];
+    this.plainLyricsLines = [];
     this.currentLyricIdx = -1;
     this.releasePlayerOnly();
     this.releaseArtworkPixelMap();

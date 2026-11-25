@@ -23,6 +23,12 @@ export interface SseEventChunk {
  * - 识别 401 与过期型 403（`RustCoreBridge.classifyAuthStatus === 'logout'`）并触发全局过期登出回调；
  * - 支持自签名 HTTPS 开关、表单、JSON、Multipart 上传与 `requestInStream` 分块流式 SSE。
  */
+export interface ByteRangeFetchResult {
+  data: ArrayBuffer;
+  totalSize: number;
+  isPartial: boolean;
+}
+
 export class NativeRcpTransport {
   private baseUrl: string = '';
   private allowSelfSigned: boolean = false;
@@ -330,6 +336,109 @@ export class NativeRcpTransport {
         return resp.result as ArrayBuffer;
       }
       return null;
+    } catch {
+      return null;
+    } finally {
+      client.destroy();
+    }
+  }
+
+  /**
+   * 按字节区间（`Range: bytes=start-end`）拉取音频头/尾元数据窗口：
+   * 同源请求附加当前实例鉴权/Cookie/CF Access 头；跨源请求仅附加调用方显式提供的安全流头，绝不泄露主实例凭据。
+   */
+  async fetchByteRange(
+    url: string,
+    startByte: number,
+    endInclusive: number,
+    token: string = '',
+    customHeaders?: Record<string, string>
+  ): Promise<ByteRangeFetchResult | null> {
+    const cleanUrl = (url ?? '').trim();
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      return null;
+    }
+    const maxAccept = Math.max(0, endInclusive - startByte + 1) + 4096;
+    const client = http.createHttp();
+    const header: Record<string, string> = {};
+    header['Range'] = `bytes=${Math.max(0, Math.floor(startByte))}-${Math.max(0, Math.floor(endInclusive))}`;
+    header['Accept'] = '*/*';
+    header['Accept-Encoding'] = 'identity';
+
+    if (this.isSameOriginUrl(cleanUrl)) {
+      if (token.length > 0) {
+        header['Authorization'] = `Bearer ${token}`;
+      }
+      const cookieStr = this.getCookieHeaderForUrl(cleanUrl);
+      if (cookieStr.length > 0) {
+        header['Cookie'] = cookieStr;
+      }
+      this.applyCloudflareHeaders(header, cleanUrl);
+    } else if (customHeaders) {
+      const keys = Object.keys(customHeaders);
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        const lower = k.trim().toLowerCase();
+        const v = customHeaders[k];
+        if (lower.length > 0 && v && v.length > 0 && lower !== 'range' && lower !== 'accept-encoding') {
+          header[k] = v;
+        }
+      }
+    }
+
+    const reqOpts: http.HttpRequestOptions = {
+      method: http.RequestMethod.GET,
+      header: header,
+      expectDataType: http.HttpDataType.ARRAY_BUFFER,
+      connectTimeout: 12000,
+      readTimeout: 25000,
+      usingCache: false
+    };
+    if (this.allowSelfSigned) {
+      reqOpts.remoteValidation = 'skip';
+    }
+    try {
+      const resp = await client.request(cleanUrl, reqOpts);
+      if (this.isSameOriginUrl(cleanUrl)) {
+        this.captureSetCookies(cleanUrl, resp.header, resp.cookies ?? '');
+      }
+      if ((resp.responseCode !== 206 && resp.responseCode !== 200) || !(resp.result instanceof ArrayBuffer)) {
+        return null;
+      }
+      const rawBuf = resp.result as ArrayBuffer;
+      if (rawBuf.byteLength === 0) {
+        return null;
+      }
+      const outBuf = rawBuf.byteLength > maxAccept ? rawBuf.slice(0, maxAccept) : rawBuf;
+      let totalSize = -1;
+      const respHdr = resp.header as Record<string, string> | undefined;
+      if (respHdr) {
+        const hdrKeys = Object.keys(respHdr);
+        for (let i = 0; i < hdrKeys.length; i++) {
+          const hk = hdrKeys[i];
+          const hl = hk.toLowerCase();
+          if (hl === 'content-range') {
+            const cr = String(respHdr[hk] ?? '');
+            const slash = cr.lastIndexOf('/');
+            if (slash >= 0) {
+              const parsed = parseInt(cr.substring(slash + 1).trim(), 10);
+              if (Number.isFinite(parsed) && parsed > 0) {
+                totalSize = parsed;
+              }
+            }
+          } else if (hl === 'content-length' && resp.responseCode === 200 && totalSize < 0) {
+            const parsed = parseInt(String(respHdr[hk] ?? '').trim(), 10);
+            if (Number.isFinite(parsed) && parsed > 0) {
+              totalSize = parsed;
+            }
+          }
+        }
+      }
+      return {
+        data: outBuf,
+        totalSize: totalSize,
+        isPartial: resp.responseCode === 206
+      };
     } catch {
       return null;
     } finally {

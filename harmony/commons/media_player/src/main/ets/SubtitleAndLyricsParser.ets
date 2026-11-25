@@ -170,6 +170,25 @@ export function parseLrcLyrics(raw: string): LyricLineCue[] {
   return cues;
 }
 
+/**
+ * 提取无时间轴纯文本内嵌歌词行（自动过滤空行与 `[ti:]`/`[ar:]`/`[al:]` 等 LRC 元信息行）。
+ */
+export function extractPlainLyricsLines(raw: string): string[] {
+  const lines = stripBomAndNormalizeLines(raw);
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    if (/^\[(ti|ar|al|au|by|offset|re|ve|length):.*\]$/i.test(trimmed)) {
+      continue;
+    }
+    out.push(trimmed);
+  }
+  return out;
+}
+
 /** 二分检索当前播放进度命中的歌词行下标（未命中时返回 `-1`）。 */
 export function findActiveLyricIndex(cues: LyricLineCue[], posMs: number): number {
   if (cues.length === 0 || !Number.isFinite(posMs)) {

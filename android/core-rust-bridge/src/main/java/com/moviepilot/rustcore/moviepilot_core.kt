@@ -800,6 +800,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -866,6 +868,8 @@ fun uniffi_moviepilot_core_checksum_func_normalize_plugin_remote_entry_json(
 fun uniffi_moviepilot_core_checksum_func_normalize_server_address(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_agent_markdown(
+): Short
+fun uniffi_moviepilot_core_checksum_func_parse_audio_embedded_metadata(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_deep_link_json(
 ): Short
@@ -1011,6 +1015,8 @@ fun uniffi_moviepilot_core_fn_func_normalize_plugin_remote_entry_json(`pluginId`
 fun uniffi_moviepilot_core_fn_func_normalize_server_address(`raw`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_parse_agent_markdown(`markdown`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_parse_audio_embedded_metadata(`headBytes`: RustBuffer.ByValue,`tailBytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_parse_deep_link_json(`rawUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1242,6 +1248,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_parse_agent_markdown() != 45114.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_parse_audio_embedded_metadata() != 9108.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_parse_deep_link_json() != 45112.toShort()) {
@@ -1510,6 +1519,29 @@ public object FfiConverterInt: FfiConverter<Int, Int> {
 /**
  * @suppress
  */
+public object FfiConverterULong: FfiConverter<ULong, Long> {
+    override fun lift(value: Long): ULong {
+        return value.toULong()
+    }
+
+    override fun read(buf: ByteBuffer): ULong {
+        return lift(buf.getLong())
+    }
+
+    override fun lower(value: ULong): Long {
+        return value.toLong()
+    }
+
+    override fun allocationSize(value: ULong) = 8UL
+
+    override fun write(value: ULong, buf: ByteBuffer) {
+        buf.putLong(value.toLong())
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterLong: FfiConverter<Long, Long> {
     override fun lift(value: Long): Long {
         return value
@@ -1630,6 +1662,25 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
         val byteBuf = toUtf8(value)
         buf.putInt(byteBuf.limit())
         buf.put(byteBuf)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+    override fun read(buf: ByteBuffer): ByteArray {
+        val len = buf.getInt()
+        val byteArr = ByteArray(len)
+        buf.get(byteArr)
+        return byteArr
+    }
+    override fun allocationSize(value: ByteArray): ULong {
+        return 4UL + value.size.toULong()
+    }
+    override fun write(value: ByteArray, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        buf.put(value)
     }
 }
 
@@ -1893,6 +1944,65 @@ public object FfiConverterTypeNativeSseParser: FfiConverter<NativeSseParser, Poi
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+
+/**
+ * 音频内嵌元数据解析结果（FLAC / ID3v2 / MP4·M4A / Ogg Vorbis·Opus）。
+ */
+data class AudioEmbeddedMetadataFfi (
+    var `title`: kotlin.String?, 
+    var `artist`: kotlin.String?, 
+    var `album`: kotlin.String?, 
+    var `lyrics`: kotlin.String?, 
+    var `coverMime`: kotlin.String?, 
+    var `coverBytes`: kotlin.ByteArray?, 
+    var `neededHeadBytes`: kotlin.ULong?, 
+    var `neededTailBytes`: kotlin.ULong?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAudioEmbeddedMetadataFfi: FfiConverterRustBuffer<AudioEmbeddedMetadataFfi> {
+    override fun read(buf: ByteBuffer): AudioEmbeddedMetadataFfi {
+        return AudioEmbeddedMetadataFfi(
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalByteArray.read(buf),
+            FfiConverterOptionalULong.read(buf),
+            FfiConverterOptionalULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AudioEmbeddedMetadataFfi) = (
+            FfiConverterOptionalString.allocationSize(value.`title`) +
+            FfiConverterOptionalString.allocationSize(value.`artist`) +
+            FfiConverterOptionalString.allocationSize(value.`album`) +
+            FfiConverterOptionalString.allocationSize(value.`lyrics`) +
+            FfiConverterOptionalString.allocationSize(value.`coverMime`) +
+            FfiConverterOptionalByteArray.allocationSize(value.`coverBytes`) +
+            FfiConverterOptionalULong.allocationSize(value.`neededHeadBytes`) +
+            FfiConverterOptionalULong.allocationSize(value.`neededTailBytes`)
+    )
+
+    override fun write(value: AudioEmbeddedMetadataFfi, buf: ByteBuffer) {
+            FfiConverterOptionalString.write(value.`title`, buf)
+            FfiConverterOptionalString.write(value.`artist`, buf)
+            FfiConverterOptionalString.write(value.`album`, buf)
+            FfiConverterOptionalString.write(value.`lyrics`, buf)
+            FfiConverterOptionalString.write(value.`coverMime`, buf)
+            FfiConverterOptionalByteArray.write(value.`coverBytes`, buf)
+            FfiConverterOptionalULong.write(value.`neededHeadBytes`, buf)
+            FfiConverterOptionalULong.write(value.`neededTailBytes`, buf)
     }
 }
 
@@ -2414,6 +2524,38 @@ public object FfiConverterOptionalInt: FfiConverterRustBuffer<kotlin.Int?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
+    override fun read(buf: ByteBuffer): kotlin.ULong? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterULong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ULong?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterULong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ULong?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterULong.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalLong: FfiConverterRustBuffer<kotlin.Long?> {
     override fun read(buf: ByteBuffer): kotlin.Long? {
         if (buf.get().toInt() == 0) {
@@ -2468,6 +2610,38 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
         } else {
             buf.put(1)
             FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalByteArray: FfiConverterRustBuffer<kotlin.ByteArray?> {
+    override fun read(buf: ByteBuffer): kotlin.ByteArray? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterByteArray.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ByteArray?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterByteArray.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ByteArray?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterByteArray.write(value, buf)
         }
     }
 }
@@ -2872,6 +3046,18 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_agent_markdown(
         FfiConverterString.lower(`markdown`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 解析音频文件头部（及可选尾部）字节中的内嵌标题、歌手、专辑、歌词与封面字节。
+         */ fun `parseAudioEmbeddedMetadata`(`headBytes`: kotlin.ByteArray, `tailBytes`: kotlin.ByteArray): AudioEmbeddedMetadataFfi {
+            return FfiConverterTypeAudioEmbeddedMetadataFfi.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_audio_embedded_metadata(
+        FfiConverterByteArray.lower(`headBytes`),FfiConverterByteArray.lower(`tailBytes`),_status)
 }
     )
     }

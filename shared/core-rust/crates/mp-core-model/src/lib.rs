@@ -1,6 +1,7 @@
 //! MoviePilot 跨端共享领域模型：服务地址规范化、DeepLink 路由解析、AI 流式 Markdown AST、
 //! 订阅进度计算、社区勋章配色、媒体播放格式与小组件数据模型。
 
+pub mod audio_metadata;
 pub mod cloudflare_oauth;
 pub mod danmaku;
 pub mod deep_link;
@@ -12,6 +13,10 @@ pub mod playback_sync;
 pub mod server_address;
 pub mod subscribe;
 
+pub use audio_metadata::{
+    AudioEmbeddedMetadata, AudioEmbeddedMetadataJson, MAX_EMBEDDED_COVER_BYTES,
+    MAX_RECOMMENDED_RANGE_BYTES, parse_audio_embedded_metadata,
+};
 pub use cloudflare_oauth::{
     CloudflareChallengeResult, DEFAULT_CF_OAUTH_REDIRECT_URI, OAuthCallbackResult,
     OAuthServerMetadata, PkcePair, build_oauth_authorize_url, build_oauth_discovery_urls,

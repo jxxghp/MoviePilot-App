@@ -21,3 +21,4 @@ export declare function validatePluginShellAsset(virtualPath: string): string;
 export declare function buildPluginRemoteCacheKeyJson(instanceOrigin: string, pluginId: string, versionOrHash: string): string;
 export declare function normalizePluginRemoteEntryJson(pluginId: string, versionOrHash: string, rawRemoteUrl: string): string;
 export declare function resolvePluginRemoteUpstreamJson(virtualPath: string): string;
+export declare function parseAudioEmbeddedMetadataJson(headBase64: string, tailBase64: string): string;

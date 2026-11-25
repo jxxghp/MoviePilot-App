@@ -53,6 +53,18 @@ export interface NativeCoreModule {
   ): string;
   parseOauthCallbackUrlJson?(callbackUrl: string, expectedState: string): string;
   mergeCfAccessCookie?(existingCookieHeader: string, cfToken: string): string;
+  parseAudioEmbeddedMetadataJson?(headBase64: string, tailBase64: string): string;
+}
+
+export interface AudioEmbeddedMetadataResult {
+  title?: string;
+  artist?: string;
+  album?: string;
+  lyrics?: string;
+  cover_mime?: string;
+  cover_base64?: string;
+  needed_head_bytes?: number;
+  needed_tail_bytes?: number;
 }
 
 export interface CloudflareChallengeResult {
@@ -1766,5 +1778,22 @@ export class RustCoreBridge {
       parts.push(`CF_Authorization=${clean}`);
     }
     return parts.join('; ');
+  }
+
+  /**
+   * 解析音频头部（及可选尾部）Base64 字节中的内嵌标题、艺人、专辑、歌词与封面（支持 FLAC / ID3v2 / MP4·M4A / Ogg）。
+   */
+  static parseAudioEmbeddedMetadata(headBase64: string, tailBase64: string = ''): AudioEmbeddedMetadataResult {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.parseAudioEmbeddedMetadataJson) {
+        const raw = RustCoreBridge.nativeLib.parseAudioEmbeddedMetadataJson(headBase64, tailBase64);
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as AudioEmbeddedMetadataResult;
+        }
+      }
+    } catch {
+      // ignore native parse failure
+    }
+    return {};
   }
 }

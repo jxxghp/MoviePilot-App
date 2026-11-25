@@ -9,6 +9,7 @@ name = "moviepilot_core_ohos"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+base64.workspace = true
 mp-core-api = { path = "../mp-core-api" }
 mp-core-model = { path = "../mp-core-model" }
 mp-core-plugin = { path = "../mp-core-plugin" }

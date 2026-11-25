@@ -588,6 +588,7 @@ dependencies = [
 name = "mp-ffi-ohos"
 version = "2.0.4"
 dependencies = [
+ "base64",
  "mp-core-api",
  "mp-core-model",
  "mp-core-plugin",

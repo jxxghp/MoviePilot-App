@@ -1,7 +1,7 @@
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import { PlaybackRouteCandidate, RustCoreBridge } from '../bridge/RustCoreBridge';
-import { NativeRcpTransport, NativeHttpResponse, SseEventChunk } from '../network/NativeRcpTransport';
+import { NativeRcpTransport, NativeHttpResponse, SseEventChunk, ByteRangeFetchResult } from '../network/NativeRcpTransport';
 import { NativeHuksStore } from '../security/NativeHuksStore';
 import { CloudflareAccessOAuthManager } from './CloudflareAccessOAuthManager';
 import { HarmonyPlaybackProgressReporter } from './HarmonyPlaybackProgressReporter';
@@ -4078,6 +4078,16 @@ export class MoviePilotRepository {
     const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, ['storage', 'download']);
     const ok = await this.transport.downloadToFile(url, 'POST', this.token, JSON.stringify(payload), destPath);
     return ok ? destPath : '';
+  }
+
+  /** 按有界字节区间拉取音频头/尾片段，供内嵌封面与歌词解析使用。 */
+  async fetchAudioByteRange(
+    url: string,
+    startByte: number,
+    endInclusive: number,
+    customHeaders?: Record<string, string>
+  ): Promise<ByteRangeFetchResult | null> {
+    return await this.transport.fetchByteRange(url, startByte, endInclusive, this.token, customHeaders);
   }
 
   /**

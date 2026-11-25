@@ -1,12 +1,13 @@
 //! HarmonyOS NEXT（ArkTS）ohos-rs / Node-API 导出层。
 //! 与 `mp-ffi-uniffi` 保持 1:1 能力契约对齐，供 `harmony/commons/core_rust_bridge` 直接调用。
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use mp_core_api::{ApiEndpoint, ResourceFilterCriteria, ResourceFilterEngine, ResourceItem};
 use mp_core_model::{
-    AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, EngineResolutionInput,
-    PendingPlaybackStop, PlayableMediaFormat, PlaybackEngineRouter, PlaybackProgressPlanner,
-    PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference, PlaybackSyncInput,
-    PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
+    AgentMarkdownParser, AppDeepLink, AudioEmbeddedMetadataJson, CommunityMedalsModel,
+    EngineResolutionInput, PendingPlaybackStop, PlayableMediaFormat, PlaybackEngineRouter,
+    PlaybackProgressPlanner, PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference,
+    PlaybackSyncInput, PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
     build_oauth_authorize_url as model_build_oauth_authorize_url,
     build_oauth_discovery_urls as model_build_oauth_discovery_urls,
     compute_pkce_s256_challenge as model_compute_pkce_s256_challenge,
@@ -14,6 +15,7 @@ use mp_core_model::{
     generate_pkce_pair as model_generate_pkce_pair,
     merge_cf_access_cookie as model_merge_cf_access_cookie,
     normalize_danmaku_query_title as model_normalize_danmaku_query_title,
+    parse_audio_embedded_metadata as model_parse_audio_embedded_metadata,
     parse_oauth_callback_url as model_parse_oauth_callback_url,
     parse_oauth_server_metadata as model_parse_oauth_server_metadata,
     parse_protected_resource_metadata as model_parse_protected_resource_metadata,
@@ -360,6 +362,23 @@ pub mod bridge {
     pub fn merge_cf_access_cookie(existing_cookie_header: &str, cf_token: &str) -> String {
         model_merge_cf_access_cookie(existing_cookie_header, cf_token)
     }
+
+    pub fn parse_audio_embedded_metadata_json(head_base64: &str, tail_base64: &str) -> String {
+        let head = BASE64_STANDARD
+            .decode(head_base64.trim().as_bytes())
+            .unwrap_or_default();
+        let tail_vec = if tail_base64.trim().is_empty() {
+            Vec::new()
+        } else {
+            BASE64_STANDARD
+                .decode(tail_base64.trim().as_bytes())
+                .unwrap_or_default()
+        };
+        let tail = (!tail_vec.is_empty()).then_some(tail_vec.as_slice());
+        let parsed = model_parse_audio_embedded_metadata(&head, tail);
+        let json_payload: AudioEmbeddedMetadataJson = parsed.into();
+        serde_json::to_string(&json_payload).unwrap_or_else(|_| "{}".into())
+    }
 }
 
 #[cfg(target_env = "ohos")]
@@ -641,6 +660,11 @@ mod napi_exports {
     #[napi]
     pub fn merge_cf_access_cookie(existing_cookie_header: String, cf_token: String) -> String {
         bridge::merge_cf_access_cookie(&existing_cookie_header, &cf_token)
+    }
+
+    #[napi]
+    pub fn parse_audio_embedded_metadata_json(head_base64: String, tail_base64: String) -> String {
+        bridge::parse_audio_embedded_metadata_json(&head_base64, &tail_base64)
     }
 }
 
