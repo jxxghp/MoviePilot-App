@@ -452,8 +452,8 @@ fun buildConfiguredExoPlayer(
         .setBufferDurationsMs(
             if (isLargeBuffer) 30_000 else 15_000,
             if (isLargeBuffer) 120_000 else 50_000,
-            if (isLargeBuffer) 4_000 else 2_500,
-            if (isLargeBuffer) 8_000 else 5_000,
+            if (request.isAudio) (if (isLargeBuffer) 1_500 else 1_000) else (if (isLargeBuffer) 4_000 else 2_500),
+            if (request.isAudio) (if (isLargeBuffer) 3_000 else 2_000) else (if (isLargeBuffer) 8_000 else 5_000),
         )
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()

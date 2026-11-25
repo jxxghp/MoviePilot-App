@@ -1035,13 +1035,22 @@ fun MoviePilotRootShell(
                             val destFile = File(cacheDir, "${path.hashCode()}_$safeName")
                             val resolved = repository.resolveStoragePlayback(storage, path, destFile)
                             if (resolved != null) {
+                                val lrc = resolved.lyricsUrl?.let { repository.downloadSameOriginText(it) }
                                 startPlayback(
                                     MediaPlaybackRequest(
                                         url = resolved.url,
                                         title = queryTitleHint ?: fileName.substringBeforeLast('.').ifBlank { fileName },
                                         subtitle = "$storage · $path",
                                         isAudio = resolved.isAudio,
+                                        lyricsLrc = lrc,
+                                        headers = resolved.headers,
+                                        sameOriginHeaders = resolved.sameOriginHeaders,
                                         streamHeaders = resolved.streamHeaders,
+                                        originUrl = resolved.originUrl,
+                                        proxyFallbackUrl = resolved.proxyFallbackUrl,
+                                        activeRouteKind = resolved.activeRouteKind,
+                                        fallbackRoutes = resolved.fallbackRoutes,
+                                        itemId = resolved.itemId,
                                         isSessionBound = !resolved.isStrmDirect,
                                         tempFilePath = resolved.tempFilePath,
                                     ),

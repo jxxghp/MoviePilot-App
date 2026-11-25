@@ -3817,18 +3817,25 @@ export class MoviePilotRepository {
   }
 
   /**
-   * 为本地存储（`storage === 'local'`）的音视频文件签发短期 Range 流票据（`POST /api/v1/mediaserver/stream-ticket`）。
+   * 为本地存储（`storage === 'local'`）的音视频文件签发短期 Range 流票据（`POST /api/v1/mediaserver/stream-ticket`），实现边加载边播放。
    */
-  async createLocalStreamTicket(filePath: string): Promise<string> {
+  async createLocalStreamTicket(
+    filePath: string,
+    fileNameHint: string = '',
+    mediaTypeHint: string = ''
+  ): Promise<string> {
     const cleanPath = filePath.trim();
     if (!cleanPath) {
       return '';
     }
     const slashIdx = cleanPath.lastIndexOf('/');
-    const fileName = slashIdx >= 0 ? cleanPath.substring(slashIdx + 1) : cleanPath;
+    const pathName = slashIdx >= 0 ? cleanPath.substring(slashIdx + 1) : cleanPath;
+    const fileName = fileNameHint.trim().length > 0 ? fileNameHint.trim() : pathName;
     const dotIdx = fileName.lastIndexOf('.');
     const ext = dotIdx >= 0 ? fileName.substring(dotIdx + 1) : '';
-    const mediaType = RustCoreBridge.detectPlayableMediaKind(cleanPath, true) === 'audio' ? 'audio' : 'video';
+    const mediaType = mediaTypeHint === 'audio' || mediaTypeHint === 'video'
+      ? mediaTypeHint
+      : (RustCoreBridge.detectPlayableMediaKind(fileName.includes('.') ? fileName : cleanPath, true) === 'audio' ? 'audio' : 'video');
     const fileItem: Record<string, string> = {
       'storage': 'local',
       'type': 'file',

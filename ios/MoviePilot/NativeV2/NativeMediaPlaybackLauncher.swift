@@ -144,7 +144,8 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     }
   }
 
-  /// 播放本地或云盘存储中的可播放音视频文件，经鉴权流下载至临时目录后拉起原生播放器。
+  /// 播放本地或云盘存储中的可播放音视频文件：
+  /// 本地存储优先签发短期流票据走 HTTP Range 边加载边播放；云盘或旧版后端自动回退至临时缓存并在关闭时清理。
   func playStorageFile(
     session: NativeSession,
     storage: String,
@@ -160,7 +161,8 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
       return present(
         manifest: manifest, client: client, instanceID: session.instance.id,
         itemID: manifest.itemId, title: fileName, artworkURL: nil,
-        queue: [], queueIndex: 0)
+        queue: [], queueIndex: 0,
+        deleteContentFileOnClose: manifest.contentUrl.isFileURL)
     } catch MediaPlaybackError.unauthorized {
       session.handleExternalUnauthorized()
       return "登录已过期，请重新登录。"
@@ -327,37 +329,29 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
           }
           return
         }
-        let metadata: LocalAudioMetadata? =
-          kind == .audio ? await Self.extractLocalAudioMetadata(from: url) : nil
-        guard !Task.isCancelled else {
-          lease.release()
-          return
-        }
-        let resolvedTitle =
-          metadata?.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? title
-        let artwork = metadata?.artworkData.flatMap(Self.decodeBoundedArtwork)
         let fileSize =
           (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(String.init) ?? "0"
         let itemID = "local:\(url.lastPathComponent):\(fileSize)"
         let manifest = MediaPlaybackManifest(
           itemId: itemID,
           server: nil,
-          title: resolvedTitle,
+          title: title,
           contentUrl: url,
           mediaType: kind.rawValue,
-          artist: metadata?.artist,
-          album: metadata?.album,
+          artist: nil,
+          album: nil,
           subtitles: [],
-          lyricsUrl: nil
+          lyricsUrl: nil,
+          fileNameHint: url.lastPathComponent
         )
         if let error = present(
           manifest: manifest,
           client: nil,
           instanceID: MediaPlaybackViewController.externalPlaybackNamespace,
           itemID: itemID,
-          title: resolvedTitle,
+          title: title,
           artworkURL: nil,
-          initialArtwork: artwork,
+          initialArtwork: nil,
           queue: [],
           queueIndex: 0,
           deleteContentFileOnClose: deleteAfterClose,
@@ -366,6 +360,21 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
           lease.release()
           if deleteAfterClose { try? FileManager.default.removeItem(at: url) }
           NativeSystemRouteHub.shared.postBanner(error)
+        } else if kind == .audio {
+          // 立即起播后在后台异步提取内嵌标题/艺人/专辑与封面，避免大文件或网盘挂载文件阻塞首帧起播
+          let presentedPlayer = activePlayer
+          Task { [weak presentedPlayer] in
+            let metadata = await Self.extractLocalAudioMetadata(from: url)
+            guard !Task.isCancelled, let presentedPlayer else { return }
+            let artwork = metadata.artworkData.flatMap(Self.decodeBoundedArtwork)
+            presentedPlayer.applyLocalAudioMetadata(
+              expectedItemID: itemID,
+              title: metadata.title,
+              artist: metadata.artist,
+              album: metadata.album,
+              artwork: artwork
+            )
+          }
         }
 
       case .externalURL(let url, let title, let kind):

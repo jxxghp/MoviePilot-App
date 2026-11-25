@@ -206,13 +206,22 @@ fun FileManagerScreen(
             )
             downloadingFileName = null
             if (resolved != null) {
+                val lrc = resolved.lyricsUrl?.let { repository.downloadSameOriginText(it) }
                 onPlayMedia(
                     MediaPlaybackRequest(
                         url = resolved.url,
                         title = if (resolved.isStrmDirect) file.name.substringBeforeLast('.').ifBlank { file.name } else file.name,
                         subtitle = "${file.storage} · ${file.path}",
                         isAudio = resolved.isAudio,
+                        lyricsLrc = lrc,
+                        headers = resolved.headers,
+                        sameOriginHeaders = resolved.sameOriginHeaders,
                         streamHeaders = resolved.streamHeaders,
+                        originUrl = resolved.originUrl,
+                        proxyFallbackUrl = resolved.proxyFallbackUrl,
+                        activeRouteKind = resolved.activeRouteKind,
+                        fallbackRoutes = resolved.fallbackRoutes,
+                        itemId = resolved.itemId,
                         isSessionBound = !resolved.isStrmDirect,
                         tempFilePath = resolved.tempFilePath,
                     ),
@@ -1077,6 +1086,7 @@ fun TransferHistoryScreen(
             )
             downloadingRecordId = null
             if (resolved != null) {
+                val lrc = resolved.lyricsUrl?.let { repository.downloadSameOriginText(it) }
                 val displayTitle = listOfNotNull(
                     rec.title.ifBlank { fileName.substringBeforeLast('.').ifBlank { fileName } },
                     rec.seasons.ifBlank { null },
@@ -1089,7 +1099,15 @@ fun TransferHistoryScreen(
                         subtitle = "$targetStorage · ${rec.dest}",
                         artworkUrl = rec.image,
                         isAudio = resolved.isAudio,
+                        lyricsLrc = lrc,
+                        headers = resolved.headers,
+                        sameOriginHeaders = resolved.sameOriginHeaders,
                         streamHeaders = resolved.streamHeaders,
+                        originUrl = resolved.originUrl,
+                        proxyFallbackUrl = resolved.proxyFallbackUrl,
+                        activeRouteKind = resolved.activeRouteKind,
+                        fallbackRoutes = resolved.fallbackRoutes,
+                        itemId = resolved.itemId,
                         isSessionBound = !resolved.isStrmDirect,
                         tempFilePath = resolved.tempFilePath,
                     ),

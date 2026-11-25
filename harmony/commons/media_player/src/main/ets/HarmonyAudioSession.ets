@@ -232,7 +232,7 @@ export async function attachSourceToAvPlayer(
       try {
         const src = media.createMediaSourceWithUrl(urlCandidate, req.headers);
         const playStrategy: media.PlaybackStrategy = strategy ?? {
-          preferredBufferDuration: 20
+          preferredBufferDuration: req.isAudio ? 8 : 20
         };
         await player.setMediaSource(src, playStrategy);
         return null;
@@ -489,37 +489,39 @@ export class HarmonyAudioSession {
     this.currentLyricIdx = -1;
     this.notify();
 
-    // 本地音频文件优先解析内嵌 ID3/Vorbis 元数据与封面
+    // 本机音频文件在后台并行解析内嵌 ID3/Vorbis 元数据与封面，绝不阻塞 AVPlayer 首帧起播
     const localTarget = (enrichedReq.fdPath ?? '').trim() ||
       (enrichedReq.url.startsWith('file://') || enrichedReq.url.startsWith('/') ? enrichedReq.url.trim() : '');
     if (localTarget.length > 0) {
-      const localMeta = await extractLocalAudioMetadata(localTarget);
-      if (gen !== this.loadGeneration) {
-        if (localMeta?.coverPixelMap) {
-          try { localMeta.coverPixelMap.release(); } catch { /* ignore */ }
+      extractLocalAudioMetadata(localTarget).then((localMeta: LocalAudioMetadataResult | null) => {
+        if (gen !== this.loadGeneration) {
+          if (localMeta?.coverPixelMap) {
+            try { localMeta.coverPixelMap.release(); } catch { /* ignore */ }
+          }
+          return;
         }
-        return;
-      }
-      if (localMeta) {
-        if (localMeta.title.length > 0 && (enrichedReq.title.length === 0 || enrichedReq.title === '外部直链媒体' || enrichedReq.title.includes('.'))) {
-          enrichedReq.title = localMeta.title;
+        if (localMeta) {
+          if (localMeta.title.length > 0 && (enrichedReq.title.length === 0 || enrichedReq.title === '外部直链媒体' || enrichedReq.title.includes('.'))) {
+            enrichedReq.title = localMeta.title;
+          }
+          if (localMeta.artist.length > 0 && !(enrichedReq.artist ?? '').trim()) {
+            enrichedReq.artist = localMeta.artist;
+          }
+          if (localMeta.album.length > 0 && !(enrichedReq.album ?? '').trim()) {
+            enrichedReq.album = localMeta.album;
+          }
+          if ((enrichedReq.artist ?? '').length > 0 || (enrichedReq.album ?? '').length > 0) {
+            const a = (enrichedReq.artist ?? '').trim();
+            const b = (enrichedReq.album ?? '').trim();
+            enrichedReq.subtitle = a.length > 0 && b.length > 0 ? `${a} · ${b}` : (a || b);
+          }
+          if (localMeta.coverPixelMap) {
+            this.artworkPixelMap = localMeta.coverPixelMap;
+          }
+          this.syncAvSessionMetadata();
+          this.notify();
         }
-        if (localMeta.artist.length > 0 && !(enrichedReq.artist ?? '').trim()) {
-          enrichedReq.artist = localMeta.artist;
-        }
-        if (localMeta.album.length > 0 && !(enrichedReq.album ?? '').trim()) {
-          enrichedReq.album = localMeta.album;
-        }
-        if ((enrichedReq.artist ?? '').length > 0 || (enrichedReq.album ?? '').length > 0) {
-          const a = (enrichedReq.artist ?? '').trim();
-          const b = (enrichedReq.album ?? '').trim();
-          enrichedReq.subtitle = a.length > 0 && b.length > 0 ? `${a} · ${b}` : (a || b);
-        }
-        if (localMeta.coverPixelMap) {
-          this.artworkPixelMap = localMeta.coverPixelMap;
-        }
-        this.notify();
-      }
+      }).catch(() => {});
     }
 
     // 异步加载歌词与锁屏封面 PixelMap

@@ -181,7 +181,7 @@ export struct HarmonyLibraryPage {
 
     try {
       if (cleanStorage === 'local') {
-        const ticketId = await repo.createLocalStreamTicket(cleanPath);
+        const ticketId = await repo.createLocalStreamTicket(cleanPath, displayName, kind === 'audio' ? 'audio' : 'video');
         if (ticketId.length > 0) {
           const stream = await repo.fetchVideoStreamInfo(ticketId, '');
           if (stream && stream.contentUrl.length > 0) {

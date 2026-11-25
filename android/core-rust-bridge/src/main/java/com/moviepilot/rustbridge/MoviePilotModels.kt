@@ -862,7 +862,16 @@ data class PendingPlaybackStopDto(
 data class ResolvedStoragePlaybackDto(
     val url: String,
     val isAudio: Boolean,
+    val headers: Map<String, String> = emptyMap(),
+    val sameOriginHeaders: Map<String, String> = emptyMap(),
     val streamHeaders: Map<String, String> = emptyMap(),
+    val originUrl: String = "",
+    val proxyFallbackUrl: String? = null,
+    val activeRouteKind: String = "",
+    val fallbackRoutes: List<PlaybackRouteDto> = emptyList(),
+    val itemId: String = "",
+    val lyricsUrl: String? = null,
+    val title: String = "",
     val tempFilePath: String? = null,
     val isStrmDirect: Boolean = false,
 )

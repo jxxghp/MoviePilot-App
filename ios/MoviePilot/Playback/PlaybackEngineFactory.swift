@@ -16,14 +16,33 @@ enum PlaybackEngineFactory {
       return probe.contains(".ass") || probe.contains(".ssa") || probe.contains(".sup")
         || probe.contains(".pgs")
     }
+    let rawProbe =
+      url.isFileURL
+      ? url.lastPathComponent
+      : (!url.pathExtension.isEmpty
+        ? url.absoluteString
+        : (manifest.fileNameHint?.isEmpty == false ? manifest.fileNameHint! : url.absoluteString))
+    let probeExt = (rawProbe as NSString).pathExtension.lowercased()
+    let effectivePreferred: PlaybackEngineChoice
+    if let preferredOverride {
+      effectivePreferred = preferredOverride
+    } else if isAudio,
+      PlaybackEnginePreferences.videoEngine == .auto,
+      ["ogg", "oga", "opus", "wma", "mka", "mpc", "tak", "tta"].contains(probeExt)
+    {
+      // iOS AVPlayer 原生不支持上述音频容器的 HTTP Range 流式解码，直接路由至 MPV 全能内核边加载边播放
+      effectivePreferred = .enhanced
+    } else {
+      effectivePreferred = PlaybackEnginePreferences.videoEngine
+    }
     let input = PlaybackEngineResolutionInput(
       platform: .ios,
-      preferred: preferredOverride ?? PlaybackEnginePreferences.videoEngine,
+      preferred: effectivePreferred,
       isAudio: isAudio,
       decodeForceSoftware: PlaybackEnginePreferences.decodeMode == .swForce,
       hasEnhancedEngine: true,
       hasLegacyEngine: true,
-      urlOrFilename: url.isFileURL ? url.lastPathComponent : url.absoluteString,
+      urlOrFilename: rawProbe,
       hasAssOrPgsSubtitle: hasAssOrPgs,
       ignoreAssStyle: PlaybackEnginePreferences.ignoreAssStyle,
       allowSelfSignedTls: false

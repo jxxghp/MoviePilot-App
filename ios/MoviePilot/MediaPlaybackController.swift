@@ -19,8 +19,8 @@ struct MediaPlaybackManifest: Decodable, Sendable {
   let strmUrl: URL?
   let customHeaders: [String: String]
   let mediaType: String?
-  let artist: String?
-  let album: String?
+  var artist: String?
+  var album: String?
   let subtitles: [MediaPlaybackSubtitle]
   let lyricsUrl: URL?
   let mediaSourceId: String?
@@ -31,6 +31,8 @@ struct MediaPlaybackManifest: Decodable, Sendable {
   let playbackRoutes: [PlaybackRouteCandidate]
   var resolvedTarget: PreparedPlaybackTarget?
   var fallbackRoutes: [PlaybackRouteCandidate]
+  /// 可选原始文件名提示（如 `track.flac`），用于在无后缀 `/mediaserver/stream?itemid=file.xxx` URL 下精准选核。
+  var fileNameHint: String?
 
   private enum CodingKeys: String, CodingKey {
     case itemId
@@ -72,7 +74,8 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     durationMs: Int? = nil,
     playbackRoutes: [PlaybackRouteCandidate] = [],
     resolvedTarget: PreparedPlaybackTarget? = nil,
-    fallbackRoutes: [PlaybackRouteCandidate] = []
+    fallbackRoutes: [PlaybackRouteCandidate] = [],
+    fileNameHint: String? = nil
   ) {
     self.itemId = itemId
     self.server = server
@@ -94,6 +97,7 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     self.playbackRoutes = playbackRoutes
     self.resolvedTarget = resolvedTarget
     self.fallbackRoutes = fallbackRoutes
+    self.fileNameHint = fileNameHint
   }
 
   init(from decoder: Decoder) throws {
@@ -121,6 +125,7 @@ struct MediaPlaybackManifest: Decodable, Sendable {
       try container.decodeIfPresent([PlaybackRouteCandidate].self, forKey: .playbackRoutes) ?? []
     resolvedTarget = nil
     fallbackRoutes = []
+    fileNameHint = nil
   }
 
   /// 按用户「STRM 直链播放」开关返回优先起播地址。
@@ -525,10 +530,72 @@ final class MediaPlaybackClient {
     return resolved
   }
 
-  /// 通过当前实例已鉴权的存储下载接口拉取本地或云盘音视频文件至受管临时缓存并构造本地播放清单。
+  /// 为本地存储（`storage == "local"`）音视频文件签发短期 HTTP Range 流票据（`POST /api/v1/mediaserver/stream-ticket`），实现边加载边播放。
+  private func createLocalStreamTicket(
+    path: String, fileName: String, isAudio: Bool
+  ) async throws -> String? {
+    struct TicketData: Decodable {
+      let itemId: String
+    }
+    let url = endpoint(["api", "v1", "mediaserver", "stream-ticket"])
+    let ext = (fileName as NSString).pathExtension
+    let payload: [String: Any] = [
+      "file": [
+        "storage": "local",
+        "type": "file",
+        "path": path,
+        "name": fileName,
+        "extension": ext,
+      ],
+      "media_type": isAudio ? "audio" : "video",
+    ]
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+    let (data, response) = try await session.data(for: request)
+    guard let http = response as? HTTPURLResponse else { return nil }
+    if http.statusCode == 401
+      || (http.statusCode == 403 && APIClient.isTokenInvalidForbiddenBody(data))
+    {
+      throw MediaPlaybackError.unauthorized
+    }
+    guard http.statusCode == 200 else { return nil }
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    guard
+      let envelope = try? decoder.decode(MediaPlaybackEnvelope<TicketData>.self, from: data),
+      envelope.success,
+      let itemId = envelope.data?.itemId,
+      !itemId.isEmpty
+    else { return nil }
+    return itemId
+  }
+
+  /// 加载本地或云盘存储音视频播放清单：
+  /// - 本地存储（`storage == "local"`）优先通过 `stream-ticket` + `stream-info` 获取 HTTP Range 流地址与同名 LRC 歌词，实现边加载边播放；
+  /// - 仅当云盘存储或旧版后端不支持流票据时，回退至 `POST /api/v1/storage/download` 缓存临时文件播放。
   func loadStorageFileManifest(
     storage: String, path: String, fileName: String, isAudio: Bool
   ) async throws -> MediaPlaybackManifest {
+    if storage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "local" {
+      if let ticketId = try await createLocalStreamTicket(
+        path: path, fileName: fileName, isAudio: isAudio)
+      {
+        do {
+          var streamed = try await loadManifest(itemId: ticketId, server: nil)
+          streamed.fileNameHint = fileName
+          return streamed
+        } catch MediaPlaybackError.unauthorized {
+          throw MediaPlaybackError.unauthorized
+        } catch {
+          // 票据拉流失败时平滑降级到兼容下载路径
+        }
+      }
+    }
+
     let url = endpoint(["api", "v1", "storage", "download"])
     let ext = (fileName as NSString).pathExtension
     let payload: [String: String] = [
@@ -4230,6 +4297,48 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 供悬浮迷你条直接切到下一首。
   func nextTrackFromShell() {
     playNextTrack()
+  }
+
+  /// 本机音频异步解析内嵌 ID3/Vorbis 标签与封面完成后实时回填界面与锁屏元数据，避免阻塞起播。
+  func applyLocalAudioMetadata(
+    expectedItemID: String,
+    title: String?,
+    artist: String?,
+    album: String?,
+    artwork: UIImage?
+  ) {
+    guard !closed, isAudioPlayback, itemId == expectedItemID else { return }
+    if let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !resolvedTitle.isEmpty
+    {
+      displayTitle = resolvedTitle
+      titleLabel.text = resolvedTitle
+      musicTitleLabel.text = resolvedTitle
+      musicMiniTitleLabel.text = resolvedTitle
+    }
+    if let resolvedArtist = artist?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !resolvedArtist.isEmpty
+    {
+      manifest.artist = resolvedArtist
+    }
+    if let resolvedAlbum = album?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !resolvedAlbum.isEmpty
+    {
+      manifest.album = resolvedAlbum
+    }
+    let subtitleText = [manifest.artist, manifest.album]
+      .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: " — ")
+    if !subtitleText.isEmpty {
+      musicArtistLabel.text = subtitleText
+      musicMiniSubtitleLabel.text = subtitleText
+    }
+    if let artwork {
+      applyResolvedArtwork(artwork, animated: true)
+    }
+    refreshNowPlayingInfo()
+    notifyMiniMusicStateIfNeeded()
   }
 
   /// 构造当前曲目的迷你播放条状态快照。

@@ -3491,7 +3491,27 @@ class MoviePilotRepository(context: Context) {
         return if (resp.status in 200..299 && resp.body.isNotBlank()) resp.body else null
     }
 
-    /** 下载本地或云盘存储文件至应用受管缓存目录供 ExoPlayer 无缝直放（对齐 iOS `loadStorageFileManifest`）。 */
+    /** 为本地存储（`storage == "local"`）的音视频文件签发短期 Range 流票据（`POST /api/v1/mediaserver/stream-ticket`），实现边加载边播放。 */
+    suspend fun createLocalStreamTicket(
+        path: String,
+        fileName: String,
+        mediaType: String,
+    ): String? {
+        val cleanPath = path.trim()
+        if (cleanPath.isBlank()) return null
+        val resolvedName = fileName.trim().ifBlank { cleanPath.substringAfterLast('/') }
+        val ext = resolvedName.substringAfterLast('.', "")
+        val normalizedType = if (mediaType.equals("audio", ignoreCase = true)) "audio" else "video"
+        val payload = """{"file":{"storage":"local","type":"file","path":"${esc(cleanPath)}","name":"${esc(resolvedName)}","extension":"${esc(ext)}"},"media_type":"$normalizedType"}"""
+        val resp = runCatching {
+            authedRequest(listOf("mediaserver", "stream-ticket"), method = "POST", body = payload).getOrNull()
+        }.getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val obj = extractObject(resp.body) ?: return null
+        return obj.str("item_id")?.takeIf { it.isNotBlank() }
+    }
+
+    /** 下载本地或云盘存储文件至应用受管缓存目录供 ExoPlayer 无缝直放（云盘或旧版后端兼容回退）。 */
     suspend fun downloadStorageFileToCache(
         storage: String,
         path: String,
@@ -3510,8 +3530,8 @@ class MoviePilotRepository(context: Context) {
 
     /**
      * 解析并准备存储音视频文件起播源：
-     * - `.strm` 文件（本地或云盘）仅读取 `<= 64KB` 文本并立即删除临时文件，返回客户端直连 HTTP(S) URL 与可选安全请求头；
-     * - 常规音视频封装文件保留受管缓存文件并返回 `file://` URI。
+     * - 本地存储（`storage == "local"`）优先通过 `POST /api/v1/mediaserver/stream-ticket` + `stream-info` 获取 HTTP Range 流地址与同名 LRC 歌词，实现边加载边播放；
+     * - 云盘存储或旧版后端回退 `POST /api/v1/storage/download`：`.strm` 仅读取 `<= 64KB` 文本并立即删除临时文件，其余返回受管缓存 `file://` URI。
      */
     suspend fun resolveStoragePlayback(
         storage: String,
@@ -3519,9 +3539,40 @@ class MoviePilotRepository(context: Context) {
         destFile: java.io.File,
         fallbackKind: String? = null,
     ): ResolvedStoragePlaybackDto? {
+        val fileName = path.substringAfterLast('/').ifBlank { destFile.name }
+        val detectedKind = fallbackKind ?: RustCoreBridge.detectMediaKind(path, false)
+        if (storage.trim().equals("local", ignoreCase = true)) {
+            val ticketId = createLocalStreamTicket(
+                path = path,
+                fileName = fileName,
+                mediaType = if (detectedKind == "audio") "audio" else "video",
+            )
+            if (!ticketId.isNullOrBlank()) {
+                val manifest = fetchVideoStreamInfo(itemId = ticketId, server = null)
+                if (manifest != null && manifest.contentUrl.isNotBlank()) {
+                    val isStrmDirect = manifest.activeRouteKind == "strm_direct"
+                    return ResolvedStoragePlaybackDto(
+                        url = manifest.contentUrl,
+                        isAudio = manifest.mediaType.equals("audio", ignoreCase = true) || detectedKind == "audio",
+                        headers = manifest.headers,
+                        sameOriginHeaders = manifest.sameOriginHeaders,
+                        streamHeaders = manifest.streamHeaders,
+                        originUrl = manifest.originUrl,
+                        proxyFallbackUrl = manifest.proxyFallbackUrl,
+                        activeRouteKind = manifest.activeRouteKind,
+                        fallbackRoutes = manifest.fallbackRoutes,
+                        itemId = manifest.itemId,
+                        lyricsUrl = manifest.lyricsUrl,
+                        title = manifest.title,
+                        tempFilePath = null,
+                        isStrmDirect = isStrmDirect,
+                    )
+                }
+            }
+        }
+
         val downloaded = downloadStorageFileToCache(storage, path, destFile) ?: return null
         if (!downloaded.exists()) return null
-        val fileName = path.substringAfterLast('/').ifBlank { downloaded.name }
         if (RustCoreBridge.isStrmPath(fileName) || RustCoreBridge.isStrmPath(downloaded.name)) {
             val rawBytes = runCatching {
                 if (downloaded.length() in 1..65_536L) downloaded.readBytes() else null
@@ -3538,7 +3589,6 @@ class MoviePilotRepository(context: Context) {
                 isStrmDirect = true,
             )
         }
-        val detectedKind = fallbackKind ?: RustCoreBridge.detectMediaKind(path, false)
         return ResolvedStoragePlaybackDto(
             url = android.net.Uri.fromFile(downloaded).toString(),
             isAudio = detectedKind == "audio",

@@ -2329,6 +2329,7 @@ private fun LibraryFileEntryCard(
                                 )
                                 isDownloadingStorage = false
                                 if (resolved != null) {
+                                    val lrc = resolved.lyricsUrl?.let { repository.downloadSameOriginText(it) }
                                     onPlayMedia(
                                         MediaPlaybackRequest(
                                             url = resolved.url,
@@ -2336,7 +2337,15 @@ private fun LibraryFileEntryCard(
                                             subtitle = "$targetStorage · ${lib.filePath}",
                                             artworkUrl = artworkUrl,
                                             isAudio = resolved.isAudio,
+                                            lyricsLrc = lrc,
+                                            headers = resolved.headers,
+                                            sameOriginHeaders = resolved.sameOriginHeaders,
                                             streamHeaders = resolved.streamHeaders,
+                                            originUrl = resolved.originUrl,
+                                            proxyFallbackUrl = resolved.proxyFallbackUrl,
+                                            activeRouteKind = resolved.activeRouteKind,
+                                            fallbackRoutes = resolved.fallbackRoutes,
+                                            itemId = resolved.itemId,
                                             isSessionBound = !resolved.isStrmDirect,
                                             tempFilePath = resolved.tempFilePath,
                                         ),

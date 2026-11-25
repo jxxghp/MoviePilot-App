@@ -151,10 +151,18 @@ final class AVPlayerPlaybackEngine: NSObject, PlaybackEngine {
     if !requestHeaders.isEmpty && !source.url.isFileURL {
       assetOptions["AVURLAssetHTTPHeaderFieldsKey"] = requestHeaders
     }
+    if options.isAudio && !source.url.isFileURL {
+      // 网络音频禁用全文件精确时长预扫描，确保收到首片 Range 数据后立即边加载边播放
+      assetOptions[AVURLAssetPreferPreciseDurationAndTimingKey] = false
+    }
 
     let asset = AVURLAsset(url: source.url, options: assetOptions.isEmpty ? nil : assetOptions)
     let item = AVPlayerItem(asset: asset)
-    item.preferredForwardBufferDuration = options.bufferProfile == .large ? 60 : 20
+    if options.isAudio && !source.url.isFileURL {
+      item.preferredForwardBufferDuration = options.bufferProfile == .large ? 30 : 8
+    } else {
+      item.preferredForwardBufferDuration = options.bufferProfile == .large ? 60 : 20
+    }
     if abs(options.subtitleScale - 1.0) >= 0.01 {
       let pct = Int(round(options.subtitleScale * 100))
       if let rule = AVTextStyleRule(textMarkupAttributes: [
