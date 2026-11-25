@@ -277,6 +277,7 @@ final class MediaPlaybackClient {
     for (headerName, headerValue) in clientHeaders {
       request.setValue(headerValue, forHTTPHeaderField: headerName)
     }
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     let (data, response) = try await session.data(for: request)
     guard let response = response as? HTTPURLResponse else {
       throw MediaPlaybackError.unavailable
@@ -373,6 +374,7 @@ final class MediaPlaybackClient {
     request.httpMethod = "POST"
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     request.httpBody = body
     guard let (_, response) = try? await session.data(for: request),
       let http = response as? HTTPURLResponse
@@ -388,6 +390,7 @@ final class MediaPlaybackClient {
     var request = URLRequest(url: subtitle.url)
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     let (bytes, response) = try await session.bytes(for: request)
     guard let response = response as? HTTPURLResponse, response.statusCode == 200,
       response.expectedContentLength <= 16 * 1024 * 1024
@@ -418,6 +421,7 @@ final class MediaPlaybackClient {
     var request = URLRequest(url: url)
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     let (data, response) = try await session.data(for: request)
     guard let response = response as? HTTPURLResponse, response.statusCode == 200,
       !data.isEmpty, data.count <= 2 * 1024 * 1024
@@ -433,6 +437,7 @@ final class MediaPlaybackClient {
     var request = URLRequest(url: url)
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("image/avif,image/webp,image/png,image/jpeg", forHTTPHeaderField: "Accept")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     let (data, response) = try await session.data(for: request)
     guard let response = response as? HTTPURLResponse, response.statusCode == 200,
       let responseURL = response.url, isTrustedArtworkURL(responseURL),
@@ -467,6 +472,7 @@ final class MediaPlaybackClient {
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     let clientHeaders = await MainActor.run { PlaybackProgressReporter.shared.clientHeaders() }
     for (headerName, headerValue) in clientHeaders {
       request.setValue(headerValue, forHTTPHeaderField: headerName)
@@ -576,9 +582,9 @@ final class MediaPlaybackClient {
     return resolved
   }
 
-  /// 为本地存储（`storage == "local"`）音视频文件签发短期 HTTP Range 流票据（`POST /api/v1/mediaserver/stream-ticket`），实现边加载边播放。
-  private func createLocalStreamTicket(
-    path: String, fileName: String, isAudio: Bool
+  /// 为本地及支持渐进流式的远端存储（SMB / OpenList / 阿里云盘 / 115 等）音视频文件签发短期 HTTP Range 流票据（`POST /api/v1/mediaserver/stream-ticket`），实现边加载边播放。
+  private func createStorageStreamTicket(
+    storage: String, path: String, fileName: String, isAudio: Bool
   ) async throws -> String? {
     struct TicketData: Decodable {
       let itemId: String
@@ -587,7 +593,7 @@ final class MediaPlaybackClient {
     let ext = (fileName as NSString).pathExtension
     let payload: [String: Any] = [
       "file": [
-        "storage": "local",
+        "storage": storage,
         "type": "file",
         "path": path,
         "name": fileName,
@@ -600,6 +606,7 @@ final class MediaPlaybackClient {
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     request.httpBody = try JSONSerialization.data(withJSONObject: payload)
     let (data, response) = try await session.data(for: request)
     guard let http = response as? HTTPURLResponse else { return nil }
@@ -621,14 +628,23 @@ final class MediaPlaybackClient {
   }
 
   /// 加载本地或云盘存储音视频播放清单：
-  /// - 本地存储（`storage == "local"`）优先通过 `stream-ticket` + `stream-info` 获取 HTTP Range 流地址与同名 LRC 歌词，实现边加载边播放；
-  /// - 仅当云盘存储或旧版后端不支持流票据时，回退至 `POST /api/v1/storage/download` 缓存临时文件播放。
+  /// - 所有非 `.strm` 存储文件均优先通过 `stream-ticket` + `stream-info` 获取 HTTP Range 流地址与同名 LRC 歌词，实现边加载边播放；
+  /// - 仅当 `.strm` 指针文件、存储不支持 Range 流式读取或旧版后端无票据能力时，回退至 `POST /api/v1/storage/download` 缓存临时文件播放。
   func loadStorageFileManifest(
     storage: String, path: String, fileName: String, isAudio: Bool
   ) async throws -> MediaPlaybackManifest {
-    if storage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "local" {
-      if let ticketId = try await createLocalStreamTicket(
-        path: path, fileName: fileName, isAudio: isAudio)
+    let normalizedStorage = storage.trimmingCharacters(in: .whitespacesAndNewlines)
+    let extForTicket =
+      (fileName as NSString).pathExtension.isEmpty
+      ? (path as NSString).pathExtension
+      : (fileName as NSString).pathExtension
+    let shouldTryStreamTicket =
+      !normalizedStorage.isEmpty
+      && (normalizedStorage.lowercased() == "local"
+        || !PlayableMediaFormat.isStrmExtension(extForTicket))
+    if shouldTryStreamTicket {
+      if let ticketId = try await createStorageStreamTicket(
+        storage: normalizedStorage, path: path, fileName: fileName, isAudio: isAudio)
       {
         do {
           var streamed = try await loadManifest(itemId: ticketId, server: nil)
@@ -655,6 +671,7 @@ final class MediaPlaybackClient {
     request.httpMethod = "POST"
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     request.httpBody = try JSONEncoder().encode(payload)
     let (tempURL, response) = try await session.download(for: request)
     guard let response = response as? HTTPURLResponse else {
@@ -737,10 +754,17 @@ final class MediaPlaybackClient {
       guard let cookie = resourceCookie else {
         throw MediaPlaybackError.unavailable
       }
+      let baseCookie = "\(cookie.name)=\(cookie.value)"
+      let mergedCookie =
+        CloudflareAccessCredentialRegistry.shared.mergedCookieHeader(
+          existing: baseCookie, for: address) ?? baseCookie
       var headers: [String: String] = [
-        "Cookie": "\(cookie.name)=\(cookie.value)",
+        "Cookie": mergedCookie,
         "Authorization": "Bearer \(accessToken)",
       ]
+      if let cfToken = CloudflareAccessCredentialRegistry.shared.accessToken(for: address) {
+        headers["cf-access-token"] = cfToken
+      }
       for (key, value) in customHeaders where headers[key] == nil {
         headers[key] = value
       }

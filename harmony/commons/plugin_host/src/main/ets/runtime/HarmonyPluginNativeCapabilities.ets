@@ -1,6 +1,7 @@
 import { abilityAccessCtrl, bundleManager, common, Permissions } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { display, window } from '@kit.ArkUI';
+import { avSession } from '@kit.AVSessionKit';
 import { deviceInfo, pasteboard } from '@kit.BasicServicesKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { media } from '@kit.MediaKit';
@@ -59,6 +60,14 @@ export class HarmonyPluginNativeCapabilities {
   private keepAwakeEnabled: boolean = false;
   private base64Helper: util.Base64Helper = new util.Base64Helper();
 
+  // Status bar / AVSession Now Playing state (#56)
+  private pluginAvSession: avSession.AVSession | null = null;
+  private nowPlayingActive: boolean = false;
+  private nowPlayingTitle: string = '';
+  private nowPlayingArtist: string = '';
+  private nowPlayingAlbum: string = '';
+  private nowPlayingDurationMs: number = 0;
+
   constructor(
     getContext: () => common.UIAbilityContext | null,
     getServerUrl: () => string,
@@ -78,6 +87,7 @@ export class HarmonyPluginNativeCapabilities {
   cleanup(): void {
     this.cancelActiveRecording(false).catch(() => {});
     this.stopInlinePlayback(false).catch(() => {});
+    this.clearNowPlayingSession().catch(() => {});
     if (this.keepAwakeEnabled) {
       this.keepAwakeEnabled = false;
       this.applyKeepAwake(false).catch(() => {});
@@ -184,6 +194,16 @@ export class HarmonyPluginNativeCapabilities {
       case 'audio.status':
         this.sendOk(requestId, JSON.stringify(this.currentPlaybackStatusObj()));
         return true;
+      case 'audio.setNowPlaying':
+        this.handleAudioSetNowPlaying(requestId, payload).catch(() => {});
+        return true;
+      case 'audio.clearNowPlaying':
+        this.clearNowPlayingSession().then(() => {
+          this.sendOk(requestId, '{"cleared":true}');
+        }).catch(() => {
+          this.sendOk(requestId, '{"cleared":true}');
+        });
+        return true;
       case 'media.playNative':
         this.handlePlayNativeMedia(requestId, payload);
         return true;
@@ -198,6 +218,8 @@ export class HarmonyPluginNativeCapabilities {
     const caps: string[] = [
       'audio.record',
       'audio.play',
+      'audio.nowPlaying',
+      'native.audio.nowPlaying',
       'media.playNative',
       'device.info',
       'device.permission',
@@ -865,6 +887,11 @@ export class HarmonyPluginNativeCapabilities {
     const volume = typeof payload['volume'] === 'number' ? Math.max(0, Math.min(1, payload['volume'] as number)) : 1.0;
     const rate = typeof payload['rate'] === 'number' ? Math.max(0.5, Math.min(2.0, payload['rate'] as number)) : 1.0;
     const startPosMs = typeof payload['startPositionMs'] === 'number' ? Math.max(0, Math.floor(payload['startPositionMs'] as number)) : 0;
+    const showInStatusBar = typeof payload['showInStatusBar'] === 'boolean' ? (payload['showInStatusBar'] as boolean) : true;
+    const playTitle = typeof payload['title'] === 'string' ? (payload['title'] as string).trim() : '';
+    const playArtist = typeof payload['artist'] === 'string' ? (payload['artist'] as string).trim() : '';
+    const playAlbum = typeof payload['album'] === 'string' ? (payload['album'] as string).trim() : '';
+    const playArtworkUrl = typeof payload['artworkUrl'] === 'string' ? (payload['artworkUrl'] as string).trim() : '';
 
     const rawB64 = typeof payload['base64'] === 'string' ? (payload['base64'] as string) : '';
     const storage = typeof payload['storage'] === 'string' ? (payload['storage'] as string) : '';
@@ -922,6 +949,18 @@ export class HarmonyPluginNativeCapabilities {
           this.playbackState = 'playing';
           this.applyPlaybackRate(player, rate);
           this.startPlaybackProgressTimer();
+          if (showInStatusBar && playTitle.length > 0 && !responded) {
+            this.applyNowPlayingSession(
+              playTitle,
+              playArtist,
+              playAlbum,
+              playArtworkUrl,
+              this.playbackDurationMs,
+              startPosMs,
+              true,
+              rate
+            ).catch(() => {});
+          }
           this.emitPlaybackState();
           if (!responded) {
             responded = true;
@@ -1114,21 +1153,179 @@ export class HarmonyPluginNativeCapabilities {
 
   private emitPlaybackState(): void {
     this.sendDeviceEvent('audio.play.state', JSON.stringify(this.currentPlaybackStatusObj()));
+    if (this.nowPlayingActive && this.pluginAvSession) {
+      this.syncPluginAvSessionState();
+    }
+  }
+
+  // MARK: - Status Bar / AVSession Now Playing (`audio.setNowPlaying` / `audio.clearNowPlaying`)
+
+  private async handleAudioSetNowPlaying(requestId: string, payload: Record<string, Object>): Promise<void> {
+    const title = typeof payload['title'] === 'string' ? (payload['title'] as string).trim() : '';
+    if (title.length === 0) {
+      this.sendErr(requestId, 'INVALID_PARAMS', 400, 'title 不能为空');
+      return;
+    }
+    const artist = typeof payload['artist'] === 'string' ? (payload['artist'] as string).trim() : '';
+    const album = typeof payload['album'] === 'string' ? (payload['album'] as string).trim() : '';
+    const artworkUrl = typeof payload['artworkUrl'] === 'string' ? (payload['artworkUrl'] as string).trim() : '';
+    const durationMs = typeof payload['durationMs'] === 'number' ? Math.max(0, Math.floor(payload['durationMs'] as number)) : this.playbackDurationMs;
+    const positionMs = typeof payload['positionMs'] === 'number' ? Math.max(0, Math.floor(payload['positionMs'] as number)) : this.playbackPositionMs;
+    const isPlaying = typeof payload['isPlaying'] === 'boolean' ? (payload['isPlaying'] as boolean) : (this.playbackState === 'playing');
+    const rate = typeof payload['rate'] === 'number' ? (payload['rate'] as number) : this.playbackRate;
+
+    await this.applyNowPlayingSession(title, artist, album, artworkUrl, durationMs, positionMs, isPlaying, rate);
+    this.sendOk(requestId, '{"registered":true}');
+  }
+
+  private async applyNowPlayingSession(
+    title: string,
+    artist: string,
+    album: string,
+    artworkUrl: string,
+    durationMs: number,
+    positionMs: number,
+    isPlaying: boolean,
+    rate: number
+  ): Promise<void> {
+    const ctx = this.getContext();
+    if (!ctx) {
+      return;
+    }
+    this.nowPlayingActive = true;
+    this.nowPlayingTitle = title;
+    this.nowPlayingArtist = artist;
+    this.nowPlayingAlbum = album;
+    this.nowPlayingDurationMs = durationMs;
+
+    try {
+      if (!this.pluginAvSession) {
+        const s = await avSession.createAVSession(ctx, 'MoviePilotPluginAudio', 'audio');
+        s.on('play', () => {
+          if (this.avPlayer) {
+            this.avPlayer.play().catch(() => {});
+            this.playbackState = 'playing';
+            this.startPlaybackProgressTimer();
+            this.emitPlaybackState();
+          }
+          this.sendDeviceEvent('audio.remoteCommand', '{"command":"play"}');
+        });
+        s.on('pause', () => {
+          if (this.avPlayer) {
+            this.avPlayer.pause().catch(() => {});
+            this.playbackState = 'paused';
+            this.emitPlaybackState();
+          }
+          this.sendDeviceEvent('audio.remoteCommand', '{"command":"pause"}');
+        });
+        s.on('stop', () => {
+          this.stopInlinePlayback(true).catch(() => {});
+          this.clearNowPlayingSession().catch(() => {});
+          this.sendDeviceEvent('audio.remoteCommand', '{"command":"stop"}');
+        });
+        s.on('playNext', () => {
+          this.sendDeviceEvent('audio.remoteCommand', '{"command":"next"}');
+        });
+        s.on('playPrevious', () => {
+          this.sendDeviceEvent('audio.remoteCommand', '{"command":"previous"}');
+        });
+        s.on('seek', (timeMs: number) => {
+          const target = Math.max(0, Math.floor(timeMs));
+          if (this.avPlayer) {
+            try { this.avPlayer.seek(target); } catch { /* ignore */ }
+            this.playbackPositionMs = target;
+            this.syncPluginAvSessionState();
+          }
+          this.sendDeviceEvent('audio.remoteCommand', `{"command":"seek","positionMs":${target}}`);
+        });
+        await s.activate();
+        this.pluginAvSession = s;
+      }
+
+      const meta: avSession.AVMetadata = {
+        assetId: this.playbackId || 'mp_plugin_audio',
+        title: title,
+        artist: artist,
+        album: album,
+        duration: durationMs > 0 ? durationMs : undefined
+      };
+      if (artworkUrl.startsWith('http://') || artworkUrl.startsWith('https://')) {
+        meta.mediaImage = artworkUrl;
+      }
+      await this.pluginAvSession.setAVMetadata(meta);
+      await this.pluginAvSession.setAVPlaybackState({
+        state: isPlaying ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE,
+        speed: isPlaying ? rate : 0,
+        position: {
+          elapsedTime: Math.max(0, positionMs),
+          updateTime: Date.now()
+        }
+      });
+    } catch {
+      // 预览器或受限环境忽略 AVSession 异常
+    }
+  }
+
+  private syncPluginAvSessionState(): void {
+    if (!this.pluginAvSession) {
+      return;
+    }
+    try {
+      const playing = this.playbackState === 'playing';
+      this.pluginAvSession.setAVPlaybackState({
+        state: playing ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE,
+        speed: playing ? this.playbackRate : 0,
+        position: {
+          elapsedTime: Math.max(0, this.playbackPositionMs),
+          updateTime: Date.now()
+        }
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+  }
+
+  private async clearNowPlayingSession(): Promise<void> {
+    this.nowPlayingActive = false;
+    this.nowPlayingTitle = '';
+    this.nowPlayingArtist = '';
+    this.nowPlayingAlbum = '';
+    this.nowPlayingDurationMs = 0;
+    if (this.pluginAvSession) {
+      const s = this.pluginAvSession;
+      this.pluginAvSession = null;
+      try { await s.deactivate(); } catch { /* ignore */ }
+      try { await s.destroy(); } catch { /* ignore */ }
+    }
   }
 
   private async resolveStorageStreamSource(storage: string, path: string): Promise<ResolvedStreamSource> {
     const origin = this.getServerUrl();
     const token = this.getAuthToken();
-    if (storage.toLowerCase() === 'local' && origin.length > 0 && token.length > 0) {
+    const slashIdx = path.lastIndexOf('/');
+    const fileName = slashIdx >= 0 ? path.substring(slashIdx + 1) : path;
+    const dotIdx = fileName.lastIndexOf('.');
+    const ext = dotIdx >= 0 ? fileName.substring(dotIdx + 1) : '';
+
+    if (origin.length > 0 && token.length > 0) {
       const req = http.createHttp();
       try {
-        const resp = await req.request(`${origin}/api/v1/storage/stream-ticket`, {
+        const fileObj: Record<string, string> = {};
+        fileObj['storage'] = storage;
+        fileObj['type'] = 'file';
+        fileObj['path'] = path;
+        fileObj['name'] = fileName || 'audio';
+        fileObj['extension'] = ext;
+        const ticketBody: Record<string, Object> = {};
+        ticketBody['file'] = fileObj;
+        ticketBody['media_type'] = 'audio';
+        const reqHeader: Record<string, string> = {};
+        reqHeader['Authorization'] = `Bearer ${token}`;
+        reqHeader['Content-Type'] = 'application/json; charset=utf-8';
+        const resp = await req.request(`${origin}/api/v1/mediaserver/stream-ticket`, {
           method: http.RequestMethod.POST,
-          header: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json; charset=utf-8'
-          },
-          extraData: JSON.stringify({ 'storage': storage, 'path': path }),
+          header: reqHeader,
+          extraData: JSON.stringify(ticketBody),
           connectTimeout: 10000,
           readTimeout: 15000,
           expectDataType: http.HttpDataType.STRING
@@ -1139,20 +1336,47 @@ export class HarmonyPluginNativeCapabilities {
           const inner = (parsed['data'] && typeof parsed['data'] === 'object')
             ? (parsed['data'] as Record<string, Object>)
             : parsed;
-          const rawStream = typeof inner['stream_url'] === 'string' ? (inner['stream_url'] as string) : '';
-          if (rawStream.length > 0) {
-            const full = rawStream.startsWith('http://') || rawStream.startsWith('https://')
-              ? rawStream
-              : `${origin}${rawStream.startsWith('/') ? rawStream : '/' + rawStream}`;
-            return { url: full, authHeader: '' };
+          const ticketId = typeof inner['item_id'] === 'string' ? (inner['item_id'] as string) : '';
+          if (ticketId.length > 0) {
+            const infoReq = http.createHttp();
+            let contentUrl = '';
+            try {
+              const infoResp = await infoReq.request(
+                `${origin}/api/v1/mediaserver/stream-info?itemid=${encodeURIComponent(ticketId)}`,
+                {
+                  method: http.RequestMethod.GET,
+                  header: { 'Authorization': `Bearer ${token}` },
+                  connectTimeout: 10000,
+                  readTimeout: 15000,
+                  expectDataType: http.HttpDataType.STRING
+                }
+              );
+              infoReq.destroy();
+              if (infoResp.responseCode >= 200 && infoResp.responseCode < 300 && typeof infoResp.result === 'string') {
+                const infoObj = JSON.parse(infoResp.result) as Record<string, Object>;
+                const infoData = (infoObj['data'] && typeof infoObj['data'] === 'object')
+                  ? (infoObj['data'] as Record<string, Object>)
+                  : infoObj;
+                if (typeof infoData['content_url'] === 'string') {
+                  contentUrl = infoData['content_url'] as string;
+                }
+              }
+            } catch {
+              try { infoReq.destroy(); } catch { /* ignore */ }
+            }
+            const resolvedUrl = contentUrl.length > 0
+              ? (contentUrl.startsWith('http://') || contentUrl.startsWith('https://')
+                ? contentUrl
+                : `${origin}${contentUrl.startsWith('/') ? contentUrl : '/' + contentUrl}`)
+              : `${origin}/api/v1/mediaserver/stream?itemid=${encodeURIComponent(ticketId)}`;
+            return { url: resolvedUrl, authHeader: `Bearer ${token}` };
           }
         }
       } catch {
         try { req.destroy(); } catch { /* ignore */ }
       }
     }
-    const fallbackUrl = `${origin}/api/v1/storage/download?storage=${encodeURIComponent(storage)}&path=${encodeURIComponent(path)}`;
-    return { url: fallbackUrl, authHeader: token.length > 0 ? `Bearer ${token}` : '' };
+    throw new Error('当前存储暂不支持在线流式播放，请检查存储配置或升级后端');
   }
 
   // MARK: - Full-Screen Native Media Player (`media.playNative`)

@@ -782,6 +782,24 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -803,6 +821,10 @@ fun uniffi_moviepilot_core_checksum_func_apply_plugin_form_patch(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_build_external_player_url(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_build_oauth_authorize_url(
+): Short
+fun uniffi_moviepilot_core_checksum_func_build_oauth_discovery_urls_json(
+): Short
 fun uniffi_moviepilot_core_checksum_func_build_plugin_remote_cache_key_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_build_v3_endpoint_url(
@@ -811,11 +833,15 @@ fun uniffi_moviepilot_core_checksum_func_classify_http_auth_status(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_compute_medal_palette(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_compute_pkce_s256_challenge(
+): Short
 fun uniffi_moviepilot_core_checksum_func_compute_subscribe_progress(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_core_version(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_decode_jwt_token_claims(
+): Short
+fun uniffi_moviepilot_core_checksum_func_detect_cloudflare_access_challenge_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_detect_playable_media_kind(
 ): Short
@@ -825,7 +851,11 @@ fun uniffi_moviepilot_core_checksum_func_evaluate_user_permissions(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_filter_and_group_resources(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_generate_pkce_pair_json(
+): Short
 fun uniffi_moviepilot_core_checksum_func_is_same_http_origin(
+): Short
+fun uniffi_moviepilot_core_checksum_func_merge_cf_access_cookie(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_normalize_danmaku_query_title(
 ): Short
@@ -838,6 +868,12 @@ fun uniffi_moviepilot_core_checksum_func_normalize_server_address(
 fun uniffi_moviepilot_core_checksum_func_parse_agent_markdown(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_deep_link_json(
+): Short
+fun uniffi_moviepilot_core_checksum_func_parse_oauth_callback_url_json(
+): Short
+fun uniffi_moviepilot_core_checksum_func_parse_oauth_server_metadata_json(
+): Short
+fun uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_strm_content(
 ): Short
@@ -930,6 +966,10 @@ fun uniffi_moviepilot_core_fn_func_apply_plugin_form_patch(`originalModelJson`: 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_build_external_player_url(`template`: RustBuffer.ByValue,`mediaUrl`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_build_oauth_authorize_url(`authorizationEndpoint`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`redirectUri`: RustBuffer.ByValue,`codeChallenge`: RustBuffer.ByValue,`state`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_build_oauth_discovery_urls_json(`serverUrl`: RustBuffer.ByValue,`resourceMetadataUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_build_plugin_remote_cache_key_json(`instanceOrigin`: RustBuffer.ByValue,`pluginId`: RustBuffer.ByValue,`versionOrHash`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_build_v3_endpoint_url(`baseUrl`: RustBuffer.ByValue,`pathSegments`: RustBuffer.ByValue,`queryJson`: RustBuffer.ByValue,`trailingSlash`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -938,11 +978,15 @@ fun uniffi_moviepilot_core_fn_func_classify_http_auth_status(`status`: Short,`bo
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_compute_medal_palette(`medalId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_compute_pkce_s256_challenge(`codeVerifier`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_compute_subscribe_progress(`totalEpisode`: Int,`lackEpisode`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_core_version(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_decode_jwt_token_claims(`token`: RustBuffer.ByValue,`nowEpochSecs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_detect_cloudflare_access_challenge_json(`status`: Short,`headersJson`: RustBuffer.ByValue,`body`: RustBuffer.ByValue,`requestUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_detect_playable_media_kind(`pathOrExt`: RustBuffer.ByValue,`includeStreaming`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -952,8 +996,12 @@ fun uniffi_moviepilot_core_fn_func_evaluate_user_permissions(`permissionsJson`: 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_filter_and_group_resources(`resourcesJson`: RustBuffer.ByValue,`criteriaJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_generate_pkce_pair_json(`extraEntropy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_is_same_http_origin(`urlA`: RustBuffer.ByValue,`urlB`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_moviepilot_core_fn_func_merge_cf_access_cookie(`existingCookieHeader`: RustBuffer.ByValue,`cfToken`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_normalize_danmaku_query_title(`seriesName`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`season`: RustBuffer.ByValue,`episode`: RustBuffer.ByValue,`fileName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_normalize_pending_playback_stops_json(`entriesJson`: RustBuffer.ByValue,`nowEpochMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -965,6 +1013,12 @@ fun uniffi_moviepilot_core_fn_func_normalize_server_address(`raw`: RustBuffer.By
 fun uniffi_moviepilot_core_fn_func_parse_agent_markdown(`markdown`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_parse_deep_link_json(`rawUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_parse_oauth_callback_url_json(`callbackUrl`: RustBuffer.ByValue,`expectedState`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_parse_oauth_server_metadata_json(`jsonStr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_parse_protected_resource_metadata_json(`jsonStr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_parse_strm_content(`rawText`: RustBuffer.ByValue,`fallbackFileName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1121,6 +1175,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_build_external_player_url() != 48700.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_build_oauth_authorize_url() != 17385.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_build_oauth_discovery_urls_json() != 40514.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_build_plugin_remote_cache_key_json() != 2310.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1133,6 +1193,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_compute_medal_palette() != 33639.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_compute_pkce_s256_challenge() != 23260.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_compute_subscribe_progress() != 28856.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1140,6 +1203,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_decode_jwt_token_claims() != 16264.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_detect_cloudflare_access_challenge_json() != 51450.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_detect_playable_media_kind() != 57250.toShort()) {
@@ -1154,7 +1220,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_filter_and_group_resources() != 54382.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_generate_pkce_pair_json() != 35640.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_is_same_http_origin() != 24565.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_merge_cf_access_cookie() != 14594.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_normalize_danmaku_query_title() != 7723.toShort()) {
@@ -1173,6 +1245,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_parse_deep_link_json() != 45112.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_parse_oauth_callback_url_json() != 37882.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_parse_oauth_server_metadata_json() != 61028.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_json() != 19972.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_parse_strm_content() != 31599.toShort()) {
@@ -2513,6 +2594,31 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 构造 OAuth 2.0 + PKCE (`S256`) 授权跳转 URL。
+         */
+    @Throws(CoreFfiException::class) fun `buildOauthAuthorizeUrl`(`authorizationEndpoint`: kotlin.String, `clientId`: kotlin.String, `redirectUri`: kotlin.String, `codeChallenge`: kotlin.String, `state`: kotlin.String, `scope`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_build_oauth_authorize_url(
+        FfiConverterString.lower(`authorizationEndpoint`),FfiConverterString.lower(`clientId`),FfiConverterString.lower(`redirectUri`),FfiConverterString.lower(`codeChallenge`),FfiConverterString.lower(`state`),FfiConverterString.lower(`scope`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 构造 RFC 9728 / RFC 8414 元数据探测候选 URL 列表 JSON。
+         */ fun `buildOauthDiscoveryUrlsJson`(`serverUrl`: kotlin.String, `resourceMetadataUrl`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_build_oauth_discovery_urls_json(
+        FfiConverterString.lower(`serverUrl`),FfiConverterOptionalString.lower(`resourceMetadataUrl`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 生成按实例源 SHA-256、插件 ID 与版本/哈希隔离的磁盘缓存键 JSON。
          */
     @Throws(CoreFfiException::class) fun `buildPluginRemoteCacheKeyJson`(`instanceOrigin`: kotlin.String, `pluginId`: kotlin.String, `versionOrHash`: kotlin.String): kotlin.String {
@@ -2563,6 +2669,18 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 根据 RFC 7636 计算 PKCE `S256` challenge。
+         */ fun `computePkceS256Challenge`(`codeVerifier`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_compute_pkce_s256_challenge(
+        FfiConverterString.lower(`codeVerifier`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 计算剧集订阅完成进度。
          */ fun `computeSubscribeProgress`(`totalEpisode`: kotlin.Int, `lackEpisode`: kotlin.Int): SubscribeProgressFfi {
             return FfiConverterTypeSubscribeProgressFfi.lift(
@@ -2593,6 +2711,18 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_decode_jwt_token_claims(
         FfiConverterString.lower(`token`),FfiConverterLong.lower(`nowEpochSecs`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 检测 HTTP 响应是否为 Cloudflare Access 拦截（302 / 401 WWW-Authenticate / 登录页 HTML），返回 JSON。
+         */ fun `detectCloudflareAccessChallengeJson`(`status`: kotlin.UShort, `headersJson`: kotlin.String, `body`: kotlin.String, `requestUrl`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_detect_cloudflare_access_challenge_json(
+        FfiConverterUShort.lower(`status`),FfiConverterString.lower(`headersJson`),FfiConverterString.lower(`body`),FfiConverterString.lower(`requestUrl`),_status)
 }
     )
     }
@@ -2649,12 +2779,36 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 生成 RFC 7636 PKCE `S256` 校验对与 `state` JSON。
+         */ fun `generatePkcePairJson`(`extraEntropy`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_generate_pkce_pair_json(
+        FfiConverterString.lower(`extraEntropy`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 校验两条 HTTP(S) URL 是否严格同源（用于跨源 302 重定向时剥离直连令牌头）。
          */ fun `isSameHttpOrigin`(`urlA`: kotlin.String, `urlB`: kotlin.String): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_is_same_http_origin(
         FfiConverterString.lower(`urlA`),FfiConverterString.lower(`urlB`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 安全合并 `CF_Authorization=<token>` 与现有 Cookie 头（保留 `resource_token` 等其他同源 Cookie）。
+         */ fun `mergeCfAccessCookie`(`existingCookieHeader`: kotlin.String, `cfToken`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_merge_cf_access_cookie(
+        FfiConverterString.lower(`existingCookieHeader`),FfiConverterString.lower(`cfToken`),_status)
 }
     )
     }
@@ -2730,6 +2884,44 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_deep_link_json(
         FfiConverterString.lower(`rawUrl`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 解析并校验 `moviepilot://oauth/callback` 回调 URL，返回校验结果 JSON。
+         */ fun `parseOauthCallbackUrlJson`(`callbackUrl`: kotlin.String, `expectedState`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_oauth_callback_url_json(
+        FfiConverterString.lower(`callbackUrl`),FfiConverterString.lower(`expectedState`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 解析 RFC 8414 Authorization Server Metadata JSON。
+         */
+    @Throws(CoreFfiException::class) fun `parseOauthServerMetadataJson`(`jsonStr`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_oauth_server_metadata_json(
+        FfiConverterString.lower(`jsonStr`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 解析 RFC 9728 Protected Resource Metadata，返回 `authorization_servers` 元数据地址列表 JSON。
+         */
+    @Throws(CoreFfiException::class) fun `parseProtectedResourceMetadataJson`(`jsonStr`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_protected_resource_metadata_json(
+        FfiConverterString.lower(`jsonStr`),_status)
 }
     )
     }

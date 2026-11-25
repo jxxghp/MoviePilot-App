@@ -32,6 +32,7 @@ import com.moviepilot.designsystem.NativeAppearanceStore
 import com.moviepilot.media.LocalMediaMetadataExtractor
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.PlaybackPipBridge
+import com.moviepilot.rustbridge.CloudflareAccessOAuthManager
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.SessionState
 import kotlinx.coroutines.Dispatchers
@@ -154,6 +155,10 @@ class MainActivity : ComponentActivity() {
         val uri = intent.data ?: return
         when (uri.scheme?.lowercase()) {
             "moviepilot" -> {
+                if (uri.host?.equals("oauth", ignoreCase = true) == true) {
+                    CloudflareAccessOAuthManager.handleCallbackUri(uri.toString())
+                    return
+                }
                 pendingDeepLinkOrigin = null
                 pendingDeepLink = uri.toString()
             }

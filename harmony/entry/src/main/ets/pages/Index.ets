@@ -498,8 +498,9 @@ struct Index {
     const repo = MoviePilotRepository.shared();
 
     try {
-      if (cleanStorage === 'local') {
-        const ticketId = await repo.createLocalStreamTicket(cleanPath, fileName, kind === 'audio' ? 'audio' : 'video');
+      const shouldTryTicket = cleanStorage === 'local' || (!RustCoreBridge.isStrmPath(fileName) && !RustCoreBridge.isStrmPath(cleanPath));
+      if (shouldTryTicket) {
+        const ticketId = await repo.createStorageStreamTicket(cleanStorage, cleanPath, fileName, kind === 'audio' ? 'audio' : 'video');
         if (ticketId.length > 0) {
           const stream = await repo.fetchVideoStreamInfo(ticketId, '');
           if (stream && stream.contentUrl.length > 0) {

@@ -40,6 +40,11 @@ private struct PooledPluginWebViewHost: UIViewRepresentable {
       webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
       webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
     ])
+    container.layoutIfNeeded()
+    DispatchQueue.main.async { [weak webView] in
+      webView?.evaluateJavaScript(
+        "window.dispatchEvent(new Event('resize'));", completionHandler: nil)
+    }
   }
 }
 

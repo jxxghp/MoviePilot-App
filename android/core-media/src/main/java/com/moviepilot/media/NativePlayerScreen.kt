@@ -470,8 +470,8 @@ fun buildConfiguredExoPlayer(
         .setBufferDurationsMs(
             if (isLargeBuffer) 30_000 else 15_000,
             if (isLargeBuffer) 120_000 else 50_000,
-            if (request.isAudio) (if (isLargeBuffer) 1_500 else 1_000) else (if (isLargeBuffer) 4_000 else 2_500),
-            if (request.isAudio) (if (isLargeBuffer) 3_000 else 2_000) else (if (isLargeBuffer) 8_000 else 5_000),
+            if (request.isAudio) (if (isLargeBuffer) 1_000 else 500) else (if (isLargeBuffer) 2_500 else 1_000),
+            if (request.isAudio) (if (isLargeBuffer) 2_000 else 1_000) else (if (isLargeBuffer) 5_000 else 2_000),
         )
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
@@ -1506,6 +1506,25 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
+    // 应用退到后台（ON_PAUSE / ON_STOP）时主动上报一次进度并记录本地续播点，避免切换应用或进程回收丢进度
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, ownsPlayer, request.url) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if ((event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) &&
+                ownsPlayer && !request.isAudio
+            ) {
+                val pos = activeCurrentPositionMs().coerceAtLeast(0L)
+                val dur = activeDurationMs().coerceAtLeast(0L)
+                if (pos > 0L) {
+                    localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
+                    dispatchVideoSync("background", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = !activeIsPlaying())
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // 400ms 刷新界面进度，每 3 轮（~1.2s）驱动一次共享状态机（播放 10s 心跳 / 暂停 12s 保活 / 15 分钟自动释放）
     LaunchedEffect(exoPlayer, mpvEngineHolder, isMpvActive, ownsPlayer, request.url) {
         var tick = 0
@@ -1523,7 +1542,7 @@ fun NativeMediaPlayerOverlay(
                 )
             }
             tick++
-            if (ownsPlayer && !request.isAudio && durationMs > 1L) {
+            if (ownsPlayer && !request.isAudio && (durationMs > 1L || positionMs > 0L)) {
                 if (tick % 3 == 0) {
                     dispatchVideoSync("tick", posOverrideMs = positionMs, durOverrideMs = durationMs, pausedOverride = !isPlaying)
                 }

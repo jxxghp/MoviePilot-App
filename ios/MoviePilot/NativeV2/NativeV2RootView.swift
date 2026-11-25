@@ -379,6 +379,9 @@ struct NativeV2RootView: View {
           model.connectAddress()
         }
       }
+      if model.resolvedCloudflareTargetAddress != nil || model.cloudflareChallengeDetected {
+        cloudflareAccessSection
+      }
       if !model.saved.isEmpty {
         Section {
           ForEach(model.saved, id: \.id) { instance in
@@ -592,6 +595,72 @@ struct NativeV2RootView: View {
           primary("登录", id: "native-v2-login", disabled: isDisabled) {
             model.login()
           }
+        }
+      }
+      if model.resolvedCloudflareTargetAddress != nil || model.cloudflareChallengeDetected {
+        cloudflareAccessSection
+      }
+    }
+  }
+
+  /// Cloudflare Access Managed OAuth 网关认证入口：支持一键拉起系统授权会话、查看授权态与清除。
+  private var cloudflareAccessSection: some View {
+    CinematicFormSection(
+      footer: model.cloudflareChallengeDetected
+        ? L10n.text("当前服务位于 Cloudflare Access 保护后，请先完成网关授权再连接。")
+        : L10n.text("若服务部署在 Cloudflare Access 网关后，可先完成 OAuth 授权；不影响 MoviePilot 账号令牌。")
+    ) {
+      CinematicFormRow(symbol: "shield.lefthalf.filled") {
+        Button {
+          model.authenticateCloudflareAccess()
+        } label: {
+          HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(
+                model.cloudflareAuthenticating
+                  ? L10n.text("正在进行 Cloudflare Access 认证…")
+                  : (model.hasActiveCloudflareSession
+                    ? L10n.text("重新进行 Cloudflare Access 认证")
+                    : L10n.text("通过 Cloudflare Access 认证"))
+              )
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(
+                model.cloudflareChallengeDetected ? appearance.accentColor : .primary)
+              if model.hasActiveCloudflareSession {
+                Text(L10n.text("已获取 Cloudflare Access 网关凭据"))
+                  .font(.caption2)
+                  .foregroundStyle(NativeTheme.success)
+              }
+            }
+            Spacer(minLength: 8)
+            if model.cloudflareAuthenticating {
+              ProgressView()
+            } else {
+              Image(systemName: "arrow.up.forward.app")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(appearance.accentColor)
+            }
+          }
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.busy || model.cloudflareAuthenticating || model.resolvedCloudflareTargetAddress == nil)
+        .accessibilityIdentifier("native-v2-cf-access-auth")
+      }
+      if model.hasActiveCloudflareSession {
+        CinematicFormDivider()
+        CinematicFormRow(symbol: "trash") {
+          Button(role: .destructive) {
+            model.clearCloudflareAccess()
+          } label: {
+            Text(L10n.text("清除 Cloudflare Access 授权"))
+              .font(.subheadline)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(NativeTheme.danger)
+          .disabled(model.busy || model.cloudflareAuthenticating)
+          .accessibilityIdentifier("native-v2-cf-access-clear")
         }
       }
     }

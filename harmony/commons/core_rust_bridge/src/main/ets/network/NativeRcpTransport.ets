@@ -8,6 +8,7 @@ export interface NativeHttpResponse {
   status: number;
   body: string;
   etag?: string;
+  headers?: Record<string, string>;
 }
 
 /** SSE 流式事件回调载荷。 */
@@ -27,6 +28,7 @@ export class NativeRcpTransport {
   private allowSelfSigned: boolean = false;
   private cookieJar: Map<string, string> = new Map<string, string>();
   onAuthExpired: (() => void) | null = null;
+  cfAccessTokenProvider: ((requestUrl: string) => string) | null = null;
 
   /** 绑定当前受信任的 MoviePilot 实例根地址（用于同源凭据守卫）。 */
   setBaseUrl(url: string): void {
@@ -54,12 +56,31 @@ export class NativeRcpTransport {
     return parts.join('; ');
   }
 
-  /** 仅当候选 URL 严格同源于当前实例时返回已存储的 Cookie 请求头（含 `resource_token`），严禁跨源泄露。 */
+  /** 仅当候选 URL 严格同源于当前实例时返回已存储的 Cookie 请求头（含 `resource_token` 与 `CF_Authorization`），严禁跨源泄露。 */
   getCookieHeaderForUrl(url: string): string {
     if (!this.isSameOriginUrl(url)) {
       return '';
     }
-    return this.getCookieHeader();
+    const base = this.getCookieHeader();
+    const cfToken = this.cfAccessTokenProvider ? this.cfAccessTokenProvider(url).trim() : '';
+    return cfToken.length > 0 ? RustCoreBridge.mergeCfAccessCookie(base, cfToken) : base;
+  }
+
+  /** 为同源请求安全附加 `Cookie: CF_Authorization=...`（保留现有同源 Cookie）与 `cf-access-token`，绝不覆盖 `Authorization`。 */
+  private applyCloudflareHeaders(header: Record<string, string>, url: string): void {
+    if (!this.isSameOriginUrl(url) || !this.cfAccessTokenProvider) {
+      return;
+    }
+    const cfToken = this.cfAccessTokenProvider(url).trim();
+    if (cfToken.length === 0) {
+      return;
+    }
+    const existingCookie = header['Cookie'] ?? '';
+    const merged = RustCoreBridge.mergeCfAccessCookie(existingCookie, cfToken);
+    if (merged.length > 0) {
+      header['Cookie'] = merged;
+    }
+    header['cf-access-token'] = cfToken;
   }
 
   /** 严格校验候选 URL 是否归属当前实例同源与子路径边界。 */
@@ -163,6 +184,7 @@ export class NativeRcpTransport {
         header[keys[i]] = extraHeaders[keys[i]];
       }
     }
+    this.applyCloudflareHeaders(header, url);
 
     let httpMethod: http.RequestMethod = http.RequestMethod.GET;
     if (upper === 'POST') {
@@ -192,8 +214,16 @@ export class NativeRcpTransport {
       const text = typeof resp.result === 'string' ? resp.result : JSON.stringify(resp.result ?? '');
       this.notifyAuthIfExpired(url, token, resp.responseCode, text);
       let respEtag: string | undefined = undefined;
+      const respHeaders: Record<string, string> = {};
       if (resp.header) {
         const hRec = resp.header as Record<string, Object>;
+        const hKeys = Object.keys(hRec);
+        for (let i = 0; i < hKeys.length; i++) {
+          const v = hRec[hKeys[i]];
+          if (v !== undefined && v !== null) {
+            respHeaders[hKeys[i]] = String(v);
+          }
+        }
         const rawEtag = hRec['etag'] ?? hRec['ETag'];
         if (rawEtag !== undefined && rawEtag !== null) {
           const etagStr = String(rawEtag).trim();
@@ -205,7 +235,8 @@ export class NativeRcpTransport {
       return {
         status: resp.responseCode,
         body: text,
-        etag: respEtag
+        etag: respEtag,
+        headers: respHeaders
       };
     } finally {
       client.destroy();
@@ -226,6 +257,7 @@ export class NativeRcpTransport {
       if (cookieStr.length > 0) {
         header['Cookie'] = cookieStr;
       }
+      this.applyCloudflareHeaders(header, url);
     }
     const reqOpts: http.HttpRequestOptions = {
       method: http.RequestMethod.GET,
@@ -270,6 +302,7 @@ export class NativeRcpTransport {
     if (cookieStr.length > 0) {
       header['Cookie'] = cookieStr;
     }
+    this.applyCloudflareHeaders(header, url);
     const reqOpts: http.HttpRequestOptions = {
       method: http.RequestMethod.GET,
       header: header,
@@ -341,6 +374,7 @@ export class NativeRcpTransport {
     if (cookieStr.length > 0) {
       header['Cookie'] = cookieStr;
     }
+    this.applyCloudflareHeaders(header, url);
 
     let writtenBytes = 0;
     let writeFailed = false;
@@ -450,6 +484,7 @@ export class NativeRcpTransport {
       if (cookieStr.length > 0) {
         header['Cookie'] = cookieStr;
       }
+      this.applyCloudflareHeaders(header, url);
     }
 
     const reqOpts: http.HttpRequestOptions = {
@@ -499,6 +534,7 @@ export class NativeRcpTransport {
       if (cookieStr.length > 0) {
         header['Cookie'] = cookieStr;
       }
+      this.applyCloudflareHeaders(header, url);
     }
     const keys = Object.keys(extraHeaders);
     for (let i = 0; i < keys.length; i++) {

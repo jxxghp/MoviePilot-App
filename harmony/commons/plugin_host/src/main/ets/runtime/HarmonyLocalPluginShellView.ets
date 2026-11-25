@@ -532,8 +532,20 @@ export struct HarmonyLocalPluginShellView {
       })
         .javaScriptAccess(true)
         .domStorageAccess(true)
+        .metaViewport(true)
         .mediaPlayGestureAccess(false)
         .backgroundColor(Color.Transparent)
+        .onAreaChange((_oldArea: Area, newArea: Area) => {
+          const w = Number(newArea.width);
+          const h = Number(newArea.height);
+          if (w > 0 && h > 0) {
+            try {
+              this.webController.runJavaScript("window.dispatchEvent(new Event('resize'));");
+            } catch {
+              // ignore before webview ready
+            }
+          }
+        })
         .javaScriptProxy({
           object: this.bridge ? this.bridge.jsProxy : new HarmonyPluginBridgeJsProxy(() => {}),
           name: HarmonyPluginHostBridgeV2.PROXY_NAME,

@@ -24,12 +24,6 @@ struct NativePluginDataPageView: View {
   let pluginName: String
   var navKey: String? = nil
 
-  /// 数据页内打开的原生配置表单（草稿归属本次导航）。
-  private struct SettingsSelection {
-    let plugin: NativeInstalledPlugin
-    let form: NativePluginForm
-  }
-
   @State private var renderMode = "vuetify"
   @State private var nodes: [NativePluginJSONNode] = []
   @State private var isLoading = true
@@ -39,7 +33,8 @@ struct NativePluginDataPageView: View {
   @State private var actionIsError = false
   @State private var showsVueSheet = false
   @State private var showsWebStyleSheet = false
-  @State private var settingsSelection: SettingsSelection?
+  @State private var settingsPlugin: NativeInstalledPlugin?
+  @State private var isSettingsPresented = false
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
@@ -174,20 +169,17 @@ struct NativePluginDataPageView: View {
         }
       }
     }
-    .navigationDestination(
-      isPresented: Binding(
-        get: { settingsSelection != nil },
-        set: { presented in
-          if !presented, settingsSelection != nil {
-            settingsSelection = nil
-            // 设置页可能已保存配置，返回后刷新数据页。
-            reloadToken += 1
-          }
-        })
-    ) {
-      if let settingsSelection {
-        NativePluginFormView(plugin: settingsSelection.plugin, form: settingsSelection.form)
-          .id(settingsSelection.plugin.id)
+    .navigationDestination(isPresented: $isSettingsPresented) {
+      if let settingsPlugin {
+        NativePluginLazyFormDestination(session: session, plugin: settingsPlugin)
+          .id(settingsPlugin.id)
+      }
+    }
+    .onChange(of: isSettingsPresented) { presented in
+      if !presented, settingsPlugin != nil {
+        settingsPlugin = nil
+        // 设置页可能已保存配置，返回后刷新数据页。
+        reloadToken += 1
       }
     }
     .sheet(isPresented: $showsVueSheet, onDismiss: { dismiss() }) {
@@ -226,10 +218,8 @@ struct NativePluginDataPageView: View {
   private func openSettings() {
     do {
       let target = try PluginFormTarget(physicalID: pluginID)
-      let plugin = NativeInstalledPlugin(target: target, name: pluginName, hasPage: true)
-      let form = try NativePluginForm(
-        session: session, target: target, validator: NativeFormValidator())
-      settingsSelection = SettingsSelection(plugin: plugin, form: form)
+      settingsPlugin = NativeInstalledPlugin(target: target, name: pluginName, hasPage: true)
+      isSettingsPresented = true
     } catch {
       actionIsError = true
       actionFeedback = "无法打开该插件的配置。"
@@ -1774,6 +1764,10 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
     let wkConfig = WKWebViewConfiguration()
     wkConfig.websiteDataStore = .nonPersistent()
     wkConfig.allowsInlineMediaPlayback = true
+    wkConfig.mediaTypesRequiringUserActionForPlayback = []
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      wkConfig.defaultWebpagePreferences.preferredContentMode = .mobile
+    }
 
     let contentController = wkConfig.userContentController
     contentController.addUserScript(
@@ -1792,7 +1786,12 @@ private struct NativeVuePluginWebView: UIViewRepresentable {
           forMainFrameOnly: true))
     }
 
-    let webView = WKWebView(frame: .zero, configuration: wkConfig)
+    let screenBounds = UIScreen.main.bounds
+    let initialFrame =
+      screenBounds.width > 0 && screenBounds.height > 0
+      ? screenBounds
+      : CGRect(x: 0, y: 0, width: 390, height: 844)
+    let webView = WKWebView(frame: initialFrame, configuration: wkConfig)
     webView.navigationDelegate = context.coordinator
     webView.isOpaque = false
     webView.backgroundColor = .clear

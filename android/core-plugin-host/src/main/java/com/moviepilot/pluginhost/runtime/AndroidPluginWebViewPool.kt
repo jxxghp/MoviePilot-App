@@ -161,6 +161,14 @@ object AndroidPluginWebViewPool {
         val wv = WebView(appContext)
         lateinit var slot: PooledAndroidPluginWebView
 
+        val dm = appContext.resources.displayMetrics
+        val initW = dm.widthPixels.coerceAtLeast(360)
+        val initH = dm.heightPixels.coerceAtLeast(640)
+        wv.measure(
+            android.view.View.MeasureSpec.makeMeasureSpec(initW, android.view.View.MeasureSpec.EXACTLY),
+            android.view.View.MeasureSpec.makeMeasureSpec(initH, android.view.View.MeasureSpec.EXACTLY),
+        )
+        wv.layout(0, 0, initW, initH)
         wv.setBackgroundColor(Color.TRANSPARENT)
         wv.isVerticalScrollBarEnabled = true
         wv.isHorizontalScrollBarEnabled = false
@@ -173,8 +181,8 @@ object AndroidPluginWebViewPool {
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
             mediaPlaybackRequiresUserGesture = false
-            useWideViewPort = true
-            loadWithOverviewMode = true
+            useWideViewPort = false
+            loadWithOverviewMode = false
         }
         wv.addJavascriptInterface(bridge, AndroidPluginHostBridgeV2.JS_INTERFACE_NAME)
         wv.webChromeClient = object : WebChromeClient() {

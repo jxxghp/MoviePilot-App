@@ -92,9 +92,42 @@ struct APIClientTests {
     #expect(query.first(where: { $0.name == "maxWidth" })?.value == "420")
     #expect(captured.value(forHTTPHeaderField: "Authorization") == nil)
     #expect(captured.value(forHTTPHeaderField: "Cache-Control") == "no-store")
-    #expect(captured.value(forHTTPHeaderField: "Accept") == "image/jpeg, image/png, image/webp")
+    #expect(
+      captured.value(forHTTPHeaderField: "Accept")
+        == "image/avif, image/webp, image/apng, image/jpeg, image/png, image/*;q=0.8")
     #expect(captured.value(forHTTPHeaderField: "Cookie") == cookie)
     #expect(requests.count == 2)
+  }
+
+  /// 服务端代理返回 AVIF / GIF / HEIC 等合法图片格式时均应放行，仍严格拒绝 SVG 脚本载体与非图片类型。
+  @Test func acceptsAvifAndModernImageMimeTypesWhileRejectingSvg() async throws {
+    let cookie = try Self.resourceCookie()
+    let source = try #require(URL(string: "https://images.example/poster.avif"))
+    for (headerType, expectedMime) in [
+      ("image/avif", "image/avif"),
+      ("image/avif; charset=binary", "image/avif"),
+      ("image/gif", "image/gif"),
+      ("image/heic", "image/heic"),
+      ("image/webp", "image/webp"),
+    ] {
+      APIURLProtocol.state.prepare(
+        body: Data([0x00, 0x00, 0x00, 0x1C, 0x66, 0x74, 0x79, 0x70]),
+        headers: ["Content-Type": headerType],
+        refreshCookie: "\(cookie); Path=/; HttpOnly; Secure; SameSite=Lax")
+      let image = try await Self.client().requestImage(source)
+      #expect(image.mimeType == expectedMime)
+      #expect(!image.data.isEmpty)
+    }
+
+    for rejectedType in ["image/svg+xml", "image/svg+xml; charset=utf-8", "text/html", "application/json"] {
+      APIURLProtocol.state.prepare(
+        body: Data("<svg></svg>".utf8),
+        headers: ["Content-Type": rejectedType],
+        refreshCookie: "\(cookie); Path=/; HttpOnly; Secure; SameSite=Lax")
+      await #expect(throws: APIError.invalidResponse) {
+        _ = try await Self.client().requestImage(source)
+      }
+    }
   }
 
   /// Foundation 可能把多行 Set-Cookie 合成一个值；两个顺序都只把资源凭据送往图片代理。

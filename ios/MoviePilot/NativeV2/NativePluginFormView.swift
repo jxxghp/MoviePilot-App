@@ -6,6 +6,32 @@ import MoviePilotPluginUI
 import MoviePilotSession
 import SwiftUI
 
+/// 供 `NavigationStack` 安全延迟压栈的插件原生表单容器（避免 iOS 16 父页面 `@State` 持有 `ObservableObject` 引发死循环卡死）。
+@MainActor
+struct NativePluginLazyFormDestination: View {
+  let session: NativeSession
+  let plugin: NativeInstalledPlugin
+
+  var body: some View {
+    if let view = try? NativePluginFormView(session: session, plugin: plugin) {
+      view
+    } else {
+      ZStack {
+        CinematicBackground()
+        CinematicPanel {
+          Label("无法打开该插件的配置表单。", systemImage: "exclamationmark.triangle")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, CinematicStyle.margin)
+      }
+      .navigationTitle(plugin.name)
+      .navigationBarTitleDisplayMode(.inline)
+    }
+  }
+}
+
 /// JSON 配置的真实原生编辑页面，展示与保存验证使用完全相同的计划；
 /// 若插件为 Vue 远程组件模式（`renderMode == .vue`），自动在免登隔离 WebView 中直接呈现插件配置界面。
 @MainActor
@@ -25,6 +51,15 @@ struct NativePluginFormView: View {
   init(plugin: NativeInstalledPlugin, form: NativePluginForm) {
     self.plugin = plugin
     _form = StateObject(wrappedValue: form)
+  }
+
+  /// iOS 16+ 安全的延迟构建入口：仅在目标页面实际压栈时才在 `@StateObject` 内初始化 `NativePluginForm`，
+  /// 避免父页面 `@State` 持有 `ObservableObject` 并在 `navigationDestination` 中引发重复求值卡死。
+  init(session: NativeSession, plugin: NativeInstalledPlugin) throws {
+    let created = try NativePluginForm(
+      session: session, target: plugin.target, validator: NativeFormValidator())
+    self.plugin = plugin
+    _form = StateObject(wrappedValue: created)
   }
 
   var body: some View {

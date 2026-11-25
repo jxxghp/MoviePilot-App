@@ -12,13 +12,8 @@ struct NativePluginCatalogView: View {
   @State private var loading = false
   @State private var failed = false
   @State private var reload = 0
-  @State private var selection: Selection?
-
-  /// 当前导航拥有独立草稿控制器，物理插件与源插件不混淆。
-  private struct Selection {
-    let plugin: NativeInstalledPlugin
-    let form: NativePluginForm
-  }
+  @State private var selectedPlugin: NativeInstalledPlugin?
+  @State private var isFormPresented = false
 
   /// 统一渐变/玻璃列表，没有网页请求或插件脚本加载。
   var body: some View {
@@ -148,12 +143,15 @@ struct NativePluginCatalogView: View {
         .accessibilityIdentifier("native-plugin-market-open")
       }
     }
-    .navigationDestination(
-      isPresented: Binding(get: { selection != nil }, set: { if !$0 { selection = nil } })
-    ) {
-      if let selection {
-        NativePluginFormView(plugin: selection.plugin, form: selection.form)
-          .id(selection.plugin.id)
+    .navigationDestination(isPresented: $isFormPresented) {
+      if let selectedPlugin {
+        NativePluginLazyFormDestination(session: session, plugin: selectedPlugin)
+          .id(selectedPlugin.id)
+      }
+    }
+    .onChange(of: isFormPresented) { presented in
+      if !presented {
+        selectedPlugin = nil
       }
     }
     .task(id: reload) { await load() }
@@ -183,11 +181,8 @@ struct NativePluginCatalogView: View {
 
   /// 会话再次验证后才创建编辑所有者，不能用缓存列表绕过已撤销的管理员权限。
   private func open(_ plugin: NativeInstalledPlugin) {
-    do {
-      let form = try NativePluginForm(
-        session: session, target: plugin.target, validator: NativeFormValidator())
-      selection = Selection(plugin: plugin, form: form)
-    } catch { failed = true }
+    selectedPlugin = plugin
+    isFormPresented = true
   }
 }
 

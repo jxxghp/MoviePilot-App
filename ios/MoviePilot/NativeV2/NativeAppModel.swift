@@ -20,6 +20,9 @@ final class NativeAppModel: ObservableObject {
   @Published private(set) var fixedUsername = false
   @Published private(set) var isSwitchingServer = false
   @Published private(set) var language = AppLanguage.current
+  @Published private(set) var cloudflareChallengeDetected = false
+  @Published private(set) var cloudflareAuthenticating = false
+  @Published private(set) var cloudflareSessionRevision = 0
   @Published var address = ""
   @Published var username = ""
   @Published var password = ""
@@ -61,6 +64,56 @@ final class NativeAppModel: ObservableObject {
     if let selected {
       connect(selected, preserveSystemLaunchIntent: true, submitsSavedLogin: true)
     }
+  }
+
+  /// 当前输入或已选服务地址是否已完成 Cloudflare Access 认证。
+  var hasActiveCloudflareSession: Bool {
+    _ = cloudflareSessionRevision
+    guard let targetAddress = resolvedCloudflareTargetAddress else { return false }
+    return CloudflareAccessAuthManager.shared.hasSession(for: targetAddress)
+  }
+
+  /// 当前表单对应的规范化服务地址（优先已选实例，其次地址框输入）。
+  var resolvedCloudflareTargetAddress: ServerAddress? {
+    if let selected { return selected.address }
+    return try? ServerAddress(address)
+  }
+
+  /// 通过 Cloudflare Access Managed OAuth（`ASWebAuthenticationSession` + PKCE）完成网关授权，成功后自动重试连接。
+  func authenticateCloudflareAccess() {
+    guard let targetAddress = resolvedCloudflareTargetAddress else {
+      messageKey = "请输入包含 http:// 或 https:// 的完整服务地址。"
+      return
+    }
+    guard !cloudflareAuthenticating else { return }
+    cloudflareAuthenticating = true
+    messageKey = nil
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      defer { self.cloudflareAuthenticating = false }
+      do {
+        _ = try await CloudflareAccessAuthManager.shared.authenticate(address: targetAddress)
+        self.cloudflareChallengeDetected = false
+        self.cloudflareSessionRevision &+= 1
+        self.messageKey = "Cloudflare Access 认证成功，正在连接服务…"
+        if let savedInstance = try? self.instances.select(targetAddress) {
+          self.connect(savedInstance)
+        }
+      } catch let error as CloudflareAccessAuthManager.AuthError {
+        if case .cancelled = error { return }
+        self.messageKey = error.errorDescription ?? "Cloudflare Access 认证失败，请重试。"
+      } catch {
+        self.messageKey = "Cloudflare Access 认证失败，请确认服务已开启 Cloudflare Access OAuth。"
+      }
+    }
+  }
+
+  /// 清除当前服务器的 Cloudflare Access 授权令牌。
+  func clearCloudflareAccess() {
+    guard let targetAddress = resolvedCloudflareTargetAddress else { return }
+    CloudflareAccessAuthManager.shared.clearSession(for: targetAddress)
+    cloudflareSessionRevision &+= 1
+    messageKey = "已清除当前服务的 Cloudflare Access 授权。"
   }
 
   /// 地址校验失败保留原输入，成功则沿用相同标准地址的 UUID。
@@ -106,10 +159,15 @@ final class NativeAppModel: ObservableObject {
       LanguageSettings.refreshShortcuts()
       address = instance.address.url.absoluteString
       form = .login
+      cloudflareChallengeDetected = false
       execute { [self] id in
+        await CloudflareAccessAuthManager.shared.refreshIfNeeded(for: instance.address)
         do {
           _ = try await manager.connect(instance.nativeInstance)
         } catch {
+          if case APIError.cloudflareAccessRequired = error {
+            cloudflareChallengeDetected = true
+          }
           // 已保存令牌过期：过期回调已回填本机保存的密码与开关，这里代替用户点一次登录。
           guard submitsSavedLogin, operationID == id, !Task.isCancelled,
             case .loginRequired(_, .expired) = manager.state, canSubmitSavedLogin
@@ -511,6 +569,8 @@ final class NativeAppModel: ObservableObject {
         PluginWebViewPool.shared.resetForSessionChange()
       }
       try check(id)
+      CloudflareAccessAuthManager.shared.clearSession(for: instance.address)
+      cloudflareSessionRevision &+= 1
       try instances.forget(instance)
       if previousAuthenticatedInstance?.id == instance.id {
         previousAuthenticatedInstance = nil
@@ -591,6 +651,9 @@ final class NativeAppModel: ObservableObject {
       guard let self else { return }
       do { try await operation(id) } catch {
         guard operationID == id, !Task.isCancelled else { return }
+        if case APIError.cloudflareAccessRequired = error {
+          cloudflareChallengeDetected = true
+        }
         messageKey = Self.errorKey(error)
       }
       guard operationID == id else { return }
@@ -620,6 +683,8 @@ final class NativeAppModel: ObservableObject {
     case APIError.rateLimited: key = "请求过于频繁，请稍后再试。"
     case APIError.httpStatus(409): key = "服务状态已改变，请重试以重新检查。"
     case APIError.redirectRefused: key = "服务返回了重定向，请检查完整服务地址。"
+    case APIError.cloudflareAccessRequired:
+      key = "检测到 Cloudflare Access 网关验证，请先完成 Cloudflare Access 认证。"
     case APIError.invalidResponse, APIError.responseTooLarge:
       key = "服务响应无法解析，请检查后端版本和地址。"
     case APIError.timedOut: key = "连接超时，请重试或更改地址。"

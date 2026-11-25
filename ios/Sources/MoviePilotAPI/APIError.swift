@@ -10,6 +10,7 @@ public enum APIError: Error, Equatable, Sendable {
   case rateLimited(retryAfter: TimeInterval?)
   case httpStatus(Int)
   case redirectRefused
+  case cloudflareAccessRequired
   case unavailable
   case timedOut
   case invalidResponse

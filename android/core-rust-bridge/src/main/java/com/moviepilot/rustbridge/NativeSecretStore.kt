@@ -108,9 +108,29 @@ class NativeSecretStore(context: Context) {
         return u to p
     }
 
+    /** 按规范化实例源加密保存 Cloudflare Access OAuth 会话 JSON。 */
+    fun saveCloudflareSessionJson(originKey: String, payloadJson: String) {
+        prefs.edit().putString("cf_oauth_${originKey.hashCode()}", encrypt(payloadJson)).apply()
+    }
+
+    /** 读取并解密指定实例源的 Cloudflare Access OAuth 会话 JSON。 */
+    fun loadCloudflareSessionJson(originKey: String): String? {
+        val raw = prefs.getString("cf_oauth_${originKey.hashCode()}", null) ?: return null
+        return decrypt(raw)
+    }
+
+    /** 清除指定实例源的 Cloudflare Access OAuth 会话。 */
+    fun clearCloudflareSession(originKey: String) {
+        prefs.edit().remove("cf_oauth_${originKey.hashCode()}").apply()
+    }
+
     /** 忘记指定实例的全部保存数据。 */
     fun forgetServer(serverUrl: String) {
         clearToken(serverUrl)
+        val originKey = CloudflareAccessOAuthManager.normalizedOriginKey(serverUrl)
+        if (!originKey.isNullOrBlank()) {
+            clearCloudflareSession(originKey)
+        }
         prefs.edit()
             .remove("usr_${serverUrl.hashCode()}")
             .remove("pwd_${serverUrl.hashCode()}")

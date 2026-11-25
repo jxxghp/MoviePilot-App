@@ -89,20 +89,24 @@ pub enum ResourceSortBy {
     Site,
 }
 
-/// 9 维级联筛选条件。
+/// 9 维级联筛选条件（同时兼容 camelCase 与 snake_case 键名，避免跨端序列化静默丢失筛选维度）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ResourceFilterCriteria {
     pub sites: Vec<String>,
     pub resolutions: Vec<String>,
+    #[serde(alias = "resource_types")]
     pub resource_types: Vec<String>,
+    #[serde(alias = "video_encodes")]
     pub video_encodes: Vec<String>,
+    #[serde(alias = "audio_encodes")]
     pub audio_encodes: Vec<String>,
     pub editions: Vec<String>,
     pub teams: Vec<String>,
     pub promotions: Vec<String>,
     pub labels: Vec<String>,
     pub keyword: String,
+    #[serde(alias = "sort_by")]
     pub sort_by: ResourceSortBy,
 }
 
@@ -334,5 +338,64 @@ mod tests {
         );
         assert_eq!(only_free.filtered_count, 1);
         assert_eq!(only_free.groups[0].primary.id, "r1");
+    }
+
+    #[test]
+    fn accepts_both_camel_case_and_snake_case_criteria_keys() {
+        let items = vec![
+            ResourceItem {
+                id: "1".into(),
+                title: "Movie A".into(),
+                site_name: "SiteA".into(),
+                size: 1000,
+                seeders: 10,
+                peers: 2,
+                resource_pix: "1080p".into(),
+                resource_type: "WEB-DL".into(),
+                video_encode: "x265".into(),
+                audio_encode: "AAC".into(),
+                resource_team: "TeamA".into(),
+                edition: "WEB-DL".into(),
+                downloadvolumefactor: 0.0,
+                uploadvolumefactor: 1.0,
+                labels: vec!["中字".into()],
+                description: String::new(),
+                enclosure: String::new(),
+                page_url: String::new(),
+            },
+            ResourceItem {
+                id: "2".into(),
+                title: "Movie B".into(),
+                site_name: "SiteA".into(),
+                size: 2000,
+                seeders: 20,
+                peers: 3,
+                resource_pix: "1080p".into(),
+                resource_type: "BluRay".into(),
+                video_encode: "x264".into(),
+                audio_encode: "DTS".into(),
+                resource_team: "TeamB".into(),
+                edition: "BluRay".into(),
+                downloadvolumefactor: 1.0,
+                uploadvolumefactor: 1.0,
+                labels: vec![],
+                description: String::new(),
+                enclosure: String::new(),
+                page_url: String::new(),
+            },
+        ];
+
+        let snake: ResourceFilterCriteria = serde_json::from_str(
+            r#"{"video_encodes":["x265"],"resource_types":["WEB-DL"],"audio_encodes":["AAC"]}"#,
+        )
+        .unwrap();
+        let camel: ResourceFilterCriteria = serde_json::from_str(
+            r#"{"videoEncodes":["x265"],"resourceTypes":["WEB-DL"],"audioEncodes":["AAC"]}"#,
+        )
+        .unwrap();
+        assert_eq!(snake, camel);
+        let res = ResourceFilterEngine::evaluate(&items, &snake);
+        assert_eq!(res.filtered_count, 1);
+        assert_eq!(res.groups[0].primary.id, "1");
     }
 }

@@ -11,24 +11,33 @@ import com.moviepilot.rustcore.SubscribeProgressFfi
 import com.moviepilot.rustcore.analyzeCronExpression
 import com.moviepilot.rustcore.applyPluginFormPatch
 import com.moviepilot.rustcore.buildExternalPlayerUrl
+import com.moviepilot.rustcore.buildOauthAuthorizeUrl
+import com.moviepilot.rustcore.buildOauthDiscoveryUrlsJson
 import com.moviepilot.rustcore.buildPluginRemoteCacheKeyJson
 import com.moviepilot.rustcore.buildV3EndpointUrl
 import com.moviepilot.rustcore.classifyHttpAuthStatus
 import com.moviepilot.rustcore.computeMedalPalette
+import com.moviepilot.rustcore.computePkceS256Challenge
 import com.moviepilot.rustcore.computeSubscribeProgress
 import com.moviepilot.rustcore.coreVersion
 import com.moviepilot.rustcore.decodeJwtTokenClaims
+import com.moviepilot.rustcore.detectCloudflareAccessChallengeJson
 import com.moviepilot.rustcore.detectPlayableMediaKind
 import com.moviepilot.rustcore.evaluatePluginExpression
 import com.moviepilot.rustcore.evaluateUserPermissions
 import com.moviepilot.rustcore.filterAndGroupResources
+import com.moviepilot.rustcore.generatePkcePairJson
 import com.moviepilot.rustcore.isSameHttpOrigin
+import com.moviepilot.rustcore.mergeCfAccessCookie
 import com.moviepilot.rustcore.normalizeDanmakuQueryTitle
 import com.moviepilot.rustcore.normalizePendingPlaybackStopsJson
 import com.moviepilot.rustcore.normalizePluginRemoteEntryJson
 import com.moviepilot.rustcore.normalizeServerAddress
 import com.moviepilot.rustcore.parseAgentMarkdown
 import com.moviepilot.rustcore.parseDeepLinkJson
+import com.moviepilot.rustcore.parseOauthCallbackUrlJson
+import com.moviepilot.rustcore.parseOauthServerMetadataJson
+import com.moviepilot.rustcore.parseProtectedResourceMetadataJson
 import com.moviepilot.rustcore.parseStrmContent
 import com.moviepilot.rustcore.planPlaybackRoutesJson
 import com.moviepilot.rustcore.planPlaybackSyncStepJson
@@ -107,6 +116,39 @@ data class PreparedDanmakuTimelineDto(
     @SerialName("raw_count") val rawCount: Int = 0,
     @SerialName("filtered_count") val filteredCount: Int = 0,
     val items: List<DanmakuItemDto> = emptyList(),
+)
+
+@Serializable
+data class CloudflareChallengeDto(
+    val isChallenge: Boolean = false,
+    val reason: String = "",
+    val resourceMetadataUrl: String? = null,
+    val loginUrl: String? = null,
+)
+
+@Serializable
+data class PkcePairDto(
+    val codeVerifier: String = "",
+    val codeChallenge: String = "",
+    val codeChallengeMethod: String = "S256",
+    val state: String = "",
+)
+
+@Serializable
+data class OAuthServerMetadataDto(
+    val issuer: String = "",
+    val authorizationEndpoint: String = "",
+    val tokenEndpoint: String = "",
+    val registrationEndpoint: String? = null,
+)
+
+@Serializable
+data class OAuthCallbackResultDto(
+    val valid: Boolean = false,
+    val stateMatched: Boolean = false,
+    val code: String? = null,
+    val error: String? = null,
+    val errorDescription: String? = null,
 )
 
 object RustCoreBridge {
@@ -931,6 +973,235 @@ object RustCoreBridge {
 
     private fun escapeJson(s: String): String =
         s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+
+    /** 检测 HTTP 响应是否被 Cloudflare Access 拦截。 */
+    fun detectCloudflareChallenge(
+        status: Int,
+        headers: Map<String, String>,
+        body: String,
+        requestUrl: String,
+    ): CloudflareChallengeDto {
+        val headersJson = syncJson.encodeToString(headers)
+        val raw = runCatching {
+            detectCloudflareAccessChallengeJson(status.toUShort(), headersJson, body.take(8192), requestUrl)
+        }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<CloudflareChallengeDto>(raw) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        return fallbackDetectCloudflareChallenge(status, headers, body, requestUrl)
+    }
+
+    /** 生成 RFC 7636 PKCE `S256` 校验对与防 CSRF `state`。 */
+    fun generatePkcePair(extraEntropy: String = ""): PkcePairDto {
+        val raw = runCatching { generatePkcePairJson(extraEntropy) }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<PkcePairDto>(raw) }
+                .getOrNull()
+                ?.takeIf { it.codeVerifier.isNotBlank() && it.codeChallenge.isNotBlank() }
+                ?.let { return it }
+        }
+        val rnd = java.security.SecureRandom()
+        val vBytes = ByteArray(48).also { rnd.nextBytes(it) }
+        val sBytes = ByteArray(24).also { rnd.nextBytes(it) }
+        val verifier = base64UrlNoPad(vBytes)
+        val challenge = computePkceChallenge(verifier)
+        return PkcePairDto(
+            codeVerifier = verifier,
+            codeChallenge = challenge,
+            codeChallengeMethod = "S256",
+            state = base64UrlNoPad(sBytes),
+        )
+    }
+
+    /** 根据 RFC 7636 计算 `BASE64URL-ENCODE(SHA256(ASCII(codeVerifier)))`。 */
+    fun computePkceChallenge(codeVerifier: String): String =
+        runCatching { computePkceS256Challenge(codeVerifier) }.getOrElse {
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(codeVerifier.toByteArray(Charsets.US_ASCII))
+            base64UrlNoPad(digest)
+        }
+
+    /** 构造按 RFC 9728 -> RFC 8414 优先顺序排列的元数据发现候选 URL 列表。 */
+    fun buildOAuthDiscoveryUrls(serverUrl: String, resourceMetadataUrl: String? = null): List<String> {
+        val raw = runCatching { buildOauthDiscoveryUrlsJson(serverUrl, resourceMetadataUrl) }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<List<String>>(raw) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        val out = mutableListOf<String>()
+        val cleanMeta = resourceMetadataUrl?.trim().orEmpty()
+        if (cleanMeta.startsWith("https://") || cleanMeta.startsWith("http://")) {
+            out.add(cleanMeta)
+        }
+        val uri = runCatching { java.net.URI(serverUrl.trim()) }.getOrNull()
+        val scheme = uri?.scheme?.lowercase()
+        val host = uri?.host
+        if ((scheme == "https" || scheme == "http") && !host.isNullOrBlank()) {
+            val portPart = if (uri.port > 0) ":${uri.port}" else ""
+            val origin = "$scheme://$host$portPart"
+            listOf(
+                "$origin/.well-known/oauth-protected-resource",
+                "$origin/.well-known/oauth-authorization-server",
+            ).forEach { if (it !in out) out.add(it) }
+        }
+        return out
+    }
+
+    /** 解析 RFC 9728 Protected Resource Metadata 中的 `authorization_servers`。 */
+    fun parseProtectedResourceMetadata(jsonStr: String): Result<List<String>> = runCatching {
+        val raw = runCatching { parseProtectedResourceMetadataJson(jsonStr) }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            return@runCatching syncJson.decodeFromString<List<String>>(raw)
+        }
+        val elem = syncJson.parseToJsonElement(jsonStr)
+        val obj = elem as? kotlinx.serialization.json.JsonObject ?: error("Invalid metadata JSON")
+        val arr = obj["authorization_servers"] as? kotlinx.serialization.json.JsonArray
+            ?: error("Missing authorization_servers")
+        arr.mapNotNull { item ->
+            val str = (item as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim()
+            if (str.isNullOrBlank() || (!str.startsWith("https://") && !str.startsWith("http://"))) {
+                null
+            } else {
+                val trimmed = str.trimEnd('/')
+                if ("/.well-known/" in trimmed) trimmed else "$trimmed/.well-known/oauth-authorization-server"
+            }
+        }.ifEmpty { error("No authorization_servers URL found") }
+    }
+
+    /** 解析 RFC 8414 Authorization Server Metadata。 */
+    fun parseOAuthServerMetadata(jsonStr: String): Result<OAuthServerMetadataDto> = runCatching {
+        val raw = runCatching { parseOauthServerMetadataJson(jsonStr) }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            return@runCatching syncJson.decodeFromString<OAuthServerMetadataDto>(raw)
+        }
+        val obj = syncJson.parseToJsonElement(jsonStr) as? kotlinx.serialization.json.JsonObject
+            ?: error("Invalid metadata JSON")
+        fun str(k: String): String? =
+            (obj[k] as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim()?.takeIf { it.isNotEmpty() }
+        val authEp = str("authorization_endpoint") ?: error("Missing authorization_endpoint")
+        val tokenEp = str("token_endpoint") ?: error("Missing token_endpoint")
+        OAuthServerMetadataDto(
+            issuer = str("issuer").orEmpty(),
+            authorizationEndpoint = authEp,
+            tokenEndpoint = tokenEp,
+            registrationEndpoint = str("registration_endpoint"),
+        )
+    }
+
+    /** 构造标准 OAuth 2.0 + PKCE (`S256`) 授权 URL。 */
+    fun buildOAuthAuthorizeUrl(
+        authorizationEndpoint: String,
+        clientId: String,
+        redirectUri: String = "moviepilot://oauth/callback",
+        codeChallenge: String,
+        state: String,
+        scope: String = "openid email profile offline_access",
+    ): Result<String> = runCatching {
+        runCatching {
+            buildOauthAuthorizeUrl(authorizationEndpoint, clientId, redirectUri, codeChallenge, state, scope)
+        }.getOrElse {
+            fun enc(v: String) = java.net.URLEncoder.encode(v.trim(), "UTF-8")
+            val sep = if ('?' in authorizationEndpoint) "&" else "?"
+            buildString {
+                append(authorizationEndpoint.trim()).append(sep)
+                append("response_type=code")
+                append("&client_id=").append(enc(clientId))
+                append("&redirect_uri=").append(enc(redirectUri))
+                append("&code_challenge=").append(enc(codeChallenge))
+                append("&code_challenge_method=S256")
+                append("&state=").append(enc(state))
+                if (scope.isNotBlank()) append("&scope=").append(enc(scope))
+            }
+        }
+    }
+
+    /** 校验并解析 OAuth 回调 URL 的 `code` / `state` / `error`。 */
+    fun parseOAuthCallbackUrl(callbackUrl: String, expectedState: String): OAuthCallbackResultDto {
+        val raw = runCatching { parseOauthCallbackUrlJson(callbackUrl, expectedState) }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<OAuthCallbackResultDto>(raw) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        val query = callbackUrl.substringAfter('?', "").substringBefore('#')
+        val params = mutableMapOf<String, String>()
+        query.split('&').forEach { pair ->
+            val eq = pair.indexOf('=')
+            if (eq > 0) {
+                val k = java.net.URLDecoder.decode(pair.substring(0, eq), "UTF-8")
+                val v = java.net.URLDecoder.decode(pair.substring(eq + 1), "UTF-8").trim()
+                if (v.isNotEmpty()) params[k] = v
+            }
+        }
+        val stateMatched = expectedState.isNotBlank() && params["state"] == expectedState.trim()
+        val error = params["error"]
+        val code = if (stateMatched) params["code"] else null
+        return OAuthCallbackResultDto(
+            valid = stateMatched && error == null && !code.isNullOrBlank(),
+            stateMatched = stateMatched,
+            code = code,
+            error = error,
+            errorDescription = params["error_description"],
+        )
+    }
+
+    /** 将 `CF_Authorization=<token>` 安全合并到现有同源 Cookie 头（保留 `resource_token` 等其他 Cookie）。 */
+    fun mergeCloudflareAccessCookie(existingCookieHeader: String, cfToken: String): String =
+        runCatching { mergeCfAccessCookie(existingCookieHeader, cfToken) }.getOrElse {
+            val clean = cfToken.trim()
+            val parts = existingCookieHeader.split(';')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && !it.substringBefore('=').trim().equals("CF_Authorization", ignoreCase = true) }
+                .toMutableList()
+            if (clean.isNotEmpty()) parts.add("CF_Authorization=$clean")
+            parts.joinToString("; ")
+        }
+
+    private fun base64UrlNoPad(bytes: ByteArray): String =
+        java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+
+    private fun fallbackDetectCloudflareChallenge(
+        status: Int,
+        headers: Map<String, String>,
+        body: String,
+        requestUrl: String,
+    ): CloudflareChallengeDto {
+        val lower = headers.entries.associate { it.key.trim().lowercase() to it.value }
+        if (status in 300..399) {
+            val loc = lower["location"].orEmpty()
+            val locLower = loc.lowercase()
+            if ("cloudflareaccess.com" in locLower || "/cdn-cgi/access/login" in locLower) {
+                return CloudflareChallengeDto(
+                    isChallenge = true,
+                    reason = "redirect_to_cloudflare_access",
+                    loginUrl = loc,
+                )
+            }
+        }
+        if (status == 401 || status == 403) {
+            val wwwAuth = lower["www-authenticate"].orEmpty()
+            val match = Regex("""resource_metadata\s*=\s*"([^"]+)"""", RegexOption.IGNORE_CASE).find(wwwAuth)
+            if (match != null) {
+                return CloudflareChallengeDto(
+                    isChallenge = true,
+                    reason = "www_authenticate_resource_metadata",
+                    resourceMetadataUrl = match.groupValues[1].trim(),
+                )
+            }
+        }
+        val prefix = body.take(8192).lowercase()
+        val isHtml = lower["content-type"]?.lowercase()?.contains("text/html") == true ||
+            "<!doctype html" in prefix || "<html" in prefix
+        if (isHtml && ("cloudflareaccess.com" in prefix || "/cdn-cgi/access/login" in prefix ||
+                ("cloudflare access" in prefix && "sign in" in prefix))
+        ) {
+            return CloudflareChallengeDto(isChallenge = true, reason = "html_cloudflare_access_gate")
+        }
+        return CloudflareChallengeDto(isChallenge = false)
+    }
 
     private val FALLBACK_AUDIO_EXTS = setOf(
         "mp3", "flac", "m4a", "aac", "wav", "ogg", "oga", "opus", "alac", "ape",

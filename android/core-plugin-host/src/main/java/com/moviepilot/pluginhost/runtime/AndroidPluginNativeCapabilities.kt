@@ -1,17 +1,26 @@
 package com.moviepilot.pluginhost.runtime
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioAttributes
+import android.media.MediaMetadata
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -83,6 +92,12 @@ class AndroidPluginNativeCapabilities(
     companion object {
         const val MAX_BASE64_BYTES = 15 * 1024 * 1024
         private const val NOTIF_CHANNEL_ID = "mp_plugin_local_channel"
+        private const val MEDIA_NOTIF_CHANNEL_ID = "mp_plugin_media_channel"
+        private const val MEDIA_NOTIF_ID = 0x4D505041
+        private const val ACTION_MEDIA_TOGGLE = "com.moviepilot.plugin.MEDIA_TOGGLE"
+        private const val ACTION_MEDIA_PREV = "com.moviepilot.plugin.MEDIA_PREV"
+        private const val ACTION_MEDIA_NEXT = "com.moviepilot.plugin.MEDIA_NEXT"
+        private const val ACTION_MEDIA_STOP = "com.moviepilot.plugin.MEDIA_STOP"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -116,10 +131,23 @@ class AndroidPluginNativeCapabilities(
     // Keep-awake state
     private var keepAwakeEnabled: Boolean = false
 
+    // Status bar / MediaSession Now Playing state (#56)
+    private var mediaSession: MediaSession? = null
+    private var mediaActionReceiver: BroadcastReceiver? = null
+    private var nowPlayingActive: Boolean = false
+    private var nowPlayingTitle: String = ""
+    private var nowPlayingArtist: String = ""
+    private var nowPlayingAlbum: String = ""
+    private var nowPlayingCanNext: Boolean = false
+    private var nowPlayingCanPrevious: Boolean = false
+    private var nowPlayingArtworkUrl: String = ""
+    private var nowPlayingArtworkBitmap: Bitmap? = null
+
     fun cleanup() {
         mainHandler.post {
             cancelActiveRecording(emitEvent = false)
             stopInlinePlayback(emitEvent = false)
+            clearNowPlayingNotification()
             if (keepAwakeEnabled) {
                 keepAwakeEnabled = false
                 activityHost?.setKeepAwake(false)
@@ -164,6 +192,11 @@ class AndroidPluginNativeCapabilities(
             "audio.setRate" -> mainHandler.post { handleAudioSetRate(requestId, payload) }
             "audio.setVolume" -> mainHandler.post { handleAudioSetVolume(requestId, payload) }
             "audio.status" -> mainHandler.post { sendSuccess(requestId, currentPlaybackStatusJson()) }
+            "audio.setNowPlaying" -> mainHandler.post { handleAudioSetNowPlaying(requestId, payload) }
+            "audio.clearNowPlaying" -> mainHandler.post {
+                clearNowPlayingNotification()
+                sendSuccess(requestId, buildJsonObject { put("cleared", true) })
+            }
             "media.playNative" -> handlePlayNativeMedia(requestId, payload)
             else -> return false
         }
@@ -177,6 +210,8 @@ class AndroidPluginNativeCapabilities(
         val caps = mutableListOf(
             "audio.record",
             "audio.play",
+            "audio.nowPlaying",
+            "native.audio.nowPlaying",
             "media.playNative",
             "device.info",
             "device.permission",
@@ -825,6 +860,11 @@ class AndroidPluginNativeCapabilities(
         val volume = ((payload["volume"] as? JsonPrimitive)?.doubleOrNull ?: 1.0).toFloat().coerceIn(0f, 1f)
         val rate = ((payload["rate"] as? JsonPrimitive)?.doubleOrNull ?: 1.0).toFloat().coerceIn(0.5f, 2.0f)
         val startPosMs = ((payload["startPositionMs"] as? JsonPrimitive)?.intOrNull ?: 0).coerceAtLeast(0)
+        val showInStatusBar = (payload["showInStatusBar"] as? JsonPrimitive)?.booleanOrNull ?: true
+        val playTitle = payload["title"]?.strOrNull()?.trim().orEmpty()
+        val playArtist = payload["artist"]?.strOrNull()?.trim().orEmpty()
+        val playAlbum = payload["album"]?.strOrNull()?.trim().orEmpty()
+        val playArtworkUrl = payload["artworkUrl"]?.strOrNull()?.trim().orEmpty()
 
         val rawB64 = payload["base64"]?.strOrNull().orEmpty()
         val storage = payload["storage"]?.strOrNull().orEmpty()
@@ -916,6 +956,21 @@ class AndroidPluginNativeCapabilities(
                         player.start()
                         playbackState = "playing"
                         startPlaybackProgressTicker()
+                        if (showInStatusBar && playTitle.isNotBlank()) {
+                            applyNowPlayingNotification(
+                                title = playTitle,
+                                artist = playArtist,
+                                album = playAlbum,
+                                artworkUrl = playArtworkUrl,
+                                durationMs = player.duration.coerceAtLeast(0).toLong(),
+                                positionMs = startPosMs.toLong(),
+                                isPlaying = true,
+                                rate = rate,
+                                canNext = false,
+                                canPrevious = false,
+                                canSeek = true,
+                            )
+                        }
                         emitPlaybackState()
                         sendSuccess(
                             requestId,
@@ -1091,6 +1146,345 @@ class AndroidPluginNativeCapabilities(
 
     private fun emitPlaybackState() {
         sendDeviceEvent("audio.play.state", currentPlaybackStatusJson())
+        if (nowPlayingActive && nowPlayingTitle.isNotBlank()) {
+            updateNowPlayingPlaybackState()
+        }
+    }
+
+    // MARK: - Status Bar / MediaSession Now Playing (`audio.setNowPlaying` / `audio.clearNowPlaying`)
+
+    private fun handleAudioSetNowPlaying(requestId: String, payload: JsonObject) {
+        val title = payload["title"]?.strOrNull()?.trim().orEmpty()
+        if (title.isBlank()) {
+            sendError(requestId, "INVALID_PARAMS", 400, "title 不能为空")
+            return
+        }
+        val artist = payload["artist"]?.strOrNull()?.trim().orEmpty()
+        val album = payload["album"]?.strOrNull()?.trim().orEmpty()
+        val artworkUrl = payload["artworkUrl"]?.strOrNull()?.trim().orEmpty()
+        val durationMs = (payload["durationMs"] as? JsonPrimitive)?.doubleOrNull?.toLong()
+        val positionMs = (payload["positionMs"] as? JsonPrimitive)?.doubleOrNull?.toLong()
+        val isPlaying = (payload["isPlaying"] as? JsonPrimitive)?.booleanOrNull ?: (playbackState == "playing")
+        val rate = ((payload["rate"] as? JsonPrimitive)?.doubleOrNull ?: playbackRate.toDouble()).toFloat()
+        val canNext = (payload["canNext"] as? JsonPrimitive)?.booleanOrNull ?: false
+        val canPrevious = (payload["canPrevious"] as? JsonPrimitive)?.booleanOrNull ?: false
+        val canSeek = (payload["canSeek"] as? JsonPrimitive)?.booleanOrNull ?: true
+
+        applyNowPlayingNotification(
+            title = title,
+            artist = artist,
+            album = album,
+            artworkUrl = artworkUrl,
+            durationMs = durationMs,
+            positionMs = positionMs,
+            isPlaying = isPlaying,
+            rate = rate,
+            canNext = canNext,
+            canPrevious = canPrevious,
+            canSeek = canSeek,
+        )
+        sendSuccess(requestId, buildJsonObject { put("registered", true) })
+    }
+
+    private fun ensureMediaSessionAndReceiver(): MediaSession {
+        mediaSession?.let { return it }
+        val session = MediaSession(appContext, "MoviePilotPluginAudio").apply {
+            setCallback(
+                object : MediaSession.Callback() {
+                    override fun onPlay() {
+                        mainHandler.post {
+                            mediaPlayer?.let {
+                                it.start()
+                                playbackState = "playing"
+                                startPlaybackProgressTicker()
+                                emitPlaybackState()
+                            }
+                            sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "play") })
+                        }
+                    }
+
+                    override fun onPause() {
+                        mainHandler.post {
+                            mediaPlayer?.let {
+                                if (it.isPlaying) it.pause()
+                                playbackState = "paused"
+                                emitPlaybackState()
+                            }
+                            sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "pause") })
+                        }
+                    }
+
+                    override fun onStop() {
+                        mainHandler.post {
+                            stopInlinePlayback(emitEvent = true)
+                            clearNowPlayingNotification()
+                            sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "stop") })
+                        }
+                    }
+
+                    override fun onSkipToNext() {
+                        sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "next") })
+                    }
+
+                    override fun onSkipToPrevious() {
+                        sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "previous") })
+                    }
+
+                    override fun onSeekTo(pos: Long) {
+                        val targetMs = pos.coerceAtLeast(0L)
+                        mainHandler.post {
+                            mediaPlayer?.let { runCatching { it.seekTo(targetMs.toInt()) } }
+                            updateNowPlayingPlaybackState()
+                            sendDeviceEvent(
+                                "audio.remoteCommand",
+                                buildJsonObject {
+                                    put("command", "seek")
+                                    put("positionMs", targetMs)
+                                },
+                            )
+                        }
+                    }
+                },
+            )
+            isActive = true
+        }
+        mediaSession = session
+
+        if (mediaActionReceiver == null) {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    when (intent?.action) {
+                        ACTION_MEDIA_TOGGLE -> {
+                            if (playbackState == "playing") {
+                                mediaPlayer?.let { if (it.isPlaying) it.pause(); playbackState = "paused"; emitPlaybackState() }
+                                sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "pause") })
+                            } else {
+                                mediaPlayer?.let { it.start(); playbackState = "playing"; startPlaybackProgressTicker(); emitPlaybackState() }
+                                sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "play") })
+                            }
+                        }
+                        ACTION_MEDIA_PREV -> sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "previous") })
+                        ACTION_MEDIA_NEXT -> sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "next") })
+                        ACTION_MEDIA_STOP -> {
+                            stopInlinePlayback(emitEvent = true)
+                            clearNowPlayingNotification()
+                            sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "stop") })
+                        }
+                    }
+                }
+            }
+            val filter = IntentFilter().apply {
+                addAction(ACTION_MEDIA_TOGGLE)
+                addAction(ACTION_MEDIA_PREV)
+                addAction(ACTION_MEDIA_NEXT)
+                addAction(ACTION_MEDIA_STOP)
+            }
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                } else {
+                    @Suppress("DEPRECATION")
+                    appContext.registerReceiver(receiver, filter)
+                }
+                mediaActionReceiver = receiver
+            }
+        }
+        return session
+    }
+
+    private fun applyNowPlayingNotification(
+        title: String,
+        artist: String,
+        album: String,
+        artworkUrl: String,
+        durationMs: Long?,
+        positionMs: Long?,
+        isPlaying: Boolean,
+        rate: Float,
+        canNext: Boolean,
+        canPrevious: Boolean,
+        canSeek: Boolean,
+    ) {
+        nowPlayingActive = true
+        nowPlayingTitle = title
+        nowPlayingArtist = artist
+        nowPlayingAlbum = album
+        nowPlayingCanNext = canNext
+        nowPlayingCanPrevious = canPrevious
+
+        val session = ensureMediaSessionAndReceiver()
+        val effectiveDur = durationMs ?: runCatching { mediaPlayer?.duration?.toLong() ?: 0L }.getOrDefault(0L)
+        val effectivePos = positionMs ?: runCatching { mediaPlayer?.currentPosition?.toLong() ?: 0L }.getOrDefault(0L)
+
+        val metaBuilder = MediaMetadata.Builder()
+            .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+        if (artist.isNotBlank()) metaBuilder.putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+        if (album.isNotBlank()) metaBuilder.putString(MediaMetadata.METADATA_KEY_ALBUM, album)
+        if (effectiveDur > 0L) metaBuilder.putLong(MediaMetadata.METADATA_KEY_DURATION, effectiveDur)
+        if (artworkUrl == nowPlayingArtworkUrl && nowPlayingArtworkBitmap != null) {
+            metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, nowPlayingArtworkBitmap)
+        }
+        session.setMetadata(metaBuilder.build())
+
+        var actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_STOP
+        if (canNext) actions = actions or PlaybackState.ACTION_SKIP_TO_NEXT
+        if (canPrevious) actions = actions or PlaybackState.ACTION_SKIP_TO_PREVIOUS
+        if (canSeek) actions = actions or PlaybackState.ACTION_SEEK_TO
+        session.setPlaybackState(
+            PlaybackState.Builder()
+                .setActions(actions)
+                .setState(
+                    if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
+                    effectivePos.coerceAtLeast(0L),
+                    if (isPlaying) rate else 0f,
+                )
+                .build(),
+        )
+        postMediaStyleNotification(session, isPlaying)
+
+        if (artworkUrl.isNotBlank() && artworkUrl != nowPlayingArtworkUrl) {
+            nowPlayingArtworkUrl = artworkUrl
+            executor.execute {
+                runCatching {
+                    val reqBuilder = Request.Builder().url(artworkUrl)
+                    val sess = sessionProvider()
+                    if (sess != null && RustCoreBridge.containsUrl(sess.serverUrl, artworkUrl)) {
+                        buildAuthHeaders(sess).forEach { (k, v) -> reqBuilder.header(k, v) }
+                    }
+                    okHttp.newCall(reqBuilder.build()).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val bytes = resp.body?.bytes()
+                            val bmp = if (bytes != null && bytes.isNotEmpty()) {
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            } else null
+                            if (bmp != null) {
+                                mainHandler.post {
+                                    if (nowPlayingActive && nowPlayingArtworkUrl == artworkUrl) {
+                                        nowPlayingArtworkBitmap = bmp
+                                        mediaSession?.let { activeSess ->
+                                            val updatedMeta = MediaMetadata.Builder()
+                                                .putString(MediaMetadata.METADATA_KEY_TITLE, nowPlayingTitle)
+                                                .apply {
+                                                    if (nowPlayingArtist.isNotBlank()) putString(MediaMetadata.METADATA_KEY_ARTIST, nowPlayingArtist)
+                                                    if (nowPlayingAlbum.isNotBlank()) putString(MediaMetadata.METADATA_KEY_ALBUM, nowPlayingAlbum)
+                                                    putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, bmp)
+                                                }
+                                                .build()
+                                            activeSess.setMetadata(updatedMeta)
+                                            postMediaStyleNotification(activeSess, playbackState == "playing")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun updateNowPlayingPlaybackState() {
+        val session = mediaSession ?: return
+        val isPlaying = playbackState == "playing"
+        val pos = runCatching { mediaPlayer?.currentPosition?.toLong() ?: 0L }.getOrDefault(0L)
+        var actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_STOP or PlaybackState.ACTION_SEEK_TO
+        if (nowPlayingCanNext) actions = actions or PlaybackState.ACTION_SKIP_TO_NEXT
+        if (nowPlayingCanPrevious) actions = actions or PlaybackState.ACTION_SKIP_TO_PREVIOUS
+        session.setPlaybackState(
+            PlaybackState.Builder()
+                .setActions(actions)
+                .setState(
+                    if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
+                    pos.coerceAtLeast(0L),
+                    if (isPlaying) playbackRate else 0f,
+                )
+                .build(),
+        )
+        postMediaStyleNotification(session, isPlaying)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun postMediaStyleNotification(session: MediaSession, isPlaying: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = NotificationChannel(
+                MEDIA_NOTIF_CHANNEL_ID,
+                "插件音频播放控制",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply { setShowBadge(false) }
+            nm.createNotificationChannel(ch)
+        }
+        val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        fun actionIntent(action: String, reqCode: Int): PendingIntent =
+            PendingIntent.getBroadcast(
+                appContext,
+                reqCode,
+                Intent(action).setPackage(appContext.packageName),
+                piFlags,
+            )
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(appContext, MEDIA_NOTIF_CHANNEL_ID)
+        } else {
+            Notification.Builder(appContext)
+        }
+        builder.setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle(nowPlayingTitle)
+            .setContentText(listOf(nowPlayingArtist, nowPlayingAlbum).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "插件正在播放" })
+            .setOngoing(isPlaying)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+        nowPlayingArtworkBitmap?.let { builder.setLargeIcon(it) }
+
+        val compactIndices = mutableListOf<Int>()
+        var idx = 0
+        if (nowPlayingCanPrevious) {
+            builder.addAction(Notification.Action.Builder(android.R.drawable.ic_media_previous, "上一首", actionIntent(ACTION_MEDIA_PREV, 1)).build())
+            compactIndices += idx++
+        }
+        builder.addAction(
+            Notification.Action.Builder(
+                if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                if (isPlaying) "暂停" else "播放",
+                actionIntent(ACTION_MEDIA_TOGGLE, 2),
+            ).build(),
+        )
+        compactIndices += idx++
+        if (nowPlayingCanNext) {
+            builder.addAction(Notification.Action.Builder(android.R.drawable.ic_media_next, "下一首", actionIntent(ACTION_MEDIA_NEXT, 3)).build())
+            compactIndices += idx++
+        }
+        builder.addAction(Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "停止", actionIntent(ACTION_MEDIA_STOP, 4)).build())
+
+        val style = Notification.MediaStyle()
+            .setMediaSession(session.sessionToken)
+            .setShowActionsInCompactView(*compactIndices.take(3).toIntArray())
+        builder.setStyle(style)
+        runCatching { nm.notify(MEDIA_NOTIF_ID, builder.build()) }
+    }
+
+    private fun clearNowPlayingNotification() {
+        nowPlayingActive = false
+        nowPlayingTitle = ""
+        nowPlayingArtist = ""
+        nowPlayingAlbum = ""
+        nowPlayingArtworkUrl = ""
+        nowPlayingArtworkBitmap = null
+        mediaSession?.let {
+            runCatching { it.isActive = false }
+            runCatching { it.release() }
+        }
+        mediaSession = null
+        mediaActionReceiver?.let {
+            runCatching { appContext.unregisterReceiver(it) }
+        }
+        mediaActionReceiver = null
+        val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        runCatching { nm?.cancel(MEDIA_NOTIF_ID) }
     }
 
     private fun resolveStorageStreamUrl(
@@ -1099,38 +1493,68 @@ class AndroidPluginNativeCapabilities(
         path: String,
     ): Pair<String, Map<String, String>?> {
         val origin = session.serverUrl.trimEnd('/')
-        if (storage.equals("local", ignoreCase = true)) {
-            val reqBody = buildJsonObject {
-                put("storage", storage)
-                put("path", path)
-            }.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val req = Request.Builder()
-                .url("$origin/api/v1/storage/stream-ticket")
-                .header("Authorization", "Bearer ${session.authToken}")
-                .post(reqBody)
-                .build()
-            runCatching {
-                okHttp.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val txt = resp.body?.string().orEmpty()
-                        val root = json.parseToJsonElement(txt).jsonObject
-                        val inner = (root["data"] as? JsonObject) ?: root
-                        val streamUrl = inner["stream_url"]?.strOrNull().orEmpty()
-                        if (streamUrl.isNotBlank()) {
-                            val resolved = if (streamUrl.startsWith("http://", true) || streamUrl.startsWith("https://", true)) {
-                                streamUrl
-                            } else {
-                                "$origin${if (streamUrl.startsWith("/")) streamUrl else "/$streamUrl"}"
+        val fileName = path.substringAfterLast('/').ifBlank { "audio" }
+        val ext = fileName.substringAfterLast('.', "")
+        val authHeaders = buildAuthHeaders(session)
+
+        // 通过真实后端 `POST /api/v1/mediaserver/stream-ticket` + `stream-info` 获取支持 HTTP Range 的渐进流地址（兼容 local/SMB/OpenList/网盘）
+        val reqBody = buildJsonObject {
+            put(
+                "file",
+                buildJsonObject {
+                    put("storage", storage)
+                    put("type", "file")
+                    put("path", path)
+                    put("name", fileName)
+                    put("extension", ext)
+                },
+            )
+            put("media_type", "audio")
+        }.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+
+        val ticketReq = Request.Builder()
+            .url("$origin/api/v1/mediaserver/stream-ticket")
+            .header("Authorization", "Bearer ${session.authToken}")
+            .post(reqBody)
+            .build()
+        runCatching {
+            okHttp.newCall(ticketReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val txt = resp.body?.string().orEmpty()
+                    val root = json.parseToJsonElement(txt).jsonObject
+                    val inner = (root["data"] as? JsonObject) ?: root
+                    val ticketId = inner["item_id"]?.strOrNull().orEmpty()
+                    if (ticketId.isNotBlank()) {
+                        val encId = URLEncoder.encode(ticketId, "UTF-8")
+                        val infoReq = Request.Builder()
+                            .url("$origin/api/v1/mediaserver/stream-info?itemid=$encId")
+                            .header("Authorization", "Bearer ${session.authToken}")
+                            .get()
+                            .build()
+                        val contentUrl = runCatching {
+                            okHttp.newCall(infoReq).execute().use { infoResp ->
+                                if (infoResp.isSuccessful) {
+                                    val infoTxt = infoResp.body?.string().orEmpty()
+                                    val infoRoot = json.parseToJsonElement(infoTxt).jsonObject
+                                    val infoData = (infoRoot["data"] as? JsonObject) ?: infoRoot
+                                    infoData["content_url"]?.strOrNull().orEmpty()
+                                } else ""
                             }
-                            return resolved to null
+                        }.getOrDefault("")
+                        if (contentUrl.isNotBlank()) {
+                            val resolved = if (contentUrl.startsWith("http://", true) || contentUrl.startsWith("https://", true)) {
+                                contentUrl
+                            } else {
+                                "$origin${if (contentUrl.startsWith("/")) contentUrl else "/$contentUrl"}"
+                            }
+                            return resolved to authHeaders
                         }
+                        return "$origin/api/v1/mediaserver/stream?itemid=$encId" to authHeaders
                     }
                 }
             }
         }
-        val encStorage = URLEncoder.encode(storage, "UTF-8")
-        val encPath = URLEncoder.encode(path, "UTF-8")
-        return "$origin/api/v1/storage/download?storage=$encStorage&path=$encPath" to buildAuthHeaders(session)
+        throw IllegalStateException("当前存储暂不支持在线流式播放，请检查存储配置或升级后端")
     }
 
     // MARK: - Full-Screen Native Media Player (`media.playNative`)

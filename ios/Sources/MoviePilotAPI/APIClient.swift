@@ -151,6 +151,7 @@ public final class APIClient: Sendable {
           for (key, value) in extraHeaders {
             request.setValue(value, forHTTPHeaderField: key)
           }
+          CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
 
           let (bytes, raw) = try await session.bytes(for: request)
           defer { bytes.task.cancel() }
@@ -275,6 +276,7 @@ public final class APIClient: Sendable {
     request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
     request.setValue(currentLanguage.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
 
     do {
       let (data, raw) = try await session.data(for: request)
@@ -468,6 +470,7 @@ public final class APIClient: Sendable {
       request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
     }
     if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     do {
       let (bytes, raw) = try await session.bytes(for: request)
       defer { bytes.task.cancel() }
@@ -536,6 +539,7 @@ public final class APIClient: Sendable {
     request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
     request.setValue(currentLanguage.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     request.setValue(cookie.header, forHTTPHeaderField: "Cookie")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     do {
       let (bytes, raw) = try await session.bytes(for: request)
       defer { bytes.task.cancel() }
@@ -578,10 +582,13 @@ public final class APIClient: Sendable {
       timeoutInterval: endpoint.timeout)
     request.httpMethod = APIMethod.get.rawValue
     request.httpShouldHandleCookies = false
-    request.setValue("image/jpeg, image/png, image/webp", forHTTPHeaderField: "Accept")
+    request.setValue(
+      "image/avif, image/webp, image/apng, image/jpeg, image/png, image/*;q=0.8",
+      forHTTPHeaderField: "Accept")
     request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
     request.setValue(currentLanguage.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     request.setValue(cookie.header, forHTTPHeaderField: "Cookie")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     do {
       let (bytes, raw) = try await imageSession.bytes(for: request)
       defer { bytes.task.cancel() }
@@ -589,9 +596,11 @@ public final class APIClient: Sendable {
         throw APIError.invalidResponse
       }
       try await Self.checkStatus(http, bytes: bytes)
-      guard let mimeType = http.mimeType?.lowercased(),
-        ["image/jpeg", "image/png", "image/webp"].contains(mimeType)
-      else { throw APIError.invalidResponse }
+      let rawContentType = http.value(forHTTPHeaderField: "Content-Type") ?? http.mimeType ?? ""
+      guard APIImage.isSupportedMIMEType(rawContentType) else {
+        throw APIError.invalidResponse
+      }
+      let mimeType = APIImage.normalizedMIMEType(rawContentType)
       guard http.expectedContentLength <= endpoint.maximumResponseBytes else {
         throw APIError.responseTooLarge
       }
@@ -666,8 +675,14 @@ public final class APIClient: Sendable {
     return data
   }
 
-  /// 只投影状态码，不保留可能含有敏感数据的错误正文或 Location；兼容识别 403 令牌失效载荷。
+  /// 只投影状态码，不保留可能含有敏感数据的错误正文或 Location；兼容识别 Cloudflare Access 拦截与 403 令牌失效载荷。
   private static func checkStatus(_ response: HTTPURLResponse, body: Data? = nil) throws {
+    if let url = response.url,
+      CloudflareAccessProtocol.detectChallenge(response: response, bodyData: body, requestURL: url)
+        .isChallenge
+    {
+      throw APIError.cloudflareAccessRequired
+    }
     switch response.statusCode {
     case 200..<300: break
     case 300..<400: throw APIError.redirectRefused
@@ -685,12 +700,19 @@ public final class APIClient: Sendable {
     }
   }
 
-  /// 流式响应在收到 403 时仅读取受限前缀以辨识令牌失效，其它状态沿用零正文读取策略。
+  /// 流式响应在收到 403 时仅读取受限前缀以辨识令牌失效或 Cloudflare Access 拦截，其它状态沿用零正文读取策略。
   private static func checkStatus(
     _ response: HTTPURLResponse, bytes: URLSession.AsyncBytes
   ) async throws {
     if response.statusCode == 403 {
       let prefix = await readForbiddenPrefix(bytes)
+      if let url = response.url,
+        CloudflareAccessProtocol.detectChallenge(
+          response: response, bodyData: prefix, requestURL: url
+        ).isChallenge
+      {
+        throw APIError.cloudflareAccessRequired
+      }
       if isTokenInvalidForbiddenBody(prefix) {
         throw APIError.unauthorized
       }

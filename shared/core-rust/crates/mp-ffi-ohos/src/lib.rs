@@ -7,7 +7,16 @@ use mp_core_model::{
     PendingPlaybackStop, PlayableMediaFormat, PlaybackEngineRouter, PlaybackProgressPlanner,
     PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference, PlaybackSyncInput,
     PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
+    build_oauth_authorize_url as model_build_oauth_authorize_url,
+    build_oauth_discovery_urls as model_build_oauth_discovery_urls,
+    compute_pkce_s256_challenge as model_compute_pkce_s256_challenge,
+    detect_cloudflare_access_challenge as model_detect_cloudflare_access_challenge,
+    generate_pkce_pair as model_generate_pkce_pair,
+    merge_cf_access_cookie as model_merge_cf_access_cookie,
     normalize_danmaku_query_title as model_normalize_danmaku_query_title,
+    parse_oauth_callback_url as model_parse_oauth_callback_url,
+    parse_oauth_server_metadata as model_parse_oauth_server_metadata,
+    parse_protected_resource_metadata as model_parse_protected_resource_metadata,
     prepare_danmaku_timeline_json as model_prepare_danmaku_timeline_json,
 };
 use mp_core_plugin::{
@@ -281,6 +290,76 @@ pub mod bridge {
             (!file_name.trim().is_empty()).then_some(file_name),
         )
     }
+
+    pub fn detect_cloudflare_access_challenge_json(
+        status: u16,
+        headers_json: &str,
+        body: &str,
+        request_url: &str,
+    ) -> String {
+        let result =
+            model_detect_cloudflare_access_challenge(status, headers_json, body, request_url);
+        serde_json::to_string(&result)
+            .unwrap_or_else(|_| r#"{"isChallenge":false,"reason":""}"#.into())
+    }
+
+    pub fn generate_pkce_pair_json(extra_entropy: &str) -> String {
+        serde_json::to_string(&model_generate_pkce_pair(extra_entropy))
+            .unwrap_or_else(|_| "{}".into())
+    }
+
+    pub fn compute_pkce_s256_challenge(code_verifier: &str) -> String {
+        model_compute_pkce_s256_challenge(code_verifier)
+    }
+
+    pub fn build_oauth_discovery_urls_json(
+        server_url: &str,
+        resource_metadata_url: &str,
+    ) -> String {
+        let meta = (!resource_metadata_url.trim().is_empty()).then_some(resource_metadata_url);
+        serde_json::to_string(&model_build_oauth_discovery_urls(server_url, meta))
+            .unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn parse_protected_resource_metadata_json(json_str: &str) -> Result<String, String> {
+        let urls = model_parse_protected_resource_metadata(json_str)?;
+        serde_json::to_string(&urls).map_err(|e| e.to_string())
+    }
+
+    pub fn parse_oauth_server_metadata_json(json_str: &str) -> Result<String, String> {
+        let meta = model_parse_oauth_server_metadata(json_str)?;
+        serde_json::to_string(&meta).map_err(|e| e.to_string())
+    }
+
+    pub fn build_oauth_authorize_url(
+        authorization_endpoint: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        code_challenge: &str,
+        state: &str,
+        scope: &str,
+    ) -> Result<String, String> {
+        model_build_oauth_authorize_url(
+            authorization_endpoint,
+            client_id,
+            redirect_uri,
+            code_challenge,
+            state,
+            scope,
+        )
+    }
+
+    pub fn parse_oauth_callback_url_json(callback_url: &str, expected_state: &str) -> String {
+        serde_json::to_string(&model_parse_oauth_callback_url(
+            callback_url,
+            expected_state,
+        ))
+        .unwrap_or_else(|_| r#"{"valid":false,"stateMatched":false}"#.into())
+    }
+
+    pub fn merge_cf_access_cookie(existing_cookie_header: &str, cf_token: &str) -> String {
+        model_merge_cf_access_cookie(existing_cookie_header, cf_token)
+    }
 }
 
 #[cfg(target_env = "ohos")]
@@ -493,6 +572,75 @@ mod napi_exports {
         file_name: String,
     ) -> String {
         bridge::normalize_danmaku_query_title(&series_name, &title, season, episode, &file_name)
+    }
+
+    #[napi]
+    pub fn detect_cloudflare_access_challenge_json(
+        status: u16,
+        headers_json: String,
+        body: String,
+        request_url: String,
+    ) -> String {
+        bridge::detect_cloudflare_access_challenge_json(status, &headers_json, &body, &request_url)
+    }
+
+    #[napi]
+    pub fn generate_pkce_pair_json(extra_entropy: String) -> String {
+        bridge::generate_pkce_pair_json(&extra_entropy)
+    }
+
+    #[napi]
+    pub fn compute_pkce_s256_challenge(code_verifier: String) -> String {
+        bridge::compute_pkce_s256_challenge(&code_verifier)
+    }
+
+    #[napi]
+    pub fn build_oauth_discovery_urls_json(
+        server_url: String,
+        resource_metadata_url: String,
+    ) -> String {
+        bridge::build_oauth_discovery_urls_json(&server_url, &resource_metadata_url)
+    }
+
+    #[napi]
+    pub fn parse_protected_resource_metadata_json(json_str: String) -> Result<String> {
+        bridge::parse_protected_resource_metadata_json(&json_str)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn parse_oauth_server_metadata_json(json_str: String) -> Result<String> {
+        bridge::parse_oauth_server_metadata_json(&json_str).map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn build_oauth_authorize_url(
+        authorization_endpoint: String,
+        client_id: String,
+        redirect_uri: String,
+        code_challenge: String,
+        state: String,
+        scope: String,
+    ) -> Result<String> {
+        bridge::build_oauth_authorize_url(
+            &authorization_endpoint,
+            &client_id,
+            &redirect_uri,
+            &code_challenge,
+            &state,
+            &scope,
+        )
+        .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn parse_oauth_callback_url_json(callback_url: String, expected_state: String) -> String {
+        bridge::parse_oauth_callback_url_json(&callback_url, &expected_state)
+    }
+
+    #[napi]
+    pub fn merge_cf_access_cookie(existing_cookie_header: String, cf_token: String) -> String {
+        bridge::merge_cf_access_cookie(&existing_cookie_header, &cf_token)
     }
 }
 

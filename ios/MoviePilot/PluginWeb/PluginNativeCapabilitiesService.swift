@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import Foundation
 import LocalAuthentication
+import MediaPlayer
 import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotSession
@@ -58,6 +59,16 @@ final class PluginNativeCapabilitiesService: NSObject {
   private var playbackVolume: Float = 1.0
   private var playbackState: String = "idle"
   private var playbackProgressTimer: Timer?
+
+  // MARK: - Status Bar / Lock Screen Now Playing State (#56)
+  private var nowPlayingActive: Bool = false
+  private var nowPlayingTitle: String = ""
+  private var nowPlayingArtist: String = ""
+  private var nowPlayingAlbum: String = ""
+  private var nowPlayingArtwork: MPMediaItemArtwork?
+  private var nowPlayingArtworkURL: String = ""
+  private var nowPlayingArtworkTask: Task<Void, Never>?
+  private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
 
   // MARK: - System & UI Picker State
   private var keepAwakeEnabled: Bool = false
@@ -119,6 +130,7 @@ final class PluginNativeCapabilitiesService: NSObject {
   func cleanup() {
     cancelActiveRecording(emitEvent: false)
     stopInlinePlayback(emitEvent: false)
+    clearNowPlayingMetadata()
     if keepAwakeEnabled {
       keepAwakeEnabled = false
       UIApplication.shared.isIdleTimerDisabled = false
@@ -221,6 +233,13 @@ final class PluginNativeCapabilitiesService: NSObject {
     case "audio.status":
       sendSuccess(requestId: requestId, data: currentPlaybackStatusDict())
       return true
+    case "audio.setNowPlaying":
+      handleAudioSetNowPlaying(requestId: requestId, payload: payload)
+      return true
+    case "audio.clearNowPlaying":
+      clearNowPlayingMetadata()
+      sendSuccess(requestId: requestId, data: ["cleared": true])
+      return true
     case "media.playNative":
       handlePlayNativeMedia(requestId: requestId, payload: payload)
       return true
@@ -235,6 +254,8 @@ final class PluginNativeCapabilitiesService: NSObject {
     var caps: [String] = [
       "audio.record",
       "audio.play",
+      "audio.nowPlaying",
+      "native.audio.nowPlaying",
       "media.playNative",
       "device.info",
       "device.permission",
@@ -749,7 +770,26 @@ final class PluginNativeCapabilitiesService: NSObject {
       return
     }
 
-    // 2. 存储文件（优先签发本地流票据边加载边播放）
+    let showInStatusBar = (payload["showInStatusBar"] as? Bool) ?? true
+    let playTitle = (payload["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let playArtist = (payload["artist"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let playAlbum = (payload["album"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let playArtworkUrl = (payload["artworkUrl"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let maybeApplyNowPlaying = { [weak self] in
+      guard let self, showInStatusBar, !playTitle.isEmpty else { return }
+      self.applyNowPlayingMetadata(
+        title: playTitle,
+        artist: playArtist,
+        album: playAlbum,
+        artworkUrl: playArtworkUrl,
+        durationMs: nil,
+        positionMs: Int(startPosMs),
+        isPlaying: true,
+        rate: rate
+      )
+    }
+
+    // 2. 存储文件（优先签发本地/远端流票据边加载边播放）
     if let storage = payload["storage"] as? String, !storage.isEmpty,
       let path = payload["path"] as? String, !path.isEmpty
     {
@@ -765,6 +805,7 @@ final class PluginNativeCapabilitiesService: NSObject {
           try self.startAVPlayer(
             playID: playID, url: streamURL, headers: headers,
             volume: volume, rate: rate, startPosMs: startPosMs)
+          maybeApplyNowPlaying()
           self.sendSuccess(
             requestId: requestId,
             data: ["playbackId": playID, "state": "playing"]
@@ -802,6 +843,7 @@ final class PluginNativeCapabilitiesService: NSObject {
         try startAVPlayer(
           playID: playID, url: targetURL, headers: headers,
           volume: volume, rate: rate, startPosMs: startPosMs)
+        maybeApplyNowPlaying()
         sendSuccess(requestId: requestId, data: ["playbackId": playID, "state": "playing"])
       } catch {
         stopInlinePlayback(emitEvent: false)
@@ -822,6 +864,7 @@ final class PluginNativeCapabilitiesService: NSObject {
         try startAVPlayer(
           playID: playID, url: url, headers: nil,
           volume: volume, rate: rate, startPosMs: startPosMs)
+        maybeApplyNowPlaying()
         sendSuccess(requestId: requestId, data: ["playbackId": playID, "state": "playing"])
       } catch {
         stopInlinePlayback(emitEvent: false)
@@ -859,8 +902,9 @@ final class PluginNativeCapabilitiesService: NSObject {
       asset = AVURLAsset(url: url)
     }
     let item = AVPlayerItem(asset: asset)
+    item.preferredForwardBufferDuration = 3.0
     let player = AVPlayer(playerItem: item)
-    player.automaticallyWaitsToMinimizeStalling = true
+    player.automaticallyWaitsToMinimizeStalling = false
     player.volume = volume
     if startPosMs > 0 {
       player.seek(to: CMTime(seconds: startPosMs / 1000.0, preferredTimescale: 1000))
@@ -1057,6 +1101,249 @@ final class PluginNativeCapabilitiesService: NSObject {
 
   private func emitPlaybackState() {
     sendDeviceEvent("audio.play.state", currentPlaybackStatusDict())
+    refreshNowPlayingPlaybackState()
+  }
+
+  // MARK: - Status Bar / Control Center Now Playing (`audio.setNowPlaying` / `audio.clearNowPlaying`)
+
+  private func handleAudioSetNowPlaying(requestId: String, payload: [String: Any]) {
+    let title = (payload["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty else {
+      sendError(requestId: requestId, code: "INVALID_PARAMS", status: 400, message: "title 不能为空")
+      return
+    }
+    let artist = (payload["artist"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let album = (payload["album"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let artworkUrl = (payload["artworkUrl"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let durationMs = (payload["durationMs"] as? NSNumber)?.intValue
+    let positionMs = (payload["positionMs"] as? NSNumber)?.intValue
+    let isPlaying = (payload["isPlaying"] as? Bool) ?? (playbackState == "playing")
+    let rate = (payload["rate"] as? NSNumber)?.floatValue ?? playbackRate
+    let canNext = (payload["canNext"] as? Bool) ?? false
+    let canPrevious = (payload["canPrevious"] as? Bool) ?? false
+    let canSeek = (payload["canSeek"] as? Bool) ?? true
+
+    try? configurePlaybackAudioSession()
+    applyNowPlayingMetadata(
+      title: title,
+      artist: artist,
+      album: album,
+      artworkUrl: artworkUrl,
+      durationMs: durationMs,
+      positionMs: positionMs,
+      isPlaying: isPlaying,
+      rate: rate,
+      canNext: canNext,
+      canPrevious: canPrevious,
+      canSeek: canSeek
+    )
+    sendSuccess(requestId: requestId, data: ["registered": true])
+  }
+
+  private func applyNowPlayingMetadata(
+    title: String,
+    artist: String,
+    album: String,
+    artworkUrl: String,
+    durationMs: Int?,
+    positionMs: Int?,
+    isPlaying: Bool,
+    rate: Float,
+    canNext: Bool = false,
+    canPrevious: Bool = false,
+    canSeek: Bool = true
+  ) {
+    nowPlayingActive = true
+    nowPlayingTitle = title
+    nowPlayingArtist = artist
+    nowPlayingAlbum = album
+
+    var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+    info[MPMediaItemPropertyTitle] = title
+    if !artist.isEmpty {
+      info[MPMediaItemPropertyArtist] = artist
+    } else {
+      info.removeValue(forKey: MPMediaItemPropertyArtist)
+    }
+    if !album.isEmpty {
+      info[MPMediaItemPropertyAlbumTitle] = album
+    } else {
+      info.removeValue(forKey: MPMediaItemPropertyAlbumTitle)
+    }
+    let effectiveDurationMs = durationMs ?? currentPlaybackDurationMs()
+    if effectiveDurationMs > 0 {
+      info[MPMediaItemPropertyPlaybackDuration] = Double(effectiveDurationMs) / 1000.0
+    }
+    let effectivePositionMs = positionMs ?? currentPlaybackPositionMs()
+    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(max(effectivePositionMs, 0)) / 1000.0
+    info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(rate) : 0.0
+    if let artwork = nowPlayingArtwork, artworkUrl == nowPlayingArtworkURL {
+      info[MPMediaItemPropertyArtwork] = artwork
+    }
+    MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+
+    configureRemoteCommands(canNext: canNext, canPrevious: canPrevious, canSeek: canSeek)
+
+    if !artworkUrl.isEmpty, artworkUrl != nowPlayingArtworkURL, let url = URL(string: artworkUrl) {
+      nowPlayingArtworkURL = artworkUrl
+      nowPlayingArtworkTask?.cancel()
+      nowPlayingArtworkTask = Task { [weak self] in
+        guard let self else { return }
+        var req = URLRequest(url: url)
+        if let ctx = self.sessionContextProvider(),
+          ctx.address.contains(url)
+        {
+          req.setValue("Bearer \(ctx.accessToken)", forHTTPHeaderField: "Authorization")
+          if let cookie = ctx.resourceCookie {
+            req.setValue("\(cookie.name)=\(cookie.value)", forHTTPHeaderField: "Cookie")
+          }
+          CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &req, for: ctx.address)
+        }
+        guard let (data, _) = try? await self.urlSession.data(for: req),
+          let image = UIImage(data: data),
+          !Task.isCancelled
+        else { return }
+        let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        self.nowPlayingArtwork = artwork
+        if self.nowPlayingActive,
+          var current = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        {
+          current[MPMediaItemPropertyArtwork] = artwork
+          MPNowPlayingInfoCenter.default().nowPlayingInfo = current
+        }
+      }
+    }
+  }
+
+  private func refreshNowPlayingPlaybackState() {
+    guard nowPlayingActive, !nowPlayingTitle.isEmpty else { return }
+    var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+    let dur = currentPlaybackDurationMs()
+    if dur > 0 {
+      info[MPMediaItemPropertyPlaybackDuration] = Double(dur) / 1000.0
+    }
+    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] =
+      Double(max(currentPlaybackPositionMs(), 0)) / 1000.0
+    info[MPNowPlayingInfoPropertyPlaybackRate] =
+      playbackState == "playing" ? Double(playbackRate) : 0.0
+    MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+  }
+
+  private func configureRemoteCommands(canNext: Bool, canPrevious: Bool, canSeek: Bool) {
+    removeRemoteCommandTargets()
+    let center = MPRemoteCommandCenter.shared()
+
+    func bind(_ command: MPRemoteCommand, enabled: Bool, handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus) {
+      command.isEnabled = enabled
+      if enabled {
+        let token = command.addTarget(handler: handler)
+        remoteCommandTargets.append((command, token))
+      }
+    }
+
+    bind(center.playCommand, enabled: true) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        if self.avAudioPlayer != nil || self.avPlayer != nil {
+          if let p = self.avAudioPlayer { p.rate = self.playbackRate; p.play(); self.playbackState = "playing" }
+          else if let p = self.avPlayer { p.playImmediately(atRate: self.playbackRate); self.playbackState = "playing" }
+          self.startPlaybackProgressTimer()
+          self.emitPlaybackState()
+        }
+        self.sendDeviceEvent("audio.remoteCommand", ["command": "play"])
+      }
+      return .success
+    }
+    bind(center.pauseCommand, enabled: true) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        if self.avAudioPlayer != nil || self.avPlayer != nil {
+          self.avAudioPlayer?.pause()
+          self.avPlayer?.pause()
+          self.playbackState = "paused"
+          self.emitPlaybackState()
+        }
+        self.sendDeviceEvent("audio.remoteCommand", ["command": "pause"])
+      }
+      return .success
+    }
+    bind(center.togglePlayPauseCommand, enabled: true) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        if self.playbackState == "playing" {
+          self.avAudioPlayer?.pause()
+          self.avPlayer?.pause()
+          self.playbackState = "paused"
+          self.emitPlaybackState()
+        } else if self.avAudioPlayer != nil || self.avPlayer != nil {
+          if let p = self.avAudioPlayer { p.rate = self.playbackRate; p.play(); self.playbackState = "playing" }
+          else if let p = self.avPlayer { p.playImmediately(atRate: self.playbackRate); self.playbackState = "playing" }
+          self.startPlaybackProgressTimer()
+          self.emitPlaybackState()
+        }
+        self.sendDeviceEvent("audio.remoteCommand", ["command": "togglePlayPause"])
+      }
+      return .success
+    }
+    bind(center.stopCommand, enabled: true) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        self.stopInlinePlayback(emitEvent: true)
+        self.sendDeviceEvent("audio.remoteCommand", ["command": "stop"])
+      }
+      return .success
+    }
+    bind(center.nextTrackCommand, enabled: canNext) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        self?.sendDeviceEvent("audio.remoteCommand", ["command": "next"])
+      }
+      return .success
+    }
+    bind(center.previousTrackCommand, enabled: canPrevious) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        self?.sendDeviceEvent("audio.remoteCommand", ["command": "previous"])
+      }
+      return .success
+    }
+    bind(center.changePlaybackPositionCommand, enabled: canSeek) { [weak self] event in
+      guard let posEvent = event as? MPChangePlaybackPositionCommandEvent else {
+        return .commandFailed
+      }
+      let targetMs = max(0, Int(posEvent.positionTime * 1000))
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        if let p = self.avAudioPlayer {
+          p.currentTime = min(posEvent.positionTime, p.duration)
+        } else if let p = self.avPlayer {
+          p.seek(to: CMTime(seconds: posEvent.positionTime, preferredTimescale: 1000))
+        }
+        self.refreshNowPlayingPlaybackState()
+        self.sendDeviceEvent("audio.remoteCommand", ["command": "seek", "positionMs": targetMs])
+      }
+      return .success
+    }
+  }
+
+  private func removeRemoteCommandTargets() {
+    for (command, token) in remoteCommandTargets {
+      command.removeTarget(token)
+    }
+    remoteCommandTargets.removeAll()
+  }
+
+  private func clearNowPlayingMetadata() {
+    nowPlayingArtworkTask?.cancel()
+    nowPlayingArtworkTask = nil
+    nowPlayingArtwork = nil
+    nowPlayingArtworkURL = ""
+    nowPlayingTitle = ""
+    nowPlayingArtist = ""
+    nowPlayingAlbum = ""
+    if nowPlayingActive {
+      nowPlayingActive = false
+      removeRemoteCommandTargets()
+      MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
   }
 
   private func resolveStorageStreamURL(
@@ -1064,16 +1351,42 @@ final class PluginNativeCapabilitiesService: NSObject {
     storage: String,
     path: String
   ) async throws -> (URL, [String: String]?) {
-    if storage.lowercased() == "local",
-      let ticketURL = buildSameOriginURL(
-        address: context.address, apiPath: "/api/v1/storage/stream-ticket")
+    let fileName = (path as NSString).lastPathComponent
+    let ext = (fileName as NSString).pathExtension
+    var authHeaders: [String: String] = [
+      "Authorization": "Bearer \(context.accessToken)",
+      "X-MoviePilot-Locale": context.locale,
+    ]
+    if let cookie = context.resourceCookie {
+      authHeaders["Cookie"] = "\(cookie.name)=\(cookie.value)"
+    }
+    if let mergedCookie = CloudflareAccessCredentialRegistry.shared.mergedCookieHeader(
+      existing: authHeaders["Cookie"], for: context.address)
+    {
+      authHeaders["Cookie"] = mergedCookie
+    }
+    if let cfToken = CloudflareAccessCredentialRegistry.shared.accessToken(for: context.address) {
+      authHeaders["cf-access-token"] = cfToken
+    }
+
+    // 优先通过真实后端 `POST /api/v1/mediaserver/stream-ticket` -> `GET /api/v1/mediaserver/stream-info` 获取支持 HTTP Range 的流式播放地址
+    if let ticketURL = buildSameOriginURL(
+      address: context.address, apiPath: "/api/v1/mediaserver/stream-ticket")
     {
       var req = URLRequest(url: ticketURL)
       req.httpMethod = "POST"
       req.setValue("Bearer \(context.accessToken)", forHTTPHeaderField: "Authorization")
       req.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+      CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &req, for: context.address)
       req.httpBody = try? JSONSerialization.data(withJSONObject: [
-        "storage": storage, "path": path,
+        "file": [
+          "storage": storage,
+          "type": "file",
+          "path": path,
+          "name": fileName,
+          "extension": ext,
+        ],
+        "media_type": "audio",
       ])
       if let (data, resp) = try? await urlSession.data(for: req),
         let http = resp as? HTTPURLResponse,
@@ -1081,37 +1394,40 @@ final class PluginNativeCapabilitiesService: NSObject {
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
       {
         let payloadObj = (obj["data"] as? [String: Any]) ?? obj
-        if let rawStreamPath = payloadObj["stream_url"] as? String, !rawStreamPath.isEmpty,
-          let resolved = buildSameOriginURL(address: context.address, apiPath: rawStreamPath)
+        if let ticketId = payloadObj["item_id"] as? String, !ticketId.isEmpty,
+          let encodedId = ticketId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+          let infoURL = buildSameOriginURL(
+            address: context.address, apiPath: "/api/v1/mediaserver/stream-info?itemid=\(encodedId)")
         {
-          return (resolved, nil)
+          var infoReq = URLRequest(url: infoURL)
+          infoReq.setValue("Bearer \(context.accessToken)", forHTTPHeaderField: "Authorization")
+          CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &infoReq, for: context.address)
+          if let (infoData, infoResp) = try? await urlSession.data(for: infoReq),
+            let infoHttp = infoResp as? HTTPURLResponse,
+            (200..<300).contains(infoHttp.statusCode),
+            let infoObj = (try? JSONSerialization.jsonObject(with: infoData)) as? [String: Any]
+          {
+            let infoPayload = (infoObj["data"] as? [String: Any]) ?? infoObj
+            if let rawContentUrl = infoPayload["content_url"] as? String, !rawContentUrl.isEmpty,
+              let resolved = URL(string: rawContentUrl)
+                ?? buildSameOriginURL(address: context.address, apiPath: rawContentUrl)
+            {
+              return (resolved, authHeaders)
+            }
+          }
+          // 若 stream-info 失败，仍可直接请求 stream?itemid=...
+          if let directStreamURL = buildSameOriginURL(
+            address: context.address, apiPath: "/api/v1/mediaserver/stream?itemid=\(encodedId)")
+          {
+            return (directStreamURL, authHeaders)
+          }
         }
       }
     }
-    guard
-      var comps = URLComponents(
-        url: context.address.url.appending(path: "api/v1/storage/download"),
-        resolvingAgainstBaseURL: false
-      )
-    else {
-      throw NSError(
-        domain: "PluginAudioPlayer", code: -2,
-        userInfo: [NSLocalizedDescriptionKey: "无法构造存储音频地址"])
-    }
-    comps.queryItems = [
-      URLQueryItem(name: "storage", value: storage),
-      URLQueryItem(name: "path", value: path),
-    ]
-    guard let fallbackURL = comps.url else {
-      throw NSError(
-        domain: "PluginAudioPlayer", code: -2,
-        userInfo: [NSLocalizedDescriptionKey: "无法构造存储音频地址"])
-    }
-    var headers: [String: String] = ["Authorization": "Bearer \(context.accessToken)"]
-    if let cookie = context.resourceCookie {
-      headers["Cookie"] = "\(cookie.name)=\(cookie.value)"
-    }
-    return (fallbackURL, headers)
+
+    throw NSError(
+      domain: "PluginAudioPlayer", code: -2,
+      userInfo: [NSLocalizedDescriptionKey: "当前存储暂不支持在线流式播放，请检查存储配置或升级后端"])
   }
 
   // MARK: - Full-Screen Native Media Player (`media.playNative`)

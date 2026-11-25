@@ -71,6 +71,7 @@ private class InMemoryCookieJar : CookieJar {
 class NativeHttpTransport(
     private val allowSelfSignedTls: () -> Boolean = { false },
     @Volatile var onAuthClassified: ((decision: String, status: Int, body: String) -> Unit)? = null,
+    @Volatile var cfAccessTokenProvider: ((requestUrl: String) -> String?)? = null,
 ) {
     private val cookieJar = InMemoryCookieJar()
     private val defaultClient: OkHttpClient = buildClient(trustAll = false)
@@ -78,6 +79,31 @@ class NativeHttpTransport(
 
     private fun client(): OkHttpClient =
         if (allowSelfSignedTls()) selfSignedClient else defaultClient
+
+    /**
+     * 仅为已授权同源请求合并 `Cookie: CF_Authorization=...`（保留 `resource_token`）与 `cf-access-token`；
+     * 绝不触碰 `Authorization: Bearer`。
+     */
+    private fun applyCloudflareAccessHeaders(
+        reqBuilder: Request.Builder,
+        requestUrl: String,
+        explicitCookieHeader: String? = null,
+    ) {
+        val cfToken = cfAccessTokenProvider?.invoke(requestUrl)?.trim().orEmpty()
+        if (cfToken.isEmpty()) return
+        val jarCookie = requestUrl.toHttpUrlOrNull()?.let { parsed ->
+            cookieJar.loadForRequest(parsed).joinToString("; ") { "${it.name}=${it.value}" }
+        }.orEmpty()
+        val baseCookie = listOfNotNull(
+            jarCookie.takeIf { it.isNotEmpty() },
+            explicitCookieHeader?.takeIf { it.isNotBlank() },
+        ).joinToString("; ")
+        val merged = RustCoreBridge.mergeCloudflareAccessCookie(baseCookie, cfToken)
+        if (merged.isNotEmpty()) {
+            reqBuilder.header("Cookie", merged)
+        }
+        reqBuilder.header("cf-access-token", cfToken)
+    }
 
     private fun notifyAuthDecision(token: String?, status: Int, body: String): String {
         val decision = RustCoreBridge.classifyAuthStatus(status, body)
@@ -94,15 +120,23 @@ class NativeHttpTransport(
     /** 导出当前同源内存 Cookie 列表（供 Media3 播放请求与 Vue 插件隔离容器复用，不跨源泄漏）。 */
     fun exportCookieHeader(rawUrl: String): String {
         val parsed = rawUrl.toHttpUrlOrNull() ?: return ""
-        return cookieJar.loadForRequest(parsed).joinToString("; ") { "${it.name}=${it.value}" }
+        val base = cookieJar.loadForRequest(parsed).joinToString("; ") { "${it.name}=${it.value}" }
+        val cfToken = cfAccessTokenProvider?.invoke(rawUrl)?.trim().orEmpty()
+        return if (cfToken.isNotEmpty()) RustCoreBridge.mergeCloudflareAccessCookie(base, cfToken) else base
     }
 
     /** 导出单条 `Set-Cookie` 格式字符串列表（供 WebView `CookieManager.setCookie` 逐条写入）。 */
     fun exportSetCookieEntries(rawUrl: String): List<String> {
         val parsed = rawUrl.toHttpUrlOrNull() ?: return emptyList()
-        return cookieJar.loadForRequest(parsed).map { c ->
+        val entries = cookieJar.loadForRequest(parsed).map { c ->
             "${c.name}=${c.value}; Path=${c.path.ifBlank { "/" }}"
+        }.toMutableList()
+        val cfToken = cfAccessTokenProvider?.invoke(rawUrl)?.trim().orEmpty()
+        if (cfToken.isNotEmpty()) {
+            entries.removeAll { it.startsWith("CF_Authorization=", ignoreCase = true) }
+            entries.add("CF_Authorization=$cfToken; Path=/")
         }
+        return entries
     }
 
     /** 流式下载大体积媒体文件至受管缓存文件，避免 OOM，供存储文件原生直放。 */
@@ -118,6 +152,7 @@ class NativeHttpTransport(
         if (!token.isNullOrBlank()) {
             reqBuilder.header("Authorization", "Bearer $token")
         }
+        applyCloudflareAccessHeaders(reqBuilder, url)
         val reqBody = body?.toRequestBody(contentType.toMediaType())
         when (method.uppercase()) {
             "POST" -> reqBuilder.post(reqBody ?: "".toRequestBody(contentType.toMediaType()))
@@ -160,8 +195,13 @@ class NativeHttpTransport(
                 val server = serverUrlProvider()
                 val token = tokenProvider()
                 val isSameOrigin = !server.isNullOrBlank() && RustCoreBridge.containsUrl(server, reqUrl)
-                val nextReq = if (isSameOrigin && !token.isNullOrBlank()) {
-                    original.newBuilder().header("Authorization", "Bearer $token").build()
+                val nextReq = if (isSameOrigin) {
+                    val rb = original.newBuilder()
+                    if (!token.isNullOrBlank()) {
+                        rb.header("Authorization", "Bearer $token")
+                    }
+                    applyCloudflareAccessHeaders(rb, reqUrl, original.header("Cookie"))
+                    rb.build()
                 } else {
                     original
                 }
@@ -209,6 +249,7 @@ class NativeHttpTransport(
             reqBuilder.header("Authorization", "Bearer $token")
         }
         extraHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
+        applyCloudflareAccessHeaders(reqBuilder, url, extraHeaders.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }?.value)
         val requestBody = body?.toRequestBody(contentType.toMediaType())
         when (method.uppercase()) {
             "GET" -> reqBuilder.get()
@@ -254,6 +295,7 @@ class NativeHttpTransport(
         if (!token.isNullOrBlank()) {
             reqBuilder.header("Authorization", "Bearer $token")
         }
+        applyCloudflareAccessHeaders(reqBuilder, url)
         client().newBuilder().readTimeout(60, TimeUnit.SECONDS).writeTimeout(60, TimeUnit.SECONDS).build()
             .newCall(reqBuilder.build()).execute().use { resp ->
                 val headersMap = resp.headers.names().associateWith { resp.headers[it].orEmpty() }
@@ -284,6 +326,7 @@ class NativeHttpTransport(
             reqBuilder.header("Authorization", "Bearer $token")
         }
         extraHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
+        applyCloudflareAccessHeaders(reqBuilder, url, extraHeaders.entries.firstOrNull { it.key.equals("Cookie", ignoreCase = true) }?.value)
         if (bodyJson != null) {
             reqBuilder.post(bodyJson.toRequestBody("application/json; charset=utf-8".toMediaType()))
         } else {

@@ -146,6 +146,10 @@ fun ResourceSearchScreen(
     var selectedPromo by remember { mutableStateOf<String?>(null) }
     var selectedEncode by remember { mutableStateOf<String?>(null) }
     var selectedEdition by remember { mutableStateOf<String?>(null) }
+    var selectedResourceType by remember { mutableStateOf<String?>(null) }
+    var selectedAudioEncode by remember { mutableStateOf<String?>(null) }
+    var selectedTeam by remember { mutableStateOf<String?>(null) }
+    var selectedLabel by remember { mutableStateOf<String?>(null) }
     var activeFilterDim by remember { mutableStateOf<String?>(null) }
 
     var selectedGroupForDownload by remember { mutableStateOf<ResourceGroupDto?>(null) }
@@ -201,21 +205,33 @@ fun ResourceSearchScreen(
         isLoading = false
     }
 
-    val filterResult: ResourceFilterResultDto = remember(rawItems, selectedSitesFilter, selectedRes, selectedPromo, selectedEncode, selectedEdition, keyword) {
-        val criteria = buildString {
-            append("{")
+    val filterResult: ResourceFilterResultDto = remember(
+        rawItems,
+        selectedSitesFilter,
+        selectedRes,
+        selectedPromo,
+        selectedEncode,
+        selectedEdition,
+        selectedResourceType,
+        selectedAudioEncode,
+        selectedTeam,
+        selectedLabel,
+    ) {
+        // 使用严格 camelCase 键构造 Rust 9 维筛选 JSON；不把远端搜索关键词再次传入本地子串过滤，避免误杀英文标题种子（#59）
+        val criteriaObj = kotlinx.serialization.json.buildJsonObject {
             if (selectedSitesFilter.isNotEmpty()) {
-                val joined = selectedSitesFilter.joinToString(",") { "\"${it.replace("\"", "\\\"")}\"" }
-                append("\"sites\":[$joined],")
+                put("sites", kotlinx.serialization.json.JsonArray(selectedSitesFilter.map { kotlinx.serialization.json.JsonPrimitive(it) }))
             }
-            if (selectedRes != null) append("\"resolutions\":[\"$selectedRes\"],")
-            if (selectedPromo != null) append("\"promotions\":[\"$selectedPromo\"],")
-            if (selectedEncode != null) append("\"video_encodes\":[\"$selectedEncode\"],")
-            if (selectedEdition != null) append("\"editions\":[\"$selectedEdition\"],")
-            append("\"keyword\":\"${keyword.replace("\"", "\\\"")}\"")
-            append("}")
+            selectedRes?.let { put("resolutions", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
+            selectedPromo?.let { put("promotions", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
+            selectedEncode?.let { put("videoEncodes", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
+            selectedEdition?.let { put("editions", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
+            selectedResourceType?.let { put("resourceTypes", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
+            selectedAudioEncode?.let { put("audioEncodes", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
+            selectedTeam?.let { put("teams", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
+            selectedLabel?.let { put("labels", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
         }
-        repository.filterResourcesWithRust(rawItems, criteria)
+        repository.filterResourcesWithRust(rawItems, criteriaObj.toString())
     }
 
     val displayedGroups = remember(filterResult.groups, sortMode) {
@@ -228,7 +244,7 @@ fun ResourceSearchScreen(
     }
 
     val activeFilterCount = selectedSitesFilter.size +
-        listOf(selectedRes, selectedPromo, selectedEncode, selectedEdition).count { it != null }
+        listOf(selectedRes, selectedPromo, selectedEncode, selectedEdition, selectedResourceType, selectedAudioEncode, selectedTeam, selectedLabel).count { it != null }
     val browseSiteLabel = when (selectedBrowseSiteIds.size) {
         0 -> "全站"
         1 -> sites.firstOrNull { it.id == selectedBrowseSiteIds.first() }?.name ?: "1 个站点"
@@ -527,10 +543,16 @@ fun ResourceSearchScreen(
         }
     }
 
-    // 真实分组下载确认弹窗（动态读取下载器与保存目录、支持同组多站点种子源切换、真实提交 POST /api/v1/download/add）
+    // 真实分组下载确认弹窗（动态读取下载器与保存目录、支持同组多站点种子源多选批量下载 #60、真实提交 POST /api/v1/download/add）
     selectedGroupForDownload?.let { group ->
         val variants = remember(group) { group.items.ifEmpty { listOf(group.primary) } }
-        var chosenVariant by remember(group) { mutableStateOf(group.primary) }
+        fun variantKey(v: ResourceItemDto, idx: Int): String = "${v.siteName}|${v.id}|${v.enclosure}|$idx"
+        var selectedVariantKeys by remember(group) { mutableStateOf(setOf(variantKey(variants.first(), 0))) }
+        val selectedVariants = remember(variants, selectedVariantKeys) {
+            variants.mapIndexedNotNull { idx, v -> v.takeIf { variantKey(v, idx) in selectedVariantKeys } }
+                .ifEmpty { listOf(variants.first()) }
+        }
+        val leadVariant = selectedVariants.first()
         var configuredDownloaders by remember { mutableStateOf<List<ServiceConfigDto>>(emptyList()) }
         var configuredDirs by remember { mutableStateOf<List<DirectoryConfigDto>>(emptyList()) }
         var isLoadingOptions by remember(group) { mutableStateOf(true) }
@@ -566,13 +588,37 @@ fun ResourceSearchScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("确认添加下载", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text(chosenVariant.title, color = colors.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(leadVariant.title, color = colors.textSecondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
 
                 if (variants.size > 1) {
-                    Text("选择同规格站点源 (${variants.size})", color = colors.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                    val allSelected = selectedVariantKeys.size == variants.size
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "选择同规格站点源（已选 ${selectedVariants.size}/${variants.size}）",
+                            color = colors.textSecondary,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        NativeAdaptivePill(
+                            title = if (allSelected) "仅选主源" else "全选",
+                            selected = allSelected,
+                            onClick = {
+                                selectedVariantKeys = if (allSelected) {
+                                    setOf(variantKey(variants.first(), 0))
+                                } else {
+                                    variants.mapIndexed { idx, v -> variantKey(v, idx) }.toSet()
+                                }
+                            },
+                        )
+                    }
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        variants.forEach { variant ->
-                            val isSelected = variant.id == chosenVariant.id && variant.siteName == chosenVariant.siteName
+                        variants.forEachIndexed { idx, variant ->
+                            val key = variantKey(variant, idx)
+                            val isSelected = key in selectedVariantKeys
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -583,7 +629,13 @@ fun ResourceSearchScreen(
                                         color = if (isSelected) colors.accent else colors.borderSubtle.copy(alpha = 0.45f),
                                         shape = RoundedCornerShape(14.dp),
                                     )
-                                    .clickable { chosenVariant = variant }
+                                    .clickable {
+                                        selectedVariantKeys = if (isSelected) {
+                                            if (selectedVariantKeys.size > 1) selectedVariantKeys - key else selectedVariantKeys
+                                        } else {
+                                            selectedVariantKeys + key
+                                        }
+                                    }
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -688,17 +740,31 @@ fun ResourceSearchScreen(
                     onClick = {
                         isSubmitting = true
                         scope.launch {
-                            val (ok, msg) = repository.addDownload(
-                                item = chosenVariant,
-                                downloader = selectedDownloader.takeIf { it != "默认下载器" },
-                                savePath = saveDir.trim().takeIf { it.isNotBlank() },
-                            )
+                            val targets = selectedVariants
+                            var okCount = 0
+                            var lastMsg = ""
+                            for (targetVariant in targets) {
+                                val (ok, msg) = repository.addDownload(
+                                    item = targetVariant,
+                                    downloader = selectedDownloader.takeIf { it != "默认下载器" },
+                                    savePath = saveDir.trim().takeIf { it.isNotBlank() },
+                                )
+                                if (ok) okCount++
+                                if (msg.isNotBlank()) lastMsg = msg
+                            }
                             isSubmitting = false
-                            downloadToast = ok to msg
-                            if (ok) {
+                            val allOk = okCount == targets.size
+                            val summaryMsg = when {
+                                targets.size == 1 -> lastMsg.ifBlank { if (allOk) "已提交下载任务" else "添加下载失败" }
+                                allOk -> "已批量提交 $okCount 个源至下载队列"
+                                okCount > 0 -> "已成功提交 $okCount/${targets.size} 个源，部分提交失败"
+                                else -> lastMsg.ifBlank { "批量添加下载失败" }
+                            }
+                            downloadToast = (okCount > 0) to summaryMsg
+                            if (okCount > 0) {
                                 selectedGroupForDownload = null
                             }
-                            snackbar?.showSnackbar(msg)
+                            snackbar?.showSnackbar(summaryMsg)
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
@@ -712,7 +778,10 @@ fun ResourceSearchScreen(
                     } else {
                         Icon(Icons.Rounded.Download, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
-                        Text("开始下载", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (selectedVariants.size > 1) "批量下载 (${selectedVariants.size} 个源)" else "开始下载",
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
                 Spacer(Modifier.height(24.dp))
@@ -815,6 +884,10 @@ fun ResourceSearchScreen(
                             selectedPromo = null
                             selectedEncode = null
                             selectedEdition = null
+                            selectedResourceType = null
+                            selectedAudioEncode = null
+                            selectedTeam = null
+                            selectedLabel = null
                         },
                     )
                 }
@@ -893,6 +966,54 @@ fun ResourceSearchScreen(
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     filterResult.options.videoEncodes.forEach { opt ->
                                         NativeAdaptivePill(opt, selected = selectedEncode == opt, onClick = { selectedEncode = if (selectedEncode == opt) null else opt })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (filterResult.options.resourceTypes.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("资源来源", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filterResult.options.resourceTypes.forEach { opt ->
+                                        NativeAdaptivePill(opt, selected = selectedResourceType == opt, onClick = { selectedResourceType = if (selectedResourceType == opt) null else opt })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (filterResult.options.audioEncodes.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("音频编码", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filterResult.options.audioEncodes.forEach { opt ->
+                                        NativeAdaptivePill(opt, selected = selectedAudioEncode == opt, onClick = { selectedAudioEncode = if (selectedAudioEncode == opt) null else opt })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (filterResult.options.teams.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("制作组", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filterResult.options.teams.forEach { opt ->
+                                        NativeAdaptivePill(opt, selected = selectedTeam == opt, onClick = { selectedTeam = if (selectedTeam == opt) null else opt })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (filterResult.options.labels.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("标签", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    filterResult.options.labels.forEach { opt ->
+                                        NativeAdaptivePill(opt, selected = selectedLabel == opt, onClick = { selectedLabel = if (selectedLabel == opt) null else opt })
                                     }
                                 }
                             }

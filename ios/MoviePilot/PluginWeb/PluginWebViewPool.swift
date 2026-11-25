@@ -189,13 +189,21 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
     config.websiteDataStore = .nonPersistent()
     config.allowsInlineMediaPlayback = true
     config.mediaTypesRequiringUserActionForPlayback = []
+    if UIDevice.current.userInterfaceIdiom == .phone {
+      config.defaultWebpagePreferences.preferredContentMode = .mobile
+    }
     config.setURLSchemeHandler(schemeHandler, forURLScheme: PluginShellSchemeHandler.scheme)
     config.userContentController.add(
       WeakPluginHostBridgeV2Handler(bridge),
       name: PluginHostBridgeV2.handlerName
     )
 
-    let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
+    let initialBounds = UIScreen.main.bounds
+    let initialFrame =
+      initialBounds.width > 0 && initialBounds.height > 0
+      ? initialBounds
+      : CGRect(x: 0, y: 0, width: 390, height: 844)
+    let webView = WKWebView(frame: initialFrame, configuration: config)
     webView.navigationDelegate = self
     webView.uiDelegate = self
     // Layer 1：彻底透明背景，包括回弹露底（underPageBackgroundColor）与滚动容器，透出底层原生流光背景。

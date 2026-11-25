@@ -546,6 +546,23 @@ private fun attachPooledWebView(container: FrameLayout, webView: android.webkit.
             ViewGroup.LayoutParams.MATCH_PARENT,
         ),
     )
+    val layoutTagKey = 0x504C5756 // "PLWV"
+    if (container.getTag(layoutTagKey) == null) {
+        val listener = android.view.View.OnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            val w = right - left
+            val h = bottom - top
+            if (w > 0 && h > 0 && (w != oldRight - oldLeft || h != oldBottom - oldTop)) {
+                webView.post {
+                    runCatching { webView.evaluateJavascript("window.dispatchEvent(new Event('resize'));", null) }
+                }
+            }
+        }
+        container.addOnLayoutChangeListener(listener)
+        container.setTag(layoutTagKey, listener)
+    }
+    webView.post {
+        runCatching { webView.evaluateJavascript("window.dispatchEvent(new Event('resize'));", null) }
+    }
 }
 
 private fun fetchRemoteDescriptor(

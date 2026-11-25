@@ -298,6 +298,7 @@ final class PluginShellSchemeHandler: NSObject, WKURLSchemeHandler {
     if let cookie = context.resourceCookie {
       request.setValue("\(cookie.name)=\(cookie.value)", forHTTPHeaderField: "Cookie")
     }
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: context.address)
   }
 
   private func normalizedContentType(_ raw: String?, fallbackPath: String) -> String {

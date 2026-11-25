@@ -3,6 +3,7 @@ import { util } from '@kit.ArkTS';
 import { PlaybackRouteCandidate, RustCoreBridge } from '../bridge/RustCoreBridge';
 import { NativeRcpTransport, NativeHttpResponse, SseEventChunk } from '../network/NativeRcpTransport';
 import { NativeHuksStore } from '../security/NativeHuksStore';
+import { CloudflareAccessOAuthManager } from './CloudflareAccessOAuthManager';
 import { HarmonyPlaybackProgressReporter } from './HarmonyPlaybackProgressReporter';
 import { HarmonyPlaybackRouteResolver } from './HarmonyPlaybackRouteResolver';
 
@@ -1249,7 +1250,11 @@ export class MoviePilotRepository {
 
   static shared(): MoviePilotRepository {
     if (!MoviePilotRepository.instance) {
-      MoviePilotRepository.instance = new MoviePilotRepository();
+      const repo = new MoviePilotRepository();
+      repo.transport.cfAccessTokenProvider = (requestUrl: string): string => {
+        return CloudflareAccessOAuthManager.shared().getAccessTokenForUrl(requestUrl);
+      };
+      MoviePilotRepository.instance = repo;
     }
     return MoviePilotRepository.instance;
   }
@@ -1259,6 +1264,7 @@ export class MoviePilotRepository {
   configure(baseUrl: string, token: string, userName: string, isSuperuser: boolean, avatar: string = ''): void {
     this.baseUrl = RustCoreBridge.normalizeServerAddress(baseUrl);
     this.transport.setBaseUrl(this.baseUrl);
+    CloudflareAccessOAuthManager.shared().hydrateOrigin(this.baseUrl).catch(() => {});
     this.token = token;
     this.userName = userName;
     this.isSuperuser = isSuperuser;
@@ -1272,6 +1278,7 @@ export class MoviePilotRepository {
     this.baseUrl = RustCoreBridge.normalizeServerAddress(baseUrl);
     this.transport.setBaseUrl(this.baseUrl);
     this.transport.setAllowSelfSigned(allowSelfSigned);
+    CloudflareAccessOAuthManager.shared().hydrateOrigin(this.baseUrl).catch(() => {});
   }
 
   /** 更新当前会话访问令牌。 */
@@ -1402,9 +1409,23 @@ export class MoviePilotRepository {
     const cleanUrl = RustCoreBridge.normalizeServerAddress(serverUrl);
     this.baseUrl = cleanUrl;
     this.transport.setBaseUrl(cleanUrl);
+    await CloudflareAccessOAuthManager.shared().hydrateOrigin(cleanUrl);
+    await CloudflareAccessOAuthManager.shared().refreshIfNeeded(cleanUrl, this.transport.isAllowSelfSigned());
     const url = RustCoreBridge.buildV3EndpointUrl(cleanUrl, ['login', 'access-token']);
     const form = `username=${encodeURIComponent(username.trim())}&password=${encodeURIComponent(password)}&otp_password=${encodeURIComponent(otpCode.trim())}`;
     const resp = await this.transport.execute(url, 'POST', '', form, 'application/x-www-form-urlencoded');
+    const cfChallenge = RustCoreBridge.detectCloudflareAccessChallenge(
+      resp.status,
+      resp.headers ?? {},
+      resp.body,
+      url
+    );
+    if (cfChallenge.isChallenge) {
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: '检测到 Cloudflare Access 网关拦截，请先点击下方「通过 Cloudflare Access 认证」'
+      };
+    }
     if (resp.status === 401) {
       const needOtp = resp.body.includes('mfa_methods') || resp.body.includes('otp');
       return {
@@ -3962,13 +3983,15 @@ export class MoviePilotRepository {
   }
 
   /**
-   * 为本地存储（`storage === 'local'`）的音视频文件签发短期 Range 流票据（`POST /api/v1/mediaserver/stream-ticket`），实现边加载边播放。
+   * 为本地或支持 Range 流式的远端存储（SMB / OpenList / 阿里云盘 / 115 等）音视频文件签发短期流票据（`POST /api/v1/mediaserver/stream-ticket`），实现边加载边播放。
    */
-  async createLocalStreamTicket(
+  async createStorageStreamTicket(
+    storage: string,
     filePath: string,
     fileNameHint: string = '',
     mediaTypeHint: string = ''
   ): Promise<string> {
+    const cleanStorage = storage.trim() || 'local';
     const cleanPath = filePath.trim();
     if (!cleanPath) {
       return '';
@@ -3982,7 +4005,7 @@ export class MoviePilotRepository {
       ? mediaTypeHint
       : (RustCoreBridge.detectPlayableMediaKind(fileName.includes('.') ? fileName : cleanPath, true) === 'audio' ? 'audio' : 'video');
     const fileItem: Record<string, string> = {
-      'storage': 'local',
+      'storage': cleanStorage,
       'type': 'file',
       'path': cleanPath,
       'name': fileName,
@@ -4003,6 +4026,17 @@ export class MoviePilotRepository {
     } catch {
       return '';
     }
+  }
+
+  /**
+   * 兼容旧调用签名（本地存储流票据）。
+   */
+  async createLocalStreamTicket(
+    filePath: string,
+    fileNameHint: string = '',
+    mediaTypeHint: string = ''
+  ): Promise<string> {
+    return this.createStorageStreamTicket('local', filePath, fileNameHint, mediaTypeHint);
   }
 
   /**

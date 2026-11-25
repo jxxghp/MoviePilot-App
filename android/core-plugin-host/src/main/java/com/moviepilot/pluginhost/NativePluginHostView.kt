@@ -2052,6 +2052,9 @@ private fun LegacyIsolatedVuePluginWebView(
                     settings.domStorageEnabled = true
                     settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                     settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                    settings.mediaPlaybackRequiresUserGesture = false
+                    settings.useWideViewPort = false
+                    settings.loadWithOverviewMode = false
                     if (waitForChromeReady) {
                         addJavascriptInterface(chromeHost, "__mpAndroidChromeHost")
                     }

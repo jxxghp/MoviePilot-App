@@ -17,8 +17,17 @@ export {
   EngineResolutionPlan,
   MpDanmakuItem,
   MpDanmakuFilterOptions,
-  MpPreparedDanmakuTimeline
+  MpPreparedDanmakuTimeline,
+  CloudflareChallengeResult,
+  PkcePair,
+  OAuthServerMetadata,
+  OAuthCallbackResult
 } from './src/main/ets/bridge/RustCoreBridge';
+
+export {
+  CloudflareAccessOAuthManager,
+  CloudflareAccessSession
+} from './src/main/ets/api/CloudflareAccessOAuthManager';
 
 export {
   HarmonyPlaybackRouteResolver

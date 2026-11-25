@@ -8,7 +8,16 @@ use mp_core_model::{
     PendingPlaybackStop, PlayableMediaFormat, PlaybackEngineRouter, PlaybackProgressPlanner,
     PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference, PlaybackSyncInput,
     PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
+    build_oauth_authorize_url as model_build_oauth_authorize_url,
+    build_oauth_discovery_urls as model_build_oauth_discovery_urls,
+    compute_pkce_s256_challenge as model_compute_pkce_s256_challenge,
+    detect_cloudflare_access_challenge as model_detect_cloudflare_access_challenge,
+    generate_pkce_pair as model_generate_pkce_pair,
+    merge_cf_access_cookie as model_merge_cf_access_cookie,
     normalize_danmaku_query_title as model_normalize_danmaku_query_title,
+    parse_oauth_callback_url as model_parse_oauth_callback_url,
+    parse_oauth_server_metadata as model_parse_oauth_server_metadata,
+    parse_protected_resource_metadata as model_parse_protected_resource_metadata,
     prepare_danmaku_timeline_json as model_prepare_danmaku_timeline_json,
 };
 use mp_core_plugin::{
@@ -568,6 +577,92 @@ pub fn normalize_danmaku_query_title(
         episode,
         file_name.as_deref(),
     )
+}
+
+/// 检测 HTTP 响应是否为 Cloudflare Access 拦截（302 / 401 WWW-Authenticate / 登录页 HTML），返回 JSON。
+#[uniffi::export]
+pub fn detect_cloudflare_access_challenge_json(
+    status: u16,
+    headers_json: String,
+    body: String,
+    request_url: String,
+) -> String {
+    let result =
+        model_detect_cloudflare_access_challenge(status, &headers_json, &body, &request_url);
+    serde_json::to_string(&result).unwrap_or_else(|_| r#"{"isChallenge":false,"reason":""}"#.into())
+}
+
+/// 生成 RFC 7636 PKCE `S256` 校验对与 `state` JSON。
+#[uniffi::export]
+pub fn generate_pkce_pair_json(extra_entropy: String) -> String {
+    let pair = model_generate_pkce_pair(&extra_entropy);
+    serde_json::to_string(&pair).unwrap_or_else(|_| "{}".into())
+}
+
+/// 根据 RFC 7636 计算 PKCE `S256` challenge。
+#[uniffi::export]
+pub fn compute_pkce_s256_challenge(code_verifier: String) -> String {
+    model_compute_pkce_s256_challenge(&code_verifier)
+}
+
+/// 构造 RFC 9728 / RFC 8414 元数据探测候选 URL 列表 JSON。
+#[uniffi::export]
+pub fn build_oauth_discovery_urls_json(
+    server_url: String,
+    resource_metadata_url: Option<String>,
+) -> String {
+    let urls = model_build_oauth_discovery_urls(&server_url, resource_metadata_url.as_deref());
+    serde_json::to_string(&urls).unwrap_or_else(|_| "[]".into())
+}
+
+/// 解析 RFC 9728 Protected Resource Metadata，返回 `authorization_servers` 元数据地址列表 JSON。
+#[uniffi::export]
+pub fn parse_protected_resource_metadata_json(json_str: String) -> Result<String, CoreFfiError> {
+    let urls = model_parse_protected_resource_metadata(&json_str)
+        .map_err(|msg| CoreFfiError::InvalidJson { msg })?;
+    serde_json::to_string(&urls).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 解析 RFC 8414 Authorization Server Metadata JSON。
+#[uniffi::export]
+pub fn parse_oauth_server_metadata_json(json_str: String) -> Result<String, CoreFfiError> {
+    let meta = model_parse_oauth_server_metadata(&json_str)
+        .map_err(|msg| CoreFfiError::InvalidJson { msg })?;
+    serde_json::to_string(&meta).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 构造 OAuth 2.0 + PKCE (`S256`) 授权跳转 URL。
+#[uniffi::export]
+pub fn build_oauth_authorize_url(
+    authorization_endpoint: String,
+    client_id: String,
+    redirect_uri: String,
+    code_challenge: String,
+    state: String,
+    scope: String,
+) -> Result<String, CoreFfiError> {
+    model_build_oauth_authorize_url(
+        &authorization_endpoint,
+        &client_id,
+        &redirect_uri,
+        &code_challenge,
+        &state,
+        &scope,
+    )
+    .map_err(|msg| CoreFfiError::InvalidAddress { msg })
+}
+
+/// 解析并校验 `moviepilot://oauth/callback` 回调 URL，返回校验结果 JSON。
+#[uniffi::export]
+pub fn parse_oauth_callback_url_json(callback_url: String, expected_state: String) -> String {
+    let res = model_parse_oauth_callback_url(&callback_url, &expected_state);
+    serde_json::to_string(&res).unwrap_or_else(|_| r#"{"valid":false,"stateMatched":false}"#.into())
+}
+
+/// 安全合并 `CF_Authorization=<token>` 与现有 Cookie 头（保留 `resource_token` 等其他同源 Cookie）。
+#[uniffi::export]
+pub fn merge_cf_access_cookie(existing_cookie_header: String, cf_token: String) -> String {
+    model_merge_cf_access_cookie(&existing_cookie_header, &cf_token)
 }
 
 /// 返回 Rust 共享内核版本号，用于三端 FFI 冒烟健康检查。

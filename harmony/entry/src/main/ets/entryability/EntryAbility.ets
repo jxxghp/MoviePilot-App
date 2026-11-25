@@ -1,7 +1,7 @@
 import { UIAbility, Want, AbilityConstant, Configuration, ConfigurationConstant, common } from '@kit.AbilityKit';
 import { display, window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { HarmonyAdaptiveLayout, HarmonyAppearanceStore, PlaybackPreferencesStore } from '@moviepilot/design_system';
-import { RustCoreBridge, NativeHuksStore } from '@moviepilot/core_rust_bridge';
+import { RustCoreBridge, NativeHuksStore, CloudflareAccessOAuthManager } from '@moviepilot/core_rust_bridge';
 
 /**
  * MoviePilot HarmonyOS NEXT / HarmonyOS 7 主 EntryAbility：
@@ -222,6 +222,10 @@ export default class EntryAbility extends UIAbility {
       }
     }
     if (!rawTarget) { return; }
+    if (rawTarget.toLowerCase().startsWith('moviepilot://oauth/')) {
+      CloudflareAccessOAuthManager.shared().handleCallbackUrl(rawTarget);
+      return;
+    }
     if (rawTarget.startsWith('moviepilot-app://notification')) {
       const originMatch = /[?&]origin=([^&]+)/i.exec(rawTarget);
       const decodedOrigin = originMatch ? decodeURIComponent(originMatch[1]) : '';

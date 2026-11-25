@@ -50,4 +50,4 @@ const __mfImport = (src) =>
   if (__mfReactServerModuleCache?.pendingShareLoads) {
     await Promise.all(__mfReactServerModuleCache.pendingShareLoads);
   }
-})().then(() => __mfImport("./plugin-shell-Jy6WTehU.js"));
+})().then(() => __mfImport("./plugin-shell-DtMEV7cV.js"));

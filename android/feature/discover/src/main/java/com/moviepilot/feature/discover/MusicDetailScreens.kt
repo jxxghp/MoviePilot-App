@@ -850,9 +850,17 @@ fun QuickSeriesEpisodePickerSheet(
                     artworkUrl = ep.thumb ?: ep.backdrop ?: cardItem.posterPath,
                     isAudio = false,
                     headers = manifest.headers,
+                    sameOriginHeaders = manifest.sameOriginHeaders,
+                    streamHeaders = manifest.streamHeaders,
+                    proxyFallbackUrl = manifest.proxyFallbackUrl,
+                    activeRouteKind = manifest.activeRouteKind,
+                    fallbackRoutes = manifest.fallbackRoutes,
                     itemId = manifest.itemId,
                     server = manifest.server.ifBlank { epServer },
+                    serverType = manifest.serverType,
                     mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                    playSessionId = manifest.playSessionId,
+                    progressSyncMode = manifest.progressSyncMode,
                     resumePositionMs = manifest.resumePositionMs.takeIf { it > 0L } ?: ep.resumePositionMs,
                     subtitles = manifest.subtitles.map {
                         SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)

@@ -1742,6 +1742,32 @@ public func buildExternalPlayerUrl(template: String, mediaUrl: String, title: St
 })
 }
 /**
+ * 构造 OAuth 2.0 + PKCE (`S256`) 授权跳转 URL。
+ */
+public func buildOauthAuthorizeUrl(authorizationEndpoint: String, clientId: String, redirectUri: String, codeChallenge: String, state: String, scope: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_build_oauth_authorize_url(
+        FfiConverterString.lower(authorizationEndpoint),
+        FfiConverterString.lower(clientId),
+        FfiConverterString.lower(redirectUri),
+        FfiConverterString.lower(codeChallenge),
+        FfiConverterString.lower(state),
+        FfiConverterString.lower(scope),$0
+    )
+})
+}
+/**
+ * 构造 RFC 9728 / RFC 8414 元数据探测候选 URL 列表 JSON。
+ */
+public func buildOauthDiscoveryUrlsJson(serverUrl: String, resourceMetadataUrl: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_build_oauth_discovery_urls_json(
+        FfiConverterString.lower(serverUrl),
+        FfiConverterOptionString.lower(resourceMetadataUrl),$0
+    )
+})
+}
+/**
  * 生成按实例源 SHA-256、插件 ID 与版本/哈希隔离的磁盘缓存键 JSON。
  */
 public func buildPluginRemoteCacheKeyJson(instanceOrigin: String, pluginId: String, versionOrHash: String)throws  -> String  {
@@ -1788,6 +1814,16 @@ public func computeMedalPalette(medalId: String) -> MedalPaletteFfi  {
 })
 }
 /**
+ * 根据 RFC 7636 计算 PKCE `S256` challenge。
+ */
+public func computePkceS256Challenge(codeVerifier: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_compute_pkce_s256_challenge(
+        FfiConverterString.lower(codeVerifier),$0
+    )
+})
+}
+/**
  * 计算剧集订阅完成进度。
  */
 public func computeSubscribeProgress(totalEpisode: Int32, lackEpisode: Int32) -> SubscribeProgressFfi  {
@@ -1815,6 +1851,19 @@ public func decodeJwtTokenClaims(token: String, nowEpochSecs: Int64) -> JwtClaim
     uniffi_moviepilot_core_fn_func_decode_jwt_token_claims(
         FfiConverterString.lower(token),
         FfiConverterInt64.lower(nowEpochSecs),$0
+    )
+})
+}
+/**
+ * 检测 HTTP 响应是否为 Cloudflare Access 拦截（302 / 401 WWW-Authenticate / 登录页 HTML），返回 JSON。
+ */
+public func detectCloudflareAccessChallengeJson(status: UInt16, headersJson: String, body: String, requestUrl: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_detect_cloudflare_access_challenge_json(
+        FfiConverterUInt16.lower(status),
+        FfiConverterString.lower(headersJson),
+        FfiConverterString.lower(body),
+        FfiConverterString.lower(requestUrl),$0
     )
 })
 }
@@ -1863,6 +1912,16 @@ public func filterAndGroupResources(resourcesJson: String, criteriaJson: String)
 })
 }
 /**
+ * 生成 RFC 7636 PKCE `S256` 校验对与 `state` JSON。
+ */
+public func generatePkcePairJson(extraEntropy: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_generate_pkce_pair_json(
+        FfiConverterString.lower(extraEntropy),$0
+    )
+})
+}
+/**
  * 校验两条 HTTP(S) URL 是否严格同源（用于跨源 302 重定向时剥离直连令牌头）。
  */
 public func isSameHttpOrigin(urlA: String, urlB: String) -> Bool  {
@@ -1870,6 +1929,17 @@ public func isSameHttpOrigin(urlA: String, urlB: String) -> Bool  {
     uniffi_moviepilot_core_fn_func_is_same_http_origin(
         FfiConverterString.lower(urlA),
         FfiConverterString.lower(urlB),$0
+    )
+})
+}
+/**
+ * 安全合并 `CF_Authorization=<token>` 与现有 Cookie 头（保留 `resource_token` 等其他同源 Cookie）。
+ */
+public func mergeCfAccessCookie(existingCookieHeader: String, cfToken: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_merge_cf_access_cookie(
+        FfiConverterString.lower(existingCookieHeader),
+        FfiConverterString.lower(cfToken),$0
     )
 })
 }
@@ -1937,6 +2007,37 @@ public func parseDeepLinkJson(rawUrl: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
     uniffi_moviepilot_core_fn_func_parse_deep_link_json(
         FfiConverterString.lower(rawUrl),$0
+    )
+})
+}
+/**
+ * 解析并校验 `moviepilot://oauth/callback` 回调 URL，返回校验结果 JSON。
+ */
+public func parseOauthCallbackUrlJson(callbackUrl: String, expectedState: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_parse_oauth_callback_url_json(
+        FfiConverterString.lower(callbackUrl),
+        FfiConverterString.lower(expectedState),$0
+    )
+})
+}
+/**
+ * 解析 RFC 8414 Authorization Server Metadata JSON。
+ */
+public func parseOauthServerMetadataJson(jsonStr: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_parse_oauth_server_metadata_json(
+        FfiConverterString.lower(jsonStr),$0
+    )
+})
+}
+/**
+ * 解析 RFC 9728 Protected Resource Metadata，返回 `authorization_servers` 元数据地址列表 JSON。
+ */
+public func parseProtectedResourceMetadataJson(jsonStr: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_parse_protected_resource_metadata_json(
+        FfiConverterString.lower(jsonStr),$0
     )
 })
 }
@@ -2071,6 +2172,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_build_external_player_url() != 48700) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_build_oauth_authorize_url() != 17385) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_build_oauth_discovery_urls_json() != 40514) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_build_plugin_remote_cache_key_json() != 2310) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2083,6 +2190,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_compute_medal_palette() != 33639) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_compute_pkce_s256_challenge() != 23260) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_compute_subscribe_progress() != 28856) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2090,6 +2200,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_decode_jwt_token_claims() != 16264) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_detect_cloudflare_access_challenge_json() != 51450) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_detect_playable_media_kind() != 57250) {
@@ -2104,7 +2217,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_filter_and_group_resources() != 54382) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_generate_pkce_pair_json() != 35640) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_is_same_http_origin() != 24565) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_merge_cf_access_cookie() != 14594) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_normalize_danmaku_query_title() != 7723) {
@@ -2123,6 +2242,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_parse_deep_link_json() != 45112) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_parse_oauth_callback_url_json() != 37882) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_parse_oauth_server_metadata_json() != 61028) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_json() != 19972) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_parse_strm_content() != 31599) {

@@ -37,6 +37,51 @@ export interface NativeCoreModule {
   resolvePluginRemoteUpstreamJson?(virtualPath: string): string;
   prepareDanmakuTimelineJson?(rawPayload: string, optionsJson: string): string;
   normalizeDanmakuQueryTitle?(rawTitle: string): string;
+  detectCloudflareAccessChallengeJson?(status: number, headersJson: string, body: string, requestUrl: string): string;
+  generatePkcePairJson?(extraEntropy: string): string;
+  computePkceS256Challenge?(codeVerifier: string): string;
+  buildOauthDiscoveryUrlsJson?(serverUrl: string, resourceMetadataUrl: string): string;
+  parseProtectedResourceMetadataJson?(jsonStr: string): string;
+  parseOauthServerMetadataJson?(jsonStr: string): string;
+  buildOauthAuthorizeUrl?(
+    authorizationEndpoint: string,
+    clientId: string,
+    redirectUri: string,
+    codeChallenge: string,
+    state: string,
+    scope: string
+  ): string;
+  parseOauthCallbackUrlJson?(callbackUrl: string, expectedState: string): string;
+  mergeCfAccessCookie?(existingCookieHeader: string, cfToken: string): string;
+}
+
+export interface CloudflareChallengeResult {
+  isChallenge: boolean;
+  reason: string;
+  resourceMetadataUrl?: string;
+  loginUrl?: string;
+}
+
+export interface PkcePair {
+  codeVerifier: string;
+  codeChallenge: string;
+  codeChallengeMethod: string;
+  state: string;
+}
+
+export interface OAuthServerMetadata {
+  issuer: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  registrationEndpoint?: string;
+}
+
+export interface OAuthCallbackResult {
+  valid: boolean;
+  stateMatched: boolean;
+  code?: string;
+  error?: string;
+  errorDescription?: string;
 }
 
 export interface MpDanmakuItem {
@@ -1466,5 +1511,260 @@ export class RustCoreBridge {
       return { primary: 'enhanced', fallback: 'native', reason: 'auto_container_or_audio_enhanced' };
     }
     return { primary: 'native', fallback: hasEnh ? 'enhanced' : null, reason: 'auto_native_default' };
+  }
+
+  /** 检测 HTTP 响应是否被 Cloudflare Access 网关拦截。 */
+  static detectCloudflareAccessChallenge(
+    status: number,
+    headers: Record<string, string>,
+    body: string,
+    requestUrl: string
+  ): CloudflareChallengeResult {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.detectCloudflareAccessChallengeJson) {
+        const raw = RustCoreBridge.nativeLib.detectCloudflareAccessChallengeJson(
+          status,
+          JSON.stringify(headers),
+          body.substring(0, 8192),
+          requestUrl
+        );
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as CloudflareChallengeResult;
+        }
+      }
+    } catch {
+      // fallback below
+    }
+    const lowerHeaders: Record<string, string> = {};
+    const keys = Object.keys(headers);
+    for (let i = 0; i < keys.length; i++) {
+      lowerHeaders[keys[i].trim().toLowerCase()] = headers[keys[i]];
+    }
+    if (status >= 300 && status < 400) {
+      const loc = lowerHeaders['location'] ?? '';
+      const locLower = loc.toLowerCase();
+      if (locLower.includes('cloudflareaccess.com') || locLower.includes('/cdn-cgi/access/login')) {
+        return { isChallenge: true, reason: 'redirect_to_cloudflare_access', loginUrl: loc };
+      }
+    }
+    if (status === 401 || status === 403) {
+      const wwwAuth = lowerHeaders['www-authenticate'] ?? '';
+      const m = /resource_metadata\s*=\s*"([^"]+)"/i.exec(wwwAuth);
+      if (m && m[1]) {
+        return { isChallenge: true, reason: 'www_authenticate_resource_metadata', resourceMetadataUrl: m[1].trim() };
+      }
+    }
+    const prefix = body.substring(0, 8192).toLowerCase();
+    const isHtml = (lowerHeaders['content-type'] ?? '').toLowerCase().includes('text/html') ||
+      prefix.includes('<!doctype html') || prefix.includes('<html');
+    if (isHtml && (prefix.includes('cloudflareaccess.com') || prefix.includes('/cdn-cgi/access/login') ||
+      (prefix.includes('cloudflare access') && prefix.includes('sign in')))) {
+      return { isChallenge: true, reason: 'html_cloudflare_access_gate' };
+    }
+    return { isChallenge: false, reason: '' };
+  }
+
+  /** 生成 RFC 7636 PKCE `S256` 校验对与 `state`（优先调用 Rust NAPI）。 */
+  static generatePkcePair(extraEntropy: string = ''): PkcePair {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.generatePkcePairJson) {
+        const raw = RustCoreBridge.nativeLib.generatePkcePairJson(extraEntropy);
+        if (raw && raw.length > 0) {
+          const parsed = JSON.parse(raw) as PkcePair;
+          if (parsed.codeVerifier && parsed.codeChallenge && parsed.state) {
+            return parsed;
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+    const seed = `${Date.now()}_${Math.random()}_${extraEntropy}`;
+    return {
+      codeVerifier: seed,
+      codeChallenge: seed,
+      codeChallengeMethod: 'S256',
+      state: `st_${Date.now()}`
+    };
+  }
+
+  /** 构造按 RFC 9728 -> RFC 8414 优先顺序排列的发现 URL 列表。 */
+  static buildOAuthDiscoveryUrls(serverUrl: string, resourceMetadataUrl: string = ''): string[] {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.buildOauthDiscoveryUrlsJson) {
+        const raw = RustCoreBridge.nativeLib.buildOauthDiscoveryUrlsJson(serverUrl, resourceMetadataUrl);
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as string[];
+        }
+      }
+    } catch {
+      // fallback
+    }
+    const out: string[] = [];
+    const meta = resourceMetadataUrl.trim();
+    if (meta.startsWith('https://') || meta.startsWith('http://')) {
+      out.push(meta);
+    }
+    const m = /^(https?:\/\/[^\/\?#]+)/i.exec(serverUrl.trim());
+    if (m && m[1]) {
+      const origin = m[1];
+      const prm = `${origin}/.well-known/oauth-protected-resource`;
+      const asMeta = `${origin}/.well-known/oauth-authorization-server`;
+      if (!out.includes(prm)) { out.push(prm); }
+      if (!out.includes(asMeta)) { out.push(asMeta); }
+    }
+    return out;
+  }
+
+  /** 解析 RFC 9728 Protected Resource Metadata 中的 `authorization_servers`。 */
+  static parseProtectedResourceMetadata(jsonStr: string): string[] {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.parseProtectedResourceMetadataJson) {
+        const raw = RustCoreBridge.nativeLib.parseProtectedResourceMetadataJson(jsonStr);
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as string[];
+        }
+      }
+    } catch {
+      // fallback
+    }
+    try {
+      const obj = JSON.parse(jsonStr) as Record<string, Object>;
+      const arr = obj['authorization_servers'];
+      if (!Array.isArray(arr)) { return []; }
+      const out: string[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        const s = String(arr[i] ?? '').trim().replace(/\/+$/, '');
+        if (s.startsWith('https://') || s.startsWith('http://')) {
+          out.push(s.includes('/.well-known/') ? s : `${s}/.well-known/oauth-authorization-server`);
+        }
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  }
+
+  /** 解析 RFC 8414 Authorization Server Metadata。 */
+  static parseOAuthServerMetadata(jsonStr: string): OAuthServerMetadata | null {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.parseOauthServerMetadataJson) {
+        const raw = RustCoreBridge.nativeLib.parseOauthServerMetadataJson(jsonStr);
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as OAuthServerMetadata;
+        }
+      }
+    } catch {
+      // fallback
+    }
+    try {
+      const obj = JSON.parse(jsonStr) as Record<string, Object>;
+      const authEp = String(obj['authorization_endpoint'] ?? '').trim();
+      const tokenEp = String(obj['token_endpoint'] ?? '').trim();
+      if (!authEp || !tokenEp) { return null; }
+      const regEp = String(obj['registration_endpoint'] ?? '').trim();
+      return {
+        issuer: String(obj['issuer'] ?? '').trim(),
+        authorizationEndpoint: authEp,
+        tokenEndpoint: tokenEp,
+        registrationEndpoint: regEp.length > 0 ? regEp : undefined
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** 构造标准 OAuth 2.0 + PKCE (`S256`) 授权 URL。 */
+  static buildOAuthAuthorizeUrl(
+    authorizationEndpoint: string,
+    clientId: string,
+    redirectUri: string,
+    codeChallenge: string,
+    state: string,
+    scope: string = 'openid email profile offline_access'
+  ): string {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.buildOauthAuthorizeUrl) {
+        return RustCoreBridge.nativeLib.buildOauthAuthorizeUrl(
+          authorizationEndpoint,
+          clientId,
+          redirectUri,
+          codeChallenge,
+          state,
+          scope
+        );
+      }
+    } catch {
+      // fallback
+    }
+    const sep = authorizationEndpoint.includes('?') ? '&' : '?';
+    let url = `${authorizationEndpoint.trim()}${sep}response_type=code&client_id=${encodeURIComponent(clientId.trim())}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri.trim())}&code_challenge=${encodeURIComponent(codeChallenge.trim())}` +
+      `&code_challenge_method=S256&state=${encodeURIComponent(state.trim())}`;
+    if (scope.trim().length > 0) {
+      url += `&scope=${encodeURIComponent(scope.trim())}`;
+    }
+    return url;
+  }
+
+  /** 解析并校验 OAuth 回调 URL 的 `state` 与 `code`。 */
+  static parseOAuthCallbackUrl(callbackUrl: string, expectedState: string): OAuthCallbackResult {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.parseOauthCallbackUrlJson) {
+        const raw = RustCoreBridge.nativeLib.parseOauthCallbackUrlJson(callbackUrl, expectedState);
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as OAuthCallbackResult;
+        }
+      }
+    } catch {
+      // fallback
+    }
+    const qIdx = callbackUrl.indexOf('?');
+    const query = qIdx >= 0 ? callbackUrl.substring(qIdx + 1).split('#')[0] : '';
+    const params: Record<string, string> = {};
+    const pairs = query.split('&');
+    for (let i = 0; i < pairs.length; i++) {
+      const eq = pairs[i].indexOf('=');
+      if (eq > 0) {
+        const k = decodeURIComponent(pairs[i].substring(0, eq));
+        const v = decodeURIComponent(pairs[i].substring(eq + 1)).trim();
+        if (v.length > 0) { params[k] = v; }
+      }
+    }
+    const stateMatched = expectedState.trim().length > 0 && params['state'] === expectedState.trim();
+    const err = params['error'];
+    const code = stateMatched ? params['code'] : undefined;
+    return {
+      valid: stateMatched && !err && Boolean(code),
+      stateMatched: stateMatched,
+      code: code,
+      error: err,
+      errorDescription: params['error_description']
+    };
+  }
+
+  /** 将 `CF_Authorization=<token>` 安全合并入现有同源 Cookie 头（绝不覆盖 `resource_token`）。 */
+  static mergeCfAccessCookie(existingCookieHeader: string, cfToken: string): string {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.mergeCfAccessCookie) {
+        return RustCoreBridge.nativeLib.mergeCfAccessCookie(existingCookieHeader, cfToken);
+      }
+    } catch {
+      // fallback
+    }
+    const clean = cfToken.trim();
+    const parts: string[] = [];
+    const segs = existingCookieHeader.split(';');
+    for (let i = 0; i < segs.length; i++) {
+      const seg = segs[i].trim();
+      if (!seg) { continue; }
+      const name = seg.split('=')[0].trim().toLowerCase();
+      if (name === 'cf_authorization') { continue; }
+      parts.push(seg);
+    }
+    if (clean.length > 0) {
+      parts.push(`CF_Authorization=${clean}`);
+    }
+    return parts.join('; ');
   }
 }

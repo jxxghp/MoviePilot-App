@@ -186,11 +186,15 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
     if let accessToken {
       request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     }
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     do {
       let (bytes, raw) = try await session.bytes(for: request)
       defer { bytes.task.cancel() }
       guard let response = raw as? HTTPURLResponse, response.url == url else {
         throw APIError.invalidResponse
+      }
+      if CloudflareAccessProtocol.detectChallenge(response: response, requestURL: url).isChallenge {
+        throw APIError.cloudflareAccessRequired
       }
       switch response.statusCode {
       case 200: break
@@ -210,6 +214,11 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
             prefix.append(byte)
           }
         } catch {}
+        if CloudflareAccessProtocol.detectChallenge(
+          response: response, bodyData: prefix, requestURL: url
+        ).isChallenge {
+          throw APIError.cloudflareAccessRequired
+        }
         if APIClient.isTokenInvalidForbiddenBody(prefix) {
           throw APIError.unauthorized
         }
@@ -223,7 +232,20 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
       case 300..<400: throw APIError.redirectRefused
       default: throw APIError.httpStatus(response.statusCode)
       }
-      guard response.mimeType?.lowercased() == "application/json" else {
+      if response.mimeType?.lowercased() != "application/json" {
+        var htmlPrefix = Data()
+        htmlPrefix.reserveCapacity(1_024)
+        do {
+          for try await byte in bytes {
+            if htmlPrefix.count >= 4_096 { break }
+            htmlPrefix.append(byte)
+          }
+        } catch {}
+        if CloudflareAccessProtocol.detectChallenge(
+          response: response, bodyData: htmlPrefix, requestURL: url
+        ).isChallenge {
+          throw APIError.cloudflareAccessRequired
+        }
         throw APIError.invalidResponse
       }
       guard response.expectedContentLength <= Self.maximumBytes else {

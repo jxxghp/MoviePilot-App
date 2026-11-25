@@ -74,6 +74,8 @@
     "audio.setRate",
     "audio.setVolume",
     "audio.status",
+    "audio.setNowPlaying",
+    "audio.clearNowPlaying",
     "media.playNative"
   ],
   "deviceEventNames": [
@@ -82,7 +84,8 @@
     "audio.play.state",
     "audio.play.progress",
     "audio.play.ended",
-    "audio.play.error"
+    "audio.play.error",
+    "audio.remoteCommand"
   ],
   "visualTokens": {
     "requiredFields": [

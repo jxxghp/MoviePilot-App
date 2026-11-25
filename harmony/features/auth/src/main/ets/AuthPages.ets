@@ -1,8 +1,10 @@
+import { common, Want } from '@kit.AbilityKit';
 import {
   RustCoreBridge,
   MoviePilotRepository,
   NativeHuksStore,
-  SavedServerEntry
+  SavedServerEntry,
+  CloudflareAccessOAuthManager
 } from '@moviepilot/core_rust_bridge';
 import {
   CinematicPanel,
@@ -59,6 +61,9 @@ export struct HarmonyServerConnectionPage {
   @State private address: string = '';
   @State private errorText: string = '';
   @State private showLangSheet: boolean = false;
+  @State private cfBusy: boolean = false;
+  @State private cfAuthorized: boolean = false;
+  @State private cfStatusText: string = '';
   onBack: () => void = () => {};
   onConnectSuccess: (normalizedUrl: string, allowSelfSigned: boolean) => void = () => {};
   onSelectSaved: (entry: SavedServerEntry) => void = () => {};
@@ -192,6 +197,62 @@ export struct HarmonyServerConnectionPage {
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
         .onClick(() => this.tryConnect())
+
+      if (this.address.trim().length > 0) {
+        CinematicPanel({ panelPadding: 14 }) {
+          Column({ space: 10 }) {
+            Row({ space: 10 }) {
+              SymbolGlyph($r('sys.symbol.lock_shield'))
+                .fontSize(18)
+                .fontColor([this.cfAuthorized ? '#2FB36D' : this.accentHex])
+              Column({ space: 2 }) {
+                Text(
+                  this.cfBusy
+                    ? '正在进行 Cloudflare Access 认证...'
+                    : (this.cfAuthorized ? '重新进行 Cloudflare Access 认证' : '通过 Cloudflare Access 认证')
+                )
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(mpPrimaryText(this.isDark))
+                Text(
+                  this.cfStatusText ||
+                  (this.cfAuthorized
+                    ? '已获取同源网关凭据，不影响 MoviePilot 账号令牌'
+                    : '若服务位于 Cloudflare Access 网关后可先完成 OAuth 授权')
+                )
+                  .fontSize(11)
+                  .fontColor(this.cfAuthorized ? '#2FB36D' : mpSecondaryText(this.isDark))
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+
+              if (this.cfBusy) {
+                LoadingProgress().width(18).height(18).color(this.accentHex)
+              } else {
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(14)
+                  .fontColor([mpSecondaryText(this.isDark)])
+              }
+            }
+            .width('100%')
+            .onClick(() => {
+              if (!this.cfBusy) {
+                this.authenticateCloudflareAccess();
+              }
+            })
+
+            if (this.cfAuthorized && !this.cfBusy) {
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+              Text('清除 Cloudflare Access 授权')
+                .fontSize(13)
+                .fontColor(GeneratedDesignTokens.semanticColor('danger', this.isDark))
+                .width('100%')
+                .onClick(() => this.clearCloudflareAccess())
+            }
+          }
+          .width('100%')
+        }
+      }
 
       if (this.savedServers.length > 0) {
         Text('已保存的服务')
@@ -401,10 +462,44 @@ export struct HarmonyServerConnectionPage {
     try {
       const normalized = RustCoreBridge.normalizeServerAddress(this.address);
       MoviePilotRepository.shared().transport.setAllowSelfSigned(this.allowSelfSigned);
+      CloudflareAccessOAuthManager.shared().hydrateOrigin(normalized).catch(() => {});
       this.onConnectSuccess(normalized, this.allowSelfSigned);
     } catch (e) {
       this.errorText = (e as Error).message;
     }
+  }
+
+  private async authenticateCloudflareAccess(): Promise<void> {
+    this.cfBusy = true;
+    this.errorText = '';
+    this.cfStatusText = '';
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      await CloudflareAccessOAuthManager.shared().authenticate(
+        this.address,
+        this.allowSelfSigned,
+        (authorizeUrl: string) => {
+          const want: Want = {
+            action: 'ohos.want.action.viewData',
+            entities: ['entity.system.browsable'],
+            uri: authorizeUrl
+          };
+          ctx.startAbility(want).catch(() => {});
+        }
+      );
+      this.cfAuthorized = true;
+      this.cfStatusText = 'Cloudflare Access 认证成功';
+      this.tryConnect();
+    } catch (e) {
+      this.errorText = (e as Error).message || 'Cloudflare Access 认证失败';
+    }
+    this.cfBusy = false;
+  }
+
+  private async clearCloudflareAccess(): Promise<void> {
+    await CloudflareAccessOAuthManager.shared().clearSession(this.address);
+    this.cfAuthorized = false;
+    this.cfStatusText = '已清除 Cloudflare Access 授权';
   }
 }
 
@@ -436,6 +531,8 @@ export struct HarmonyLoginPage {
   @State private notice: string = '密码仅在本机加密安全保存，验证码不会保存。';
   @State private isError: boolean = false;
   @State private loading: boolean = false;
+  @State private cfBusy: boolean = false;
+  @State private cfAuthorized: boolean = false;
   onSwitchServer: () => void = () => {};
   onLoginSuccess: (token: string, userName: string, isSuperuser: boolean, avatar: string, keepLogin: boolean, userLevel?: number) => void = () => {};
 
@@ -449,6 +546,12 @@ export struct HarmonyLoginPage {
 
   private async hydrateSavedCredentials(): Promise<void> {
     if (!this.serverUrl) { return; }
+    try {
+      await CloudflareAccessOAuthManager.shared().hydrateOrigin(this.serverUrl);
+      this.cfAuthorized = CloudflareAccessOAuthManager.shared().hasSession(this.serverUrl);
+    } catch {
+      // ignore cf hydrate error
+    }
     try {
       const cred = await NativeHuksStore.shared().loadCredentials(this.serverUrl);
       if (cred) {
@@ -640,9 +743,98 @@ export struct HarmonyLoginPage {
         .fontWeight(FontWeight.Medium)
         .enabled(!this.loading)
         .onClick(() => this.submitLogin())
+
+      CinematicPanel({ panelPadding: 14 }) {
+        Column({ space: 10 }) {
+          Row({ space: 10 }) {
+            SymbolGlyph($r('sys.symbol.lock_shield'))
+              .fontSize(18)
+              .fontColor([this.cfAuthorized ? '#2FB36D' : this.accentHex])
+            Column({ space: 2 }) {
+              Text(
+                this.cfBusy
+                  ? '正在进行 Cloudflare Access 认证...'
+                  : (this.cfAuthorized ? '重新进行 Cloudflare Access 认证' : '通过 Cloudflare Access 认证')
+              )
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(mpPrimaryText(this.isDark))
+              Text(
+                this.cfAuthorized
+                  ? '已获取同源网关凭据，不影响 MoviePilot 账号令牌'
+                  : '若服务位于 Cloudflare Access 网关后可先完成 OAuth 授权'
+              )
+                .fontSize(11)
+                .fontColor(this.cfAuthorized ? '#2FB36D' : mpSecondaryText(this.isDark))
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+
+            if (this.cfBusy) {
+              LoadingProgress().width(18).height(18).color(this.accentHex)
+            } else {
+              SymbolGlyph($r('sys.symbol.chevron_right'))
+                .fontSize(14)
+                .fontColor([mpSecondaryText(this.isDark)])
+            }
+          }
+          .width('100%')
+          .onClick(() => {
+            if (!this.cfBusy) {
+              this.authenticateCloudflareAccess();
+            }
+          })
+
+          if (this.cfAuthorized && !this.cfBusy) {
+            Divider().color(HarmonyThemeColors.divider(this.isDark))
+            Text('清除 Cloudflare Access 授权')
+              .fontSize(13)
+              .fontColor(GeneratedDesignTokens.semanticColor('danger', this.isDark))
+              .width('100%')
+              .onClick(() => this.clearCloudflareAccess())
+          }
+        }
+        .width('100%')
+      }
     }
     .width('100%')
     .constraintSize({ maxWidth: 460 })
+  }
+
+  private async authenticateCloudflareAccess(): Promise<void> {
+    if (!this.serverUrl) { return; }
+    this.cfBusy = true;
+    this.isError = false;
+    try {
+      const ctx = getContext(this) as common.UIAbilityContext;
+      await CloudflareAccessOAuthManager.shared().authenticate(
+        this.serverUrl,
+        this.allowSelfSigned,
+        (authorizeUrl: string) => {
+          const want: Want = {
+            action: 'ohos.want.action.viewData',
+            entities: ['entity.system.browsable'],
+            uri: authorizeUrl
+          };
+          ctx.startAbility(want).catch(() => {});
+        }
+      );
+      this.cfAuthorized = true;
+      this.notice = 'Cloudflare Access 认证成功，请点击登录';
+      this.isError = false;
+    } catch (e) {
+      this.notice = (e as Error).message || 'Cloudflare Access 认证失败';
+      this.isError = true;
+    }
+    this.cfBusy = false;
+  }
+
+  private async clearCloudflareAccess(): Promise<void> {
+    if (!this.serverUrl) { return; }
+    await CloudflareAccessOAuthManager.shared().clearSession(this.serverUrl);
+    this.cfAuthorized = false;
+    this.notice = '已清除当前服务的 Cloudflare Access 授权';
+    this.isError = false;
   }
 
   build() {

@@ -220,9 +220,11 @@ struct NativeResourceSearchPage: View {
       NativeResourceAllFiltersSheet(results: results, filter: $filter)
     }
     .sheet(item: $selectedForDownload) { item in
+      let siblings = sameSpecSiblings(for: item)
       NativeDownloadConfirmSheet(
         session: session,
         item: item,
+        sameSpecVariants: siblings,
         targetMediaIdentity: targetIdentity
       ) { message in
         feedback = NativeResourceFeedback(isError: false, message: message)
@@ -836,6 +838,30 @@ struct NativeResourceSearchPage: View {
     }
   }
 
+  /// 查找当前检索结果中与选中种子同规格（同片名/季集/分辨率/版本/编码/制作组，且含主源）的候选站点源列表。
+  private func sameSpecSiblings(for primary: NativeResourceContext) -> [NativeResourceContext] {
+    func specKey(_ ctx: NativeResourceContext) -> String {
+      let titleKey =
+        (ctx.recognizedMediaTitle ?? ctx.torrent.title ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      let season = (ctx.meta?.seasonEpisode ?? "").lowercased()
+      let pix = ctx.pixBadge.lowercased()
+      let edition = (ctx.meta?.edition ?? "").lowercased()
+      let encode = (ctx.meta?.videoEncode ?? "").lowercased()
+      let team = (ctx.meta?.resourceTeam ?? "").lowercased()
+      return "\(titleKey)|\(season)|\(pix)|\(edition)|\(encode)|\(team)"
+    }
+    let primaryKey = specKey(primary)
+    guard !primaryKey.replacingOccurrences(of: "|", with: "").isEmpty else { return [primary] }
+    var out: [NativeResourceContext] = [primary]
+    for candidate in displayedResults where candidate.id != primary.id {
+      if specKey(candidate) == primaryKey {
+        out.append(candidate)
+      }
+    }
+    return out
+  }
+
   /// 优先展示种子自带站点名，单站浏览缺少 `site_name` 时回退到已加载站点列表名称。
   private func resolvedSiteName(for item: NativeResourceContext) -> String? {
     if let name = item.torrent.siteName?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1114,6 +1140,7 @@ private struct NativeResourceAllFiltersSheet: View {
 private struct NativeDownloadConfirmSheet: View {
   let session: NativeSession
   let item: NativeResourceContext
+  let sameSpecVariants: [NativeResourceContext]
   let targetMediaIdentity: NativeMediaIdentity?
   let onAdded: (String) -> Void
 
@@ -1123,8 +1150,29 @@ private struct NativeDownloadConfirmSheet: View {
   @State private var paths: [NativeDownloadPathOption] = []
   @State private var selectedDownloader = ""
   @State private var selectedPath = ""
+  @State private var selectedVariantIDs: Set<String>
   @State private var isSubmitting = false
   @State private var errorMessage: String?
+
+  init(
+    session: NativeSession,
+    item: NativeResourceContext,
+    sameSpecVariants: [NativeResourceContext] = [],
+    targetMediaIdentity: NativeMediaIdentity?,
+    onAdded: @escaping (String) -> Void
+  ) {
+    self.session = session
+    self.item = item
+    self.sameSpecVariants = sameSpecVariants.isEmpty ? [item] : sameSpecVariants
+    self.targetMediaIdentity = targetMediaIdentity
+    self.onAdded = onAdded
+    _selectedVariantIDs = State(initialValue: [item.id])
+  }
+
+  private var selectedVariants: [NativeResourceContext] {
+    let chosen = sameSpecVariants.filter { selectedVariantIDs.contains($0.id) }
+    return chosen.isEmpty ? [item] : chosen
+  }
 
   var body: some View {
     NavigationStack {
@@ -1222,6 +1270,69 @@ private struct NativeDownloadConfirmSheet: View {
                 .foregroundStyle(.secondary)
               }
               .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 同规格多站点源多选区（#60）
+            if sameSpecVariants.count > 1 {
+              VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                  Text("选择同规格站点源（已选 \(selectedVariants.count)/\(sameSpecVariants.count)）")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                  Spacer()
+                  Button(selectedVariantIDs.count == sameSpecVariants.count ? "仅选主源" : "全选") {
+                    if selectedVariantIDs.count == sameSpecVariants.count {
+                      selectedVariantIDs = [item.id]
+                    } else {
+                      selectedVariantIDs = Set(sameSpecVariants.map(\.id))
+                    }
+                  }
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(appearance.accentColor)
+                }
+                .padding(.horizontal, 6)
+                CinematicPanel(padding: 0) {
+                  VStack(spacing: 0) {
+                    ForEach(Array(sameSpecVariants.enumerated()), id: \.element.id) { idx, variant in
+                      if idx > 0 { CinematicFormDivider() }
+                      let checked = selectedVariantIDs.contains(variant.id)
+                      Button {
+                        if checked {
+                          if selectedVariantIDs.count > 1 {
+                            selectedVariantIDs.remove(variant.id)
+                          }
+                        } else {
+                          selectedVariantIDs.insert(variant.id)
+                        }
+                      } label: {
+                        HStack(spacing: 10) {
+                          Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                            .font(.body)
+                            .foregroundStyle(checked ? appearance.accentColor : .secondary)
+                          VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                              Text(variant.torrent.siteName ?? "未知站点")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                              if let promo = variant.promoBadge {
+                                NativeAdaptiveBadge(promo, tint: NativeTheme.success)
+                              }
+                            }
+                            Text("\(variant.sizeText) · 做种 \(variant.torrent.seeders ?? 0)")
+                              .font(.caption.monospacedDigit())
+                              .foregroundStyle(.secondary)
+                          }
+                          Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                      }
+                      .buttonStyle(.plain)
+                    }
+                  }
+                }
+              }
             }
 
             // iOS 原生分组选择下载器与保存目录（单行不换行）
@@ -1343,7 +1454,12 @@ private struct NativeDownloadConfirmSheet: View {
                 } else {
                   Image(systemName: "arrow.down.circle.fill").font(.body.weight(.semibold))
                 }
-                Text(isSubmitting ? "正在添加到下载器…" : "添加到下载")
+                Text(
+                  isSubmitting
+                    ? "正在添加到下载器…"
+                    : (selectedVariants.count > 1
+                      ? "批量添加到下载（\(selectedVariants.count) 个源）" : "添加到下载")
+                )
                   .font(.subheadline.weight(.bold))
               }
               .foregroundStyle(.white)
@@ -1399,23 +1515,38 @@ private struct NativeDownloadConfirmSheet: View {
     isSubmitting = true
     errorMessage = nil
     defer { isSubmitting = false }
-    do {
-      let body = try JSONEncoder().encode(
-        NativeDownloadAddRequest(
-          torrentIn: item.torrent,
-          mediaSource: targetMediaIdentity?.source ?? item.mediaInfo?.mediaSource
-            ?? item.torrent.mediaSource,
-          mediaID: targetMediaIdentity?.mediaID ?? item.mediaInfo?.mediaID ?? item.torrent.mediaID,
-          downloader: selectedDownloader.isEmpty ? nil : selectedDownloader,
-          savePath: selectedPath.isEmpty ? nil : selectedPath))
-      let endpoint = try APIEndpoint(path: ["download", "add"], method: .post, body: body)
-      try await session.perform(endpoint, requiring: .init(category: .search))
-      try Task.checkCancellation()
-      onAdded("已提交至下载队列。")
+    let targets = selectedVariants
+    var successCount = 0
+    var lastError: Error?
+    for targetItem in targets {
+      do {
+        let body = try JSONEncoder().encode(
+          NativeDownloadAddRequest(
+            torrentIn: targetItem.torrent,
+            mediaSource: targetMediaIdentity?.source ?? targetItem.mediaInfo?.mediaSource
+              ?? targetItem.torrent.mediaSource,
+            mediaID: targetMediaIdentity?.mediaID ?? targetItem.mediaInfo?.mediaID
+              ?? targetItem.torrent.mediaID,
+            downloader: selectedDownloader.isEmpty ? nil : selectedDownloader,
+            savePath: selectedPath.isEmpty ? nil : selectedPath))
+        let endpoint = try APIEndpoint(path: ["download", "add"], method: .post, body: body)
+        try await session.perform(endpoint, requiring: .init(category: .search))
+        try Task.checkCancellation()
+        successCount += 1
+      } catch is CancellationError {
+        return
+      } catch {
+        lastError = error
+      }
+    }
+    if successCount == targets.count {
+      onAdded(targets.count > 1 ? "已批量提交 \(successCount) 个源至下载队列。" : "已提交至下载队列。")
       dismiss()
-    } catch is CancellationError {
-      return
-    } catch {
+    } else if successCount > 0 {
+      onAdded("已成功提交 \(successCount)/\(targets.count) 个源，部分站点源提交失败。")
+      dismiss()
+    } else {
+      _ = lastError
       errorMessage = "添加下载失败，请检查下载器状态后重试。"
     }
   }

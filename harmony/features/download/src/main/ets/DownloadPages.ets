@@ -72,6 +72,8 @@ export struct HarmonyResourceSearchPage {
   @State private showFilterSheet: boolean = false;
   @State private showDownloadSheet: boolean = false;
   @State private selectedItem: MpResourceItem | null = null;
+  @State private sameSpecVariants: MpResourceItem[] = [];
+  @State private selectedVariantKeys: string[] = [];
   @State private downloaders: MpServiceConfig[] = [];
   @State private directories: MpDirectoryConfig[] = [];
   @State private selectedDownloader: string = '';
@@ -194,6 +196,39 @@ export struct HarmonyResourceSearchPage {
     return sorted;
   }
 
+  private parsePromotionFactors(label: string): number[] {
+    const clean = (label || '').trim().toUpperCase();
+    if (clean.includes('2X') && (clean.includes('免费') || clean.includes('FREE'))) { return [0.0, 2.0]; }
+    if (clean.includes('免费') || clean.includes('FREE')) { return [0.0, 1.0]; }
+    if (clean.includes('2X') && clean.includes('50')) { return [0.5, 2.0]; }
+    if (clean.includes('50')) { return [0.5, 1.0]; }
+    if (clean.includes('30')) { return [0.3, 1.0]; }
+    if (clean.includes('2X')) { return [1.0, 2.0]; }
+    return [1.0, 1.0];
+  }
+
+  private variantKeyOf(item: MpResourceItem): string {
+    return `${item.siteName}|${item.title}|${item.enclosure}|${item.sizeBytes}`;
+  }
+
+  private collectSameSpecVariants(primary: MpResourceItem): MpResourceItem[] {
+    const keyOf = (r: MpResourceItem): string =>
+      `${(r.resolution || '').toLowerCase()}|${(r.resourceType || '').toLowerCase()}|${(r.videoEncode || '').toLowerCase()}|${r.title.trim().toLowerCase().slice(0, 32)}`;
+    const primarySpec = keyOf(primary);
+    const out: MpResourceItem[] = [primary];
+    const seen = new Set<string>([this.variantKeyOf(primary)]);
+    const pool = this.filteredResources();
+    for (let i = 0; i < pool.length; i++) {
+      const cand = pool[i];
+      const ck = this.variantKeyOf(cand);
+      if (!seen.has(ck) && keyOf(cand) === primarySpec) {
+        seen.add(ck);
+        out.push(cand);
+      }
+    }
+    return out;
+  }
+
   private filteredResources(): MpResourceItem[] {
     if (this.resources.length === 0) {
       return [];
@@ -203,6 +238,7 @@ export struct HarmonyResourceSearchPage {
         const rustInputs: Record<string, Object>[] = [];
         for (let i = 0; i < this.resources.length; i++) {
           const r = this.resources[i];
+          const factors = this.parsePromotionFactors(r.volumeFactor);
           const itemObj: Record<string, Object> = {};
           itemObj['id'] = String(i);
           itemObj['title'] = r.title;
@@ -212,8 +248,10 @@ export struct HarmonyResourceSearchPage {
           itemObj['peers'] = r.peers;
           itemObj['resource_pix'] = r.resolution;
           itemObj['resource_type'] = r.resourceType;
+          itemObj['edition'] = r.resourceType;
           itemObj['video_encode'] = r.videoEncode;
-          itemObj['volume_factor'] = r.volumeFactor;
+          itemObj['downloadvolumefactor'] = factors[0];
+          itemObj['uploadvolumefactor'] = factors[1];
           itemObj['labels'] = r.volumeFactor.length > 0 ? [r.volumeFactor] : [];
           itemObj['description'] = r.description;
           itemObj['enclosure'] = r.enclosure;
@@ -500,6 +538,65 @@ export struct HarmonyResourceSearchPage {
             }
           }
 
+          if (this.sameSpecVariants.length > 1) {
+            Row() {
+              Text(`选择同规格站点源（已选 ${this.selectedVariantKeys.length}/${this.sameSpecVariants.length}）`)
+                .fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark))
+              Blank()
+              NativeAdaptivePill({
+                title: this.selectedVariantKeys.length === this.sameSpecVariants.length ? '仅选主源' : '全选',
+                selected: this.selectedVariantKeys.length === this.sameSpecVariants.length,
+                onTap: () => {
+                  if (this.selectedVariantKeys.length === this.sameSpecVariants.length) {
+                    const first = this.sameSpecVariants[0];
+                    this.selectedVariantKeys = first ? [this.variantKeyOf(first)] : [];
+                  } else {
+                    this.selectedVariantKeys = this.sameSpecVariants.map((v: MpResourceItem) => this.variantKeyOf(v));
+                  }
+                }
+              })
+            }.width('100%')
+
+            Column({ space: 6 }) {
+              ForEach(this.sameSpecVariants, (variant: MpResourceItem) => {
+                Row({ space: 8 }) {
+                  HarmonyEntityLogo({
+                    kind: 'site',
+                    value: variant.siteName,
+                    dataUri: this.siteIconForName(variant.siteName),
+                    logoSize: 18,
+                    cornerRadius: 5
+                  })
+                  Column({ space: 2 }) {
+                    Text(`${variant.siteName}${variant.volumeFactor ? ' · ' + variant.volumeFactor : ''}`)
+                      .fontSize(13).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                    Text(`${formatByteSize(variant.sizeBytes)} · 做种 ${variant.seeders}`)
+                      .fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                  }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                  Text(this.selectedVariantKeys.includes(this.variantKeyOf(variant)) ? '✓' : '○')
+                    .fontSize(15).fontWeight(FontWeight.Bold)
+                    .fontColor(this.selectedVariantKeys.includes(this.variantKeyOf(variant)) ? this.accentHex : mpSecondaryText(this.isDark))
+                }
+                .width('100%')
+                .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                .borderRadius(12)
+                .backgroundColor(this.selectedVariantKeys.includes(this.variantKeyOf(variant))
+                  ? HarmonyThemeColors.chipFill(this.isDark)
+                  : Color.Transparent)
+                .onClick(() => {
+                  const key = this.variantKeyOf(variant);
+                  if (this.selectedVariantKeys.includes(key)) {
+                    if (this.selectedVariantKeys.length > 1) {
+                      this.selectedVariantKeys = this.selectedVariantKeys.filter((k: string) => k !== key);
+                    }
+                  } else {
+                    this.selectedVariantKeys = [...this.selectedVariantKeys, key];
+                  }
+                })
+              }, (variant: MpResourceItem) => this.variantKeyOf(variant))
+            }.width('100%')
+          }
+
           Text('选择下载器').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor(mpSecondaryText(this.isDark)).width('100%')
           Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
             HarmonyEntityLogoPill({
@@ -548,17 +645,37 @@ export struct HarmonyResourceSearchPage {
       .scrollBar(BarState.Off)
       .layoutWeight(1)
 
-      Button(this.pushing ? '推送中…' : `推送至 ${this.selectedDownloader || '默认下载器'}`)
+      Button(this.pushing
+        ? '推送中…'
+        : (this.selectedVariantKeys.length > 1
+          ? `批量推送 ${this.selectedVariantKeys.length} 个源至 ${this.selectedDownloader || '默认下载器'}`
+          : `推送至 ${this.selectedDownloader || '默认下载器'}`))
         .width('100%').height(46).borderRadius(23)
         .backgroundColor(this.accentHex).fontColor(Color.White).fontWeight(FontWeight.Bold)
         .enabled(!this.pushing)
         .onClick(async () => {
           if (!this.selectedItem) { return; }
+          const targets = this.sameSpecVariants.filter((v: MpResourceItem) =>
+            this.selectedVariantKeys.includes(this.variantKeyOf(v))
+          );
+          const list = targets.length > 0 ? targets : [this.selectedItem];
           this.pushing = true;
-          const ok = await MoviePilotRepository.shared().pushDownload(this.selectedItem, this.selectedDownloader, this.savePath);
+          let okCount = 0;
+          for (let i = 0; i < list.length; i++) {
+            const ok = await MoviePilotRepository.shared().pushDownload(list[i], this.selectedDownloader, this.savePath);
+            if (ok) { okCount++; }
+          }
           this.pushing = false;
           this.showDownloadSheet = false;
-          this.notice = ok ? '已成功推送至下载器' : '推送失败，请检查下载器配置';
+          if (list.length === 1) {
+            this.notice = okCount === 1 ? '已成功推送至下载器' : '推送失败，请检查下载器配置';
+          } else if (okCount === list.length) {
+            this.notice = `已批量推送 ${okCount} 个源至下载器`;
+          } else if (okCount > 0) {
+            this.notice = `已推送 ${okCount}/${list.length} 个源，部分失败`;
+          } else {
+            this.notice = '批量推送失败，请检查下载器配置';
+          }
         })
     }.padding(20).width('100%').height('100%')
   }
@@ -734,6 +851,8 @@ export struct HarmonyResourceSearchPage {
               .width('100%')
               .onClick(() => {
                 this.selectedItem = row;
+                this.sameSpecVariants = this.collectSameSpecVariants(row);
+                this.selectedVariantKeys = [this.variantKeyOf(row)];
                 this.showDownloadSheet = true;
               })
             }

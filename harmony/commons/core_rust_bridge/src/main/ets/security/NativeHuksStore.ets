@@ -382,6 +382,24 @@ export class NativeHuksStore {
     await this.remove(`cred_${serverUrl}`);
   }
 
+  /** 使用 HUKS AES-GCM 加密保存指定规范化源的 Cloudflare Access OAuth 会话 JSON。 */
+  async saveCloudflareSessionJson(originKey: string, payloadJson: string): Promise<void> {
+    const encrypted = await this.encryptSecret(payloadJson);
+    await this.saveString(`cf_oauth_${originKey}`, encrypted);
+  }
+
+  /** 解密读取指定规范化源的 Cloudflare Access OAuth 会话 JSON。 */
+  async loadCloudflareSessionJson(originKey: string): Promise<string> {
+    const raw = await this.loadString(`cf_oauth_${originKey}`);
+    if (!raw) { return ''; }
+    return this.decryptSecret(raw);
+  }
+
+  /** 清除指定规范化源的 Cloudflare Access OAuth 会话。 */
+  async clearCloudflareSession(originKey: string): Promise<void> {
+    await this.remove(`cf_oauth_${originKey}`);
+  }
+
   /** 保存历史连接服务列表。 */
   async saveServersList(servers: SavedServerEntry[]): Promise<void> {
     await this.saveString(NativeHuksStore.KEY_SAVED_SERVERS, JSON.stringify(servers));
@@ -421,6 +439,10 @@ export class NativeHuksStore {
     await this.saveServersList(filtered);
     await this.clearToken(url);
     await this.clearCredentials(url);
+    const originMatch = /^(https?:\/\/[^\/\?#]+)/i.exec(url.trim());
+    if (originMatch && originMatch[1]) {
+      await this.clearCloudflareSession(originMatch[1].toLowerCase());
+    }
     return filtered;
   }
 

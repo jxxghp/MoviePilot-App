@@ -56,6 +56,7 @@ class MoviePilotRepository(context: Context) {
     private val appContext = context.applicationContext
     val secretStore = NativeSecretStore(appContext)
     val transport = NativeHttpTransport(allowSelfSignedTls = { secretStore.allowSelfSignedTls })
+    val cloudflareOAuth = CloudflareAccessOAuthManager(secretStore, transport)
     val playbackProgressReporter = PlaybackProgressReporter(appContext)
     val playbackRouteResolver = PlaybackRouteResolver(appContext)
     val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
@@ -96,6 +97,9 @@ class MoviePilotRepository(context: Context) {
     }
 
     init {
+        transport.cfAccessTokenProvider = { requestUrl ->
+            cloudflareOAuth.accessTokenForUrl(requestUrl)
+        }
         transport.onAuthClassified = { decision, _, _ ->
             if (decision == "logout" && _session.value is SessionState.Authenticated) {
                 logout("登录状态已过期，请重新登录")
@@ -226,6 +230,7 @@ class MoviePilotRepository(context: Context) {
     }
 
     fun forgetServer(url: String) {
+        cloudflareOAuth.clearSession(url)
         secretStore.forgetServer(url)
         _savedServers.value = secretStore.loadServers()
         if ((_session.value as? SessionState.NeedsLogin)?.serverUrl == url ||
@@ -252,6 +257,7 @@ class MoviePilotRepository(context: Context) {
             append("&password=").append(URLEncoder.encode(password, "UTF-8"))
             append("&otp_password=").append(URLEncoder.encode(otpPassword.trim(), "UTF-8"))
         }
+        cloudflareOAuth.refreshIfNeeded(serverUrl)
         val resp = runCatching {
             transport.execute(
                 url = url,
@@ -260,6 +266,11 @@ class MoviePilotRepository(context: Context) {
                 contentType = "application/x-www-form-urlencoded",
             )
         }.getOrElse { return LoginOutcome.Failure("无法连接到服务：${it.message ?: "网络异常"}") }
+
+        val cfChallenge = RustCoreBridge.detectCloudflareChallenge(resp.status, resp.headers, resp.body, url)
+        if (cfChallenge.isChallenge) {
+            return LoginOutcome.Failure("检测到 Cloudflare Access 网关拦截，请先点击下方「通过 Cloudflare Access 认证」")
+        }
 
         val root = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
         if (resp.status == 401) {
@@ -3509,18 +3520,20 @@ class MoviePilotRepository(context: Context) {
         return if (resp.status in 200..299 && resp.body.isNotBlank()) resp.body else null
     }
 
-    /** 为本地存储（`storage == "local"`）的音视频文件签发短期 Range 流票据（`POST /api/v1/mediaserver/stream-ticket`），实现边加载边播放。 */
-    suspend fun createLocalStreamTicket(
+    /** 为本地或支持渐进流式的远端存储（SMB / OpenList / 阿里云盘 / 115 等）音视频文件签发短期 Range 流票据（`POST /api/v1/mediaserver/stream-ticket`），实现边加载边播放。 */
+    suspend fun createStorageStreamTicket(
+        storage: String,
         path: String,
         fileName: String,
         mediaType: String,
     ): String? {
+        val cleanStorage = storage.trim().ifBlank { "local" }
         val cleanPath = path.trim()
         if (cleanPath.isBlank()) return null
         val resolvedName = fileName.trim().ifBlank { cleanPath.substringAfterLast('/') }
         val ext = resolvedName.substringAfterLast('.', "")
         val normalizedType = if (mediaType.equals("audio", ignoreCase = true)) "audio" else "video"
-        val payload = """{"file":{"storage":"local","type":"file","path":"${esc(cleanPath)}","name":"${esc(resolvedName)}","extension":"${esc(ext)}"},"media_type":"$normalizedType"}"""
+        val payload = """{"file":{"storage":"${esc(cleanStorage)}","type":"file","path":"${esc(cleanPath)}","name":"${esc(resolvedName)}","extension":"${esc(ext)}"},"media_type":"$normalizedType"}"""
         val resp = runCatching {
             authedRequest(listOf("mediaserver", "stream-ticket"), method = "POST", body = payload).getOrNull()
         }.getOrNull() ?: return null
@@ -3528,6 +3541,13 @@ class MoviePilotRepository(context: Context) {
         val obj = extractObject(resp.body) ?: return null
         return obj.str("item_id")?.takeIf { it.isNotBlank() }
     }
+
+    /** 兼容旧调用签名（本地存储流票据）。 */
+    suspend fun createLocalStreamTicket(
+        path: String,
+        fileName: String,
+        mediaType: String,
+    ): String? = createStorageStreamTicket("local", path, fileName, mediaType)
 
     /** 下载本地或云盘存储文件至应用受管缓存目录供 ExoPlayer 无缝直放（云盘或旧版后端兼容回退）。 */
     suspend fun downloadStorageFileToCache(
@@ -3548,8 +3568,8 @@ class MoviePilotRepository(context: Context) {
 
     /**
      * 解析并准备存储音视频文件起播源：
-     * - 本地存储（`storage == "local"`）优先通过 `POST /api/v1/mediaserver/stream-ticket` + `stream-info` 获取 HTTP Range 流地址与同名 LRC 歌词，实现边加载边播放；
-     * - 云盘存储或旧版后端回退 `POST /api/v1/storage/download`：`.strm` 仅读取 `<= 64KB` 文本并立即删除临时文件，其余返回受管缓存 `file://` URI。
+     * - 所有非 `.strm` 存储文件均优先通过 `POST /api/v1/mediaserver/stream-ticket` + `stream-info` 获取 HTTP Range 流地址与同名 LRC 歌词，实现边加载边播放；
+     * - `.strm` 指针文件、不支持在线流式的存储或旧版后端自动回退 `POST /api/v1/storage/download`。
      */
     suspend fun resolveStoragePlayback(
         storage: String,
@@ -3559,8 +3579,13 @@ class MoviePilotRepository(context: Context) {
     ): ResolvedStoragePlaybackDto? {
         val fileName = path.substringAfterLast('/').ifBlank { destFile.name }
         val detectedKind = fallbackKind ?: RustCoreBridge.detectMediaKind(path, false)
-        if (storage.trim().equals("local", ignoreCase = true)) {
-            val ticketId = createLocalStreamTicket(
+        val normalizedStorage = storage.trim().ifBlank { "local" }
+        val shouldTryStreamTicket =
+            normalizedStorage.equals("local", ignoreCase = true) ||
+                (!RustCoreBridge.isStrmPath(fileName) && !RustCoreBridge.isStrmPath(path))
+        if (shouldTryStreamTicket) {
+            val ticketId = createStorageStreamTicket(
+                storage = normalizedStorage,
                 path = path,
                 fileName = fileName,
                 mediaType = if (detectedKind == "audio") "audio" else "video",
@@ -3663,7 +3688,14 @@ class MoviePilotRepository(context: Context) {
         val resp = runCatching {
             authedRequest(listOf("mediaserver", "progress"), method = "POST", body = body).getOrNull()
         }.getOrNull() ?: return false
-        return resp.status in 200..299
+        if (resp.status !in 200..299) return false
+        // 核验响应体中的 `success` 与 `data.reported` 字段，避免 Emby 写入失败仍被当作成功从而跳过离线重试
+        val rootObj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull() ?: return true
+        val apiSuccess = rootObj.bool("success")
+        if (apiSuccess == false) return false
+        val dataObj = rootObj["data"]?.asObj()
+        val reported = dataObj?.bool("reported")
+        return reported ?: true
     }
 
     /** 查询当前用户在全部已启用媒体服务器上的账号绑定状态与同步模式（`GET /api/v1/mediaserver/account-bindings`）。 */

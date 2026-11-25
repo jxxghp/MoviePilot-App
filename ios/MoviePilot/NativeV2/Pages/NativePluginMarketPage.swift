@@ -42,9 +42,8 @@ struct NativePluginMarketPage: View {
   @State private var reloadToken = 0
   @State private var mutatingID: String?
 
-  @State private var showsMarketPage = false
-  @State private var formSelection: FormSelection?
-  @State private var dataPageSelection: NativeMarketPluginRecord?
+  @State private var activeDestination: MarketDestination?
+  @State private var isDestinationPresented = false
   @State private var vueSheetTarget: VueSheetTarget?
   @State private var detailTarget: NativeMarketPluginRecord?
   @State private var versionHistoryTarget: NativeMarketPluginRecord?
@@ -61,9 +60,11 @@ struct NativePluginMarketPage: View {
   @State private var containerWidth: CGFloat = 0
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-  private struct FormSelection {
-    let plugin: NativeInstalledPlugin
-    let form: NativePluginForm
+  /// 合并单一导航目标，规避 iOS 16 `NavigationStack` 多个 `.navigationDestination(isPresented:)` 与内联 `Binding(get:set:)` 导致的属性图死循环卡死。
+  private enum MarketDestination {
+    case store
+    case form(NativeInstalledPlugin)
+    case dataPage(NativeMarketPluginRecord)
   }
 
   private struct VueSheetTarget: Identifiable {
@@ -130,7 +131,7 @@ struct NativePluginMarketPage: View {
       .toolbar {
         ToolbarItem(placement: .topBarTrailing) {
           Button {
-            showsMarketPage = true
+            navigate(to: .store)
           } label: {
             Image(systemName: "storefront")
           }
@@ -143,29 +144,27 @@ struct NativePluginMarketPage: View {
             .tint(.primary)
         }
       }
-      .navigationDestination(isPresented: $showsMarketPage) {
-        NativePluginStorePage(session: session) {
-          reloadToken += 1
+      .navigationDestination(isPresented: $isDestinationPresented) {
+        if let activeDestination {
+          switch activeDestination {
+          case .store:
+            NativePluginStorePage(session: session) {
+              reloadToken += 1
+            }
+          case .form(let plugin):
+            NativePluginLazyFormDestination(session: session, plugin: plugin)
+              .id(plugin.id)
+          case .dataPage(let plugin):
+            NativePluginDataPageView(
+              session: session, pluginID: plugin.id, pluginName: plugin.displayName
+            )
+            .id(plugin.id)
+          }
         }
       }
-      .navigationDestination(
-        isPresented: Binding(
-          get: { formSelection != nil }, set: { if !$0 { formSelection = nil } })
-      ) {
-        if let formSelection {
-          NativePluginFormView(plugin: formSelection.plugin, form: formSelection.form)
-            .id(formSelection.plugin.id)
-        }
-      }
-      .navigationDestination(
-        isPresented: Binding(
-          get: { dataPageSelection != nil }, set: { if !$0 { dataPageSelection = nil } })
-      ) {
-        if let plugin = dataPageSelection {
-          NativePluginDataPageView(
-            session: session, pluginID: plugin.id, pluginName: plugin.displayName
-          )
-          .id(plugin.id)
+      .onChange(of: isDestinationPresented) { presented in
+        if !presented {
+          activeDestination = nil
         }
       }
       .sheet(item: $vueSheetTarget) { target in
@@ -387,7 +386,7 @@ struct NativePluginMarketPage: View {
         vueSheetTarget = VueSheetTarget(
           plugin: plugin, surface: plugin.hasPage ? .dataPage : .config)
       } else if plugin.hasPage {
-        dataPageSelection = plugin
+        navigate(to: .dataPage(plugin))
       } else {
         openForm(for: plugin)
       }
@@ -399,7 +398,7 @@ struct NativePluginMarketPage: View {
             if plugin.isVuePlugin {
               vueSheetTarget = VueSheetTarget(plugin: plugin, surface: .dataPage)
             } else {
-              dataPageSelection = plugin
+              navigate(to: .dataPage(plugin))
             }
           }
         } label: {
@@ -524,7 +523,7 @@ struct NativePluginMarketPage: View {
         Text(installedPlugins.isEmpty ? "尚未安装任何插件" : "暂无匹配的已安装插件")
           .font(.headline)
         Button {
-          showsMarketPage = true
+          navigate(to: .store)
         } label: {
           Label("前往插件市场探索", systemImage: "storefront")
             .font(.subheadline.weight(.semibold))
@@ -623,6 +622,11 @@ struct NativePluginMarketPage: View {
     }
   }
 
+  private func navigate(to destination: MarketDestination) {
+    activeDestination = destination
+    isDestinationPresented = true
+  }
+
   private func openForm(for record: NativeMarketPluginRecord) {
     do {
       let normalizedSource =
@@ -639,9 +643,7 @@ struct NativePluginMarketPage: View {
         state: record.state,
         hasPage: record.hasPage
       )
-      let form = try NativePluginForm(
-        session: session, target: installed.target, validator: NativeFormValidator())
-      formSelection = FormSelection(plugin: installed, form: form)
+      navigate(to: .form(installed))
     } catch {
       feedback = NativePluginMarketFeedback(isError: true, message: "无法打开该插件的配置表单。")
     }

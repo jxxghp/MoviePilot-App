@@ -1,5 +1,7 @@
 package com.moviepilot.feature.auth
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,6 +65,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -93,12 +96,18 @@ fun ServerConnectionScreen(
     onToggleSelfSignedTls: (Boolean) -> Unit = {},
     currentServerUrl: String? = null,
     onBack: (() -> Unit)? = null,
+    repository: MoviePilotRepository? = null,
 ) {
     val colors = LocalMoviePilotColors.current
     val cfg = LocalConfiguration.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val isShortWideLandscape = cfg.screenWidthDp >= 640 && cfg.screenHeightDp < 520
     var address by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var cfAuthBusy by remember { mutableStateOf(false) }
+    var cfStatusNotice by remember { mutableStateOf<String?>(null) }
+    var cfRevision by remember { mutableStateOf(0) }
 
     @Composable
     fun ServerFormColumn() {
@@ -185,6 +194,44 @@ fun ServerConnectionScreen(
                     onConnect(address).onFailure { errorMessage = it.message ?: "服务地址无效" }
                 },
             )
+
+            if (repository != null && canConnect) {
+                val hasCf = remember(address, cfRevision) { repository.cloudflareOAuth.hasSession(address) }
+                Spacer(Modifier.height(12.dp))
+                CloudflareAccessCard(
+                    hasSession = hasCf,
+                    busy = cfAuthBusy,
+                    notice = cfStatusNotice,
+                    onAuthenticate = {
+                        scope.launch {
+                            cfAuthBusy = true
+                            cfStatusNotice = null
+                            errorMessage = null
+                            val res = repository.cloudflareOAuth.authenticate(address) { authUrl ->
+                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(browserIntent)
+                            }
+                            cfAuthBusy = false
+                            res.fold(
+                                onSuccess = {
+                                    cfRevision++
+                                    cfStatusNotice = "Cloudflare Access 认证成功"
+                                    onConnect(address).onFailure { errorMessage = it.message ?: "服务地址无效" }
+                                },
+                                onFailure = { err ->
+                                    errorMessage = err.message ?: "Cloudflare Access 认证失败"
+                                },
+                            )
+                        }
+                    },
+                    onClear = {
+                        repository.cloudflareOAuth.clearSession(address)
+                        cfRevision++
+                        cfStatusNotice = "已清除当前服务的 Cloudflare Access 授权"
+                    },
+                )
+            }
 
             if (savedServers.isNotEmpty()) {
                 Spacer(Modifier.height(if (isShortWideLandscape) 20.dp else 32.dp))
@@ -371,6 +418,7 @@ fun LoginScreen(
 ) {
     val colors = LocalMoviePilotColors.current
     val cfg = LocalConfiguration.current
+    val context = LocalContext.current
     val isShortWideLandscape = cfg.screenWidthDp >= 640 && cfg.screenHeightDp < 520
     val scope = rememberCoroutineScope()
     var username by remember { mutableStateOf("") }
@@ -383,6 +431,8 @@ fun LoginScreen(
     var allowSelfSigned by remember { mutableStateOf(repository.secretStore.allowSelfSignedTls) }
     var loading by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf(initialNotice) }
+    var cfAuthBusy by remember { mutableStateOf(false) }
+    var cfRevision by remember { mutableStateOf(0) }
 
     LaunchedEffect(serverUrl) {
         repository.secretStore.loadCredentials(serverUrl)?.let { (u, p) ->
@@ -561,6 +611,39 @@ fun LoginScreen(
                     }
                 },
             )
+            Spacer(Modifier.height(12.dp))
+            val hasCf = remember(serverUrl, cfRevision) { repository.cloudflareOAuth.hasSession(serverUrl) }
+            CloudflareAccessCard(
+                hasSession = hasCf,
+                busy = cfAuthBusy,
+                notice = null,
+                onAuthenticate = {
+                    scope.launch {
+                        cfAuthBusy = true
+                        notice = null
+                        val res = repository.cloudflareOAuth.authenticate(serverUrl) { authUrl ->
+                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(browserIntent)
+                        }
+                        cfAuthBusy = false
+                        res.fold(
+                            onSuccess = {
+                                cfRevision++
+                                notice = "Cloudflare Access 认证成功，请点击登录"
+                            },
+                            onFailure = { err ->
+                                notice = err.message ?: "Cloudflare Access 认证失败"
+                            },
+                        )
+                    }
+                },
+                onClear = {
+                    repository.cloudflareOAuth.clearSession(serverUrl)
+                    cfRevision++
+                    notice = "已清除当前服务的 Cloudflare Access 授权"
+                },
+            )
             Spacer(Modifier.height(if (isShortWideLandscape) 20.dp else 36.dp))
         }
     }
@@ -654,6 +737,92 @@ fun LoginScreen(
             ServerStatusChip()
             Spacer(Modifier.height(22.dp))
             LoginFormColumn()
+        }
+    }
+}
+
+@Composable
+private fun CloudflareAccessCard(
+    hasSession: Boolean,
+    busy: Boolean,
+    notice: String?,
+    onAuthenticate: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    CinematicPanel(padding = 14.dp) {
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !busy, onClick = onAuthenticate),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.Key,
+                    contentDescription = null,
+                    tint = if (hasSession) colors.success else colors.accent,
+                    modifier = Modifier.size(19.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = when {
+                            busy -> "正在进行 Cloudflare Access 认证..."
+                            hasSession -> "重新进行 Cloudflare Access 认证"
+                            else -> "通过 Cloudflare Access 认证"
+                        },
+                        color = colors.textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        text = notice ?: if (hasSession) {
+                            "已获取同源网关凭据，不影响 MoviePilot 账号令牌"
+                        } else {
+                            "若服务部署在 Cloudflare Access 后可先完成 OAuth 授权"
+                        },
+                        color = if (hasSession) colors.success else colors.textMuted,
+                        fontSize = 11.5.sp,
+                    )
+                }
+                if (busy) {
+                    CircularProgressIndicator(
+                        color = colors.accent,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(18.dp),
+                    )
+                } else {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                    )
+                }
+            }
+            if (hasSession && !busy) {
+                HorizontalDivider(color = colors.divider)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onClear)
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.DeleteOutline,
+                        contentDescription = null,
+                        tint = colors.danger,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = "清除 Cloudflare Access 授权",
+                        color = colors.danger,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
         }
     }
 }
