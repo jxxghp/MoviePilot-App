@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: '需要同版本重建或发布的 Release 标签（如 v2.0.3）'
+        description: '需要同版本重建或发布的 Release 标签（如 v2.0.4）'
         required: true
         type: string
-        default: v2.0.3
+        default: v2.0.4
       rebuild_existing:
         description: '若该标签 Release 已存在，确认覆盖更新其三端安装包与校验文件'
         required: true

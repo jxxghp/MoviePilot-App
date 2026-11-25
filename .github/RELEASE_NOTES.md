@@ -1,29 +1,28 @@
-MoviePilot 现已全面提供 **iOS / iPadOS**、**Android** 与 **HarmonyOS NEXT** 三端全原生客户端（统一版本 **`2.0.3`**），基于 Rust 共享业务内核直连 MoviePilot V3 后端，带来一致的核心功能闭环与地道原生界面体验。
+MoviePilot 现已全面提供 **iOS / iPadOS**、**Android** 与 **HarmonyOS NEXT** 三端全原生客户端（统一版本 **`2.0.4`**），基于 Rust 共享业务内核直连 MoviePilot V3 后端，带来一致的核心功能闭环与地道原生界面体验。
 
 ### 本版本核心亮点
 
-- **三端 `.strm` 直链播放与全链路音视频对齐**：
-  - iOS、Android、HarmonyOS NEXT 全面支持媒体服务器（Emby / Jellyfin / 绿联影视 / 极空间 / 本地库）、文件管理、整理历史、订阅文件、`moviepilot://play` DeepLink 及系统外部打开 `.strm` 直链播放，支持请求头提取、跨源鉴权隔离与服务端代理流自动兜底。
-  - Android（Media3 ExoPlayer + MediaSessionService）与 HarmonyOS NEXT（AVPlayer + AVSession + PiPWindow）音视频播放能力与 iOS 1:1 对齐，涵盖音轨/外挂与内封字幕切换、LRC 同步歌词、锁屏与通知栏播控、画中画、手势调节及双端播放进度同步。
-- **三端信息架构精简与统一**：
-  - 移除三端「更多」页面中重复的「站点管理」（归属「设置」页）、「追剧日历」与「订阅广场」（归属「订阅」页）入口，聚焦资源媒体流转、插件工作流与系统诊断三大核心分区。
-- **iOS / iPadOS 全原生体验**：
-  - 默认主题切换为「极简石墨」，并深度校准「星夜紫玫」深丝绒渐变与中性通透玻璃卡片质感；订阅页顶部排期与筛选交互去重，订阅广场与日历收敛至右上角快捷入口。
-  - 全面适配 **iPhone**（Liquid Glass 4+1 悬浮导航）、**iPad**（`sidebarAdaptable` 侧边栏工作台与多列 Bento 自适应栅格）及 **iPhone Duo** 竖向侧边操作区。
-- **Android 全原生客户端（Jetpack Compose + Material 3 Expressive）**：
-  - 采用 Material 3 Expressive 视觉体系、圆角悬浮/侧栏自适应导航、统一大胶囊分页栏（`ExpressivePillTabRow`）、Material You 动态取色与 AMOLED 纯黑模式。
-  - 完整对齐发现模块编排、媒体库浏览、探索与全局搜索、全量订阅规则与追剧日历、PT 站点多维筛选与下载控制、多存储文件管理与手动整理、工作流画布、AI 智能助手流式对话、原生 JSON/Vue 插件生态及「我的」页置顶 3D 社区勋章。
-- **HarmonyOS NEXT 全原生客户端（ArkTS / ArkUI + 动态光感）**：
-  - 采用 HarmonyOS 动态光感材质（支持 API 26 旗舰沉浸材质与多代际平滑回退）、无遮挡渐进模糊沉浸顶栏、原生 `bindSheet` 半模态与一多宽屏侧栏。
-  - 完整打通 HUKS 安全会话持久化、同源凭据隔离、全业务场景闭环、常驻迷你音乐续播、「我的」页置顶 3D 社区勋章检视佩戴与全场景品牌 Logo。
+- **媒体服务器优先直连播放与跨端实时进度同步**：
+  - 支持客户端探测并优先直连媒体服务器（LAN / WAN 媒体流直通），当不具备直连条件或探测超时时自动平滑回退至 MoviePilot 后台代理流，显著降低中转服务器带宽压力。
+  - 新增媒体服务器账号绑定与三端实时播放进度同步（起播、定时心跳、暂停、拖拽与停止上报），多端无缝续播。
+- **三端多内核播放引擎升级**：
+  - 在「设置 → 播放偏好」中提供播放引擎、解码模式、缓冲策略、夜间人声增强、字幕缩放与外部播放器模板等可持久化配置，并在播放器内支持多内核热切换（iOS 支持 AVPlayer / MPV / VLCKit，Android 支持 Media3 / MPV，HarmonyOS NEXT 支持原生 AVPlayer 与增强路由）。
+  - 本地与存储音频全面支持基于 HTTP Range 票据的边加载边播放与锁屏播控体验，同时优化 SMB 存储流式下载兼容性。
+- **三端原生弹幕系统**：
+  - 视频播放器内置原生弹幕渲染层，支持后端弹幕配置、剧集匹配与手动切换、开关控制、字号/透明度/速度/显示区域/时间偏移调节以及画中画自动避让，并对旧版后端提供友好升级提示。
+- **Vue 联邦插件本地预热运行时与全量原生能力桥接**：
+  - 推出零前端端口依赖的本地预热联邦运行时（`mp-plugin://shell/`），通过热池复用、实例隔离磁盘缓存、零令牌原生代发 API 与四层透明视觉融合大幅提升插件首开速度与视觉一致性，并保留兼容网页容器一键回退开关。
+  - 全面向 Vue 联邦插件开放移动端本地原生能力（录音、流式音频播放与锁屏播控、相机拍照、相册/文件读写、剪贴板、震动、屏幕常亮、原生 Toast/确认框与标题栏动作桥接），优化移动端竖屏响应式布局。
+- **稳定性与网络认证专项修复**：
+  - 全面修复并关闭本期全部 GitHub Issues（`#51`、`#53`–`#61`）：新增 Cloudflare Access OAuth 认证与同源凭据透传（含弹幕与插件音频链路）、优化资源搜索下载弹窗与 Android 本地目录浏览、改进 iOS APNs 推送设置体验、强化播放内核稳定性与旧版后端向后兼容。
 
 ### 安装包说明
 
 | 平台 | 版本 | 产物文件 | 适用设备与安装说明 |
 | :--- | :--- | :--- | :--- |
-| **iOS / iPadOS** | `2.0.3` | `MoviePilot-2.0.3-ios-unsigned.ipa` | 需要 **iOS 16+**（小组件需 iOS 17+），下载后使用个人或企业证书重签安装（重签小组件请保持一致的 App Groups）。 |
-| **Android（推荐）** | `2.0.3` | `MoviePilot-2.0.3-android-arm64-v8a.apk` | 适用于绝大多数现代 64 位 ARM 手机与平板（**Android 10 / API 29+**），体积更小，可直接安装。 |
-| **Android（通用）** | `2.0.3` | `MoviePilot-2.0.3-android-universal.apk` | 同时包含 `arm64-v8a`、`armeabi-v7a` 与 `x86_64` 架构，兼容 32 位旧设备、电视盒子与桌面模拟器。 |
-| **HarmonyOS NEXT** | `2.0.3` | `MoviePilot-2.0.3-harmony-unsigned.hap` | 适用于 **HarmonyOS NEXT（API 12+）**，供开发者使用 DevEco Studio / 签名工具配置证书后安装至真机或模拟器。 |
+| **iOS / iPadOS** | `2.0.4` | `MoviePilot-2.0.4-ios-unsigned.ipa` | 需要 **iOS 16+**（小组件需 iOS 17+），下载后使用个人或企业证书重签安装（重签小组件请保持一致的 App Groups）。 |
+| **Android（推荐）** | `2.0.4` | `MoviePilot-2.0.4-android-arm64-v8a.apk` | 适用于绝大多数现代 64 位 ARM 手机与平板（**Android 10 / API 29+**），体积更小，可直接安装。 |
+| **Android（通用）** | `2.0.4` | `MoviePilot-2.0.4-android-universal.apk` | 同时包含 `arm64-v8a`、`armeabi-v7a` 与 `x86_64` 架构，兼容 32 位旧设备、电视盒子与桌面模拟器。 |
+| **HarmonyOS NEXT** | `2.0.4` | `MoviePilot-2.0.4-harmony-unsigned.hap` | 适用于 **HarmonyOS NEXT（API 12+）**，供开发者使用 DevEco Studio / 签名工具配置证书后安装至真机或模拟器。 |
 
 Release 同时提供统一校验文件 `SHA256SUMS`。
