@@ -22,10 +22,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     NotificationService.shared.registered(deviceToken)
   }
 
-  /// 免费签名缺少能力等注册错误转为可操作提示，主屏幕通知仍可使用。
+  /// 系统 APNs 注册失败时记录可恢复原因，并在推送设置页展示给用户。
   func application(
     _ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error
   ) {
-    NotificationService.shared.failedRegistration()
+    NotificationService.shared.failedRegistration(error)
   }
 }

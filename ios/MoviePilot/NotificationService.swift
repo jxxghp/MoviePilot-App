@@ -23,6 +23,14 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
   private var identityProbe: Task<Void, Never>?
   private var identityProbeID = UUID()
   private var lastHandledNotificationID: String?
+  private var tokenWaiters: [CheckedContinuation<String?, Never>] = []
+
+  /// `/api/v1/notification/app` 完整响应包：保留 `success == false` 时的服务端中文提示。
+  private struct AppPushResponseEnvelope: Decodable, Sendable {
+    let success: Bool
+    let message: String?
+    let data: [String: JSONValue]?
+  }
 
   /// 发布包默认生产 APNs；开发签名须在构建时选择与描述文件一致的环境。
   var environment: String? {
@@ -106,11 +114,11 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     }
   }
 
-  /// 原生直连 `POST /api/v1/notification/app`。
+  /// 原生直连 `POST /api/v1/notification/app`（仅支持原生 APNs 动作，移除旧 WebPush 配对分支）。
   func nativeRequest(
     session: NativeSession, action: String, extra: [String: String] = [:]
   ) async throws -> [String: JSONValue] {
-    guard ["status", "pair", "register", "unregister", "test"].contains(action) else {
+    guard ["status", "register", "unregister", "test"].contains(action) else {
       throw NotificationFailure(message: L10n.text("不支持的通知操作。"))
     }
     var payload = extra
@@ -118,8 +126,38 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     payload["installation"] = Self.installation
     payload["origin"] = String(session.instance.address.url.absoluteString.dropLast())
     let body = try JSONEncoder().encode(payload)
-    let endpoint = try APIEndpoint(path: ["notification", "app"], method: .post, body: body)
-    return try await session.request(endpoint, as: [String: JSONValue].self).value
+    let endpoint = try APIEndpoint(
+      path: ["notification", "app"], method: .post, body: body, responseContract: .payload)
+    let envelope = try await session.request(endpoint, as: AppPushResponseEnvelope.self).value
+    guard envelope.success else {
+      let reason = envelope.message?.trimmingCharacters(in: .whitespacesAndNewlines)
+      throw NotificationFailure(
+        message: reason?.isEmpty == false ? reason! : L10n.text("后端通知服务返回失败，请检查 AppPush 渠道配置。"))
+    }
+    return envelope.data ?? [:]
+  }
+
+  /// 校验后端 `status` 响应中是否已注册当前安装的 APNs 设备令牌（兼容真实 `devices` 列表与测试夹具）。
+  static func isCurrentAPNsDeviceRegistered(
+    in data: [String: JSONValue],
+    installation: String = NotificationService.installation
+  ) -> Bool {
+    if case .array(let devices) = data["devices"] {
+      return devices.contains { entry in
+        guard case .object(let obj) = entry,
+          case .string(let inst) = obj["installation"],
+          inst == installation
+        else { return false }
+        if case .string(let transport) = obj["transport"] {
+          return transport.lowercased() == "apns"
+        }
+        return true
+      }
+    }
+    if case .bool(let registered) = data["registered"] {
+      return registered
+    }
+    return false
   }
 
   /// 登录状态从现有已认证接口确认，不能信任推送正文声称的当前用户。
@@ -134,9 +172,11 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     }
   }
 
-  /// 显式开启时先复查渠道与账号，再申请权限；配置失败不能误报未登录或消耗系统授权。
+  /// 显式开启 APNs 推送：核验后端 AppPush 渠道 -> 申请系统通知授权 -> 获取本机 APNs 令牌并同步完成服务端注册。
   func enable() async -> String {
-    guard environment != nil else { return L10n.text("当前安装使用主屏幕通知。") }
+    guard environment != nil else {
+      return L10n.text("当前安装包签名未启用 APNs 推送能力，请使用支持推送能力的证书签名后开启。")
+    }
     guard let session = nativeSession else { return L10n.text("请先完成服务登录。") }
     do {
       let data = try await nativeRequest(session: session, action: "status")
@@ -150,30 +190,74 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
           .alert, .sound, .badge,
         ])
       else {
-        return L10n.text("系统通知未开启，可前往设置允许通知。")
+        return L10n.text("系统通知未开启，可前往系统设置允许通知。")
       }
       guard self.nativeSession === session, preferenceKey == key else {
         return L10n.text("登录状态已改变，请重新打开通知设置。")
       }
       UserDefaults.standard.set(true, forKey: key)
       registrationError = nil
-      UIApplication.shared.registerForRemoteNotifications()
-      return L10n.text("已向系统申请推送令牌，稍后刷新查看绑定状态。")
+      guard await requestDeviceToken(timeoutSeconds: 10) != nil else {
+        return registrationError
+          ?? L10n.text("未能从 Apple 获取本机 APNs 令牌，请确认签名已包含推送能力且网络畅通后重试。")
+      }
+      if let bindFailure = await bindToken() {
+        return bindFailure
+      }
+      return L10n.text("已开启 APNs 推送，本机设备已成功注册到服务端。")
     } catch let error as NotificationFailure {
       return error.localizedDescription
-    } catch { return L10n.text("无法开启系统通知，请检查通知服务与系统设置。") }
+    } catch { return L10n.text("无法开启系统通知，请检查后端 AppPush 渠道与系统设置。") }
+  }
+
+  /// 向 Apple 申请本机 APNs 设备令牌并等待回调，避免界面在注册完成前就提前刷新状态。
+  private func requestDeviceToken(timeoutSeconds: UInt64) async -> String? {
+    if let existing = token, !existing.isEmpty {
+      UIApplication.shared.registerForRemoteNotifications()
+      return existing
+    }
+    let timeoutTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(timeoutSeconds))
+      self?.resumeTokenWaiters(with: nil)
+    }
+    defer { timeoutTask.cancel() }
+    return await withCheckedContinuation { continuation in
+      tokenWaiters.append(continuation)
+      UIApplication.shared.registerForRemoteNotifications()
+    }
+  }
+
+  /// 统一唤醒等待系统 APNs 令牌回调的挂起任务。
+  private func resumeTokenWaiters(with value: String?) {
+    guard !tokenWaiters.isEmpty else { return }
+    let waiters = tokenWaiters
+    tokenWaiters.removeAll()
+    for waiter in waiters {
+      waiter.resume(returning: value)
+    }
   }
 
   /// Apple 令牌可能随重装或恢复改变，每次回调都覆盖当前安装绑定。
   func registered(_ data: Data) {
-    token = data.map { String(format: "%02x", $0) }.joined()
+    let hex = data.map { String(format: "%02x", $0) }.joined()
+    token = hex
     registrationError = nil
-    Task { [weak self] in await self?.bindToken() }
+    let hadWaiters = !tokenWaiters.isEmpty
+    resumeTokenWaiters(with: hex)
+    if !hadWaiters {
+      Task { [weak self] in _ = await self?.bindToken() }
+    }
   }
 
-  /// 签名缺少能力或系统注册失败时展示可恢复原因，不宣称收到原生推送。
-  func failedRegistration() {
-    registrationError = L10n.text("系统未能注册 APNs。请检查签名能力，或使用主屏幕通知。")
+  /// 签名缺少能力或系统注册失败时展示可恢复原因，不再提供 WebPush 回退提示。
+  func failedRegistration(_ error: (any Error)? = nil) {
+    let detail = error?.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let detail, !detail.isEmpty {
+      registrationError = "\(L10n.text("系统未能注册 APNs 推送，请检查签名推送能力或网络后重试。"))（\(detail)）"
+    } else {
+      registrationError = L10n.text("系统未能注册 APNs 推送，请检查签名推送能力或网络后重试。")
+    }
+    resumeTokenWaiters(with: nil)
   }
 
   /// 关闭只撤销当前实例账号的本机安装绑定，不影响其他设备。
@@ -237,9 +321,12 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     return UserDefaults.standard.bool(forKey: key)
   }
 
-  /// 令牌注册直连后端接口；失败留在设置页供用户显式重试。
-  private func bindToken() async {
-    guard enabled, let token, let nativeSession, let environment else { return }
+  /// 令牌注册直连后端接口；失败保留具体原因供设置页展示与显式重试。
+  @discardableResult
+  private func bindToken() async -> String? {
+    guard enabled, let token, let nativeSession, let environment else {
+      return L10n.text("未能准备好 APNs 注册参数，请重新开启推送。")
+    }
     let extra = [
       "token": token,
       "topic": Bundle.main.bundleIdentifier ?? "",
@@ -247,8 +334,15 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     ]
     do {
       _ = try await nativeRequest(session: nativeSession, action: "register", extra: extra)
+      registrationError = nil
+      return nil
+    } catch let error as NotificationFailure {
+      registrationError = error.localizedDescription
+      return error.localizedDescription
     } catch {
-      registrationError = L10n.text("通知令牌尚未绑定，请检查后台渠道并重新开启。")
+      let msg = L10n.text("APNs 设备注册失败，请检查后端 AppPush 渠道配置后重试。")
+      registrationError = msg
+      return msg
     }
   }
 

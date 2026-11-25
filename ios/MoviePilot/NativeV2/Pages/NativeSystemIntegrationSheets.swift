@@ -3,9 +3,10 @@ import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
+import UIKit
 import UserNotifications
 
-/// 原生系统推送通知设置弹窗：脱离旧网页桥直接通过 `NativeSession` 调用 `/api/v1/notification/app` 管理 APNs 绑定与测试推送。
+/// 原生 APNs 系统推送通知设置弹窗：直接通过 `NativeSession` 调用 `/api/v1/notification/app` 管理本机 APNs 设备注册与测试推送。
 @MainActor
 struct NativeNotificationSettingsSheet: View {
   let session: NativeSession
@@ -16,9 +17,14 @@ struct NativeNotificationSettingsSheet: View {
   @State private var serverChannelReady = false
   @State private var isBound = false
   @State private var systemAuthorized = false
+  @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
   @State private var statusMessage: String?
 
-  /// 深色透色玻璃推送设置界面。
+  private var isPushReady: Bool {
+    systemAuthorized && serverChannelReady && isBound
+  }
+
+  /// 深色透色玻璃 APNs 推送设置界面。
   var body: some View {
     NavigationStack {
       ZStack {
@@ -38,27 +44,46 @@ struct NativeNotificationSettingsSheet: View {
             CinematicPanel(padding: 16) {
               VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                  Label("系统推送状态", systemImage: "bell.badge.fill")
+                  Label("APNs 系统推送", systemImage: "bell.badge.fill")
                     .font(.headline)
                     .foregroundStyle(.primary)
                   Spacer()
                   if isLoading {
                     ProgressView().controlSize(.small).tint(.primary)
                   } else {
-                    Text(isBound && systemAuthorized ? "已开启" : "未开启")
+                    Text(isPushReady ? "已开启" : "未开启")
                       .font(.caption.weight(.semibold))
                       .foregroundStyle(
-                        isBound && systemAuthorized
-                          ? NativeTheme.success : NativeTheme.badgeMutedText
+                        isPushReady ? NativeTheme.success : NativeTheme.badgeMutedText
                       )
                       .padding(.horizontal, 8)
                       .padding(.vertical, 3)
                       .background { Capsule().fill(.primary.opacity(0.10)) }
                   }
                 }
-                statusRow("系统通知授权", ok: systemAuthorized)
-                statusRow("后端推送通道", ok: serverChannelReady)
-                statusRow("本机令牌绑定", ok: isBound)
+                Text("通过 Apple APNs 接收推送通知。开启时会自动申请系统权限，并将本机 APNs 设备令牌注册到后端 AppPush 渠道。")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                Divider().overlay(NativeTheme.divider)
+                statusRow(
+                  "系统通知授权",
+                  ok: systemAuthorized,
+                  okText: "已允许",
+                  pendingText: authorizationStatus == .denied ? "已拒绝" : "未授权"
+                )
+                statusRow(
+                  "后端 AppPush 渠道",
+                  ok: serverChannelReady,
+                  okText: "已启用",
+                  pendingText: "未启用"
+                )
+                statusRow(
+                  "本机 APNs 设备注册",
+                  ok: isBound,
+                  okText: "已注册",
+                  pendingText: "未注册"
+                )
                 if let err = NotificationService.shared.registrationError, !err.isEmpty {
                   Text(err)
                     .font(.caption)
@@ -69,9 +94,9 @@ struct NativeNotificationSettingsSheet: View {
 
             if NotificationService.shared.environment == nil {
               CinematicPanel(padding: 14) {
-                Text("当前签名未开启 APNs 能力，可使用系统主屏幕通知或重新启用推送签名后开启。")
+                Text("当前安装包签名未启用 APNs 推送能力，请使用支持推送能力的证书重新签名后开启。")
                   .font(.caption)
-                  .foregroundStyle(.primary.opacity(0.72))
+                  .foregroundStyle(.primary.opacity(0.76))
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
             } else {
@@ -79,15 +104,41 @@ struct NativeNotificationSettingsSheet: View {
                 Button {
                   Task { await enablePush() }
                 } label: {
-                  Text(isBound ? "重新同步推送令牌" : "开启系统推送")
+                  HStack(spacing: 8) {
+                    if isBusy {
+                      ProgressView()
+                        .controlSize(.small)
+                        .tint(Color(red: 0.12, green: 0.10, blue: 0.16))
+                    }
+                    Text(
+                      isBusy
+                        ? "正在注册 APNs…"
+                        : (isPushReady ? "重新注册本机 APNs" : "开启 APNs 推送")
+                    )
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Color(red: 0.12, green: 0.10, blue: 0.16))
-                    .frame(maxWidth: .infinity, minHeight: 46)
-                    .background(.white, in: Capsule())
+                  }
+                  .foregroundStyle(Color(red: 0.12, green: 0.10, blue: 0.16))
+                  .frame(maxWidth: .infinity, minHeight: 46)
+                  .background(.white, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .disabled(isBusy)
                 .accessibilityIdentifier("native-notification-enable")
+
+                if authorizationStatus == .denied {
+                  Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                      UIApplication.shared.open(url)
+                    }
+                  } label: {
+                    Text("前往系统设置开启通知")
+                      .font(.subheadline.weight(.semibold))
+                      .foregroundStyle(.primary)
+                      .frame(maxWidth: .infinity, minHeight: 44)
+                      .background(NativeTheme.chipFill, in: Capsule())
+                  }
+                  .buttonStyle(.plain)
+                }
 
                 if isBound {
                   Button {
@@ -148,22 +199,27 @@ struct NativeNotificationSettingsSheet: View {
   }
 
   /// 状态条目行。
-  private func statusRow(_ title: String, ok: Bool) -> some View {
-    HStack {
+  private func statusRow(_ title: String, ok: Bool, okText: String, pendingText: String) -> some View
+  {
+    HStack(spacing: 8) {
       Text(title)
         .font(.subheadline)
-        .foregroundStyle(.primary.opacity(0.76))
+        .foregroundStyle(.primary.opacity(0.80))
       Spacer()
+      Text(ok ? okText : pendingText)
+        .font(.caption.weight(.medium))
+        .foregroundStyle(ok ? NativeTheme.success : .secondary)
       Image(systemName: ok ? "checkmark.circle.fill" : "circle")
-        .foregroundStyle(ok ? NativeTheme.success : .white.opacity(0.40))
+        .foregroundStyle(ok ? NativeTheme.success : .secondary.opacity(0.55))
     }
   }
 
-  /// 读取本机通知权限与服务端绑定状态。
+  /// 读取本机通知权限与服务端 APNs 设备注册状态。
   private func refreshStatus() async {
     isLoading = true
     defer { isLoading = false }
     let settings = await UNUserNotificationCenter.current().notificationSettings()
+    authorizationStatus = settings.authorizationStatus
     systemAuthorized =
       settings.authorizationStatus == .authorized
       || settings.authorizationStatus == .provisional
@@ -178,15 +234,19 @@ struct NativeNotificationSettingsSheet: View {
       } else {
         serverChannelReady = true
       }
-      if case .bool(let registered) = data["registered"] {
-        isBound = registered
-      }
+      isBound = NotificationService.isCurrentAPNsDeviceRegistered(in: data)
+    } catch let error as NotificationFailure {
+      serverChannelReady = false
+      isBound = false
+      statusMessage = error.localizedDescription
     } catch {
-      statusMessage = "暂无法读取后端推送状态，请确认 MoviePilot 已启用 App 通知通道。"
+      serverChannelReady = false
+      isBound = false
+      statusMessage = "暂无法读取后端推送状态，请确认 MoviePilot 已启用 AppPush 通知渠道。"
     }
   }
 
-  /// 开启并绑定系统 APNs 推送。
+  /// 开启并注册本机 APNs 推送。
   private func enablePush() async {
     isBusy = true
     defer { isBusy = false }
@@ -201,19 +261,21 @@ struct NativeNotificationSettingsSheet: View {
     do {
       _ = try await NotificationService.shared.nativeRequest(session: session, action: "test")
       statusMessage = "已请求后端发送测试通知，请稍候查看系统横幅。"
+    } catch let error as NotificationFailure {
+      statusMessage = error.localizedDescription
     } catch {
-      statusMessage = "测试通知发送失败，请检查后端通知渠道配置。"
+      statusMessage = "测试通知发送失败，请检查后端 AppPush 通知渠道配置。"
     }
   }
 
-  /// 解除本机安装绑定并关闭推送。
+  /// 解除本机 APNs 设备注册并关闭推送。
   private func disablePush() async {
     isBusy = true
     defer { isBusy = false }
     _ = try? await NotificationService.shared.nativeRequest(session: session, action: "unregister")
     NotificationService.shared.disable()
     isBound = false
-    statusMessage = "已关闭当前实例的系统推送通知。"
+    statusMessage = "已关闭当前实例的 APNs 系统推送通知。"
   }
 }
 

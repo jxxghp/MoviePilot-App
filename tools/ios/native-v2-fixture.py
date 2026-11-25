@@ -485,8 +485,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                     "success": True, "message": "",
                     "data": {
                         "owner": "0123456789abcdef0123456789abcdef",
-                        "configured": True,
-                        "registered": False,
+                        "devices": [],
                     },
                 })
                 return
