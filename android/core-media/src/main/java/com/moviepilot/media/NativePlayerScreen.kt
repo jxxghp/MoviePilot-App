@@ -71,6 +71,7 @@ import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ClosedCaption
+import androidx.compose.material.icons.rounded.Comment
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
@@ -92,6 +93,7 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -107,6 +109,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -163,17 +166,24 @@ import com.moviepilot.designsystem.LocalAppearanceStore
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.PlaybackPreferencesStore
+import com.moviepilot.media.danmaku.DanmakuManualMatchBottomSheet
+import com.moviepilot.media.danmaku.DanmakuOverlayView
+import com.moviepilot.media.danmaku.DanmakuPreferencesStore
+import com.moviepilot.media.danmaku.DanmakuSettingsBottomSheet
 import com.moviepilot.media.engine.AndroidPlaybackEngineRouter
 import com.moviepilot.media.engine.AudioNightModeEffect
 import com.moviepilot.media.engine.EngineTrackItem
 import com.moviepilot.media.engine.MpvPlaybackEngine
 import com.moviepilot.media.engine.ResolvedAndroidEngine
+import com.moviepilot.rustbridge.DanmakuEpisodeCandidateDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.NativeSecretStore
 import com.moviepilot.rustbridge.PlaybackRouteDto
 import com.moviepilot.rustbridge.PlaybackSyncSessionTracker
+import com.moviepilot.rustbridge.RustCoreBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -244,6 +254,14 @@ data class MediaPlaybackRequest(
     val preferredSubtitleId: String? = null,
     val preferredSubtitleLang: String? = null,
     val disableSubtitles: Boolean = false,
+    val danmakuEnabled: Boolean = false,
+    val seriesName: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val year: Int? = null,
+    val tmdbId: String? = null,
+    val fileName: String? = null,
+    val fileSize: Long? = null,
 ) {
     /** 用于本地续播存储的稳定资源标识（优先 `itemId`，无 `itemId` 时采用文件路径或流地址）。 */
     val localResumeId: String
@@ -736,8 +754,26 @@ fun NativeMediaPlayerOverlay(
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showAudioTrackSheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
+    var showDanmakuSettingsSheet by remember { mutableStateOf(false) }
+    var showDanmakuMatchSheet by remember { mutableStateOf(false) }
     var hudMessage by remember { mutableStateOf<String?>(null) }
     var tracksVersion by remember { mutableIntStateOf(0) }
+
+    // 原生弹幕状态与本地渲染偏好（仅视频且服务端已启用弹幕时激活，全异步零阻塞起播）
+    val danmakuScope = rememberCoroutineScope()
+    val danmakuPrefs = remember(context) { DanmakuPreferencesStore(context) }
+    var danmakuVisible by remember { mutableStateOf(danmakuPrefs.enabled) }
+    var danmakuOverlayRef by remember { mutableStateOf<DanmakuOverlayView?>(null) }
+    var danmakuRawJson by remember(request.url, request.itemId) { mutableStateOf<String?>(null) }
+    var danmakuEpisodeId by remember(request.url, request.itemId) { mutableStateOf<Long?>(null) }
+    var danmakuAnimeId by remember(request.url, request.itemId) { mutableStateOf<Long?>(null) }
+    var danmakuAnimeTitle by remember(request.url, request.itemId) { mutableStateOf<String?>(null) }
+    var danmakuEpisodeTitle by remember(request.url, request.itemId) { mutableStateOf<String?>(null) }
+    var danmakuCandidates by remember(request.url, request.itemId) { mutableStateOf<List<DanmakuEpisodeCandidateDto>>(emptyList()) }
+    var danmakuFromBinding by remember(request.url, request.itemId) { mutableStateOf(false) }
+    var danmakuShiftMs by remember(request.url, request.itemId) { mutableIntStateOf(0) }
+    var danmakuTotalCount by remember(request.url, request.itemId) { mutableIntStateOf(0) }
+    var danmakuPrefsVersion by remember { mutableIntStateOf(0) }
 
     // 记录当前会话用户选定的音轨/字幕偏好，用于跨剧集连播时无损继承
     var activePreferredAudioLang by remember(request.url) { mutableStateOf(request.preferredAudioLang) }
@@ -818,6 +854,12 @@ fun NativeMediaPlayerOverlay(
         } else {
             exoPlayer?.seekTo(clamped)
         }
+        danmakuOverlayRef?.syncPlayback(
+            positionMs = clamped,
+            playing = activeIsPlaying(),
+            rate = speeds[speedIndex.coerceIn(0, speeds.lastIndex)],
+            inPip = isInPipMode,
+        )
     }
 
     fun activeSetSpeed(spd: Float) {
@@ -826,6 +868,12 @@ fun NativeMediaPlayerOverlay(
         } else {
             exoPlayer?.playbackParameters = PlaybackParameters(spd)
         }
+        danmakuOverlayRef?.syncPlayback(
+            positionMs = activeCurrentPositionMs(),
+            playing = activeIsPlaying(),
+            rate = spd,
+            inPip = isInPipMode,
+        )
     }
 
     /** 播放器内一键热切换内核：保留当前进度与 `play_session_id`，绝不向媒体服务器发送 `stopped`。 */
@@ -1055,7 +1103,7 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    val anySheetOpen = showQueueSheet || showSubtitleSheet || showAudioTrackSheet || showSpeedSheet || showEngineSheet
+    val anySheetOpen = showQueueSheet || showSubtitleSheet || showAudioTrackSheet || showSpeedSheet || showEngineSheet || showDanmakuSettingsSheet || showDanmakuMatchSheet
     var draggingProgress by remember { mutableFloatStateOf(-1f) }
 
     // 视频控制栏播放中 4.5 秒无操作自动隐藏
@@ -1098,7 +1146,15 @@ fun NativeMediaPlayerOverlay(
                 showQueueSheet = false
                 showSpeedSheet = false
                 showEngineSheet = false
+                showDanmakuSettingsSheet = false
+                showDanmakuMatchSheet = false
             }
+            danmakuOverlayRef?.syncPlayback(
+                positionMs = activeCurrentPositionMs(),
+                playing = activeIsPlaying(),
+                rate = speeds[speedIndex.coerceIn(0, speeds.lastIndex)],
+                inPip = info.isInPictureInPictureMode,
+            )
         }
         compActivity?.addOnPictureInPictureModeChangedListener(pipListener)
         onDispose {
@@ -1457,6 +1513,15 @@ fun NativeMediaPlayerOverlay(
             isPlaying = activeIsPlaying()
             positionMs = activeCurrentPositionMs().coerceAtLeast(0L)
             durationMs = activeDurationMs().coerceAtLeast(1L)
+            if (!request.isAudio && request.danmakuEnabled) {
+                val activeRate = if (isLongPressBoost) 2.0f else speeds[speedIndex.coerceIn(0, speeds.lastIndex)]
+                danmakuOverlayRef?.syncPlayback(
+                    positionMs = positionMs,
+                    playing = isPlaying,
+                    rate = activeRate,
+                    inPip = isInPipMode,
+                )
+            }
             tick++
             if (ownsPlayer && !request.isAudio && durationMs > 1L) {
                 if (tick % 3 == 0) {
@@ -1474,6 +1539,86 @@ fun NativeMediaPlayerOverlay(
         if (hudMessage != null) {
             delay(1400L)
             hudMessage = null
+        }
+    }
+
+    suspend fun rebuildDanmakuTimelineOnWorker(rawJson: String) {
+        val options = danmakuPrefs.toFilterOptions(danmakuShiftMs.toLong())
+        val prepared = withContext(Dispatchers.Default) {
+            RustCoreBridge.prepareDanmakuTimeline(rawJson, options)
+        }
+        danmakuTotalCount = prepared.items.size
+        danmakuOverlayRef?.let { overlay ->
+            overlay.applyPreferences(danmakuPrefs)
+            overlay.loadTimeline(prepared.items, activeCurrentPositionMs())
+            overlay.syncPlayback(
+                positionMs = activeCurrentPositionMs(),
+                playing = activeIsPlaying(),
+                rate = speeds[speedIndex.coerceIn(0, speeds.lastIndex)],
+                inPip = isInPipMode,
+            )
+        }
+    }
+
+    suspend fun loadDanmakuEpisodeComments(epId: Long, forceRefresh: Boolean = false) {
+        val repo = repository ?: return
+        val res = withContext(Dispatchers.IO) {
+            repo.fetchDanmakuComments(epId, forceRefresh = forceRefresh)
+        }
+        res.onSuccess { payload ->
+            danmakuRawJson = payload.rawJson
+            rebuildDanmakuTimelineOnWorker(payload.rawJson)
+        }
+    }
+
+    // 视频起播后异步匹配并拉取弹幕（零阻塞主播放流）
+    LaunchedEffect(request.itemId, request.server, request.danmakuEnabled, request.isAudio, repository) {
+        if (request.isAudio || !request.danmakuEnabled || repository == null) {
+            danmakuOverlayRef?.stopAndClear()
+            return@LaunchedEffect
+        }
+        val matchRes = withContext(Dispatchers.IO) {
+            repository.matchDanmaku(
+                itemId = request.itemId.ifBlank { null },
+                server = request.server.ifBlank { null },
+                title = request.title.ifBlank { null },
+                seriesName = request.seriesName,
+                seasonNumber = request.seasonNumber,
+                episodeNumber = request.episodeNumber,
+                year = request.year,
+                tmdbId = request.tmdbId,
+                fileName = request.fileName,
+                fileSize = request.fileSize,
+                durationMs = durationMs.takeIf { it > 1_000L },
+            )
+        }
+        matchRes.onSuccess { resp ->
+            danmakuFromBinding = resp.fromBinding
+            danmakuCandidates = resp.candidates
+            danmakuShiftMs = resp.shiftMs
+            val ep = resp.episode
+            if (resp.matched && ep != null && ep.episodeId > 0L) {
+                danmakuEpisodeId = ep.episodeId
+                danmakuAnimeId = ep.animeId
+                danmakuAnimeTitle = ep.animeTitle
+                danmakuEpisodeTitle = ep.episodeTitle
+                loadDanmakuEpisodeComments(ep.episodeId, forceRefresh = false)
+            } else {
+                danmakuEpisodeId = null
+                danmakuRawJson = null
+                danmakuTotalCount = 0
+                danmakuOverlayRef?.stopAndClear()
+            }
+        }
+    }
+
+    // 弹幕偏好或偏移调整时实时重算时间轴与视图配置
+    LaunchedEffect(danmakuPrefsVersion, danmakuVisible, danmakuOverlayRef) {
+        if (request.isAudio || !request.danmakuEnabled) return@LaunchedEffect
+        danmakuOverlayRef?.applyPreferences(danmakuPrefs)
+        val raw = danmakuRawJson
+        if (!raw.isNullOrBlank()) {
+            rebuildDanmakuTimelineOnWorker(raw)
         }
     }
 
@@ -2580,6 +2725,25 @@ fun NativeMediaPlayerOverlay(
             )
         }
 
+        // 原生透明弹幕渲染层：严格位于视频画布之上、手势与控制栏之下，且完全穿透触摸事件
+        if (request.danmakuEnabled && !isInPipMode) {
+            AndroidView(
+                factory = { ctx ->
+                    DanmakuOverlayView(ctx).apply {
+                        applyPreferences(danmakuPrefs)
+                        danmakuOverlayRef = this
+                    }
+                },
+                update = { view ->
+                    if (danmakuOverlayRef !== view) {
+                        danmakuOverlayRef = view
+                    }
+                    view.applyPreferences(danmakuPrefs)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         val safePlayerInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
 
         // 长按 2.0x 悬浮加速胶囊 / 续播提示胶囊 / 操作 HUD
@@ -2969,6 +3133,34 @@ fun NativeMediaPlayerOverlay(
                             ),
                         )
                     }
+                    if (request.danmakuEnabled) {
+                        add(
+                            ExpressiveDockAction(
+                                icon = Icons.Rounded.Comment,
+                                contentDescription = if (danmakuVisible) "关闭弹幕" else "开启弹幕",
+                                active = danmakuVisible,
+                                onClick = {
+                                    bumpInteraction()
+                                    val nextEnabled = !danmakuPrefs.enabled
+                                    danmakuPrefs.updateEnabled(nextEnabled)
+                                    danmakuVisible = nextEnabled
+                                    danmakuPrefsVersion++
+                                    hudMessage = if (nextEnabled) "已开启弹幕" else "已关闭弹幕"
+                                },
+                            ),
+                        )
+                        add(
+                            ExpressiveDockAction(
+                                icon = Icons.Rounded.Tune,
+                                contentDescription = "弹幕设置",
+                                active = showDanmakuSettingsSheet || showDanmakuMatchSheet,
+                                onClick = {
+                                    bumpInteraction()
+                                    showDanmakuSettingsSheet = true
+                                },
+                            ),
+                        )
+                    }
                     add(
                         ExpressiveDockAction(
                             icon = Icons.Rounded.ClosedCaption,
@@ -3310,6 +3502,145 @@ fun NativeMediaPlayerOverlay(
 
     SpeedSelectorBottomSheet()
     EngineSelectorBottomSheet()
+
+    if (showDanmakuSettingsSheet && !request.isAudio && request.danmakuEnabled) {
+        val matchedSummary = listOfNotNull(
+            danmakuAnimeTitle?.takeIf { it.isNotBlank() },
+            danmakuEpisodeTitle?.takeIf { it.isNotBlank() },
+        ).joinToString(" · ")
+        DanmakuSettingsBottomSheet(
+            prefs = danmakuPrefs,
+            matchedSummary = matchedSummary,
+            totalCount = danmakuTotalCount,
+            fromBinding = danmakuFromBinding,
+            shiftMs = danmakuShiftMs,
+            onPreferencesChanged = {
+                danmakuVisible = danmakuPrefs.enabled
+                danmakuPrefsVersion++
+            },
+            onShiftChanged = { nextShift ->
+                danmakuShiftMs = nextShift
+                danmakuPrefsVersion++
+            },
+            onSaveShiftToServer = {
+                val repo = repository
+                val epId = danmakuEpisodeId
+                if (repo != null && epId != null && epId > 0L) {
+                    repo.saveDanmakuBinding(
+                        server = request.server.ifBlank { null },
+                        itemId = request.itemId.ifBlank { null },
+                        tmdbId = request.tmdbId,
+                        seasonNumber = request.seasonNumber,
+                        episodeNumber = request.episodeNumber,
+                        episodeId = epId,
+                        animeId = danmakuAnimeId,
+                        animeTitle = danmakuAnimeTitle.orEmpty(),
+                        episodeTitle = danmakuEpisodeTitle.orEmpty(),
+                        shiftMs = danmakuShiftMs,
+                    ).onSuccess {
+                        danmakuFromBinding = true
+                    }
+                }
+            },
+            onOpenManualMatch = {
+                showDanmakuSettingsSheet = false
+                showDanmakuMatchSheet = true
+            },
+            onForceRefresh = {
+                val epId = danmakuEpisodeId
+                if (epId != null && epId > 0L) {
+                    loadDanmakuEpisodeComments(epId, forceRefresh = true)
+                }
+            },
+            onDismiss = { showDanmakuSettingsSheet = false },
+        )
+    }
+
+    if (showDanmakuMatchSheet && !request.isAudio && request.danmakuEnabled && repository != null) {
+        val initialQuery = remember(request.seriesName, request.title, request.fileName) {
+            RustCoreBridge.normalizeDanmakuTitle(
+                request.seriesName?.takeIf { it.isNotBlank() }
+                    ?: request.title.takeIf { it.isNotBlank() }
+                    ?: request.fileName.orEmpty(),
+            )
+        }
+        DanmakuManualMatchBottomSheet(
+            repository = repository,
+            initialKeyword = initialQuery,
+            initialCandidates = danmakuCandidates,
+            fromBinding = danmakuFromBinding,
+            onSelectEpisode = { cand ->
+                danmakuEpisodeId = cand.episodeId
+                danmakuAnimeId = cand.animeId
+                danmakuAnimeTitle = cand.animeTitle
+                danmakuEpisodeTitle = cand.episodeTitle
+                danmakuShiftMs = cand.shiftMs
+                repository.saveDanmakuBinding(
+                    server = request.server.ifBlank { null },
+                    itemId = request.itemId.ifBlank { null },
+                    tmdbId = request.tmdbId,
+                    seasonNumber = request.seasonNumber,
+                    episodeNumber = request.episodeNumber,
+                    episodeId = cand.episodeId,
+                    animeId = cand.animeId,
+                    animeTitle = cand.animeTitle,
+                    episodeTitle = cand.episodeTitle,
+                    shiftMs = cand.shiftMs,
+                ).onSuccess {
+                    danmakuFromBinding = true
+                }
+                danmakuScope.launch {
+                    loadDanmakuEpisodeComments(cand.episodeId, forceRefresh = false)
+                }
+                hudMessage = "已切换弹幕：${cand.animeTitle}"
+            },
+            onUnbind = {
+                repository.deleteDanmakuBinding(
+                    server = request.server.ifBlank { null },
+                    itemId = request.itemId.ifBlank { null },
+                    tmdbId = request.tmdbId,
+                    seasonNumber = request.seasonNumber,
+                    episodeNumber = request.episodeNumber,
+                ).onSuccess {
+                    danmakuFromBinding = false
+                    val reMatch = withContext(Dispatchers.IO) {
+                        repository.matchDanmaku(
+                            itemId = request.itemId.ifBlank { null },
+                            server = request.server.ifBlank { null },
+                            title = request.title.ifBlank { null },
+                            seriesName = request.seriesName,
+                            seasonNumber = request.seasonNumber,
+                            episodeNumber = request.episodeNumber,
+                            year = request.year,
+                            tmdbId = request.tmdbId,
+                            fileName = request.fileName,
+                            fileSize = request.fileSize,
+                            durationMs = durationMs.takeIf { it > 1_000L },
+                        )
+                    }
+                    reMatch.onSuccess { resp ->
+                        danmakuCandidates = resp.candidates
+                        danmakuShiftMs = resp.shiftMs
+                        val ep = resp.episode
+                        if (resp.matched && ep != null && ep.episodeId > 0L) {
+                            danmakuEpisodeId = ep.episodeId
+                            danmakuAnimeId = ep.animeId
+                            danmakuAnimeTitle = ep.animeTitle
+                            danmakuEpisodeTitle = ep.episodeTitle
+                            loadDanmakuEpisodeComments(ep.episodeId, forceRefresh = false)
+                        } else {
+                            danmakuEpisodeId = null
+                            danmakuRawJson = null
+                            danmakuTotalCount = 0
+                            danmakuOverlayRef?.stopAndClear()
+                        }
+                    }
+                    hudMessage = "已解除手动绑定并恢复自动匹配"
+                }
+            },
+            onDismiss = { showDanmakuMatchSheet = false },
+        )
+    }
 }
 
 /**

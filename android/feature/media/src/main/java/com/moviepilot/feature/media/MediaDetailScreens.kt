@@ -590,6 +590,14 @@ fun MediaDetailScreen(
                                             subtitles = manifest.subtitles.map {
                                                 SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
                                             },
+                                            danmakuEnabled = manifest.danmakuEnabled,
+                                            seriesName = manifest.seriesName,
+                                            seasonNumber = manifest.seasonNumber,
+                                            episodeNumber = manifest.episodeNumber,
+                                            year = manifest.year,
+                                            tmdbId = manifest.tmdbId,
+                                            fileName = manifest.fileName,
+                                            fileSize = manifest.fileSize,
                                         ),
                                     )
                                 } else {

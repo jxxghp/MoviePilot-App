@@ -14,7 +14,12 @@ import {
   PlaybackRouteCandidate,
   HarmonyPlaybackSyncTracker,
   HarmonyPlaybackProgressReporter,
-  HarmonyPlaybackRouteResolver
+  HarmonyPlaybackRouteResolver,
+  MpDanmakuEpisodeCandidate,
+  MpDanmakuAnimeSearchItem,
+  MpDanmakuBangumi,
+  MpDanmakuMatchResponse,
+  MpDanmakuCommentsRaw
 } from '@moviepilot/core_rust_bridge';
 import {
   HarmonySubtitleOption,
@@ -55,6 +60,9 @@ import {
   launchHarmonyExternalPlayer,
   resolveSafeExternalUri
 } from './engine/HarmonyExternalPlayerLauncher';
+import { DanmakuPreferencesStore } from './danmaku/DanmakuPreferences';
+import { HarmonyDanmakuController } from './danmaku/DanmakuController';
+import { HarmonyDanmakuOverlay } from './danmaku/DanmakuOverlay';
 
 export {
   HarmonyPlaybackRequest,
@@ -66,7 +74,7 @@ export {
   AudioStateListener
 };
 
-type PlayerSheetKind = 'none' | 'subtitles' | 'audioTracks' | 'speed' | 'queue' | 'engine';
+type PlayerSheetKind = 'none' | 'subtitles' | 'audioTracks' | 'speed' | 'queue' | 'engine' | 'danmakuSettings' | 'danmakuMatch';
 type PanGestureAxisMode = 'undecided' | 'scrub' | 'brightness' | 'volume';
 
 /**
@@ -164,8 +172,42 @@ export struct NativeMediaPlayerView {
 
   // 画中画状态
   @State private pipSupported: boolean = false;
+  @State private isPipActive: boolean = false;
   private pipController: HarmonyPipController = new HarmonyPipController();
   private viewDisappeared: boolean = false;
+
+  // 弹幕引擎与交互状态
+  private danmakuController: HarmonyDanmakuController = new HarmonyDanmakuController();
+  @State private danmakuVisible: boolean = DanmakuPreferencesStore.getEnabled();
+  @State private danmakuConfigVersion: number = 0;
+  private danmakuRawJson: string = '';
+  @State private danmakuEpisodeId: number = 0;
+  private danmakuAnimeId: number | undefined = undefined;
+  @State private danmakuAnimeTitle: string = '';
+  @State private danmakuEpisodeTitle: string = '';
+  @State private danmakuCandidates: MpDanmakuEpisodeCandidate[] = [];
+  @State private danmakuFromBinding: boolean = false;
+  @State private danmakuShiftMs: number = 0;
+  @State private danmakuTotalCount: number = 0;
+  @State private danmakuOpacity: number = DanmakuPreferencesStore.getOpacity();
+  @State private danmakuFontScale: number = DanmakuPreferencesStore.getFontScale();
+  @State private danmakuSpeed: number = DanmakuPreferencesStore.getSpeed();
+  @State private danmakuAreaRatio: number = DanmakuPreferencesStore.getAreaRatio();
+  @State private danmakuMaxOnScreen: number = DanmakuPreferencesStore.getMaxOnScreen();
+  @State private danmakuAllowScroll: boolean = DanmakuPreferencesStore.getAllowScroll();
+  @State private danmakuAllowTop: boolean = DanmakuPreferencesStore.getAllowTop();
+  @State private danmakuAllowBottom: boolean = DanmakuPreferencesStore.getAllowBottom();
+  @State private danmakuAllowColor: boolean = DanmakuPreferencesStore.getAllowColor();
+  @State private danmakuMergeDup: boolean = DanmakuPreferencesStore.getMergeDuplicates();
+  @State private danmakuBlockKeywords: string[] = DanmakuPreferencesStore.getBlockKeywords();
+  @State private danmakuKeywordDraft: string = '';
+  @State private danmakuSheetBusy: boolean = false;
+  @State private danmakuSheetFeedback: string = '';
+  @State private danmakuSearchQuery: string = '';
+  @State private danmakuSearchLoading: boolean = false;
+  @State private danmakuSearchError: string = '';
+  @State private danmakuSearchResults: MpDanmakuAnimeSearchItem[] = [];
+  @State private danmakuActiveBangumi: MpDanmakuBangumi | null = null;
 
   // 音乐舞台状态
   @State private showLyricsStage: boolean = false;
@@ -526,6 +568,9 @@ export struct NativeMediaPlayerView {
 
   private releaseVideoPlayerResources(): void {
     this.stopVideoProgressTimer();
+    if (!this.suppressStopForEngineSwitch) {
+      this.danmakuController.clearAll();
+    }
     this.enhancedPlayer.release();
     const prev = this.videoPlayer;
     this.videoPlayer = null;
@@ -885,6 +930,7 @@ export struct NativeMediaPlayerView {
       this.resumeBannerText = '';
       this.clearUpNextTimer();
       this.clearResumeBannerTimer();
+      this.loadDanmakuForRequest(req, gen).catch(() => {});
     }
     this.isBuffering = true;
     this.isPlaying = true;
@@ -953,6 +999,7 @@ export struct NativeMediaPlayerView {
           if (this.activeSubIsExternal && this.selectedSubId !== 'off') {
             this.activeSubtitleText = findActiveSubtitleText(this.externalSubCues, this.positionMs);
           }
+          this.syncDanmakuClock(this.positionMs, playing);
           this.checkUpNextTrigger();
         },
         onTimedText: (text: string) => {
@@ -1073,6 +1120,7 @@ export struct NativeMediaPlayerView {
         if (this.activeSubIsExternal && this.selectedSubId !== 'off') {
           this.activeSubtitleText = findActiveSubtitleText(this.externalSubCues, this.positionMs);
         }
+        this.syncDanmakuClock(this.positionMs, this.isPlaying);
         this.checkUpNextTrigger();
       });
 
@@ -1243,7 +1291,9 @@ export struct NativeMediaPlayerView {
         onFastBackward: () => {
           this.seekVideoRelativeMs(-10000);
         },
-        onPipStateChanged: (_active: boolean, stoppedWithoutRestore: boolean) => {
+        onPipStateChanged: (active: boolean, stoppedWithoutRestore: boolean) => {
+          this.isPipActive = active;
+          this.danmakuConfigVersion += 1;
           if (stoppedWithoutRestore && this.viewDisappeared) {
             this.dispatchVideoSync('stop', true);
             this.pipController.destroy().catch(() => {});
@@ -1526,13 +1576,22 @@ export struct NativeMediaPlayerView {
       disableSubtitles: this.selectedSubId === 'off' && this.subtitleOptions.length > 0,
       isSessionBound: true,
       queue: this.videoQueue,
-      queueIndex: index
+      queueIndex: index,
+      danmakuEnabled: stream.danmakuEnabled,
+      seriesName: stream.seriesName,
+      seasonNumber: stream.seasonNumber,
+      episodeNumber: stream.episodeNumber,
+      year: stream.year,
+      tmdbId: stream.tmdbId,
+      fileName: stream.fileName,
+      fileSize: stream.fileSize
     };
     await this.initVideoPlayer(nextReq);
   }
 
   private setVideoPlaying(nextPlaying: boolean): void {
     this.isPlaying = nextPlaying;
+    this.syncDanmakuClock(this.positionMs, nextPlaying);
     this.pipController.updatePlayState(nextPlaying);
     if (this.activeEngineKind === 'enhanced') {
       if (nextPlaying) {
@@ -1589,6 +1648,7 @@ export struct NativeMediaPlayerView {
         // ignore
       }
     }
+    this.syncDanmakuClock(clamped, this.isPlaying);
     this.dispatchVideoSync('seek', !this.isPlaying, clamped);
   }
 
@@ -1641,8 +1701,171 @@ export struct NativeMediaPlayerView {
         }
       }
     }
+    this.syncDanmakuClock(this.positionMs, this.isPlaying);
     this.showTransientHud('timer', `倍速：${HARMONY_SPEED_LABELS[clamped]}`);
     this.resetControlsAutoHideTimer();
+  }
+
+  private syncDanmakuClock(posMs?: number, playing?: boolean): void {
+    if (this.request.isAudio || !this.activeVideoReq.danmakuEnabled) {
+      return;
+    }
+    const rate = this.isLongPressBoosting ? 2.0 : (HARMONY_SPEED_VALUES[this.speedIndex] ?? 1.0);
+    this.danmakuController.syncPlayerClock(
+      posMs !== undefined ? posMs : this.positionMs,
+      playing !== undefined ? playing : this.isPlaying,
+      rate
+    );
+  }
+
+  private rebuildDanmakuTimeline(): void {
+    if (this.danmakuRawJson.length === 0) {
+      this.danmakuTotalCount = 0;
+      this.danmakuController.clearAll();
+      this.danmakuConfigVersion += 1;
+      return;
+    }
+    const prepared = RustCoreBridge.prepareDanmakuTimeline(
+      this.danmakuRawJson,
+      DanmakuPreferencesStore.toFilterOptions(this.danmakuShiftMs)
+    );
+    this.danmakuTotalCount = prepared.items.length;
+    this.danmakuController.load(prepared.items, this.positionMs);
+    this.syncDanmakuClock(this.positionMs, this.isPlaying);
+    this.danmakuConfigVersion += 1;
+  }
+
+  private async loadDanmakuCommentsByEpisode(episodeId: number, gen: number, forceRefresh: boolean = false): Promise<void> {
+    if (episodeId <= 0) {
+      return;
+    }
+    try {
+      const payload: MpDanmakuCommentsRaw = await MoviePilotRepository.shared().fetchDanmakuComments(episodeId, forceRefresh);
+      if (gen !== this.videoLoadGeneration) {
+        return;
+      }
+      this.danmakuRawJson = payload.rawJson;
+      this.rebuildDanmakuTimeline();
+    } catch {
+      // 弹幕加载失败绝不阻断视频播放
+    }
+  }
+
+  private async loadDanmakuForRequest(req: HarmonyPlaybackRequest, gen: number): Promise<void> {
+    this.danmakuRawJson = '';
+    this.danmakuEpisodeId = 0;
+    this.danmakuAnimeId = undefined;
+    this.danmakuAnimeTitle = '';
+    this.danmakuEpisodeTitle = '';
+    this.danmakuCandidates = [];
+    this.danmakuFromBinding = false;
+    this.danmakuShiftMs = 0;
+    this.danmakuTotalCount = 0;
+    this.danmakuController.clearAll();
+    this.danmakuConfigVersion += 1;
+    if (req.isAudio || !req.danmakuEnabled) {
+      return;
+    }
+    try {
+      const resp: MpDanmakuMatchResponse = await MoviePilotRepository.shared().matchDanmaku({
+        itemId: req.itemId,
+        server: req.server,
+        title: req.title,
+        seriesName: req.seriesName,
+        seasonNumber: req.seasonNumber,
+        episodeNumber: req.episodeNumber,
+        year: req.year,
+        tmdbId: req.tmdbId,
+        fileName: req.fileName,
+        fileSize: req.fileSize,
+        durationMs: this.durationMs > 1000 ? this.durationMs : undefined
+      });
+      if (gen !== this.videoLoadGeneration) {
+        return;
+      }
+      this.danmakuFromBinding = resp.fromBinding;
+      this.danmakuCandidates = resp.candidates;
+      this.danmakuShiftMs = resp.shiftMs;
+      if (resp.matched && resp.episode && resp.episode.episodeId > 0) {
+        this.danmakuEpisodeId = resp.episode.episodeId;
+        this.danmakuAnimeId = resp.episode.animeId;
+        this.danmakuAnimeTitle = resp.episode.animeTitle;
+        this.danmakuEpisodeTitle = resp.episode.episodeTitle;
+        await this.loadDanmakuCommentsByEpisode(resp.episode.episodeId, gen, false);
+      }
+    } catch {
+      // ignore danmaku network error
+    }
+  }
+
+  private openDanmakuManualMatch(): void {
+    const rawHint = (this.activeVideoReq.seriesName ?? '').trim() ||
+      (this.activeVideoReq.title ?? '').trim() ||
+      (this.activeVideoReq.fileName ?? '').trim();
+    this.danmakuSearchQuery = RustCoreBridge.normalizeDanmakuTitle(rawHint);
+    this.danmakuSearchError = '';
+    this.danmakuActiveBangumi = null;
+    this.danmakuSearchResults = [];
+    this.openSheet('danmakuMatch');
+    if (this.danmakuCandidates.length === 0 && this.danmakuSearchQuery.length > 0) {
+      this.triggerDanmakuSearch();
+    }
+  }
+
+  private triggerDanmakuSearch(): void {
+    const kw = this.danmakuSearchQuery.trim();
+    if (!kw || this.danmakuSearchLoading) {
+      return;
+    }
+    this.danmakuSearchLoading = true;
+    this.danmakuSearchError = '';
+    this.danmakuActiveBangumi = null;
+    MoviePilotRepository.shared().searchDanmaku(kw).then((items: MpDanmakuAnimeSearchItem[]) => {
+      this.danmakuSearchResults = items;
+      if (items.length === 0) {
+        this.danmakuSearchError = '未搜索到匹配作品，请尝试简化关键词';
+      }
+      this.danmakuSearchLoading = false;
+    }).catch((err: Error) => {
+      this.danmakuSearchError = err.message || '搜索弹幕失败';
+      this.danmakuSearchLoading = false;
+    });
+  }
+
+  private selectDanmakuCandidate(cand: MpDanmakuEpisodeCandidate): void {
+    const gen = this.videoLoadGeneration;
+    this.danmakuEpisodeId = cand.episodeId;
+    this.danmakuAnimeId = cand.animeId;
+    this.danmakuAnimeTitle = cand.animeTitle;
+    this.danmakuEpisodeTitle = cand.episodeTitle;
+    this.danmakuShiftMs = cand.shiftMs;
+    this.showPlayerSheet = false;
+    this.showTransientHud('checkmark', `已切换弹幕：${cand.animeTitle}`);
+    MoviePilotRepository.shared().saveDanmakuBinding({
+      server: this.activeVideoReq.server,
+      itemId: this.activeVideoReq.itemId,
+      tmdbId: this.activeVideoReq.tmdbId,
+      seasonNumber: this.activeVideoReq.seasonNumber,
+      episodeNumber: this.activeVideoReq.episodeNumber,
+      episodeId: cand.episodeId,
+      animeId: cand.animeId,
+      animeTitle: cand.animeTitle,
+      episodeTitle: cand.episodeTitle,
+      shiftMs: cand.shiftMs
+    }).then(() => {
+      this.danmakuFromBinding = true;
+    }).catch(() => {});
+    this.loadDanmakuCommentsByEpisode(cand.episodeId, gen, false).catch(() => {});
+  }
+
+  private danmakuMatchedSummaryText(): string {
+    if (this.danmakuAnimeTitle.length > 0 && this.danmakuEpisodeTitle.length > 0) {
+      return `${this.danmakuAnimeTitle} · ${this.danmakuEpisodeTitle}`;
+    }
+    if (this.danmakuAnimeTitle.length > 0) {
+      return this.danmakuAnimeTitle;
+    }
+    return '暂未自动匹配到弹幕分集';
   }
 
   private openSheet(kind: PlayerSheetKind): void {
@@ -2244,7 +2467,11 @@ export struct NativeMediaPlayerView {
                 ? '播放倍速'
                 : (this.activeSheetKind === 'engine'
                   ? '切换播放内核'
-                  : (this.request.isAudio ? '播放队列' : '剧集选集'))))
+                  : (this.activeSheetKind === 'danmakuSettings'
+                    ? '弹幕设置'
+                    : (this.activeSheetKind === 'danmakuMatch'
+                      ? '搜索弹幕剧集'
+                      : (this.request.isAudio ? '播放队列' : '剧集选集'))))))
         )
           .fontSize(17)
           .fontWeight(FontWeight.Bold)
@@ -2565,6 +2792,416 @@ export struct NativeMediaPlayerView {
         }
         .width('100%')
         .padding({ left: 16, right: 16, bottom: 20 })
+      } else if (this.activeSheetKind === 'danmakuSettings') {
+        Scroll() {
+          Column({ space: 12 }) {
+            // 匹配信息与纠偏操作栏
+            Column({ space: 8 }) {
+              Text(this.danmakuMatchedSummaryText())
+                .fontSize(14)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Color.White)
+                .maxLines(2)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+              Text(`当前已加载 ${this.danmakuTotalCount} 条弹幕${this.danmakuFromBinding ? ' · 已手动绑定' : ''}`)
+                .fontSize(12)
+                .fontColor('#99FFFFFF')
+                .width('100%')
+              Row({ space: 8 }) {
+                Text('搜索 / 换集')
+                  .fontSize(12.5)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(Color.White)
+                  .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                  .borderRadius(14)
+                  .backgroundColor('#317AF7')
+                  .onClick(() => this.openDanmakuManualMatch())
+                if (this.danmakuEpisodeId > 0) {
+                  Text('强制刷新')
+                    .fontSize(12.5)
+                    .fontColor('#D9FFFFFF')
+                    .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                    .borderRadius(14)
+                    .backgroundColor('#24FFFFFF')
+                    .onClick(() => {
+                      if (this.danmakuSheetBusy) { return; }
+                      this.danmakuSheetBusy = true;
+                      this.loadDanmakuCommentsByEpisode(this.danmakuEpisodeId, this.videoLoadGeneration, true).then(() => {
+                        this.danmakuSheetBusy = false;
+                        this.danmakuSheetFeedback = '已重新拉取最新弹幕';
+                      }).catch(() => {
+                        this.danmakuSheetBusy = false;
+                      });
+                    })
+                }
+              }.width('100%')
+            }
+            .width('100%')
+            .padding(12)
+            .borderRadius(14)
+            .backgroundColor('#18FFFFFF')
+
+            // 开关与透明度/字号/速度滑块
+            Row() {
+              Text('显示弹幕').fontSize(14.5).fontColor(Color.White).layoutWeight(1)
+              Toggle({ type: ToggleType.Switch, isOn: this.danmakuVisible }).selectedColor('#317AF7')
+                .onChange((v: boolean) => {
+                  DanmakuPreferencesStore.setEnabled(v);
+                  this.danmakuVisible = v;
+                  this.danmakuConfigVersion += 1;
+                })
+            }.width('100%')
+
+            Column({ space: 2 }) {
+              Row() {
+                Text('不透明度').fontSize(13).fontColor('#CCFFFFFF').layoutWeight(1)
+                Text(`${Math.round(this.danmakuOpacity * 100)}%`).fontSize(12.5).fontColor('#99FFFFFF')
+              }.width('100%')
+              Slider({ value: Math.round(this.danmakuOpacity * 100), min: 20, max: 100 })
+                .selectedColor('#317AF7')
+                .onChange((v: number) => {
+                  const next = v / 100;
+                  DanmakuPreferencesStore.setOpacity(next);
+                  this.danmakuOpacity = DanmakuPreferencesStore.getOpacity();
+                  this.danmakuConfigVersion += 1;
+                })
+            }.width('100%')
+
+            Column({ space: 2 }) {
+              Row() {
+                Text('字号缩放').fontSize(13).fontColor('#CCFFFFFF').layoutWeight(1)
+                Text(`${Math.round(this.danmakuFontScale * 100)}%`).fontSize(12.5).fontColor('#99FFFFFF')
+              }.width('100%')
+              Slider({ value: Math.round(this.danmakuFontScale * 100), min: 75, max: 150 })
+                .selectedColor('#317AF7')
+                .onChange((v: number) => {
+                  DanmakuPreferencesStore.setFontScale(v / 100);
+                  this.danmakuFontScale = DanmakuPreferencesStore.getFontScale();
+                  this.danmakuConfigVersion += 1;
+                })
+            }.width('100%')
+
+            Column({ space: 2 }) {
+              Row() {
+                Text('弹幕速度').fontSize(13).fontColor('#CCFFFFFF').layoutWeight(1)
+                Text(`${this.danmakuSpeed.toFixed(1)}x`).fontSize(12.5).fontColor('#99FFFFFF')
+              }.width('100%')
+              Slider({ value: Math.round(this.danmakuSpeed * 100), min: 60, max: 160 })
+                .selectedColor('#317AF7')
+                .onChange((v: number) => {
+                  DanmakuPreferencesStore.setSpeed(v / 100);
+                  this.danmakuSpeed = DanmakuPreferencesStore.getSpeed();
+                  this.danmakuConfigVersion += 1;
+                })
+            }.width('100%')
+
+            // 显示区域与同屏上限
+            Text('显示区域').fontSize(13).fontColor('#CCFFFFFF').width('100%')
+            Row({ space: 8 }) {
+              ForEach([0.25, 0.5, 0.75, 1.0], (ratio: number) => {
+                Text(ratio === 0.25 ? '1/4屏' : (ratio === 0.5 ? '半屏' : (ratio === 0.75 ? '3/4屏' : '全屏')))
+                  .fontSize(12)
+                  .fontColor(Math.abs(this.danmakuAreaRatio - ratio) < 0.05 ? Color.White : '#B3FFFFFF')
+                  .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                  .borderRadius(12)
+                  .backgroundColor(Math.abs(this.danmakuAreaRatio - ratio) < 0.05 ? '#317AF7' : '#22FFFFFF')
+                  .onClick(() => {
+                    DanmakuPreferencesStore.setAreaRatio(ratio);
+                    this.danmakuAreaRatio = ratio;
+                    this.danmakuConfigVersion += 1;
+                  })
+              }, (r: number) => `area_${r}`)
+            }.width('100%')
+
+            Text('同屏弹幕上限').fontSize(13).fontColor('#CCFFFFFF').width('100%')
+            Row({ space: 8 }) {
+              ForEach([20, 40, 60, 100], (cap: number) => {
+                Text(`${cap} 条`)
+                  .fontSize(12)
+                  .fontColor(this.danmakuMaxOnScreen === cap ? Color.White : '#B3FFFFFF')
+                  .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                  .borderRadius(12)
+                  .backgroundColor(this.danmakuMaxOnScreen === cap ? '#317AF7' : '#22FFFFFF')
+                  .onClick(() => {
+                    DanmakuPreferencesStore.setMaxOnScreen(cap);
+                    this.danmakuMaxOnScreen = cap;
+                    this.danmakuConfigVersion += 1;
+                  })
+              }, (c: number) => `cap_${c}`)
+            }.width('100%')
+
+            // 类型过滤与去重
+            Row({ space: 8 }) {
+              Text('滚动').fontSize(12).fontColor(this.danmakuAllowScroll ? Color.White : '#88FFFFFF')
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 }).borderRadius(12)
+                .backgroundColor(this.danmakuAllowScroll ? '#317AF7' : '#22FFFFFF')
+                .onClick(() => {
+                  this.danmakuAllowScroll = !this.danmakuAllowScroll;
+                  DanmakuPreferencesStore.setAllowScroll(this.danmakuAllowScroll);
+                  this.rebuildDanmakuTimeline();
+                })
+              Text('顶部').fontSize(12).fontColor(this.danmakuAllowTop ? Color.White : '#88FFFFFF')
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 }).borderRadius(12)
+                .backgroundColor(this.danmakuAllowTop ? '#317AF7' : '#22FFFFFF')
+                .onClick(() => {
+                  this.danmakuAllowTop = !this.danmakuAllowTop;
+                  DanmakuPreferencesStore.setAllowTop(this.danmakuAllowTop);
+                  this.rebuildDanmakuTimeline();
+                })
+              Text('底部').fontSize(12).fontColor(this.danmakuAllowBottom ? Color.White : '#88FFFFFF')
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 }).borderRadius(12)
+                .backgroundColor(this.danmakuAllowBottom ? '#317AF7' : '#22FFFFFF')
+                .onClick(() => {
+                  this.danmakuAllowBottom = !this.danmakuAllowBottom;
+                  DanmakuPreferencesStore.setAllowBottom(this.danmakuAllowBottom);
+                  this.rebuildDanmakuTimeline();
+                })
+              Text('彩色').fontSize(12).fontColor(this.danmakuAllowColor ? Color.White : '#88FFFFFF')
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 }).borderRadius(12)
+                .backgroundColor(this.danmakuAllowColor ? '#317AF7' : '#22FFFFFF')
+                .onClick(() => {
+                  this.danmakuAllowColor = !this.danmakuAllowColor;
+                  DanmakuPreferencesStore.setAllowColor(this.danmakuAllowColor);
+                  this.rebuildDanmakuTimeline();
+                })
+              Text('去重').fontSize(12).fontColor(this.danmakuMergeDup ? Color.White : '#88FFFFFF')
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 }).borderRadius(12)
+                .backgroundColor(this.danmakuMergeDup ? '#317AF7' : '#22FFFFFF')
+                .onClick(() => {
+                  this.danmakuMergeDup = !this.danmakuMergeDup;
+                  DanmakuPreferencesStore.setMergeDuplicates(this.danmakuMergeDup);
+                  this.rebuildDanmakuTimeline();
+                })
+            }.width('100%')
+
+            // 时间轴偏移微调
+            Row() {
+              Text(`时间偏移：${this.danmakuShiftMs >= 0 ? '+' : ''}${(this.danmakuShiftMs / 1000).toFixed(1)}s`)
+                .fontSize(13).fontColor('#CCFFFFFF').layoutWeight(1)
+              if (this.danmakuEpisodeId > 0) {
+                Text('保存偏移到服务端')
+                  .fontSize(12).fontColor('#317AF7').fontWeight(FontWeight.Bold)
+                  .onClick(() => {
+                    MoviePilotRepository.shared().saveDanmakuBinding({
+                      server: this.activeVideoReq.server,
+                      itemId: this.activeVideoReq.itemId,
+                      tmdbId: this.activeVideoReq.tmdbId,
+                      seasonNumber: this.activeVideoReq.seasonNumber,
+                      episodeNumber: this.activeVideoReq.episodeNumber,
+                      episodeId: this.danmakuEpisodeId,
+                      animeId: this.danmakuAnimeId,
+                      animeTitle: this.danmakuAnimeTitle,
+                      episodeTitle: this.danmakuEpisodeTitle,
+                      shiftMs: this.danmakuShiftMs
+                    }).then(() => {
+                      this.danmakuFromBinding = true;
+                      this.danmakuSheetFeedback = '已将时间偏移保存到服务端';
+                    }).catch(() => {});
+                  })
+              }
+            }.width('100%')
+
+            Row({ space: 6 }) {
+              ForEach([-5000, -1000, -500, 500, 1000, 5000], (delta: number) => {
+                Text(`${delta > 0 ? '+' : ''}${delta / 1000}s`)
+                  .fontSize(11.5)
+                  .fontColor(Color.White)
+                  .padding({ left: 8, right: 8, top: 6, bottom: 6 })
+                  .borderRadius(10)
+                  .backgroundColor('#24FFFFFF')
+                  .onClick(() => {
+                    this.danmakuShiftMs += delta;
+                    this.rebuildDanmakuTimeline();
+                  })
+              }, (d: number) => `sh_${d}`)
+            }.width('100%')
+
+            // 关键词屏蔽
+            Text('关键词屏蔽（支持 /正则/）').fontSize(13).fontColor('#CCFFFFFF').width('100%')
+            Row({ space: 8 }) {
+              TextInput({ text: this.danmakuKeywordDraft, placeholder: '输入屏蔽词' })
+                .layoutWeight(1)
+                .fontColor(Color.White)
+                .placeholderColor('#88FFFFFF')
+                .backgroundColor('#22FFFFFF')
+                .borderRadius(12)
+                .onChange((v: string) => { this.danmakuKeywordDraft = v; })
+              Text('添加')
+                .fontSize(12.5).fontWeight(FontWeight.Bold).fontColor(Color.White)
+                .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+                .borderRadius(12).backgroundColor('#317AF7')
+                .onClick(() => {
+                  const next = DanmakuPreferencesStore.addBlockKeyword(this.danmakuKeywordDraft);
+                  this.danmakuBlockKeywords = next;
+                  this.danmakuKeywordDraft = '';
+                  this.rebuildDanmakuTimeline();
+                })
+            }.width('100%')
+
+            if (this.danmakuBlockKeywords.length > 0) {
+              Flex({ wrap: FlexWrap.Wrap }) {
+                ForEach(this.danmakuBlockKeywords, (kw: string) => {
+                  Row({ space: 4 }) {
+                    Text(kw).fontSize(11.5).fontColor(Color.White)
+                    Text('×').fontSize(12).fontColor('#B3FFFFFF')
+                  }
+                  .padding({ left: 10, right: 8, top: 5, bottom: 5 })
+                  .margin({ right: 6, bottom: 6 })
+                  .borderRadius(12)
+                  .backgroundColor('#26FFFFFF')
+                  .onClick(() => {
+                    this.danmakuBlockKeywords = DanmakuPreferencesStore.removeBlockKeyword(kw);
+                    this.rebuildDanmakuTimeline();
+                  })
+                }, (kw: string) => `kw_${kw}`)
+              }.width('100%')
+            }
+
+            if (this.danmakuSheetFeedback.length > 0) {
+              Text(this.danmakuSheetFeedback).fontSize(12).fontColor('#34C759').width('100%')
+            }
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, bottom: 24 })
+        }
+        .scrollBar(BarState.Off)
+        .layoutWeight(1)
+        .width('100%')
+      } else if (this.activeSheetKind === 'danmakuMatch') {
+        Column({ space: 10 }) {
+          Row({ space: 8 }) {
+            TextInput({ text: this.danmakuSearchQuery, placeholder: '输入作品名搜索弹幕' })
+              .layoutWeight(1)
+              .fontColor(Color.White)
+              .placeholderColor('#88FFFFFF')
+              .backgroundColor('#22FFFFFF')
+              .borderRadius(12)
+              .onChange((v: string) => { this.danmakuSearchQuery = v; })
+              .onSubmit(() => this.triggerDanmakuSearch())
+            Text('搜索')
+              .fontSize(13).fontWeight(FontWeight.Bold).fontColor(Color.White)
+              .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+              .borderRadius(12).backgroundColor('#317AF7')
+              .onClick(() => this.triggerDanmakuSearch())
+          }.width('100%')
+
+          if (this.danmakuFromBinding) {
+            Row() {
+              Text('当前为手动绑定状态').fontSize(12).fontColor('#99FFFFFF').layoutWeight(1)
+              Text('解绑并恢复自动匹配')
+                .fontSize(12).fontColor('#FF6B6B').fontWeight(FontWeight.Bold)
+                .onClick(() => {
+                  MoviePilotRepository.shared().deleteDanmakuBinding({
+                    server: this.activeVideoReq.server,
+                    itemId: this.activeVideoReq.itemId,
+                    tmdbId: this.activeVideoReq.tmdbId,
+                    seasonNumber: this.activeVideoReq.seasonNumber,
+                    episodeNumber: this.activeVideoReq.episodeNumber
+                  }).then(() => {
+                    this.showPlayerSheet = false;
+                    this.showTransientHud('checkmark', '已解除手动绑定');
+                    this.loadDanmakuForRequest(this.activeVideoReq, this.videoLoadGeneration).catch(() => {});
+                  }).catch(() => {});
+                })
+            }.width('100%')
+          }
+
+          if (this.danmakuSearchLoading) {
+            Row({ space: 8 }) {
+              LoadingProgress().width(18).height(18).color('#317AF7')
+              Text('正在搜索弹幕库…').fontSize(13).fontColor('#99FFFFFF')
+            }.width('100%').padding({ top: 12 })
+          } else if (this.danmakuSearchError.length > 0) {
+            Text(this.danmakuSearchError).fontSize(12.5).fontColor('#FF8A80').width('100%')
+          }
+
+          if (this.danmakuActiveBangumi) {
+            Row({ space: 8 }) {
+              Text('← 返回作品列表')
+                .fontSize(12.5).fontColor('#317AF7').fontWeight(FontWeight.Bold)
+                .onClick(() => { this.danmakuActiveBangumi = null; })
+              Text(this.danmakuActiveBangumi.animeTitle)
+                .fontSize(13.5).fontColor(Color.White).fontWeight(FontWeight.Bold)
+                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+            }.width('100%')
+
+            List({ space: 8 }) {
+              ForEach(this.danmakuActiveBangumi.episodes, (ep: MpDanmakuEpisodeCandidate) => {
+                ListItem() {
+                  Row() {
+                    Text(ep.episodeTitle || `第 ${ep.episodeNumber ?? ep.episodeId} 集`)
+                      .fontSize(14).fontColor(Color.White).layoutWeight(1)
+                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                    Text('选用').fontSize(12).fontColor('#317AF7').fontWeight(FontWeight.Bold)
+                  }
+                  .width('100%')
+                  .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+                  .borderRadius(12)
+                  .backgroundColor('#18FFFFFF')
+                  .onClick(() => this.selectDanmakuCandidate(ep))
+                }
+              }, (ep: MpDanmakuEpisodeCandidate) => `bg_ep_${ep.episodeId}`)
+            }.width('100%').layoutWeight(1)
+          } else if (this.danmakuSearchResults.length > 0) {
+            List({ space: 8 }) {
+              ForEach(this.danmakuSearchResults, (anime: MpDanmakuAnimeSearchItem) => {
+                ListItem() {
+                  Column({ space: 3 }) {
+                    Text(anime.animeTitle)
+                      .fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(Color.White)
+                      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+                    Text(`${anime.animeType ?? '作品'}${anime.episodeCount ? ' · ' + anime.episodeCount + ' 集' : ''}`)
+                      .fontSize(11.5).fontColor('#99FFFFFF').width('100%')
+                  }
+                  .width('100%')
+                  .padding({ left: 14, right: 14, top: 11, bottom: 11 })
+                  .borderRadius(12)
+                  .backgroundColor('#18FFFFFF')
+                  .onClick(() => {
+                    if (anime.episodes.length > 0) {
+                      this.danmakuActiveBangumi = {
+                        animeId: anime.animeId,
+                        animeTitle: anime.animeTitle,
+                        animeType: anime.animeType,
+                        episodes: anime.episodes
+                      };
+                    } else {
+                      this.danmakuSearchLoading = true;
+                      MoviePilotRepository.shared().fetchDanmakuBangumi(anime.animeId).then((bg: MpDanmakuBangumi) => {
+                        this.danmakuActiveBangumi = bg;
+                        this.danmakuSearchLoading = false;
+                      }).catch((err: Error) => {
+                        this.danmakuSearchError = err.message || '加载分集列表失败';
+                        this.danmakuSearchLoading = false;
+                      });
+                    }
+                  })
+                }
+              }, (a: MpDanmakuAnimeSearchItem) => `an_${a.animeId}`)
+            }.width('100%').layoutWeight(1)
+          } else if (this.danmakuCandidates.length > 0) {
+            Text('自动匹配候选').fontSize(12.5).fontColor('#99FFFFFF').width('100%')
+            List({ space: 8 }) {
+              ForEach(this.danmakuCandidates, (cand: MpDanmakuEpisodeCandidate) => {
+                ListItem() {
+                  Column({ space: 2 }) {
+                    Text(cand.animeTitle).fontSize(14).fontColor(Color.White).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+                    Text(cand.episodeTitle).fontSize(12).fontColor('#99FFFFFF').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+                  }
+                  .width('100%')
+                  .padding({ left: 14, right: 14, top: 11, bottom: 11 })
+                  .borderRadius(12)
+                  .backgroundColor('#18FFFFFF')
+                  .onClick(() => this.selectDanmakuCandidate(cand))
+                }
+              }, (c: MpDanmakuEpisodeCandidate) => `cd_${c.episodeId}`)
+            }.width('100%').layoutWeight(1)
+          }
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .padding({ left: 16, right: 16, bottom: 20 })
       }
     }
     .width('100%')
@@ -2610,6 +3247,21 @@ export struct NativeMediaPlayerView {
           this.containerW = Number(newArea.width);
           this.containerH = Number(newArea.height);
         })
+
+        // 原生透明弹幕叠加层（置于视频渲染层之上、手势与控制栏之下，完全穿透触摸）
+        if (this.activeVideoReq.danmakuEnabled && !this.isPipActive) {
+          HarmonyDanmakuOverlay({
+            controller: this.danmakuController,
+            danmakuActive: this.danmakuVisible,
+            isPlaying: this.isPlaying,
+            pipActive: this.isPipActive,
+            safeTopVp: Math.max(12, this.safeTopVp),
+            configVersion: this.danmakuConfigVersion
+          })
+            .width('100%')
+            .height('100%')
+            .hitTestBehavior(HitTestMode.None)
+        }
 
         // 全屏手势捕获层（置于画布之上、控制按钮之下）
         Stack()
@@ -2994,7 +3646,48 @@ export struct NativeMediaPlayerView {
               .alignItems(VerticalAlign.Center)
 
               Row() {
-                Row({ space: 14 }) {
+                Row({ space: 10 }) {
+                  // 弹幕开关与弹幕设置按钮（仅当服务端启用弹幕时展示）
+                  if (this.activeVideoReq.danmakuEnabled) {
+                    Row({ space: 4 }) {
+                      SymbolGlyph($r('sys.symbol.message_on_message'))
+                        .fontSize(18)
+                        .fontColor([this.danmakuVisible ? '#317AF7' : Color.White])
+                      Text(this.danmakuVisible ? '弹幕开' : '弹幕')
+                        .fontSize(12)
+                        .fontColor(this.danmakuVisible ? '#317AF7' : '#D9FFFFFF')
+                    }
+                    .padding({ left: 8, right: 8, top: 5, bottom: 5 })
+                    .borderRadius(12)
+                    .backgroundColor('#26FFFFFF')
+                    .accessibilityText(this.danmakuVisible ? '关闭弹幕' : '开启弹幕')
+                    .onClick(() => {
+                      const next = !this.danmakuVisible;
+                      DanmakuPreferencesStore.setEnabled(next);
+                      this.danmakuVisible = next;
+                      this.danmakuConfigVersion += 1;
+                      this.showTransientHud('checkmark', next ? '已开启弹幕' : '已关闭弹幕');
+                      this.resetControlsAutoHideTimer();
+                    })
+
+                    Row({ space: 4 }) {
+                      SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
+                        .fontSize(17)
+                        .fontColor([Color.White])
+                      Text('弹幕设置')
+                        .fontSize(12)
+                        .fontColor('#D9FFFFFF')
+                    }
+                    .padding({ left: 8, right: 8, top: 5, bottom: 5 })
+                    .borderRadius(12)
+                    .backgroundColor('#26FFFFFF')
+                    .accessibilityText('打开弹幕设置')
+                    .onClick(() => {
+                      this.danmakuSheetFeedback = '';
+                      this.openSheet('danmakuSettings');
+                    })
+                  }
+
                   // 字幕选择按钮
                   Row({ space: 4 }) {
                     SymbolGlyph($r('sys.symbol.AI_subtitles'))

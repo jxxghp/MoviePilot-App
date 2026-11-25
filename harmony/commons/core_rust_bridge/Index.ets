@@ -14,7 +14,10 @@ export {
   RouteProbeOutcome,
   PlaybackRoutePlan,
   EngineResolutionInput,
-  EngineResolutionPlan
+  EngineResolutionPlan,
+  MpDanmakuItem,
+  MpDanmakuFilterOptions,
+  MpPreparedDanmakuTimeline
 } from './src/main/ets/bridge/RustCoreBridge';
 
 export {
@@ -81,6 +84,18 @@ export {
   MpFilterRuleGroup,
   MpExternalSubtitle,
   MpVideoStreamInfo,
+  MpDanmakuCacheStats,
+  MpDanmakuConfig,
+  MpDanmakuConfigTestResult,
+  MpDanmakuCacheClearResult,
+  MpDanmakuEpisodeCandidate,
+  MpDanmakuMatchResponse,
+  MpDanmakuAnimeSearchItem,
+  MpDanmakuBangumi,
+  MpDanmakuCommentsRaw,
+  MpDanmakuMatchParams,
+  MpDanmakuSaveBindingParams,
+  MpDanmakuDeleteBindingParams,
   MpProgressReportOptions,
   MpMediaServerAccountBinding,
   MpMediaServerAccountBindResult,

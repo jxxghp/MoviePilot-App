@@ -10,6 +10,7 @@
     <string name="mp_02396185" formatted="false">Connecting to your instance…</string>
     <string name="mp_02478d88" formatted="false">Couldn’t load plugins. Try again.</string>
     <string name="mp_024d6757" formatted="false">%1$s times</string>
+    <string name="mp_02c329cb" formatted="false">Enter keyword or /pattern/</string>
     <string name="mp_02e6ffb1" formatted="false">Hardware Preferred</string>
     <string name="mp_03c62efa" formatted="false">Embedded · %1$s</string>
     <string name="mp_060bd69b" formatted="false">Album artwork</string>
@@ -17,6 +18,7 @@
     <string name="mp_06507d6e" formatted="false">No installed plugins</string>
     <string name="mp_07c1bdfb" formatted="false">Refresh Account</string>
     <string name="mp_08128200" formatted="false">Only the enhanced engine supports software video decoding; the system native engine uses hardware video decode</string>
+    <string name="mp_082dd865" formatted="false">Custom Header Token</string>
     <string name="mp_083cf2f6" formatted="false">Normal speed</string>
     <string name="mp_085231bd" formatted="false">Save wasn’t confirmed. Your changes are kept.</string>
     <string name="mp_0933cd7f" formatted="false">Open notification page</string>
@@ -31,17 +33,20 @@
     <string name="mp_0fee3e35" formatted="false">Calendar &amp; Community</string>
     <string name="mp_10_e4d73412" formatted="false">Back 10 seconds</string>
     <string name="mp_10_f9e98b75" formatted="false">Forward 10 seconds</string>
+    <string name="mp_10b7d8ec" formatted="false">Test Connection</string>
     <string name="mp_10e20c82" formatted="false">This service is already set up. Please sign in.</string>
     <string name="mp_112c8584" formatted="false">Enhanced Engine</string>
     <string name="mp_11d02415" formatted="false">Back</string>
     <string name="mp_1204486f" formatted="false">Music Center</string>
     <string name="mp_1209bc96" formatted="false">Current server</string>
+    <string name="mp_122c3f28" formatted="false">Save Offset to Server</string>
     <string name="mp_130448bc" formatted="false">Pause</string>
     <string name="mp_15_3e0c2a0a" formatted="false">Every 15 minutes</string>
     <string name="mp_15cdd697" formatted="false">System Native</string>
     <string name="mp_163aec91" formatted="false">Content</string>
     <string name="mp_16899524" formatted="false">Field expression</string>
     <string name="mp_178375d9" formatted="false">No widget content is available for this account.</string>
+    <string name="mp_178fcbda" formatted="false">Danmaku Settings</string>
     <string name="mp_17f73df7" formatted="false">Edit one field here. Enter a full custom value on the previous page.</string>
     <string name="mp_1883b092" formatted="false">%1$s, page categories</string>
     <string name="mp_18b1353a" formatted="false">Enter the server root address without query parameters or a page path after #.</string>
@@ -64,11 +69,13 @@
     <string name="mp_1ed8c078" formatted="false">Downloads</string>
     <string name="mp_1ee4fe04" formatted="false">Local profile</string>
     <string name="mp_2054d3a5" formatted="false">Reload the page and try again.</string>
+    <string name="mp_20a396d9" formatted="false">Search Danmaku</string>
     <string name="mp_21147016" formatted="false">Search or enter a custom value</string>
     <string name="mp_215d6e18" formatted="false">Set a starting value</string>
     <string name="mp_21925350" formatted="false">Playback</string>
     <string name="mp_219f3f6b" formatted="false">Check the highlighted settings.</string>
     <string name="mp_21f1e882" formatted="false">Sign in</string>
+    <string name="mp_223d8470" formatted="false">None</string>
     <string name="mp_22ef5dde" formatted="false">Plugin panel</string>
     <string name="mp_245a6285" formatted="false">Generate pairing code</string>
     <string name="mp_2478069f" formatted="false">Plugins &amp; Workflows</string>
@@ -79,6 +86,7 @@
     <string name="mp_27bdd826" formatted="false">Enable widgets</string>
     <string name="mp_27e4fe4c" formatted="false">OK</string>
     <string name="mp_28846eb2" formatted="false">Shared storage is unavailable. Check the installation or renew its signature, then retry.</string>
+    <string name="mp_28b8d417" formatted="false">Max On Screen</string>
     <string name="mp_28bf227b" formatted="false">Minute</string>
     <string name="mp_2918633a" formatted="false">Explore</string>
     <string name="mp_295d363d" formatted="false">Cleared</string>
@@ -112,6 +120,7 @@
     <string name="mp_3755f56f" formatted="false">Delete</string>
     <string name="mp_37dea08b" formatted="false">Custom values are passed to the plugin unchanged.</string>
     <string name="mp_37eb4700" formatted="false">Expires</string>
+    <string name="mp_37f86ac4" formatted="false">Merge Duplicates</string>
     <string name="mp_38108eaa" formatted="false">Refresh</string>
     <string name="mp_38175011" formatted="false">%1$s\nValid for ten minutes and one use. Paste only into your own notification page.</string>
     <string name="mp_381cf593" formatted="false">Connection timed out. Choose a reachable server address or try again later.</string>
@@ -129,7 +138,9 @@
     <string name="mp_3fc78f9b" formatted="false">Enable system notifications</string>
     <string name="mp_40fc30c6" formatted="false">Widget profile unavailable</string>
     <string name="mp_410e8b9d" formatted="false">Numeric weekdays follow the plugin’s rules. Choose weekday names to change them.</string>
+    <string name="mp_414099c3" formatted="false">Clear Danmaku Cache</string>
     <string name="mp_422cc01a" formatted="false">Enter a shorter display name without control characters.</string>
+    <string name="mp_42c3af09" formatted="false">Enable Danmaku Proxy</string>
     <string name="mp_4304c8d4" formatted="false">Execution uses the server and plugin time zones.</string>
     <string name="mp_43f6c2de" formatted="false">Enable to select this server in system widgets.</string>
     <string name="mp_4562024d" formatted="false">Apps</string>
@@ -138,8 +149,10 @@
     <string name="mp_47379809" formatted="false">Avatar loaded</string>
     <string name="mp_483f2e6e" formatted="false">Presets</string>
     <string name="mp_48fcdf28" formatted="false">Search &amp; Metadata Sources</string>
+    <string name="mp_4ad838e2" formatted="false">None / Path Token</string>
     <string name="mp_4ae7f129" formatted="false">Your session has expired. Please sign in again.</string>
     <string name="mp_4b81846f" formatted="false">Server</string>
+    <string name="mp_4ba33872" formatted="false">Danmaku disabled</string>
     <string name="mp_4bd32a60" formatted="false">Downloaders</string>
     <string name="mp_4bd4cb49" formatted="false">Use instance settings</string>
     <string name="mp_4c0521ff" formatted="false">Unable to load</string>
@@ -163,6 +176,7 @@
     <string name="mp_523e40a0" formatted="false">Discover</string>
     <string name="mp_5319af76" formatted="false">Subscriptions</string>
     <string name="mp_55a8b99f" formatted="false">The service response could not be read. Check the backend version and address.</string>
+    <string name="mp_567cb450" formatted="false">No danmaku matched</string>
     <string name="mp_5692388b" formatted="false">Shortcuts &amp; Diagnostics</string>
     <string name="mp_57fce0c4" formatted="false">Pending</string>
     <string name="mp_58421bd3" formatted="false">Picture in Picture is not ready. Wait for the video to start, then try again.</string>
@@ -170,6 +184,7 @@
     <string name="mp_58d5873b" formatted="false">Playback Engine</string>
     <string name="mp_5982c44c" formatted="false">Reload</string>
     <string name="mp_5984ebc4" formatted="false">Select or enter</string>
+    <string name="mp_59d109c7" formatted="false">Matching danmaku…</string>
     <string name="mp_5_31dad6cc" formatted="false">Generate a 5-minute channel bind code</string>
     <string name="mp_5a781bec" formatted="false">Resume listening?</string>
     <string name="mp_5b6bd8b2" formatted="false">Secure storage is unavailable. Unlock your device and try again.</string>
@@ -177,9 +192,11 @@
     <string name="mp_5e8c6fba" formatted="false">%1$s\nSaved credentials, sign-in status and web data for this server will be removed.</string>
     <string name="mp_5ea60e8a" formatted="false">Live Session Sync</string>
     <string name="mp_5f83e7f6" formatted="false">Basic</string>
+    <string name="mp_613305fc" formatted="false">Font Size</string>
     <string name="mp_637471eb" formatted="false">Administrator created. Please sign in.</string>
     <string name="mp_63f6267b" formatted="false">Subscribe &amp; Search</string>
     <string name="mp_6403cfdd" formatted="false">Sign in with a passkey</string>
+    <string name="mp_64b9a5e8" formatted="false">Search by title</string>
     <string name="mp_64f2b4a7" formatted="false">Unable to load subtitles. Select another track or check the server connection.</string>
     <string name="mp_65a876f5" formatted="false">Invalid notification server response.</string>
     <string name="mp_65ae053f" formatted="false">Last updated</string>
@@ -193,6 +210,7 @@
     <string name="mp_69aaa78b" formatted="false">Clear Address</string>
     <string name="mp_6_50_api_key_f3631cf2" formatted="false">Use 6–50 characters with at least two of letters, numbers, or symbols. The API key is sent only to this service.</string>
     <string name="mp_6_e478600e" formatted="false">Enter the 6-digit code from your authenticator.</string>
+    <string name="mp_6ab2e222" formatted="false">Authentication Mode</string>
     <string name="mp_6b576e0f" formatted="false">Enter your username and password.</string>
     <string name="mp_6ba4b7be" formatted="false">Resume watching?</string>
     <string name="mp_6c14bd7f" formatted="false">Close</string>
@@ -220,6 +238,7 @@
     <string name="mp_79cc871c" formatted="false">Start</string>
     <string name="mp_7a5c0fd3" formatted="false">Playback progress</string>
     <string name="mp_7a66c0d0" formatted="false">Notifications</string>
+    <string name="mp_7b36766b" formatted="false">Scroll Speed</string>
     <string name="mp_7d126146" formatted="false">Delete Service?</string>
     <string name="mp_7d34369f" formatted="false">Media Server Progress Sync &amp; Account Binding</string>
     <string name="mp_7debf9cb" formatted="false">Settings</string>
@@ -236,8 +255,11 @@
     <string name="mp_83e48d7c" formatted="false">Current value (unlisted)</string>
     <string name="mp_848aaab0" formatted="false">Check this value</string>
     <string name="mp_84c5f125" formatted="false">Music subscriptions</string>
+    <string name="mp_850ce2d8" formatted="false">Time Offset</string>
+    <string name="mp_854a9a88" formatted="false">Colored Danmaku</string>
     <string name="mp_8616e254" formatted="false">Connection &amp; Display</string>
     <string name="mp_86e11829" formatted="false">Server address</string>
+    <string name="mp_878af01d" formatted="false">Bottom Fixed</string>
     <string name="mp_8921db5c" formatted="false">Unable to connect to the notification server. Check your network and sign-in status.</string>
     <string name="mp_89e77dae" formatted="false">Now playing</string>
     <string name="mp_8b826b8b" formatted="false">First-time Setup</string>
@@ -257,10 +279,12 @@
     <string name="mp_93e4284e" formatted="false">Open in External Player</string>
     <string name="mp_940c8865" formatted="false">Interval</string>
     <string name="mp_94d1041d" formatted="false">Select sites</string>
+    <string name="mp_96e646e3" formatted="false">Danmaku Service</string>
     <string name="mp_99f6904f" formatted="false">Hour</string>
     <string name="mp_9a051ee2" formatted="false">Checking server connection…</string>
     <string name="mp_9b0c6c78" formatted="false">More</string>
     <string name="mp_9b5d7644" formatted="false">Your media world, always connected.</string>
+    <string name="mp_9b64b185" formatted="false">Danmaku enabled</string>
     <string name="mp_9c619be3" formatted="false">Instance &amp; Refresh</string>
     <string name="mp_9ca32f98" formatted="false">Saving…</string>
     <string name="mp_9d745525" formatted="false">Unable to restore the page. Check the connection and reopen. Unconfirmed actions will not be retried automatically.</string>
@@ -289,6 +313,7 @@
     <string name="mp_aaa5f2e9" formatted="false">Subtitles</string>
     <string name="mp_ab324996" formatted="false">Unable to enable system notifications. Check the notification server and system settings.</string>
     <string name="mp_ab5b27de" formatted="false">Remove local profile?</string>
+    <string name="mp_abc99b34" formatted="false">Display Area</string>
     <string name="mp_ac62bd0c" formatted="false">This installation uses Home Screen notifications.</string>
     <string name="mp_acc35bb4" formatted="false">Page resources failed to load. Check the connection and retry.</string>
     <string name="mp_acf014bf" formatted="false">Progress</string>
@@ -328,6 +353,7 @@
     <string name="mp_b4672d23" formatted="false">Page status</string>
     <string name="mp_b4a74a0e" formatted="false">Switch Playback Engine</string>
     <string name="mp_b4d9b610" formatted="false">Unable to connect</string>
+    <string name="mp_b4efb6cd" formatted="false">Opacity</string>
     <string name="mp_b5025e10" formatted="false">Home Screen notifications</string>
     <string name="mp_b50b0b30" formatted="false">Credentials are sent only to this server. Saved credentials stay on this device. Verification codes are never saved.</string>
     <string name="mp_b6dd4c32" formatted="false">All content displayed</string>
@@ -349,6 +375,8 @@
     <string name="mp_be577c3b" formatted="false">Auto (Recommended)</string>
     <string name="mp_be7f8395" formatted="false">Remember credentials</string>
     <string name="mp_bfc04721" formatted="false">Your password is only used once to obtain a token and is never stored.</string>
+    <string name="mp_c023e8d2" formatted="false">To Simplified</string>
+    <string name="mp_c02c99e7" formatted="false">To Traditional</string>
     <string name="mp_c15ac3ec" formatted="false">Select subtitles</string>
     <string name="mp_c1f0f76d" formatted="false">Calendar</string>
     <string name="mp_c2e7e96e" formatted="false">Edit schedule</string>
@@ -356,7 +384,9 @@
     <string name="mp_c493338e" formatted="false">Custom</string>
     <string name="mp_c4ad2079" formatted="false">Return to full screen</string>
     <string name="mp_c4e4c1a7" formatted="false">Settings saved</string>
+    <string name="mp_c55d54fe" formatted="false">Scrolling</string>
     <string name="mp_c5ca3950" formatted="false">Torrents</string>
+    <string name="mp_c6215495" formatted="false">Unbind &amp; Restore Auto-Match</string>
     <string name="mp_c753c38b" formatted="false">Reopen</string>
     <string name="mp_c75c40a9" formatted="false">Unsupported settings component</string>
     <string name="mp_c773293d" formatted="false">System notifications are disabled. Allow them in Settings.</string>
@@ -370,6 +400,7 @@
     <string name="mp_cbd05864" formatted="false">Close player</string>
     <string name="mp_cc19798b" formatted="false">Workflows</string>
     <string name="mp_cc35d36b" formatted="false">Connection timed out. Check the network and server status, then retry.</string>
+    <string name="mp_cc9bbd8c" formatted="false">Show Danmaku</string>
     <string name="mp_cd99b225" formatted="false">Language</string>
     <string name="mp_ce16e223" formatted="false">Music torrents</string>
     <string name="mp_ce20a22a" formatted="false">Loading notification pairing…</string>
@@ -399,6 +430,8 @@
     <string name="mp_d5d8edd1" formatted="false">Language</string>
     <string name="mp_d806ebc1" formatted="false">Verify &amp; Bind</string>
     <string name="mp_d84b7c84" formatted="false">Last day of each month</string>
+    <string name="mp_d85fae56" formatted="false">Danmaku</string>
+    <string name="mp_d8c140ed" formatted="false">Refresh Danmaku</string>
     <string name="mp_d91f9f56" formatted="false">Too many items selected</string>
     <string name="mp_d949ea44" formatted="false">Dialog actions</string>
     <string name="mp_d_1a05ef15" formatted="false">%d notification devices are paired with this account.</string>
@@ -416,6 +449,7 @@
     <string name="mp_e188ebca" formatted="false">Starting value</string>
     <string name="mp_e3526937" formatted="false">Weekday</string>
     <string name="mp_e39b02ad" formatted="false">Directories &amp; Scraping</string>
+    <string name="mp_e3a58614" formatted="false">Blocked Keywords</string>
     <string name="mp_e41d3674" formatted="false">Fill</string>
     <string name="mp_e487d5ce" formatted="false">Clear Local Cache</string>
     <string name="mp_e4aeceaa" formatted="false">Add &amp; Manage</string>
@@ -423,6 +457,7 @@
     <string name="mp_e700d5fe" formatted="false">Server &amp; Account</string>
     <string name="mp_e77643fa" formatted="false">Retry Connection</string>
     <string name="mp_e91365cf" formatted="false">Free</string>
+    <string name="mp_e923a968" formatted="false">Include Related Sources</string>
     <string name="mp_e9429323" formatted="false">Unable to remove saved credentials. Try again.</string>
     <string name="mp_e9663b94" formatted="false">Roles</string>
     <string name="mp_ea09a58c" formatted="false">Remove local profile</string>
@@ -438,6 +473,7 @@
     <string name="mp_ed917b08" formatted="false">Open in External Player by Default</string>
     <string name="mp_edaa51e3" formatted="false">Switched to %1$s</string>
     <string name="mp_ede7ece4" formatted="false">Local runtime failed to load plugin</string>
+    <string name="mp_ee18f610" formatted="false">Change Match</string>
     <string name="mp_ee561675" formatted="false">Subscriptions</string>
     <string name="mp_ee56a53b" formatted="false">Media Servers</string>
     <string name="mp_ee87f6ec" formatted="false">Server Channels</string>
@@ -462,8 +498,10 @@
     <string name="mp_f79b3cea" formatted="false">Sites &amp; Rules</string>
     <string name="mp_f7b2a6ee" formatted="false">configured</string>
     <string name="mp_f84589c8" formatted="false">Some sign-in information could not be saved securely. You may need to enter it again next time.</string>
+    <string name="mp_f8d2d907" formatted="false">Danmaku Types</string>
     <string name="mp_f8dede89" formatted="false">The service returned a redirect. Check the full service address.</string>
     <string name="mp_f8ef7f2a" formatted="false">Playback speed</string>
+    <string name="mp_f9578f6e" formatted="false">Top Fixed</string>
     <string name="mp_f9e6afb1" formatted="false">Notification server</string>
     <string name="mp_fadf24db" formatted="false">Save</string>
     <string name="mp_fb1c7dc7" formatted="false">Main navigation</string>
@@ -474,6 +512,7 @@
     <string name="mp_fd17e559" formatted="false">Music Scrobble</string>
     <string name="mp_fd3b1706" formatted="false">Unable to generate a secure key. Please try again.</string>
     <string name="mp_fd60ff58" formatted="false">Notification Channels</string>
+    <string name="mp_fd900500" formatted="false">Chinese Script Conversion</string>
     <string name="mp_fdad07e6" formatted="false">Download %1$s, upload %2$s</string>
     <string name="mp_fe33307a" formatted="false">Media</string>
     <string name="mp_fe84e2eb" formatted="false">Video</string>
@@ -513,6 +552,8 @@
     <string name="mp_moviepilot_e7f15286" formatted="false">This page is not supported yet. Update MoviePilot and retry.</string>
     <string name="mp_moviepilot_f5a7ce49" formatted="false">Touch and hold the Home Screen, choose Edit → Add Widget and search for MoviePilot. You can also add widgets from Lock Screen customization or Today View. Edit a widget to select its server and content.</string>
     <string name="mp_mpv_0f7c51b4" formatted="false">MPV Enhanced</string>
+    <string name="mp_play_api_972d0fcb" formatted="false">Custom DandanPlay-Compatible API URL</string>
+    <string name="mp_play_v2_62532af2" formatted="false">DandanPlay v2 Signature</string>
     <string name="mp_plex_x_plex_token_4678f466" formatted="false">Plex Access Token (X-Plex-Token)</string>
     <string name="mp_push_notifications_serve_8bf6a5ef" formatted="false">Enable after signing with Push Notifications capability and configuring the Server.</string>
     <string name="mp_safari_app_24c9c662" formatted="false">Open the notification page in Safari and add it to the Home Screen. Open it there and enter the pairing code. Tap a notification to return to the App.</string>

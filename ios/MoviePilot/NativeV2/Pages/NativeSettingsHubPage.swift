@@ -2981,6 +2981,44 @@ struct NativePlaybackPreferencesPage: View {
             }
           }
 
+          if session.user.isSuperuser {
+            VStack(alignment: .leading, spacing: 10) {
+              Text("弹幕服务").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+              CinematicPanel(padding: 0) {
+                NavigationLink {
+                  NativeDanmakuAdminConfigPage(session: session)
+                } label: {
+                  HStack(spacing: 12) {
+                    Image(systemName: "text.bubble.fill")
+                      .font(.system(size: 16, weight: .semibold))
+                      .foregroundStyle(appearance.accentColor)
+                      .frame(width: 28, height: 28)
+                      .background(
+                        appearance.accentColor.opacity(0.14),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                      )
+                    VStack(alignment: .leading, spacing: 3) {
+                      Text(L10n.text("弹幕服务配置"))
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                      Text("管理员配置自定义弹弹play 兼容 API、鉴权与服务端弹幕缓存")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                      .font(.caption.weight(.semibold))
+                      .foregroundStyle(.tertiary)
+                  }
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 13)
+                }
+                .accessibilityIdentifier("native-playback-danmaku-config")
+              }
+            }
+          }
+
           VStack(alignment: .leading, spacing: 10) {
             HStack {
               Text("媒体服务器进度同步")

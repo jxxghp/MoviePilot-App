@@ -79,6 +79,14 @@ export interface HarmonyPlaybackRequest {
   isSessionBound?: boolean;
   queue?: HarmonyQueueItem[];
   queueIndex?: number;
+  danmakuEnabled?: boolean;
+  seriesName?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  year?: number;
+  tmdbId?: string;
+  fileName?: string;
+  fileSize?: number;
 }
 
 /** 构建流式播放请求时的可选附加参数。 */
@@ -275,6 +283,14 @@ export function buildPlaybackRequestFromStreamInfo(
     disableSubtitles: extras?.disableSubtitles,
     isSessionBound: true,
     queue: extras?.queue,
-    queueIndex: extras?.queueIndex
+    queueIndex: extras?.queueIndex,
+    danmakuEnabled: stream.danmakuEnabled,
+    seriesName: stream.seriesName,
+    seasonNumber: stream.seasonNumber,
+    episodeNumber: stream.episodeNumber,
+    year: stream.year,
+    tmdbId: stream.tmdbId,
+    fileName: stream.fileName,
+    fileSize: stream.fileSize
   };
 }

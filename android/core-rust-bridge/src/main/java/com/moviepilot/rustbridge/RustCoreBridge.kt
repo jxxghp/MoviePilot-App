@@ -23,6 +23,7 @@ import com.moviepilot.rustcore.evaluatePluginExpression
 import com.moviepilot.rustcore.evaluateUserPermissions
 import com.moviepilot.rustcore.filterAndGroupResources
 import com.moviepilot.rustcore.isSameHttpOrigin
+import com.moviepilot.rustcore.normalizeDanmakuQueryTitle
 import com.moviepilot.rustcore.normalizePendingPlaybackStopsJson
 import com.moviepilot.rustcore.normalizePluginRemoteEntryJson
 import com.moviepilot.rustcore.normalizeServerAddress
@@ -32,6 +33,7 @@ import com.moviepilot.rustcore.parseStrmContent
 import com.moviepilot.rustcore.planPlaybackRoutesJson
 import com.moviepilot.rustcore.planPlaybackSyncStepJson
 import com.moviepilot.rustcore.planPluginFormJson
+import com.moviepilot.rustcore.prepareDanmakuTimelineJson
 import com.moviepilot.rustcore.resolvePlaybackEngineJson
 import com.moviepilot.rustcore.resolvePluginRemoteUpstreamJson
 import com.moviepilot.rustcore.serverAddressContains
@@ -76,6 +78,35 @@ data class PluginRemoteUpstreamTargetDto(
     @SerialName("version_tag") val versionTag: String,
     @SerialName("asset_rel_path") val assetRelPath: String,
     @SerialName("upstream_api_path") val upstreamApiPath: String,
+)
+
+@Serializable
+data class DanmakuItemDto(
+    @SerialName("time_ms") val timeMs: Long,
+    val mode: Int = 1,
+    @SerialName("color_rgb") val colorRgb: Int = 0xFFFFFF,
+    val text: String,
+    @SerialName("repeat_count") val repeatCount: Int = 1,
+)
+
+@Serializable
+data class DanmakuFilterOptionsDto(
+    @SerialName("allow_scroll") val allowScroll: Boolean = true,
+    @SerialName("allow_top") val allowTop: Boolean = true,
+    @SerialName("allow_bottom") val allowBottom: Boolean = true,
+    @SerialName("allow_color") val allowColor: Boolean = true,
+    @SerialName("merge_duplicates") val mergeDuplicates: Boolean = true,
+    @SerialName("merge_window_ms") val mergeWindowMs: Long = 3000L,
+    @SerialName("max_per_second") val maxPerSecond: Int = 12,
+    @SerialName("block_keywords") val blockKeywords: List<String> = emptyList(),
+    @SerialName("offset_ms") val offsetMs: Long = 0L,
+)
+
+@Serializable
+data class PreparedDanmakuTimelineDto(
+    @SerialName("raw_count") val rawCount: Int = 0,
+    @SerialName("filtered_count") val filteredCount: Int = 0,
+    val items: List<DanmakuItemDto> = emptyList(),
 )
 
 object RustCoreBridge {
@@ -283,6 +314,85 @@ object RustCoreBridge {
             .onSuccess { if (it.isNotBlank()) return it }
             .onFailure { if (it !is UnsatisfiedLinkError && it !is NoClassDefFoundError) return null }
         return fallbackValidatePluginShellAssetPath(virtualPath)
+    }
+
+    /** 调用 Rust 共享弹幕处理内核完成解析、屏蔽、短窗合并与每秒限流（JVM 单测未加载 `.so` 时回退纯 Kotlin 实现）。 */
+    fun prepareDanmakuTimeline(
+        rawPayloadJson: String,
+        options: DanmakuFilterOptionsDto = DanmakuFilterOptionsDto(),
+    ): PreparedDanmakuTimelineDto {
+        val optsJson = syncJson.encodeToString(options)
+        val raw = runCatching { prepareDanmakuTimelineJson(rawPayloadJson, optsJson) }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<PreparedDanmakuTimelineDto>(raw) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        return fallbackPrepareDanmakuTimeline(rawPayloadJson, options)
+    }
+
+    /** 跨端统一生成弹幕手动搜索默认关键词。 */
+    fun normalizeDanmakuTitle(
+        seriesName: String? = null,
+        title: String? = null,
+        season: Int? = null,
+        episode: Int? = null,
+        fileName: String? = null,
+    ): String {
+        runCatching {
+            normalizeDanmakuQueryTitle(seriesName, title, season, episode, fileName)
+        }.getOrNull()?.let { return it }
+        val base = seriesName?.trim()?.takeIf { it.isNotEmpty() }
+            ?: title?.trim()?.takeIf { it.isNotEmpty() }
+            ?: fileName?.substringAfterLast('/')?.substringAfterLast('\\')?.substringBeforeLast('.')?.trim()
+            ?: ""
+        return if (!seriesName.isNullOrBlank() && season != null && season > 1 && !base.contains("第${season}季")) {
+            "$base 第${season}季"
+        } else {
+            base
+        }
+    }
+
+    private fun fallbackPrepareDanmakuTimeline(
+        rawPayloadJson: String,
+        options: DanmakuFilterOptionsDto,
+    ): PreparedDanmakuTimelineDto {
+        val trimmed = rawPayloadJson.trim().removePrefix("\uFEFF")
+        if (trimmed.isEmpty()) return PreparedDanmakuTimelineDto()
+        val parsed = mutableListOf<DanmakuItemDto>()
+        val root = runCatching { syncJson.parseToJsonElement(trimmed) }.getOrNull()
+        val arr = when (root) {
+            is kotlinx.serialization.json.JsonArray -> root
+            is kotlinx.serialization.json.JsonObject ->
+                (root["data"] as? kotlinx.serialization.json.JsonObject)?.get("items") as? kotlinx.serialization.json.JsonArray
+                    ?: root["items"] as? kotlinx.serialization.json.JsonArray
+                    ?: root["comments"] as? kotlinx.serialization.json.JsonArray
+            else -> null
+        } ?: return PreparedDanmakuTimelineDto()
+        for (el in arr) {
+            if (el is kotlinx.serialization.json.JsonArray && el.size >= 4) {
+                val t = (el[0] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() ?: continue
+                val m = (el[1] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 1
+                val c = (el[2] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0xFFFFFF
+                val txt = (el[3] as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim().orEmpty()
+                if (txt.isNotEmpty()) parsed.add(DanmakuItemDto(t, if (m == 4 || m == 5) m else 1, c and 0xFFFFFF, txt, 1))
+            }
+        }
+        val lowerBlocks = options.blockKeywords.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        val filtered = parsed.mapNotNull { item ->
+            val t = item.timeMs + options.offsetMs
+            if (t < 0L) return@mapNotNull null
+            val allowed = when (item.mode) {
+                4 -> options.allowBottom
+                5 -> options.allowTop
+                else -> options.allowScroll
+            }
+            if (!allowed) return@mapNotNull null
+            val lower = item.text.lowercase()
+            if (lowerBlocks.any { lower.contains(it) }) return@mapNotNull null
+            item.copy(timeMs = t, colorRgb = if (options.allowColor) item.colorRgb else 0xFFFFFF)
+        }.sortedBy { it.timeMs }
+        return PreparedDanmakuTimelineDto(rawCount = parsed.size, filteredCount = filtered.size, items = filtered)
     }
 
     /** 派生按实例源 SHA-256、插件 ID 与版本/产物哈希隔离的磁盘缓存键。 */

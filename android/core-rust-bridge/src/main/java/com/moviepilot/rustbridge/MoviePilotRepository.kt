@@ -15,9 +15,11 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
 import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -3419,6 +3421,14 @@ class MoviePilotRepository(context: Context) {
             activeRouteKind = resolvedRoutes.activeRouteKind,
             fallbackRoutes = resolvedRoutes.fallbackRoutes,
             playbackRoutes = resolvedRoutes.candidates,
+            danmakuEnabled = obj.bool("danmaku_enabled") ?: false,
+            seriesName = obj.str("series_name")?.takeIf { it.isNotBlank() },
+            seasonNumber = obj.lng("season_number")?.toInt(),
+            episodeNumber = obj.lng("episode_number")?.toInt(),
+            year = obj.lng("year")?.toInt(),
+            tmdbId = obj.str("tmdb_id")?.takeIf { it.isNotBlank() },
+            fileName = obj.str("file_name")?.takeIf { it.isNotBlank() },
+            fileSize = obj.lng("file_size"),
         )
     }
 
@@ -3478,6 +3488,14 @@ class MoviePilotRepository(context: Context) {
             activeRouteKind = resolvedRoutes.activeRouteKind,
             fallbackRoutes = resolvedRoutes.fallbackRoutes,
             playbackRoutes = resolvedRoutes.candidates,
+            danmakuEnabled = obj.bool("danmaku_enabled") ?: false,
+            seriesName = obj.str("series_name")?.takeIf { it.isNotBlank() },
+            seasonNumber = obj.lng("season_number")?.toInt(),
+            episodeNumber = obj.lng("episode_number")?.toInt(),
+            year = obj.lng("year")?.toInt(),
+            tmdbId = obj.str("tmdb_id")?.takeIf { it.isNotBlank() },
+            fileName = obj.str("file_name")?.takeIf { it.isNotBlank() },
+            fileSize = obj.lng("file_size"),
         )
     }
 
@@ -4105,6 +4123,232 @@ class MoviePilotRepository(context: Context) {
 
     private fun esc(s: String): String =
         s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+
+    private val danmakuCommentsCache = java.util.concurrent.ConcurrentHashMap<Long, Pair<String, String>>()
+
+    /** 查询当前实例弹幕代理服务是否启用（普通用户可读，不暴露上游地址与密钥）。 */
+    suspend fun fetchDanmakuStatus(): Boolean {
+        val resp = authedRequest(segments = listOf("danmaku", "status")).getOrNull() ?: return false
+        if (resp.status !in 200..299) return false
+        return extractObject(resp.body)?.bool("enabled") ?: false
+    }
+
+    /** 管理员读取弹幕服务配置快照及磁盘缓存统计。 */
+    suspend fun fetchDanmakuConfig(): Result<DanmakuConfigDto> {
+        val resp = authedRequest(segments = listOf("danmaku", "config")).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "读取弹幕服务配置失败")))
+        }
+        val obj = extractObject(resp.body) ?: return Result.failure(IllegalStateException("弹幕配置响应格式异常"))
+        return runCatching { json.decodeFromJsonElement(DanmakuConfigDto.serializer(), obj) }
+    }
+
+    /** 管理员加密更新弹幕服务配置。 */
+    suspend fun updateDanmakuConfig(payloadJson: String): Result<DanmakuConfigDto> {
+        val resp = authedRequest(
+            segments = listOf("danmaku", "config"),
+            method = "PUT",
+            body = payloadJson,
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "保存弹幕服务配置失败")))
+        }
+        val obj = extractObject(resp.body) ?: return Result.failure(IllegalStateException("弹幕配置响应格式异常"))
+        return runCatching { json.decodeFromJsonElement(DanmakuConfigDto.serializer(), obj) }
+    }
+
+    /** 管理员测试弹幕上游连通性与鉴权。 */
+    suspend fun testDanmakuConfig(payloadJson: String): Result<DanmakuConfigTestResultDto> {
+        val resp = authedRequest(
+            segments = listOf("danmaku", "config", "test"),
+            method = "POST",
+            body = payloadJson,
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "测试弹幕服务连接失败")))
+        }
+        val obj = extractObject(resp.body) ?: return Result.failure(IllegalStateException("测试结果格式异常"))
+        return runCatching { json.decodeFromJsonElement(DanmakuConfigTestResultDto.serializer(), obj) }
+    }
+
+    /** 管理员清空服务端弹幕元数据与磁盘缓存。 */
+    suspend fun clearDanmakuCache(): Result<DanmakuCacheClearResultDto> {
+        val resp = authedRequest(
+            segments = listOf("danmaku", "cache"),
+            method = "DELETE",
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "清空弹幕缓存失败")))
+        }
+        danmakuCommentsCache.clear()
+        val obj = extractObject(resp.body) ?: return Result.success(DanmakuCacheClearResultDto())
+        return runCatching { json.decodeFromJsonElement(DanmakuCacheClearResultDto.serializer(), obj) }
+    }
+
+    /** 匹配当前播放媒体对应的弹幕分集（优先手动绑定，再自动匹配与剧名兜底）。 */
+    suspend fun matchDanmaku(
+        itemId: String?,
+        server: String?,
+        title: String?,
+        seriesName: String?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+        year: Int?,
+        tmdbId: String?,
+        fileName: String?,
+        fileSize: Long?,
+        durationMs: Long?,
+    ): Result<DanmakuMatchResponseDto> {
+        val body = buildJsonObject {
+            if (!itemId.isNullOrBlank()) put("item_id", itemId)
+            if (!server.isNullOrBlank()) put("server", server)
+            if (!title.isNullOrBlank()) put("title", title)
+            if (!seriesName.isNullOrBlank()) put("series_name", seriesName)
+            if (seasonNumber != null) put("season_number", seasonNumber)
+            if (episodeNumber != null) put("episode_number", episodeNumber)
+            if (year != null) put("year", year)
+            if (!tmdbId.isNullOrBlank()) put("tmdb_id", tmdbId)
+            if (!fileName.isNullOrBlank()) put("file_name", fileName)
+            if (fileSize != null && fileSize > 0L) put("file_size", fileSize)
+            if (durationMs != null && durationMs > 0L) put("duration_ms", durationMs)
+        }.toString()
+        val resp = authedRequest(
+            segments = listOf("danmaku", "match"),
+            method = "POST",
+            body = body,
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "匹配弹幕失败")))
+        }
+        val obj = extractObject(resp.body) ?: return Result.success(DanmakuMatchResponseDto())
+        return runCatching { json.decodeFromJsonElement(DanmakuMatchResponseDto.serializer(), obj) }
+    }
+
+    /** 手动搜剧查询弹幕候选作品与分集列表。 */
+    suspend fun searchDanmaku(keyword: String, episode: String? = null): Result<List<DanmakuAnimeSearchItemDto>> {
+        val q = buildList {
+            add("keyword" to keyword.trim())
+            if (!episode.isNullOrBlank()) add("episode" to episode.trim())
+        }
+        val resp = authedRequest(segments = listOf("danmaku", "search"), query = q)
+            .getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "搜索弹幕剧集失败")))
+        }
+        val arr = extractArray(resp.body) ?: return Result.success(emptyList())
+        return runCatching {
+            arr.mapNotNull { el ->
+                runCatching { json.decodeFromJsonElement(DanmakuAnimeSearchItemDto.serializer(), el) }.getOrNull()
+            }
+        }
+    }
+
+    /** 查询指定作品的完整弹幕分集目录。 */
+    suspend fun fetchDanmakuBangumi(animeId: Long): Result<DanmakuBangumiDto> {
+        val resp = authedRequest(segments = listOf("danmaku", "bangumi", animeId.toString()))
+            .getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "获取分集列表失败")))
+        }
+        val obj = extractObject(resp.body) ?: return Result.failure(IllegalStateException("分集目录响应异常"))
+        return runCatching { json.decodeFromJsonElement(DanmakuBangumiDto.serializer(), obj) }
+    }
+
+    /** 拉取单集归一化紧凑弹幕载荷，自动携带 `If-None-Match` 协商 304 缓存命中。 */
+    suspend fun fetchDanmakuComments(episodeId: Long, forceRefresh: Boolean = false): Result<DanmakuCommentsRawDto> {
+        val cached = if (forceRefresh) null else danmakuCommentsCache[episodeId]
+        val extra = if (cached != null) mapOf("If-None-Match" to cached.first) else emptyMap()
+        val query = if (forceRefresh) listOf("force_refresh" to "true") else emptyList()
+        val resp = authedRequest(
+            segments = listOf("danmaku", "comments", episodeId.toString()),
+            query = query,
+            extraHeaders = extra,
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status == 304 && cached != null) {
+            return Result.success(DanmakuCommentsRawDto(rawJson = cached.second, etag = cached.first, fromCache = true))
+        }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "拉取弹幕失败")))
+        }
+        val etag = resp.headers.entries.firstOrNull { it.key.equals("ETag", ignoreCase = true) }?.value
+        if (!etag.isNullOrBlank()) {
+            if (danmakuCommentsCache.size >= 12) danmakuCommentsCache.clear()
+            danmakuCommentsCache[episodeId] = etag to resp.body
+        }
+        return Result.success(DanmakuCommentsRawDto(rawJson = resp.body, etag = etag, fromCache = false))
+    }
+
+    /** 持久化保存手动纠偏绑定与时间偏移至服务端，一端纠偏全端共享。 */
+    suspend fun saveDanmakuBinding(
+        server: String?,
+        itemId: String?,
+        tmdbId: String?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+        episodeId: Long,
+        animeId: Long?,
+        animeTitle: String,
+        episodeTitle: String,
+        shiftMs: Int,
+    ): Result<DanmakuEpisodeCandidateDto> {
+        val body = buildJsonObject {
+            if (!server.isNullOrBlank()) put("server", server)
+            if (!itemId.isNullOrBlank()) put("item_id", itemId)
+            if (!tmdbId.isNullOrBlank()) put("tmdb_id", tmdbId)
+            if (seasonNumber != null) put("season_number", seasonNumber)
+            if (episodeNumber != null) put("episode_number", episodeNumber)
+            put("episode_id", episodeId)
+            if (animeId != null) put("anime_id", animeId)
+            put("anime_title", animeTitle)
+            put("episode_title", episodeTitle)
+            put("shift_ms", shiftMs)
+        }.toString()
+        val resp = authedRequest(
+            segments = listOf("danmaku", "bindings"),
+            method = "PUT",
+            body = body,
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "保存弹幕绑定失败")))
+        }
+        val obj = extractObject(resp.body) ?: return Result.success(
+            DanmakuEpisodeCandidateDto(episodeId = episodeId, animeId = animeId, animeTitle = animeTitle, episodeTitle = episodeTitle, shiftMs = shiftMs),
+        )
+        return runCatching { json.decodeFromJsonElement(DanmakuEpisodeCandidateDto.serializer(), obj) }
+    }
+
+    /** 删除媒体条目的手动弹幕绑定，恢复自动匹配。 */
+    suspend fun deleteDanmakuBinding(
+        server: String?,
+        itemId: String?,
+        tmdbId: String?,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+    ): Result<Boolean> {
+        val q = buildList {
+            if (!server.isNullOrBlank()) add("server" to server)
+            if (!itemId.isNullOrBlank()) add("item_id" to itemId)
+            if (!tmdbId.isNullOrBlank()) add("tmdb_id" to tmdbId)
+            if (seasonNumber != null) add("season_number" to seasonNumber.toString())
+            if (episodeNumber != null) add("episode_number" to episodeNumber.toString())
+        }
+        val resp = authedRequest(
+            segments = listOf("danmaku", "bindings"),
+            method = "DELETE",
+            query = q,
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "解除弹幕绑定失败")))
+        }
+        return Result.success(true)
+    }
+
+    private fun extractErrorMessage(body: String, fallback: String): String {
+        val root = runCatching { json.parseToJsonElement(body).asObj() }.getOrNull() ?: return fallback
+        return root.str("detail")?.takeIf { it.isNotBlank() }
+            ?: root.str("message")?.takeIf { it.isNotBlank() }
+            ?: fallback
+    }
 
     companion object {
         /** 解码 `.strm` 字节数组（兼容 UTF-8 BOM、UTF-16 LE/BE 与 GB18030）。 */

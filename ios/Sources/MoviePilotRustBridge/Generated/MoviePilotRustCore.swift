@@ -1565,6 +1565,30 @@ extension CoreFfiError: Foundation.LocalizedError {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionInt32: FfiConverterRustBuffer {
+    typealias SwiftType = Int32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
     typealias SwiftType = Int64?
 
@@ -1850,6 +1874,20 @@ public func isSameHttpOrigin(urlA: String, urlB: String) -> Bool  {
 })
 }
 /**
+ * 跨端统一生成弹幕手动搜索默认关键词与规范化展示标题。
+ */
+public func normalizeDanmakuQueryTitle(seriesName: String?, title: String?, season: Int32?, episode: Int32?, fileName: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_normalize_danmaku_query_title(
+        FfiConverterOptionString.lower(seriesName),
+        FfiConverterOptionString.lower(title),
+        FfiConverterOptionInt32.lower(season),
+        FfiConverterOptionInt32.lower(episode),
+        FfiConverterOptionString.lower(fileName),$0
+    )
+})
+}
+/**
  * 规整离线待补报 `stopped` 队列（去重、清理 7 天过期项并裁剪至上限）。
  */
 public func normalizePendingPlaybackStopsJson(entriesJson: String, nowEpochMs: Int64)throws  -> String  {
@@ -1943,6 +1981,17 @@ public func planPluginFormJson(documentJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
     uniffi_moviepilot_core_fn_func_plan_plugin_form_json(
         FfiConverterString.lower(documentJson),$0
+    )
+})
+}
+/**
+ * 离线批处理单集弹幕载荷（解析、过滤、屏蔽词、短窗去重合并与每秒限流），返回 `PreparedDanmakuTimeline` JSON。
+ */
+public func prepareDanmakuTimelineJson(rawPayloadJson: String, filterOptionsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_prepare_danmaku_timeline_json(
+        FfiConverterString.lower(rawPayloadJson),
+        FfiConverterString.lower(filterOptionsJson),$0
     )
 })
 }
@@ -2058,6 +2107,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_is_same_http_origin() != 24565) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_normalize_danmaku_query_title() != 7723) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json() != 59689) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2083,6 +2135,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_plan_plugin_form_json() != 32974) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_prepare_danmaku_timeline_json() != 62879) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json() != 50581) {

@@ -2625,6 +2625,211 @@
       "zh-Hans": "重新加载",
       "zh-Hant": "重新載入",
       "en": "Reload"
+    },
+    "弹幕": {
+      "zh-Hans": "弹幕",
+      "zh-Hant": "彈幕",
+      "en": "Danmaku"
+    },
+    "弹幕设置": {
+      "zh-Hans": "弹幕设置",
+      "zh-Hant": "彈幕設定",
+      "en": "Danmaku Settings"
+    },
+    "显示弹幕": {
+      "zh-Hans": "显示弹幕",
+      "zh-Hant": "顯示彈幕",
+      "en": "Show Danmaku"
+    },
+    "弹幕已开启": {
+      "zh-Hans": "弹幕已开启",
+      "zh-Hant": "彈幕已開啟",
+      "en": "Danmaku enabled"
+    },
+    "弹幕已关闭": {
+      "zh-Hans": "弹幕已关闭",
+      "zh-Hant": "彈幕已關閉",
+      "en": "Danmaku disabled"
+    },
+    "未匹配到弹幕": {
+      "zh-Hans": "未匹配到弹幕",
+      "zh-Hant": "未比對到彈幕",
+      "en": "No danmaku matched"
+    },
+    "正在匹配弹幕…": {
+      "zh-Hans": "正在匹配弹幕…",
+      "zh-Hant": "正在比對彈幕…",
+      "en": "Matching danmaku…"
+    },
+    "不透明度": {
+      "zh-Hans": "不透明度",
+      "zh-Hant": "不透明度",
+      "en": "Opacity"
+    },
+    "字号大小": {
+      "zh-Hans": "字号大小",
+      "zh-Hant": "字號大小",
+      "en": "Font Size"
+    },
+    "滚动速度": {
+      "zh-Hans": "滚动速度",
+      "zh-Hant": "捲動速度",
+      "en": "Scroll Speed"
+    },
+    "显示区域": {
+      "zh-Hans": "显示区域",
+      "zh-Hant": "顯示區域",
+      "en": "Display Area"
+    },
+    "同屏上限": {
+      "zh-Hans": "同屏上限",
+      "zh-Hant": "同屏上限",
+      "en": "Max On Screen"
+    },
+    "时间偏移": {
+      "zh-Hans": "时间偏移",
+      "zh-Hant": "時間偏移",
+      "en": "Time Offset"
+    },
+    "类型过滤": {
+      "zh-Hans": "类型过滤",
+      "zh-Hant": "類型過濾",
+      "en": "Danmaku Types"
+    },
+    "滚动弹幕": {
+      "zh-Hans": "滚动弹幕",
+      "zh-Hant": "捲動彈幕",
+      "en": "Scrolling"
+    },
+    "顶部弹幕": {
+      "zh-Hans": "顶部弹幕",
+      "zh-Hant": "頂部彈幕",
+      "en": "Top Fixed"
+    },
+    "底部弹幕": {
+      "zh-Hans": "底部弹幕",
+      "zh-Hant": "底部彈幕",
+      "en": "Bottom Fixed"
+    },
+    "彩色弹幕": {
+      "zh-Hans": "彩色弹幕",
+      "zh-Hant": "彩色彈幕",
+      "en": "Colored Danmaku"
+    },
+    "合并重复弹幕": {
+      "zh-Hans": "合并重复弹幕",
+      "zh-Hant": "合併重複彈幕",
+      "en": "Merge Duplicates"
+    },
+    "关键词屏蔽": {
+      "zh-Hans": "关键词屏蔽",
+      "zh-Hant": "關鍵字封鎖",
+      "en": "Blocked Keywords"
+    },
+    "输入屏蔽词（支持 /正则/）": {
+      "zh-Hans": "输入屏蔽词（支持 /正则/）",
+      "zh-Hant": "輸入封鎖詞（支援 /正則/）",
+      "en": "Enter keyword or /pattern/"
+    },
+    "更换匹配": {
+      "zh-Hans": "更换匹配",
+      "zh-Hant": "更換比對",
+      "en": "Change Match"
+    },
+    "搜索弹幕剧集": {
+      "zh-Hans": "搜索弹幕剧集",
+      "zh-Hant": "搜尋彈幕劇集",
+      "en": "Search Danmaku"
+    },
+    "输入作品名搜索弹幕": {
+      "zh-Hans": "输入作品名搜索弹幕",
+      "zh-Hant": "輸入作品名搜尋彈幕",
+      "en": "Search by title"
+    },
+    "解绑恢复自动匹配": {
+      "zh-Hans": "解绑恢复自动匹配",
+      "zh-Hant": "解除綁定恢復自動比對",
+      "en": "Unbind & Restore Auto-Match"
+    },
+    "保存偏移到服务端": {
+      "zh-Hans": "保存偏移到服务端",
+      "zh-Hant": "儲存偏移到伺服器",
+      "en": "Save Offset to Server"
+    },
+    "强制刷新弹幕": {
+      "zh-Hans": "强制刷新弹幕",
+      "zh-Hant": "強制重新整理彈幕",
+      "en": "Refresh Danmaku"
+    },
+    "弹幕服务配置": {
+      "zh-Hans": "弹幕服务配置",
+      "zh-Hant": "彈幕服務設定",
+      "en": "Danmaku Service"
+    },
+    "启用弹幕代理服务": {
+      "zh-Hans": "启用弹幕代理服务",
+      "zh-Hant": "啟用彈幕代理服務",
+      "en": "Enable Danmaku Proxy"
+    },
+    "自定义弹弹play 兼容 API 地址": {
+      "zh-Hans": "自定义弹弹play 兼容 API 地址",
+      "zh-Hant": "自訂彈彈play 相容 API 位址",
+      "en": "Custom DandanPlay-Compatible API URL"
+    },
+    "鉴权方式": {
+      "zh-Hans": "鉴权方式",
+      "zh-Hant": "驗證方式",
+      "en": "Authentication Mode"
+    },
+    "无鉴权 / 路径令牌": {
+      "zh-Hans": "无鉴权 / 路径令牌",
+      "zh-Hant": "無驗證 / 路徑權杖",
+      "en": "None / Path Token"
+    },
+    "弹弹play v2 签名": {
+      "zh-Hans": "弹弹play v2 签名",
+      "zh-Hant": "彈彈play v2 簽章",
+      "en": "DandanPlay v2 Signature"
+    },
+    "自定义请求头令牌": {
+      "zh-Hans": "自定义请求头令牌",
+      "zh-Hant": "自訂標頭權杖",
+      "en": "Custom Header Token"
+    },
+    "聚合关联第三方弹幕": {
+      "zh-Hans": "聚合关联第三方弹幕",
+      "zh-Hant": "彙整關聯第三方彈幕",
+      "en": "Include Related Sources"
+    },
+    "简繁转换": {
+      "zh-Hans": "简繁转换",
+      "zh-Hant": "簡繁轉換",
+      "en": "Chinese Script Conversion"
+    },
+    "不转换": {
+      "zh-Hans": "不转换",
+      "zh-Hant": "不轉換",
+      "en": "None"
+    },
+    "转简体": {
+      "zh-Hans": "转简体",
+      "zh-Hant": "轉簡體",
+      "en": "To Simplified"
+    },
+    "转繁体": {
+      "zh-Hans": "转繁体",
+      "zh-Hant": "轉繁體",
+      "en": "To Traditional"
+    },
+    "测试连接": {
+      "zh-Hans": "测试连接",
+      "zh-Hant": "測試連線",
+      "en": "Test Connection"
+    },
+    "清空弹幕缓存": {
+      "zh-Hans": "清空弹幕缓存",
+      "zh-Hant": "清空彈幕快取",
+      "en": "Clear Danmaku Cache"
     }
   }
 }

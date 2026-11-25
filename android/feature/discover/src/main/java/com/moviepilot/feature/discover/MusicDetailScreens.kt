@@ -859,6 +859,14 @@ fun QuickSeriesEpisodePickerSheet(
                     },
                     queue = queue,
                     queueIndex = epIndex,
+                    danmakuEnabled = manifest.danmakuEnabled,
+                    seriesName = manifest.seriesName,
+                    seasonNumber = manifest.seasonNumber,
+                    episodeNumber = manifest.episodeNumber,
+                    year = manifest.year,
+                    tmdbId = manifest.tmdbId,
+                    fileName = manifest.fileName,
+                    fileSize = manifest.fileSize,
                 )
                 onDismiss()
                 onPlayEpisode(activeReq)

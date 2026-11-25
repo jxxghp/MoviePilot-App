@@ -10,6 +10,7 @@
     <string name="mp_02396185" formatted="false">正在连接你的实例…</string>
     <string name="mp_02478d88" formatted="false">无法加载插件，请重试。</string>
     <string name="mp_024d6757" formatted="false">%1$s 倍</string>
+    <string name="mp_02c329cb" formatted="false">输入屏蔽词（支持 /正则/）</string>
     <string name="mp_02e6ffb1" formatted="false">硬件解码优先</string>
     <string name="mp_03c62efa" formatted="false">内嵌 · %1$s</string>
     <string name="mp_060bd69b" formatted="false">专辑封面</string>
@@ -17,6 +18,7 @@
     <string name="mp_06507d6e" formatted="false">暂无已安装插件</string>
     <string name="mp_07c1bdfb" formatted="false">刷新账号状态</string>
     <string name="mp_08128200" formatted="false">仅全能增强内核支持视频强制软解，系统原生内核仅支持硬解或音频软解</string>
+    <string name="mp_082dd865" formatted="false">自定义请求头令牌</string>
     <string name="mp_083cf2f6" formatted="false">正常速度</string>
     <string name="mp_085231bd" formatted="false">保存结果未确认，修改已保留。</string>
     <string name="mp_0933cd7f" formatted="false">打开通知网页</string>
@@ -31,17 +33,20 @@
     <string name="mp_0fee3e35" formatted="false">追剧与社区</string>
     <string name="mp_10_e4d73412" formatted="false">后退 10 秒</string>
     <string name="mp_10_f9e98b75" formatted="false">前进 10 秒</string>
+    <string name="mp_10b7d8ec" formatted="false">测试连接</string>
     <string name="mp_10e20c82" formatted="false">服务已初始化，请登录。</string>
     <string name="mp_112c8584" formatted="false">全能增强内核</string>
     <string name="mp_11d02415" formatted="false">返回</string>
     <string name="mp_1204486f" formatted="false">音乐中心</string>
     <string name="mp_1209bc96" formatted="false">当前服务</string>
+    <string name="mp_122c3f28" formatted="false">保存偏移到服务端</string>
     <string name="mp_130448bc" formatted="false">暂停</string>
     <string name="mp_15_3e0c2a0a" formatted="false">每 15 分钟</string>
     <string name="mp_15cdd697" formatted="false">系统原生内核</string>
     <string name="mp_163aec91" formatted="false">内容</string>
     <string name="mp_16899524" formatted="false">字段表达式</string>
     <string name="mp_178375d9" formatted="false">当前账号没有可用的小组件内容。</string>
+    <string name="mp_178fcbda" formatted="false">弹幕设置</string>
     <string name="mp_17f73df7" formatted="false">此处只编辑一个字段；完整自定义值可在上一页输入。</string>
     <string name="mp_1883b092" formatted="false">%1$s，页内分类</string>
     <string name="mp_18b1353a" formatted="false">请输入服务根地址，不要包含查询参数或 # 后的页面路径。</string>
@@ -64,11 +69,13 @@
     <string name="mp_1ed8c078" formatted="false">下载任务</string>
     <string name="mp_1ee4fe04" formatted="false">本机资料</string>
     <string name="mp_2054d3a5" formatted="false">请重新加载页面后再试。</string>
+    <string name="mp_20a396d9" formatted="false">搜索弹幕剧集</string>
     <string name="mp_21147016" formatted="false">搜索或输入自定义值</string>
     <string name="mp_215d6e18" formatted="false">指定起点</string>
     <string name="mp_21925350" formatted="false">播放</string>
     <string name="mp_219f3f6b" formatted="false">请检查标记的配置项。</string>
     <string name="mp_21f1e882" formatted="false">登录</string>
+    <string name="mp_223d8470" formatted="false">不转换</string>
     <string name="mp_22ef5dde" formatted="false">插件面板</string>
     <string name="mp_245a6285" formatted="false">生成绑定码</string>
     <string name="mp_2478069f" formatted="false">插件与工作流</string>
@@ -79,6 +86,7 @@
     <string name="mp_27bdd826" formatted="false">启用小组件</string>
     <string name="mp_27e4fe4c" formatted="false">好</string>
     <string name="mp_28846eb2" formatted="false">当前安装的共享区域不可用，请检查安装或续签后重试。</string>
+    <string name="mp_28b8d417" formatted="false">同屏上限</string>
     <string name="mp_28bf227b" formatted="false">分钟</string>
     <string name="mp_2918633a" formatted="false">探索</string>
     <string name="mp_295d363d" formatted="false">已清理</string>
@@ -112,6 +120,7 @@
     <string name="mp_3755f56f" formatted="false">删除</string>
     <string name="mp_37dea08b" formatted="false">自定义值会原样交给插件处理。</string>
     <string name="mp_37eb4700" formatted="false">有效期至</string>
+    <string name="mp_37f86ac4" formatted="false">合并重复弹幕</string>
     <string name="mp_38108eaa" formatted="false">刷新</string>
     <string name="mp_38175011" formatted="false">%1$s\n十分钟内有效，仅可使用一次。请只粘贴到你自己的通知网页。</string>
     <string name="mp_381cf593" formatted="false">连接超时，请选择当前网络可用的服务地址，或稍后重试。</string>
@@ -129,7 +138,9 @@
     <string name="mp_3fc78f9b" formatted="false">开启系统通知</string>
     <string name="mp_40fc30c6" formatted="false">小组件资料不可用</string>
     <string name="mp_410e8b9d" formatted="false">数字星期由插件解释；改选时使用星期名称。</string>
+    <string name="mp_414099c3" formatted="false">清空弹幕缓存</string>
     <string name="mp_422cc01a" formatted="false">请输入较短的显示名称，并移除特殊控制字符。</string>
+    <string name="mp_42c3af09" formatted="false">启用弹幕代理服务</string>
     <string name="mp_4304c8d4" formatted="false">执行时间以服务器和插件的时区为准。</string>
     <string name="mp_43f6c2de" formatted="false">启用后可在系统小组件中选择此服务。</string>
     <string name="mp_4562024d" formatted="false">应用</string>
@@ -138,8 +149,10 @@
     <string name="mp_47379809" formatted="false">头像已加载</string>
     <string name="mp_483f2e6e" formatted="false">常用计划</string>
     <string name="mp_48fcdf28" formatted="false">搜索与元数据来源</string>
+    <string name="mp_4ad838e2" formatted="false">无鉴权 / 路径令牌</string>
     <string name="mp_4ae7f129" formatted="false">登录已过期，请重新登录。</string>
     <string name="mp_4b81846f" formatted="false">服务</string>
+    <string name="mp_4ba33872" formatted="false">弹幕已关闭</string>
     <string name="mp_4bd32a60" formatted="false">下载器</string>
     <string name="mp_4bd4cb49" formatted="false">使用实例配置</string>
     <string name="mp_4c0521ff" formatted="false">暂时无法读取</string>
@@ -163,6 +176,7 @@
     <string name="mp_523e40a0" formatted="false">发现</string>
     <string name="mp_5319af76" formatted="false">订阅</string>
     <string name="mp_55a8b99f" formatted="false">服务响应无法解析，请检查后端版本和地址。</string>
+    <string name="mp_567cb450" formatted="false">未匹配到弹幕</string>
     <string name="mp_5692388b" formatted="false">快捷工具与系统诊断</string>
     <string name="mp_57fce0c4" formatted="false">待审批</string>
     <string name="mp_58421bd3" formatted="false">暂时无法开启画中画，请等待视频开始播放后重试。</string>
@@ -170,6 +184,7 @@
     <string name="mp_58d5873b" formatted="false">播放内核</string>
     <string name="mp_5982c44c" formatted="false">重新加载</string>
     <string name="mp_5984ebc4" formatted="false">选择或输入</string>
+    <string name="mp_59d109c7" formatted="false">正在匹配弹幕…</string>
     <string name="mp_5_31dad6cc" formatted="false">生成 5 分钟渠道关联绑定码</string>
     <string name="mp_5a781bec" formatted="false">继续收听？</string>
     <string name="mp_5b6bd8b2" formatted="false">无法访问安全存储，请解锁设备后重试。</string>
@@ -177,9 +192,11 @@
     <string name="mp_5e8c6fba" formatted="false">%1$s\n将清除此服务保存的账号密码、登录状态和网页数据。</string>
     <string name="mp_5ea60e8a" formatted="false">实时会话同步</string>
     <string name="mp_5f83e7f6" formatted="false">基础</string>
+    <string name="mp_613305fc" formatted="false">字号大小</string>
     <string name="mp_637471eb" formatted="false">管理员已创建，请登录。</string>
     <string name="mp_63f6267b" formatted="false">订阅与搜索</string>
     <string name="mp_6403cfdd" formatted="false">使用通行密钥登录</string>
+    <string name="mp_64b9a5e8" formatted="false">输入作品名搜索弹幕</string>
     <string name="mp_64f2b4a7" formatted="false">字幕读取失败，请选择其他字幕或检查后台连接。</string>
     <string name="mp_65a876f5" formatted="false">通知服务响应无效。</string>
     <string name="mp_65ae053f" formatted="false">上次采样</string>
@@ -193,6 +210,7 @@
     <string name="mp_69aaa78b" formatted="false">清除地址</string>
     <string name="mp_6_50_api_key_f3631cf2" formatted="false">密码为 6–50 位，至少包含字母、数字、符号中的两类。API Key 仅提交到此服务。</string>
     <string name="mp_6_e478600e" formatted="false">请输入身份验证器中的 6 位验证码。</string>
+    <string name="mp_6ab2e222" formatted="false">鉴权方式</string>
     <string name="mp_6b576e0f" formatted="false">请输入用户名和密码。</string>
     <string name="mp_6ba4b7be" formatted="false">继续观看？</string>
     <string name="mp_6c14bd7f" formatted="false">关闭</string>
@@ -220,6 +238,7 @@
     <string name="mp_79cc871c" formatted="false">开始</string>
     <string name="mp_7a5c0fd3" formatted="false">播放进度</string>
     <string name="mp_7a66c0d0" formatted="false">通知</string>
+    <string name="mp_7b36766b" formatted="false">滚动速度</string>
     <string name="mp_7d126146" formatted="false">删除服务？</string>
     <string name="mp_7d34369f" formatted="false">媒体服务器进度同步与账号绑定</string>
     <string name="mp_7debf9cb" formatted="false">设置</string>
@@ -236,8 +255,11 @@
     <string name="mp_83e48d7c" formatted="false">当前值（不在选项中）</string>
     <string name="mp_848aaab0" formatted="false">请检查此项的值</string>
     <string name="mp_84c5f125" formatted="false">音乐订阅</string>
+    <string name="mp_850ce2d8" formatted="false">时间偏移</string>
+    <string name="mp_854a9a88" formatted="false">彩色弹幕</string>
     <string name="mp_8616e254" formatted="false">连接与显示</string>
     <string name="mp_86e11829" formatted="false">服务地址</string>
+    <string name="mp_878af01d" formatted="false">底部弹幕</string>
     <string name="mp_8921db5c" formatted="false">无法连接通知服务，请检查网络与登录状态。</string>
     <string name="mp_89e77dae" formatted="false">当前播放</string>
     <string name="mp_8b826b8b" formatted="false">首次设置</string>
@@ -257,10 +279,12 @@
     <string name="mp_93e4284e" formatted="false">使用外部播放器打开</string>
     <string name="mp_940c8865" formatted="false">间隔</string>
     <string name="mp_94d1041d" formatted="false">选择站点</string>
+    <string name="mp_96e646e3" formatted="false">弹幕服务配置</string>
     <string name="mp_99f6904f" formatted="false">小时</string>
     <string name="mp_9a051ee2" formatted="false">正在检测服务连接…</string>
     <string name="mp_9b0c6c78" formatted="false">更多</string>
     <string name="mp_9b5d7644" formatted="false">你的媒体世界，随时连接。</string>
+    <string name="mp_9b64b185" formatted="false">弹幕已开启</string>
     <string name="mp_9c619be3" formatted="false">实例与刷新</string>
     <string name="mp_9ca32f98" formatted="false">正在保存…</string>
     <string name="mp_9d745525" formatted="false">页面暂时无法恢复，请检查连接后重新打开。未确认的操作不会自动重试。</string>
@@ -289,6 +313,7 @@
     <string name="mp_aaa5f2e9" formatted="false">字幕</string>
     <string name="mp_ab324996" formatted="false">无法开启系统通知，请检查通知服务与系统设置。</string>
     <string name="mp_ab5b27de" formatted="false">移除本机资料？</string>
+    <string name="mp_abc99b34" formatted="false">显示区域</string>
     <string name="mp_ac62bd0c" formatted="false">当前安装使用主屏幕通知。</string>
     <string name="mp_acc35bb4" formatted="false">页面资源未能完成加载，请检查连接后重试。</string>
     <string name="mp_acf014bf" formatted="false">进度</string>
@@ -328,6 +353,7 @@
     <string name="mp_b4672d23" formatted="false">页面状态</string>
     <string name="mp_b4a74a0e" formatted="false">切换播放内核</string>
     <string name="mp_b4d9b610" formatted="false">暂时无法连接</string>
+    <string name="mp_b4efb6cd" formatted="false">不透明度</string>
     <string name="mp_b5025e10" formatted="false">主屏幕通知</string>
     <string name="mp_b50b0b30" formatted="false">账号信息仅发送到当前服务。记住的账号密码仅保存在本机，验证码不会保存。</string>
     <string name="mp_b6dd4c32" formatted="false">已显示全部内容</string>
@@ -349,6 +375,8 @@
     <string name="mp_be577c3b" formatted="false">自动选择（推荐）</string>
     <string name="mp_be7f8395" formatted="false">记住账号密码</string>
     <string name="mp_bfc04721" formatted="false">密码仅用于一次性换取访问令牌，不会保存明文密码。</string>
+    <string name="mp_c023e8d2" formatted="false">转简体</string>
+    <string name="mp_c02c99e7" formatted="false">转繁体</string>
     <string name="mp_c15ac3ec" formatted="false">选择字幕</string>
     <string name="mp_c1f0f76d" formatted="false">订阅日历</string>
     <string name="mp_c2e7e96e" formatted="false">编辑计划</string>
@@ -356,7 +384,9 @@
     <string name="mp_c493338e" formatted="false">自定义</string>
     <string name="mp_c4ad2079" formatted="false">返回全屏</string>
     <string name="mp_c4e4c1a7" formatted="false">配置已保存</string>
+    <string name="mp_c55d54fe" formatted="false">滚动弹幕</string>
     <string name="mp_c5ca3950" formatted="false">资源</string>
+    <string name="mp_c6215495" formatted="false">解绑恢复自动匹配</string>
     <string name="mp_c753c38b" formatted="false">重新打开</string>
     <string name="mp_c75c40a9" formatted="false">暂不支持的配置组件</string>
     <string name="mp_c773293d" formatted="false">系统通知未开启，可前往设置允许通知。</string>
@@ -370,6 +400,7 @@
     <string name="mp_cbd05864" formatted="false">关闭播放器</string>
     <string name="mp_cc19798b" formatted="false">工作流</string>
     <string name="mp_cc35d36b" formatted="false">连接超时，请检查网络及服务状态后重试。</string>
+    <string name="mp_cc9bbd8c" formatted="false">显示弹幕</string>
     <string name="mp_cd99b225" formatted="false">语言</string>
     <string name="mp_ce16e223" formatted="false">音乐资源</string>
     <string name="mp_ce20a22a" formatted="false">正在读取通知绑定…</string>
@@ -399,6 +430,8 @@
     <string name="mp_d5d8edd1" formatted="false">界面语言</string>
     <string name="mp_d806ebc1" formatted="false">验证并绑定</string>
     <string name="mp_d84b7c84" formatted="false">每月最后一天</string>
+    <string name="mp_d85fae56" formatted="false">弹幕</string>
+    <string name="mp_d8c140ed" formatted="false">强制刷新弹幕</string>
     <string name="mp_d91f9f56" formatted="false">选中项过多</string>
     <string name="mp_d949ea44" formatted="false">弹窗操作</string>
     <string name="mp_d_1a05ef15" formatted="false">当前账号已绑定 %d 个通知设备。</string>
@@ -416,6 +449,7 @@
     <string name="mp_e188ebca" formatted="false">起点</string>
     <string name="mp_e3526937" formatted="false">星期</string>
     <string name="mp_e39b02ad" formatted="false">目录映射与刮削</string>
+    <string name="mp_e3a58614" formatted="false">关键词屏蔽</string>
     <string name="mp_e41d3674" formatted="false">铺满</string>
     <string name="mp_e487d5ce" formatted="false">清理本地缓存</string>
     <string name="mp_e4aeceaa" formatted="false">新增与管理</string>
@@ -423,6 +457,7 @@
     <string name="mp_e700d5fe" formatted="false">服务与账号</string>
     <string name="mp_e77643fa" formatted="false">重试连接</string>
     <string name="mp_e91365cf" formatted="false">可用</string>
+    <string name="mp_e923a968" formatted="false">聚合关联第三方弹幕</string>
     <string name="mp_e9429323" formatted="false">未能清除已保存的账号密码，请重试。</string>
     <string name="mp_e9663b94" formatted="false">权限角色</string>
     <string name="mp_ea09a58c" formatted="false">移除本机资料</string>
@@ -438,6 +473,7 @@
     <string name="mp_ed917b08" formatted="false">默认调用外部播放器</string>
     <string name="mp_edaa51e3" formatted="false">已切换至 %1$s</string>
     <string name="mp_ede7ece4" formatted="false">本地运行时加载插件失败</string>
+    <string name="mp_ee18f610" formatted="false">更换匹配</string>
     <string name="mp_ee561675" formatted="false">我的订阅</string>
     <string name="mp_ee56a53b" formatted="false">媒体服务器</string>
     <string name="mp_ee87f6ec" formatted="false">服务端通知渠道</string>
@@ -462,8 +498,10 @@
     <string name="mp_f79b3cea" formatted="false">站点范围 · 规则组</string>
     <string name="mp_f7b2a6ee" formatted="false">个</string>
     <string name="mp_f84589c8" formatted="false">此设备未能安全保存部分登录信息，下次可能需要重新输入。</string>
+    <string name="mp_f8d2d907" formatted="false">类型过滤</string>
     <string name="mp_f8dede89" formatted="false">服务返回了重定向，请检查完整服务地址。</string>
     <string name="mp_f8ef7f2a" formatted="false">播放速度</string>
+    <string name="mp_f9578f6e" formatted="false">顶部弹幕</string>
     <string name="mp_f9e6afb1" formatted="false">通知服务中心</string>
     <string name="mp_fadf24db" formatted="false">保存</string>
     <string name="mp_fb1c7dc7" formatted="false">主导航</string>
@@ -474,6 +512,7 @@
     <string name="mp_fd17e559" formatted="false">音乐记录</string>
     <string name="mp_fd3b1706" formatted="false">无法生成安全密钥，请重试。</string>
     <string name="mp_fd60ff58" formatted="false">消息推送配置</string>
+    <string name="mp_fd900500" formatted="false">简繁转换</string>
     <string name="mp_fdad07e6" formatted="false">下载速度 %1$s，上传速度 %2$s</string>
     <string name="mp_fe33307a" formatted="false">媒体</string>
     <string name="mp_fe84e2eb" formatted="false">视频画面</string>
@@ -513,6 +552,8 @@
     <string name="mp_moviepilot_e7f15286" formatted="false">当前页面暂不支持，请更新 MoviePilot 后重试。</string>
     <string name="mp_moviepilot_f5a7ce49" formatted="false">长按主屏幕空白处，选择“编辑”→“添加小组件”，搜索 MoviePilot。锁屏可在自定中添加；向右滑到今天视图，也可添加。编辑小组件可选择服务和内容。</string>
     <string name="mp_mpv_0f7c51b4" formatted="false">MPV 全能</string>
+    <string name="mp_play_api_972d0fcb" formatted="false">自定义弹弹play 兼容 API 地址</string>
+    <string name="mp_play_v2_62532af2" formatted="false">弹弹play v2 签名</string>
     <string name="mp_plex_x_plex_token_4678f466" formatted="false">Plex 访问令牌 (X-Plex-Token)</string>
     <string name="mp_push_notifications_serve_8bf6a5ef" formatted="false">使用带 Push Notifications 能力的签名和已配置的 Server 后开启。</string>
     <string name="mp_safari_app_24c9c662" formatted="false">在 Safari 打开通知网页，添加到主屏幕，再从主屏幕打开并输入绑定码。通知由主屏幕网页接收，点击后可返回 App。</string>

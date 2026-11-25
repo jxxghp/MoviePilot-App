@@ -35,6 +35,35 @@ export interface NativeCoreModule {
   buildPluginRemoteCacheKeyJson?(instanceOrigin: string, pluginId: string, versionOrHash: string): string;
   normalizePluginRemoteEntryJson?(pluginId: string, versionOrHash: string, rawRemoteUrl: string): string;
   resolvePluginRemoteUpstreamJson?(virtualPath: string): string;
+  prepareDanmakuTimelineJson?(rawPayload: string, optionsJson: string): string;
+  normalizeDanmakuQueryTitle?(rawTitle: string): string;
+}
+
+export interface MpDanmakuItem {
+  time_ms: number;
+  mode: string;
+  color_rgb: number;
+  text: string;
+  repeat_count: number;
+}
+
+export interface MpDanmakuFilterOptions {
+  allow_scroll: boolean;
+  allow_top: boolean;
+  allow_bottom: boolean;
+  allow_color: boolean;
+  merge_duplicates: boolean;
+  merge_window_ms: number;
+  max_per_second: number;
+  block_keywords: string[];
+  offset_ms: number;
+}
+
+export interface MpPreparedDanmakuTimeline {
+  total_raw: number;
+  kept_count: number;
+  dropped_count: number;
+  items: MpDanmakuItem[];
 }
 
 export interface PluginRemoteCacheKey {
@@ -1268,6 +1297,130 @@ export class RustCoreBridge {
       }
     }
     return parts;
+  }
+
+  /** 解析、过滤、同文合并并按时间轴排序弹幕载荷（优先调用共享 Rust 内核，降级纯 ArkTS 1:1 兜底）。 */
+  static prepareDanmakuTimeline(rawPayload: string, options: MpDanmakuFilterOptions): MpPreparedDanmakuTimeline {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.prepareDanmakuTimelineJson) {
+        const outJson = RustCoreBridge.nativeLib.prepareDanmakuTimelineJson(rawPayload, JSON.stringify(options));
+        if (outJson && outJson.length > 0) {
+          const parsed = JSON.parse(outJson) as MpPreparedDanmakuTimeline;
+          if (parsed && Array.isArray(parsed.items)) {
+            return parsed;
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+    return RustCoreBridge.fallbackPrepareDanmakuTimeline(rawPayload, options);
+  }
+
+  /** 清洗剧名与文件名用于弹幕手动搜索初值。 */
+  static normalizeDanmakuTitle(rawTitle: string): string {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.normalizeDanmakuQueryTitle) {
+        return RustCoreBridge.nativeLib.normalizeDanmakuQueryTitle(rawTitle);
+      }
+    } catch {
+      // fallback
+    }
+    let s = (rawTitle ?? '').trim();
+    const exts: string[] = ['.mkv', '.mp4', '.avi', '.mov', '.ts', '.m2ts', '.flv', '.webm', '.wmv', '.iso', '.strm'];
+    const lower = s.toLowerCase();
+    for (let i = 0; i < exts.length; i++) {
+      if (lower.endsWith(exts[i])) {
+        s = s.substring(0, s.length - exts[i].length);
+        break;
+      }
+    }
+    s = s.replace(/\[[^\]]*]/g, ' ').replace(/【[^】]*】/g, ' ').replace(/\([^)]*\)/g, ' ');
+    s = s.replace(/[._]/g, ' ').replace(/S\d{1,2}E\d{1,3}.*$/i, '').replace(/\s+/g, ' ').trim();
+    return s;
+  }
+
+  private static fallbackPrepareDanmakuTimeline(
+    rawPayload: string,
+    options: MpDanmakuFilterOptions
+  ): MpPreparedDanmakuTimeline {
+    const items: MpDanmakuItem[] = [];
+    try {
+      const root = JSON.parse(rawPayload) as Record<string, Object>;
+      const rawList = Array.isArray(root['items'])
+        ? (root['items'] as Object[])
+        : (Array.isArray(root['comments']) ? (root['comments'] as Object[]) : []);
+      const totalRaw = rawList.length;
+      const lowerBlocks: string[] = [];
+      for (let i = 0; i < options.block_keywords.length; i++) {
+        const kw = options.block_keywords[i].trim().toLowerCase();
+        if (kw.length > 0) { lowerBlocks.push(kw); }
+      }
+      for (let i = 0; i < rawList.length; i++) {
+        const entry = rawList[i];
+        if (!entry) { continue; }
+        let tMs = 0;
+        let mode = 'scroll';
+        let colorRgb = 0xFFFFFF;
+        let text = '';
+        if (Array.isArray(entry) && entry.length >= 4) {
+          tMs = Math.round(Number(entry[0]) || 0);
+          const mNum = Math.round(Number(entry[1]) || 1);
+          mode = mNum === 5 ? 'top' : (mNum === 4 ? 'bottom' : 'scroll');
+          colorRgb = (Math.round(Number(entry[2]) || 0xFFFFFF)) & 0xFFFFFF;
+          text = String(entry[3] ?? '').trim();
+        } else if (typeof entry === 'object') {
+          const rec = entry as Record<string, Object>;
+          const pStr = typeof rec['p'] === 'string' ? (rec['p'] as string) : '';
+          const mStr = typeof rec['m'] === 'string' ? (rec['m'] as string) : '';
+          if (pStr.length > 0 && mStr.length > 0) {
+            const segs = pStr.split(',');
+            tMs = Math.round((Number(segs[0]) || 0) * 1000);
+            const mNum = Math.round(Number(segs[1]) || 1);
+            mode = mNum === 5 ? 'top' : (mNum === 4 ? 'bottom' : 'scroll');
+            colorRgb = (Math.round(Number(segs[2]) || 0xFFFFFF)) & 0xFFFFFF;
+            text = mStr.trim();
+          } else {
+            tMs = Math.round(Number(rec['time_ms']) || 0);
+            mode = String(rec['mode'] ?? 'scroll');
+            colorRgb = (Math.round(Number(rec['color_rgb']) || 0xFFFFFF)) & 0xFFFFFF;
+            text = String(rec['text'] ?? '').trim();
+          }
+        }
+        if (!text) { continue; }
+        const shifted = tMs + options.offset_ms;
+        if (shifted < 0) { continue; }
+        if (mode === 'scroll' && !options.allow_scroll) { continue; }
+        if (mode === 'top' && !options.allow_top) { continue; }
+        if (mode === 'bottom' && !options.allow_bottom) { continue; }
+        if (!options.allow_color && colorRgb !== 0xFFFFFF) { continue; }
+        const lowerText = text.toLowerCase();
+        let blocked = false;
+        for (let b = 0; b < lowerBlocks.length; b++) {
+          if (lowerText.includes(lowerBlocks[b])) {
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) { continue; }
+        items.push({
+          time_ms: shifted,
+          mode: mode,
+          color_rgb: colorRgb,
+          text: text,
+          repeat_count: 1
+        });
+      }
+      items.sort((a: MpDanmakuItem, b: MpDanmakuItem) => a.time_ms - b.time_ms);
+      return {
+        total_raw: totalRaw,
+        kept_count: items.length,
+        dropped_count: Math.max(0, totalRaw - items.length),
+        items: items
+      };
+    } catch {
+      return { total_raw: 0, kept_count: 0, dropped_count: 0, items: [] };
+    }
   }
 
   private static fallbackResolvePlaybackEngine(input: EngineResolutionInput): EngineResolutionPlan {

@@ -16,6 +16,9 @@ import {
   MpStorageConfig,
   MpAuthorizationItem,
   MpMediaServerAccountBinding,
+  MpDanmakuConfig,
+  MpDanmakuConfigTestResult,
+  MpDanmakuCacheClearResult,
   MpImageLoader,
   MpRemoteImage,
   formatByteSize
@@ -734,6 +737,34 @@ export struct HarmonySettingsHubPage {
   @State private bindPlexToken: string = '';
   @State private bindSubmitting: boolean = false;
   @State private bindError: string = '';
+  @State private showDanmakuAdminSheet: boolean = false;
+  @State private danmakuConfigSummary: MpDanmakuConfig | null = null;
+  @State private dmLoading: boolean = false;
+  @State private dmBusy: boolean = false;
+  @State private dmFeedback: string = '';
+  @State private dmFeedbackErr: boolean = false;
+  @State private dmEnabled: boolean = false;
+  @State private dmBaseUrl: string = '';
+  @State private dmAuthMode: string = 'none';
+  @State private dmAppId: string = '';
+  @State private dmAppSecret: string = '';
+  @State private dmHasAppSecret: boolean = false;
+  @State private dmClearAppSecret: boolean = false;
+  @State private dmTokenHeader: string = 'Authorization';
+  @State private dmTokenPrefix: string = 'Bearer ';
+  @State private dmTokenValue: string = '';
+  @State private dmHasToken: boolean = false;
+  @State private dmClearToken: boolean = false;
+  @State private dmWithRelated: boolean = true;
+  @State private dmChConvert: number = 1;
+  @State private dmCacheTtl: string = '24';
+  @State private dmCacheMaxMb: string = '512';
+  @State private dmTimeoutSec: string = '10';
+  @State private dmUseProxy: boolean = false;
+  @State private dmVerifyTls: boolean = true;
+  @State private dmCacheFiles: number = 0;
+  @State private dmCacheBytes: number = 0;
+  @State private dmCacheMaxStat: number = 512;
   @State private showMedalsSheet: boolean = false;
   @State private activeMedalIdx: number = 0;
   @State private medalBusy: boolean = false;
@@ -2476,9 +2507,408 @@ export struct HarmonySettingsHubPage {
             .fontSize(11.5)
             .fontColor(mpSecondaryText(this.isDark))
             .width('100%')
+
+          if (MoviePilotRepository.shared().isSuperuser) {
+            Text('弹幕服务（管理员）')
+              .fontSize(13)
+              .fontColor(mpSecondaryText(this.isDark))
+              .width('100%')
+            CinematicPanel({ panelPadding: 0, cornerRadius: 16 }) {
+              Row({ space: 10 }) {
+                Column({ space: 4 }) {
+                  Row({ space: 8 }) {
+                    Text('弹幕服务配置')
+                      .fontSize(14.5)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor(mpPrimaryText(this.isDark))
+                    if (this.danmakuConfigSummary) {
+                      NativeAdaptiveBadge({
+                        text: this.danmakuConfigSummary.enabled ? '已启用' : '未启用',
+                        tintHex: this.danmakuConfigSummary.enabled ? '#34C759' : '#8E98A8'
+                      })
+                    }
+                  }.alignItems(VerticalAlign.Center)
+                  Text(this.danmakuSummarySubtitle())
+                    .fontSize(11.5)
+                    .fontColor(mpSecondaryText(this.isDark))
+                    .maxLines(2)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(14)
+                  .fontColor([mpSecondaryText(this.isDark)])
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+              .onClick(() => { this.openDanmakuAdminSheet(); })
+            }
+          }
         }
         .width('100%')
         .padding({ bottom: 20 })
+      }
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+      .width('100%')
+    }
+    .padding(20)
+    .width('100%')
+    .height('100%')
+  }
+
+  private danmakuSummarySubtitle(): string {
+    const cfg = this.danmakuConfigSummary;
+    if (!cfg) {
+      return '配置兼容 DandanPlay 协议的第三方弹幕服务地址与缓存策略';
+    }
+    if (cfg.enabled && cfg.apiBaseUrl.length > 0) {
+      return `已启用 · ${cfg.apiBaseUrl} · 缓存 ${cfg.cacheStats.fileCount} 集`;
+    }
+    if (cfg.enabled) {
+      return '已启用（尚未填写上游地址）';
+    }
+    return '未启用 · 点击配置自定义弹幕服务与鉴权凭据';
+  }
+
+  private applyDanmakuConfigToForm(cfg: MpDanmakuConfig): void {
+    this.danmakuConfigSummary = cfg;
+    this.dmEnabled = cfg.enabled;
+    this.dmBaseUrl = cfg.apiBaseUrl;
+    this.dmAuthMode = cfg.authMode || 'none';
+    this.dmAppId = cfg.appId;
+    this.dmAppSecret = '';
+    this.dmHasAppSecret = cfg.hasAppSecret;
+    this.dmClearAppSecret = false;
+    this.dmTokenHeader = cfg.tokenHeader || 'Authorization';
+    this.dmTokenPrefix = cfg.tokenPrefix;
+    this.dmTokenValue = '';
+    this.dmHasToken = cfg.hasToken;
+    this.dmClearToken = false;
+    this.dmWithRelated = cfg.withRelated;
+    this.dmChConvert = cfg.chConvert;
+    this.dmCacheTtl = String(cfg.cacheTtlHours);
+    this.dmCacheMaxMb = String(cfg.cacheMaxMb);
+    this.dmTimeoutSec = String(cfg.timeoutSeconds);
+    this.dmUseProxy = cfg.useProxy;
+    this.dmVerifyTls = cfg.verifyTls;
+    this.dmCacheFiles = cfg.cacheStats.fileCount;
+    this.dmCacheBytes = cfg.cacheStats.totalBytes;
+    this.dmCacheMaxStat = cfg.cacheStats.maxMb;
+  }
+
+  private buildDanmakuConfigPayload(): string {
+    const payload: Record<string, Object> = {};
+    payload['enabled'] = this.dmEnabled;
+    payload['api_base_url'] = this.dmBaseUrl.trim();
+    payload['auth_mode'] = this.dmAuthMode;
+    payload['app_id'] = this.dmAppId.trim();
+    if (this.dmAppSecret.length > 0) {
+      payload['app_secret'] = this.dmAppSecret;
+    }
+    if (this.dmClearAppSecret) {
+      payload['clear_app_secret'] = true;
+    }
+    payload['token_header'] = this.dmTokenHeader.trim() || 'Authorization';
+    payload['token_prefix'] = this.dmTokenPrefix;
+    if (this.dmTokenValue.length > 0) {
+      payload['token'] = this.dmTokenValue;
+    }
+    if (this.dmClearToken) {
+      payload['clear_token'] = true;
+    }
+    payload['with_related'] = this.dmWithRelated;
+    payload['ch_convert'] = this.dmChConvert;
+    const ttl = Math.min(720, Math.max(1, parseInt(this.dmCacheTtl, 10) || 24));
+    const maxMb = Math.min(4096, Math.max(32, parseInt(this.dmCacheMaxMb, 10) || 512));
+    const timeout = Math.min(30, Math.max(3, parseInt(this.dmTimeoutSec, 10) || 10));
+    payload['cache_ttl_hours'] = ttl;
+    payload['cache_max_mb'] = maxMb;
+    payload['timeout_seconds'] = timeout;
+    payload['use_proxy'] = this.dmUseProxy;
+    payload['verify_tls'] = this.dmVerifyTls;
+    return JSON.stringify(payload);
+  }
+
+  private openDanmakuAdminSheet(): void {
+    this.dmFeedback = '';
+    this.dmFeedbackErr = false;
+    this.dmLoading = true;
+    this.showDanmakuAdminSheet = true;
+    MoviePilotRepository.shared().fetchDanmakuConfig().then((cfg: MpDanmakuConfig) => {
+      this.applyDanmakuConfigToForm(cfg);
+      this.dmLoading = false;
+    }).catch((err: Error) => {
+      this.dmLoading = false;
+      this.dmFeedbackErr = true;
+      this.dmFeedback = err.message || '读取弹幕服务配置失败';
+    });
+  }
+
+  @Builder
+  private danmakuAdminSheetBuilder() {
+    Column({ space: 14 }) {
+      HarmonySheetHeader({
+        title: '弹幕服务配置',
+        cancelText: '关闭',
+        onCancel: () => { this.showDanmakuAdminSheet = false; }
+      })
+      Scroll() {
+        Column({ space: 12 }) {
+          Text('仅管理员可配置。MoviePilot 不内置默认弹幕接口，请填写您自建或经授权的 DandanPlay 协议兼容弹幕服务地址。')
+            .fontSize(12)
+            .fontColor(mpSecondaryText(this.isDark))
+            .width('100%')
+
+          if (this.dmLoading) {
+            Row({ space: 8 }) {
+              LoadingProgress().width(18).height(18).color(this.accentHex)
+              Text('正在加载服务端弹幕配置…').fontSize(13.5).fontColor(mpSecondaryText(this.isDark))
+            }.width('100%').padding({ top: 12, bottom: 12 })
+          } else {
+            CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+              Column({ space: 12 }) {
+                Row() {
+                  Column({ space: 2 }) {
+                    Text('启用弹幕服务').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                    Text('关闭后播放器不显示弹幕按钮，也不发起上游请求').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                  }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.dmEnabled }).selectedColor(this.accentHex)
+                    .onChange((v: boolean) => { this.dmEnabled = v; })
+                }.width('100%')
+
+                Text('弹幕服务 Base URL').fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                TextInput({ text: this.dmBaseUrl, placeholder: 'https://danmaku.example.com' })
+                  .onChange((v: string) => { this.dmBaseUrl = v; })
+                  .fontColor(mpPrimaryText(this.isDark))
+                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                  .borderRadius(12)
+                  .width('100%')
+
+                Text('鉴权方式').fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                HarmonySegmentedSwitch({
+                  options: ['无鉴权', '弹弹play 签名', '请求头 Token'],
+                  selectedIndex: this.dmAuthMode === 'dandanplay_v2' ? 1 : (this.dmAuthMode === 'header_token' ? 2 : 0),
+                  onSelect: (idx: number) => {
+                    this.dmAuthMode = idx === 1 ? 'dandanplay_v2' : (idx === 2 ? 'header_token' : 'none');
+                  }
+                })
+
+                if (this.dmAuthMode === 'dandanplay_v2') {
+                  TextInput({ text: this.dmAppId, placeholder: 'AppId' })
+                    .onChange((v: string) => { this.dmAppId = v; })
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    .borderRadius(12)
+                    .width('100%')
+                  TextInput({
+                    text: this.dmAppSecret,
+                    placeholder: this.dmHasAppSecret && !this.dmClearAppSecret ? 'AppSecret 已加密保存，留空保持不变' : '输入 AppSecret'
+                  })
+                    .type(InputType.Password)
+                    .onChange((v: string) => {
+                      this.dmAppSecret = v;
+                      if (v.length > 0) { this.dmClearAppSecret = false; }
+                    })
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    .borderRadius(12)
+                    .width('100%')
+                  if (this.dmHasAppSecret) {
+                    Row() {
+                      Text(this.dmClearAppSecret ? '保存后将清除已存储密钥' : '服务端已加密保存 AppSecret')
+                        .fontSize(11.5).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                      Text(this.dmClearAppSecret ? '撤销清除' : '清除密钥')
+                        .fontSize(12).fontColor('#E84855')
+                        .onClick(() => { this.dmClearAppSecret = !this.dmClearAppSecret; })
+                    }.width('100%')
+                  }
+                } else if (this.dmAuthMode === 'header_token') {
+                  TextInput({ text: this.dmTokenHeader, placeholder: '请求头名称（如 Authorization）' })
+                    .onChange((v: string) => { this.dmTokenHeader = v; })
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    .borderRadius(12)
+                    .width('100%')
+                  TextInput({ text: this.dmTokenPrefix, placeholder: '前缀（如 Bearer ，可留空）' })
+                    .onChange((v: string) => { this.dmTokenPrefix = v; })
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    .borderRadius(12)
+                    .width('100%')
+                  TextInput({
+                    text: this.dmTokenValue,
+                    placeholder: this.dmHasToken && !this.dmClearToken ? 'Token 已加密保存，留空保持不变' : '输入 Token 密钥'
+                  })
+                    .type(InputType.Password)
+                    .onChange((v: string) => {
+                      this.dmTokenValue = v;
+                      if (v.length > 0) { this.dmClearToken = false; }
+                    })
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    .borderRadius(12)
+                    .width('100%')
+                  if (this.dmHasToken) {
+                    Row() {
+                      Text(this.dmClearToken ? '保存后将清除已存储 Token' : '服务端已加密保存 Token')
+                        .fontSize(11.5).fontColor(mpSecondaryText(this.isDark)).layoutWeight(1)
+                      Text(this.dmClearToken ? '撤销清除' : '清除密钥')
+                        .fontSize(12).fontColor('#E84855')
+                        .onClick(() => { this.dmClearToken = !this.dmClearToken; })
+                    }.width('100%')
+                  }
+                }
+              }.width('100%')
+            }
+
+            CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+              Column({ space: 12 }) {
+                Row() {
+                  Column({ space: 2 }) {
+                    Text('聚合第三方关联弹幕').fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                    Text('拉取弹幕时附加 withRelated=true').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                  }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.dmWithRelated }).selectedColor(this.accentHex)
+                    .onChange((v: boolean) => { this.dmWithRelated = v; })
+                }.width('100%')
+
+                Text('简繁转换').fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                HarmonySegmentedSwitch({
+                  options: ['原文', '简体中文', '繁体中文'],
+                  selectedIndex: this.dmChConvert === 0 ? 0 : (this.dmChConvert === 2 ? 2 : 1),
+                  onSelect: (idx: number) => { this.dmChConvert = idx; }
+                })
+
+                Row({ space: 8 }) {
+                  Column({ space: 4 }) {
+                    Text('缓存小时').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                    TextInput({ text: this.dmCacheTtl }).type(InputType.Number)
+                      .onChange((v: string) => { this.dmCacheTtl = v; })
+                      .fontColor(mpPrimaryText(this.isDark))
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      .borderRadius(10)
+                  }.layoutWeight(1)
+                  Column({ space: 4 }) {
+                    Text('上限(MB)').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                    TextInput({ text: this.dmCacheMaxMb }).type(InputType.Number)
+                      .onChange((v: string) => { this.dmCacheMaxMb = v; })
+                      .fontColor(mpPrimaryText(this.isDark))
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      .borderRadius(10)
+                  }.layoutWeight(1)
+                  Column({ space: 4 }) {
+                    Text('超时(秒)').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                    TextInput({ text: this.dmTimeoutSec }).type(InputType.Number)
+                      .onChange((v: string) => { this.dmTimeoutSec = v; })
+                      .fontColor(mpPrimaryText(this.isDark))
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      .borderRadius(10)
+                  }.layoutWeight(1)
+                }.width('100%')
+
+                Row() {
+                  Text('经系统代理访问上游').fontSize(14).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.dmUseProxy }).selectedColor(this.accentHex)
+                    .onChange((v: boolean) => { this.dmUseProxy = v; })
+                }.width('100%')
+
+                Row() {
+                  Text('严格校验 TLS 证书').fontSize(14).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.dmVerifyTls }).selectedColor(this.accentHex)
+                    .onChange((v: boolean) => { this.dmVerifyTls = v; })
+                }.width('100%')
+
+                Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+                Row() {
+                  Column({ space: 2 }) {
+                    Text('服务端弹幕缓存').fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                    Text(`已缓存 ${this.dmCacheFiles} 集 · ${formatByteSize(this.dmCacheBytes)} / ${this.dmCacheMaxStat} MB`)
+                      .fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                  }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                  Text('清空缓存')
+                    .fontSize(12.5).fontWeight(FontWeight.Bold).fontColor('#E84855')
+                    .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                    .borderRadius(12)
+                    .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                    .onClick(() => {
+                      if (this.dmBusy) { return; }
+                      this.dmBusy = true;
+                      this.dmFeedback = '';
+                      MoviePilotRepository.shared().clearDanmakuCache().then((res: MpDanmakuCacheClearResult) => {
+                        this.dmCacheFiles = 0;
+                        this.dmCacheBytes = 0;
+                        this.dmFeedbackErr = false;
+                        this.dmFeedback = `已清理 ${res.removedFiles} 集缓存文件`;
+                        this.dmBusy = false;
+                        MoviePilotRepository.shared().fetchDanmakuConfig().then((cfg: MpDanmakuConfig) => {
+                          this.applyDanmakuConfigToForm(cfg);
+                        }).catch(() => {});
+                      }).catch((err: Error) => {
+                        this.dmBusy = false;
+                        this.dmFeedbackErr = true;
+                        this.dmFeedback = err.message || '清空缓存失败';
+                      });
+                    })
+                }.width('100%')
+              }.width('100%')
+            }
+
+            if (this.dmFeedback.length > 0) {
+              Text(this.dmFeedback)
+                .fontSize(12.5)
+                .fontColor(this.dmFeedbackErr ? '#E84855' : '#34C759')
+                .width('100%')
+            }
+
+            Row({ space: 10 }) {
+              Button('测试连接')
+                .layoutWeight(1)
+                .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                .fontColor(this.accentHex)
+                .enabled(!this.dmBusy && this.dmBaseUrl.trim().length > 0)
+                .onClick(() => {
+                  if (this.dmBusy) { return; }
+                  this.dmBusy = true;
+                  this.dmFeedback = '';
+                  MoviePilotRepository.shared().testDanmakuConfig(this.buildDanmakuConfigPayload())
+                    .then((res: MpDanmakuConfigTestResult) => {
+                      this.dmBusy = false;
+                      this.dmFeedbackErr = !res.ok;
+                      this.dmFeedback = res.ok ? `连接成功（${res.latencyMs}ms）` : (res.message || '连接测试失败');
+                    }).catch((err: Error) => {
+                      this.dmBusy = false;
+                      this.dmFeedbackErr = true;
+                      this.dmFeedback = err.message || '测试连接失败';
+                    });
+                })
+
+              Button(this.dmBusy ? '处理中…' : '保存配置')
+                .layoutWeight(1)
+                .backgroundColor(this.accentHex)
+                .fontColor(Color.White)
+                .enabled(!this.dmBusy)
+                .onClick(() => {
+                  if (this.dmBusy) { return; }
+                  this.dmBusy = true;
+                  this.dmFeedback = '';
+                  MoviePilotRepository.shared().updateDanmakuConfig(this.buildDanmakuConfigPayload())
+                    .then((saved: MpDanmakuConfig) => {
+                      this.dmBusy = false;
+                      this.applyDanmakuConfigToForm(saved);
+                      this.dmFeedbackErr = false;
+                      this.dmFeedback = '弹幕服务配置已保存';
+                    }).catch((err: Error) => {
+                      this.dmBusy = false;
+                      this.dmFeedbackErr = true;
+                      this.dmFeedback = err.message || '保存配置失败';
+                    });
+                })
+            }.width('100%')
+          }
+        }
+        .width('100%')
+        .padding({ bottom: 24 })
       }
       .scrollBar(BarState.Off)
       .layoutWeight(1)
@@ -2493,6 +2923,11 @@ export struct HarmonySettingsHubPage {
     this.bindingsNotice = '';
     this.showPlaybackSheet = true;
     this.loadMediaServerBindings();
+    if (MoviePilotRepository.shared().isSuperuser) {
+      MoviePilotRepository.shared().fetchDanmakuConfig().then((cfg: MpDanmakuConfig) => {
+        this.danmakuConfigSummary = cfg;
+      }).catch(() => {});
+    }
   }
 
   private loadMediaServerBindings(): void {
@@ -3214,6 +3649,14 @@ export struct HarmonySettingsHubPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showAccountBindSheet, this.accountBindSheetBuilder(), {
         detents: [SheetSize.MEDIUM, SheetSize.LARGE],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
+        blurStyle: BlurStyle.COMPONENT_REGULAR,
+        dragBar: true,
+        showClose: false,
+        backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+      })
+      Blank().width(0).height(0).bindSheet($$this.showDanmakuAdminSheet, this.danmakuAdminSheetBuilder(), {
+        detents: [SheetSize.LARGE],
         preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,

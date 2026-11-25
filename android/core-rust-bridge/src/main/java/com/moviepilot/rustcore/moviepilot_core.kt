@@ -778,6 +778,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -823,6 +827,8 @@ fun uniffi_moviepilot_core_checksum_func_filter_and_group_resources(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_is_same_http_origin(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_normalize_danmaku_query_title(
+): Short
 fun uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_normalize_plugin_remote_entry_json(
@@ -840,6 +846,8 @@ fun uniffi_moviepilot_core_checksum_func_plan_playback_routes_json(
 fun uniffi_moviepilot_core_checksum_func_plan_playback_sync_step_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_plan_plugin_form_json(
+): Short
+fun uniffi_moviepilot_core_checksum_func_prepare_danmaku_timeline_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json(
 ): Short
@@ -946,6 +954,8 @@ fun uniffi_moviepilot_core_fn_func_filter_and_group_resources(`resourcesJson`: R
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_is_same_http_origin(`urlA`: RustBuffer.ByValue,`urlB`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_moviepilot_core_fn_func_normalize_danmaku_query_title(`seriesName`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`season`: RustBuffer.ByValue,`episode`: RustBuffer.ByValue,`fileName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_normalize_pending_playback_stops_json(`entriesJson`: RustBuffer.ByValue,`nowEpochMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_normalize_plugin_remote_entry_json(`pluginId`: RustBuffer.ByValue,`versionOrHash`: RustBuffer.ByValue,`rawRemoteUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -963,6 +973,8 @@ fun uniffi_moviepilot_core_fn_func_plan_playback_routes_json(`routesJson`: RustB
 fun uniffi_moviepilot_core_fn_func_plan_playback_sync_step_json(`stateJson`: RustBuffer.ByValue,`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_plan_plugin_form_json(`documentJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_prepare_danmaku_timeline_json(`rawPayloadJson`: RustBuffer.ByValue,`filterOptionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_resolve_playback_engine_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1145,6 +1157,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_is_same_http_origin() != 24565.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_normalize_danmaku_query_title() != 7723.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json() != 59689.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1170,6 +1185,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_plan_plugin_form_json() != 32974.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_prepare_danmaku_timeline_json() != 62879.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json() != 50581.toShort()) {
@@ -2283,6 +2301,38 @@ public object FfiConverterTypeCoreFfiError : FfiConverterRustBuffer<CoreFfiExcep
 /**
  * @suppress
  */
+public object FfiConverterOptionalInt: FfiConverterRustBuffer<kotlin.Int?> {
+    override fun read(buf: ByteBuffer): kotlin.Int? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Int?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Int?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterInt.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalLong: FfiConverterRustBuffer<kotlin.Long?> {
     override fun read(buf: ByteBuffer): kotlin.Long? {
         if (buf.get().toInt() == 0) {
@@ -2611,6 +2661,18 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 跨端统一生成弹幕手动搜索默认关键词与规范化展示标题。
+         */ fun `normalizeDanmakuQueryTitle`(`seriesName`: kotlin.String?, `title`: kotlin.String?, `season`: kotlin.Int?, `episode`: kotlin.Int?, `fileName`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_normalize_danmaku_query_title(
+        FfiConverterOptionalString.lower(`seriesName`),FfiConverterOptionalString.lower(`title`),FfiConverterOptionalInt.lower(`season`),FfiConverterOptionalInt.lower(`episode`),FfiConverterOptionalString.lower(`fileName`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 规整离线待补报 `stopped` 队列（去重、清理 7 天过期项并裁剪至上限）。
          */
     @Throws(CoreFfiException::class) fun `normalizePendingPlaybackStopsJson`(`entriesJson`: kotlin.String, `nowEpochMs`: kotlin.Long): kotlin.String {
@@ -2720,6 +2782,19 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     uniffiRustCallWithError(CoreFfiException) { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_plan_plugin_form_json(
         FfiConverterString.lower(`documentJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 离线批处理单集弹幕载荷（解析、过滤、屏蔽词、短窗去重合并与每秒限流），返回 `PreparedDanmakuTimeline` JSON。
+         */
+    @Throws(CoreFfiException::class) fun `prepareDanmakuTimelineJson`(`rawPayloadJson`: kotlin.String, `filterOptionsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_prepare_danmaku_timeline_json(
+        FfiConverterString.lower(`rawPayloadJson`),FfiConverterString.lower(`filterOptionsJson`),_status)
 }
     )
     }

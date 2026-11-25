@@ -7,6 +7,8 @@ use mp_core_model::{
     PendingPlaybackStop, PlayableMediaFormat, PlaybackEngineRouter, PlaybackProgressPlanner,
     PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference, PlaybackSyncInput,
     PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
+    normalize_danmaku_query_title as model_normalize_danmaku_query_title,
+    prepare_danmaku_timeline_json as model_prepare_danmaku_timeline_json,
 };
 use mp_core_plugin::{
     NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder,
@@ -256,6 +258,29 @@ pub mod bridge {
         let target = resolve_plugin_remote_upstream_path(virtual_path)?;
         serde_json::to_string(&target).map_err(|e| e.to_string())
     }
+
+    pub fn prepare_danmaku_timeline_json(
+        raw_payload_json: &str,
+        filter_options_json: &str,
+    ) -> Result<String, String> {
+        model_prepare_danmaku_timeline_json(raw_payload_json, filter_options_json)
+    }
+
+    pub fn normalize_danmaku_query_title(
+        series_name: &str,
+        title: &str,
+        season: i32,
+        episode: i32,
+        file_name: &str,
+    ) -> String {
+        model_normalize_danmaku_query_title(
+            (!series_name.trim().is_empty()).then_some(series_name),
+            (!title.trim().is_empty()).then_some(title),
+            (season >= 0).then_some(season),
+            (episode >= 0).then_some(episode),
+            (!file_name.trim().is_empty()).then_some(file_name),
+        )
+    }
 }
 
 #[cfg(target_env = "ohos")]
@@ -448,6 +473,26 @@ mod napi_exports {
     pub fn resolve_plugin_remote_upstream_json(virtual_path: String) -> Result<String> {
         bridge::resolve_plugin_remote_upstream_json(&virtual_path)
             .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn prepare_danmaku_timeline_json(
+        raw_payload_json: String,
+        filter_options_json: String,
+    ) -> Result<String> {
+        bridge::prepare_danmaku_timeline_json(&raw_payload_json, &filter_options_json)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn normalize_danmaku_query_title(
+        series_name: String,
+        title: String,
+        season: i32,
+        episode: i32,
+        file_name: String,
+    ) -> String {
+        bridge::normalize_danmaku_query_title(&series_name, &title, season, episode, &file_name)
     }
 }
 

@@ -528,6 +528,14 @@ fun MediaServerLibraryScreen(
                                                         },
                                                         queue = audioQueue,
                                                         queueIndex = curQIdx,
+                                                        danmakuEnabled = manifest.danmakuEnabled,
+                                                        seriesName = manifest.seriesName,
+                                                        seasonNumber = manifest.seasonNumber,
+                                                        episodeNumber = manifest.episodeNumber,
+                                                        year = manifest.year,
+                                                        tmdbId = manifest.tmdbId,
+                                                        fileName = manifest.fileName,
+                                                        fileSize = manifest.fileSize,
                                                     ),
                                                 )
                                             } else if (onOpenServerDetail != null && entry.itemId.isNotBlank()) {

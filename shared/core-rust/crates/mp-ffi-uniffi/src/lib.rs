@@ -8,6 +8,8 @@ use mp_core_model::{
     PendingPlaybackStop, PlayableMediaFormat, PlaybackEngineRouter, PlaybackProgressPlanner,
     PlaybackRouteCandidate, PlaybackRoutePlanner, PlaybackRoutePreference, PlaybackSyncInput,
     PlaybackSyncState, RouteProbeOutcome, ServerAddress, SubscribeProgressModel,
+    normalize_danmaku_query_title as model_normalize_danmaku_query_title,
+    prepare_danmaku_timeline_json as model_prepare_danmaku_timeline_json,
 };
 use mp_core_plugin::{
     NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder,
@@ -538,6 +540,34 @@ pub fn resolve_plugin_remote_upstream_json(virtual_path: String) -> Result<Strin
     let target = resolve_plugin_remote_upstream_path(&virtual_path)
         .map_err(|msg| CoreFfiError::InvalidEndpoint { msg })?;
     serde_json::to_string(&target).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 离线批处理单集弹幕载荷（解析、过滤、屏蔽词、短窗去重合并与每秒限流），返回 `PreparedDanmakuTimeline` JSON。
+#[uniffi::export]
+pub fn prepare_danmaku_timeline_json(
+    raw_payload_json: String,
+    filter_options_json: String,
+) -> Result<String, CoreFfiError> {
+    model_prepare_danmaku_timeline_json(&raw_payload_json, &filter_options_json)
+        .map_err(|msg| CoreFfiError::InvalidJson { msg })
+}
+
+/// 跨端统一生成弹幕手动搜索默认关键词与规范化展示标题。
+#[uniffi::export]
+pub fn normalize_danmaku_query_title(
+    series_name: Option<String>,
+    title: Option<String>,
+    season: Option<i32>,
+    episode: Option<i32>,
+    file_name: Option<String>,
+) -> String {
+    model_normalize_danmaku_query_title(
+        series_name.as_deref(),
+        title.as_deref(),
+        season,
+        episode,
+        file_name.as_deref(),
+    )
 }
 
 /// 返回 Rust 共享内核版本号，用于三端 FFI 冒烟健康检查。

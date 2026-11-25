@@ -47,6 +47,19 @@ export {
 } from './src/main/ets/HarmonyAudioSession';
 
 export {
+  DanmakuPreferencesStore
+} from './src/main/ets/danmaku/DanmakuPreferences';
+
+export {
+  ActiveHarmonyDanmaku,
+  HarmonyDanmakuController
+} from './src/main/ets/danmaku/DanmakuController';
+
+export {
+  HarmonyDanmakuOverlay
+} from './src/main/ets/danmaku/DanmakuOverlay';
+
+export {
   NativeMediaPlayerView,
   FloatingMiniMusicBar
 } from './src/main/ets/NativeMediaPlayerView';

@@ -5,6 +5,7 @@ import ImageIO
 import MediaPlayer
 import MoviePilotAPI
 import MoviePilotCore
+import SwiftUI
 import UIKit
 import VLCKit
 import os
@@ -28,6 +29,14 @@ struct MediaPlaybackManifest: Decodable, Sendable {
   let progressSyncMode: String?
   let resumePositionMs: Int?
   let durationMs: Int?
+  let danmakuEnabled: Bool
+  let seriesName: String?
+  let seasonNumber: Int?
+  let episodeNumber: Int?
+  let year: Int?
+  let tmdbId: String?
+  let fileName: String?
+  let fileSize: Int?
   let playbackRoutes: [PlaybackRouteCandidate]
   var resolvedTarget: PreparedPlaybackTarget?
   var fallbackRoutes: [PlaybackRouteCandidate]
@@ -51,6 +60,14 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     case progressSyncMode
     case resumePositionMs
     case durationMs
+    case danmakuEnabled
+    case seriesName
+    case seasonNumber
+    case episodeNumber
+    case year
+    case tmdbId
+    case fileName
+    case fileSize
     case playbackRoutes
   }
 
@@ -72,6 +89,14 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     progressSyncMode: String? = nil,
     resumePositionMs: Int? = nil,
     durationMs: Int? = nil,
+    danmakuEnabled: Bool = false,
+    seriesName: String? = nil,
+    seasonNumber: Int? = nil,
+    episodeNumber: Int? = nil,
+    year: Int? = nil,
+    tmdbId: String? = nil,
+    fileName: String? = nil,
+    fileSize: Int? = nil,
     playbackRoutes: [PlaybackRouteCandidate] = [],
     resolvedTarget: PreparedPlaybackTarget? = nil,
     fallbackRoutes: [PlaybackRouteCandidate] = [],
@@ -94,6 +119,14 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     self.progressSyncMode = progressSyncMode
     self.resumePositionMs = resumePositionMs
     self.durationMs = durationMs
+    self.danmakuEnabled = danmakuEnabled
+    self.seriesName = seriesName
+    self.seasonNumber = seasonNumber
+    self.episodeNumber = episodeNumber
+    self.year = year
+    self.tmdbId = tmdbId
+    self.fileName = fileName
+    self.fileSize = fileSize
     self.playbackRoutes = playbackRoutes
     self.resolvedTarget = resolvedTarget
     self.fallbackRoutes = fallbackRoutes
@@ -121,11 +154,19 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     progressSyncMode = try container.decodeIfPresent(String.self, forKey: .progressSyncMode)
     resumePositionMs = try container.decodeIfPresent(Int.self, forKey: .resumePositionMs)
     durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+    danmakuEnabled = try container.decodeIfPresent(Bool.self, forKey: .danmakuEnabled) ?? false
+    seriesName = try container.decodeIfPresent(String.self, forKey: .seriesName)
+    seasonNumber = try container.decodeIfPresent(Int.self, forKey: .seasonNumber)
+    episodeNumber = try container.decodeIfPresent(Int.self, forKey: .episodeNumber)
+    year = try container.decodeIfPresent(Int.self, forKey: .year)
+    tmdbId = try container.decodeIfPresent(String.self, forKey: .tmdbId)
+    fileName = try container.decodeIfPresent(String.self, forKey: .fileName)
+    fileSize = try container.decodeIfPresent(Int.self, forKey: .fileSize)
     playbackRoutes =
       try container.decodeIfPresent([PlaybackRouteCandidate].self, forKey: .playbackRoutes) ?? []
     resolvedTarget = nil
     fallbackRoutes = []
-    fileNameHint = nil
+    fileNameHint = fileName
   }
 
   /// 按用户「STRM 直链播放」开关返回优先起播地址。
@@ -209,6 +250,11 @@ final class MediaPlaybackClient {
     configuration.timeoutIntervalForRequest = 20
     configuration.timeoutIntervalForResource = 60
     session = URLSession(configuration: configuration)
+  }
+
+  /// 创建与当前实例严格同源的弹幕代理仓库客户端。
+  func makeDanmakuRepository() -> DanmakuRepository {
+    DanmakuRepository(address: address, accessToken: accessToken)
   }
 
   /// 使用当前实例访问令牌读取已入库条目、流地址和外挂字幕清单，支持指定多版本媒体源。
@@ -886,11 +932,20 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
   // MARK: - Video Surfaces & Overlays
   private let videoView = UIView()
+  private let danmakuOverlay = DanmakuOverlayView()
   private let topScrimView = UIView()
   private let bottomScrimView = UIView()
   private let topScrimLayer = CAGradientLayer()
   private let bottomScrimLayer = CAGradientLayer()
   private let seekHudLabel = UILabel()
+  private let danmakuToggleButton = UIButton(type: .system)
+  private let danmakuPrefs = DanmakuPreferencesStore.shared
+  private var danmakuRepository: DanmakuRepository?
+  private var danmakuTask: Task<Void, Never>?
+  private var danmakuRawJSON: String?
+  private var danmakuShiftMs: Int = 0
+  private var danmakuMatch: DanmakuMatchResponseDTO?
+  private var danmakuMatchedCount: Int = 0
 
   // MARK: - Music Surfaces & Stages
   private let musicAmbientGradient = CAGradientLayer()
@@ -1050,16 +1105,19 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private lazy var pictureInPicture = MediaPictureInPictureController(
     onStart: { [weak self] in
       guard let self, !self.closed else { return }
+      self.danmakuOverlay.setPictureInPictureActive(true)
       self.hideControlsTask?.cancel()
       self.onMinimize(self)
     },
     onRestore: { [weak self] in
       guard let self, !self.closed else { return }
+      self.danmakuOverlay.setPictureInPictureActive(false)
       self.onExpand(self)
       self.showControls()
     },
     onStop: { [weak self] restored in
       guard let self, !self.closed else { return }
+      self.danmakuOverlay.setPictureInPictureActive(false)
       if restored { self.showControls() } else { self.closeFromShell() }
     },
     onAvailability: { [weak self] available in
@@ -1147,6 +1205,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       }
       loadLyrics()
       loadArtwork()
+    } else {
+      danmakuRepository = client?.makeDanmakuRepository()
+      danmakuOverlay.applyPreferences(danmakuPrefs)
+      updateDanmakuControlsVisibility()
+      loadDanmakuForCurrentItem()
     }
   }
 
@@ -1268,6 +1331,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     videoView.isAccessibilityElement = true
     view.addSubview(videoView)
 
+    danmakuOverlay.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(danmakuOverlay)
+
     topScrimView.translatesAutoresizingMaskIntoConstraints = false
     topScrimView.isUserInteractionEnabled = false
     topScrimLayer.colors = [
@@ -1295,6 +1361,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       videoView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       videoView.topAnchor.constraint(equalTo: view.topAnchor),
       videoView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+      danmakuOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      danmakuOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      danmakuOverlay.topAnchor.constraint(equalTo: view.topAnchor),
+      danmakuOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
       topScrimView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
       topScrimView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -1418,6 +1489,15 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       let topButtonPointSize: CGFloat = 16
 
       configureGlassButton(
+        danmakuToggleButton, symbol: danmakuPrefs.enabled ? "text.bubble.fill" : "text.bubble",
+        accessibility: L10n.text("弹幕"),
+        diameter: topButtonDiameter, pointSize: topButtonPointSize)
+      danmakuToggleButton.accessibilityIdentifier = "video-playback-danmaku-toggle"
+      danmakuToggleButton.isHidden = !manifest.danmakuEnabled
+      danmakuToggleButton.addAction(
+        UIAction { [weak self] _ in self?.toggleDanmakuQuickly() }, for: .touchUpInside)
+
+      configureGlassButton(
         pipTopButton, symbol: "pip.enter", accessibility: L10n.text("小屏播放"),
         diameter: topButtonDiameter, pointSize: topButtonPointSize)
       pipTopButton.accessibilityIdentifier = "video-playback-pip"
@@ -1435,6 +1515,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       videoMoreButton.menu = makePlaybackMenu()
 
       let topActionsStack = UIStackView(arrangedSubviews: [
+        fixedSquareControl(danmakuToggleButton, diameter: topButtonDiameter),
         fixedSquareControl(pipTopButton, diameter: topButtonDiameter),
         fixedSquareControl(videoMoreButton, diameter: topButtonDiameter),
       ])
@@ -1637,7 +1718,37 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     let speedMenu = makeSpeedSubmenu()
     let engineMenu = makeEngineSubmenu()
     let externalAction = makeExternalPlayerAction()
-    return [subtitleElement, audioElement, aspectAction, speedMenu, engineMenu, externalAction]
+    var elements: [UIMenuElement] = [subtitleElement, audioElement]
+    if manifest.danmakuEnabled {
+      let danmakuMenu = UIMenu(
+        title: L10n.text("弹幕"),
+        subtitle: danmakuMenuSubtitle(),
+        image: UIImage(systemName: danmakuPrefs.enabled ? "text.bubble.fill" : "text.bubble"),
+        children: [
+          UIAction(
+            title: danmakuPrefs.enabled ? L10n.text("关闭弹幕") : L10n.text("开启弹幕"),
+            image: UIImage(systemName: danmakuPrefs.enabled ? "eye.slash" : "eye")
+          ) { [weak self] _ in
+            self?.toggleDanmakuQuickly()
+          },
+          UIAction(
+            title: L10n.text("弹幕设置"),
+            image: UIImage(systemName: "slider.horizontal.3")
+          ) { [weak self] _ in
+            self?.presentDanmakuSettingsSheet()
+          },
+          UIAction(
+            title: L10n.text("更换匹配"),
+            image: UIImage(systemName: "magnifyingglass")
+          ) { [weak self] _ in
+            self?.presentDanmakuManualMatchSheet()
+          },
+        ]
+      )
+      elements.append(danmakuMenu)
+    }
+    elements.append(contentsOf: [aspectAction, speedMenu, engineMenu, externalAction])
+    return elements
   }
 
   /// 构造播放内核一键热切换二级菜单，保留当前进度且不向媒体服务器发送 `stopped`。
@@ -3668,6 +3779,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       notifyMiniMusicStateIfNeeded()
     } else {
       pictureInPicture.refresh()
+      danmakuOverlay.syncPlayback(
+        positionMs: current,
+        isPlaying: isPlaying,
+        playbackRate: Double(engine?.rate ?? currentPlaybackRate)
+      )
     }
     if isPlaying || current > 0 { loading.stopAnimating() }
     if current > 0 { lastObservedPositionMs = current }
@@ -4117,6 +4233,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         self.trackSwitchTask = nil
         self.refreshPlaybackState()
         if !wasAudio {
+          self.updateDanmakuControlsVisibility()
+          self.loadDanmakuForCurrentItem()
           self.presentSeekHud(item.subtitle ?? item.title)
         }
       } catch {
@@ -4562,6 +4680,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     subtitleTask?.cancel()
     lyricsTask?.cancel()
     artworkTask?.cancel()
+    danmakuTask?.cancel()
+    danmakuTask = nil
+    danmakuOverlay.stopAndClear()
     trackSwitchTask?.cancel()
     routeFallbackTask?.cancel()
     routeFallbackTask = nil
@@ -4684,6 +4805,281 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   @objc private func remoteNextTrack() -> MPRemoteCommandHandlerStatus {
     playNextTrack()
     return .success
+  }
+
+  // MARK: - Danmaku Lifecycle & Controls
+
+  private func updateDanmakuControlsVisibility() {
+    guard !isAudioPlayback else {
+      danmakuToggleButton.isHidden = true
+      danmakuOverlay.isHidden = true
+      return
+    }
+    let available = manifest.danmakuEnabled && danmakuRepository != nil
+    danmakuToggleButton.isHidden = !available
+    let symbol = danmakuPrefs.enabled ? "text.bubble.fill" : "text.bubble"
+    if var cfg = danmakuToggleButton.configuration {
+      cfg.image = UIImage(systemName: symbol)
+      cfg.baseForegroundColor = danmakuPrefs.enabled ? .white : UIColor.white.withAlphaComponent(0.55)
+      danmakuToggleButton.configuration = cfg
+    } else {
+      danmakuToggleButton.setImage(
+        UIImage(
+          systemName: symbol,
+          withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)),
+        for: .normal)
+      danmakuToggleButton.alpha = danmakuPrefs.enabled ? 1.0 : 0.6
+    }
+    if !available {
+      danmakuOverlay.stopAndClear()
+      danmakuOverlay.isHidden = true
+    } else {
+      danmakuOverlay.applyPreferences(danmakuPrefs)
+    }
+  }
+
+  private func danmakuMenuSubtitle() -> String {
+    if !danmakuPrefs.enabled { return L10n.text("弹幕已关闭") }
+    if let ep = danmakuMatch?.episode {
+      let label = [ep.animeTitle, ep.episodeTitle].filter { !$0.isEmpty }.joined(separator: " · ")
+      if danmakuMatchedCount > 0 {
+        return "\(label) (\(danmakuMatchedCount))"
+      }
+      return label
+    }
+    return L10n.text("未匹配到弹幕")
+  }
+
+  private func toggleDanmakuQuickly() {
+    danmakuPrefs.enabled.toggle()
+    updateDanmakuControlsVisibility()
+    if danmakuPrefs.enabled {
+      if danmakuRawJSON != nil {
+        reprocessCurrentDanmakuTimeline()
+      } else {
+        loadDanmakuForCurrentItem()
+      }
+      presentSeekHud(L10n.text("弹幕已开启"))
+    } else {
+      presentSeekHud(L10n.text("弹幕已关闭"))
+    }
+    showControls()
+  }
+
+  /// 首帧零阻塞异步匹配并拉取当前视频弹幕，失败静默降级绝不影响视频播放。
+  private func loadDanmakuForCurrentItem(forceRefresh: Bool = false) {
+    danmakuTask?.cancel()
+    danmakuTask = nil
+    danmakuRawJSON = nil
+    danmakuMatch = nil
+    danmakuMatchedCount = 0
+    danmakuShiftMs = 0
+    danmakuOverlay.stopAndClear()
+
+    guard !isAudioPlayback, manifest.danmakuEnabled, let repo = danmakuRepository else {
+      return
+    }
+    let currentManifest = manifest
+    let currentDisplayTitle = displayTitle
+    danmakuTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let matchReq = DanmakuMatchRequestPayload(
+          itemId: currentManifest.itemId,
+          server: currentManifest.server,
+          title: currentManifest.title.isEmpty ? currentDisplayTitle : currentManifest.title,
+          seriesName: currentManifest.seriesName,
+          seasonNumber: currentManifest.seasonNumber,
+          episodeNumber: currentManifest.episodeNumber,
+          year: currentManifest.year,
+          tmdbId: currentManifest.tmdbId,
+          fileName: currentManifest.fileName ?? currentManifest.fileNameHint,
+          fileSize: currentManifest.fileSize,
+          durationMs: currentManifest.durationMs
+        )
+        let matchResp = try await repo.match(matchReq)
+        guard !Task.isCancelled, !self.closed, self.manifest.itemId == currentManifest.itemId else {
+          return
+        }
+        self.danmakuMatch = matchResp
+        self.danmakuShiftMs = matchResp.shiftMs
+        guard let ep = matchResp.episode else {
+          return
+        }
+        await self.loadDanmakuComments(for: ep, forceRefresh: forceRefresh, showToast: true)
+      } catch {
+        // 弹幕网络或上游异常静默降级，绝不阻断视频播放与进度同步
+      }
+    }
+  }
+
+  private func loadDanmakuComments(
+    for episode: DanmakuEpisodeCandidateDTO,
+    forceRefresh: Bool,
+    showToast: Bool
+  ) async {
+    guard let repo = danmakuRepository else { return }
+    let expectedItemId = manifest.itemId
+    do {
+      let rawResp = try await repo.fetchComments(
+        episodeId: episode.episodeId, forceRefresh: forceRefresh)
+      guard !Task.isCancelled, !closed, manifest.itemId == expectedItemId else { return }
+      danmakuRawJSON = rawResp.rawJSON
+      reprocessCurrentDanmakuTimeline()
+      if showToast && danmakuPrefs.enabled && danmakuMatchedCount > 0 {
+        let epTitle = episode.episodeTitle.isEmpty ? episode.animeTitle : episode.episodeTitle
+        presentSeekHud("已加载弹幕：\(epTitle)（\(danmakuMatchedCount) 条）")
+      }
+    } catch {
+      // 静默降级
+    }
+  }
+
+  private func reprocessCurrentDanmakuTimeline() {
+    guard let rawJSON = danmakuRawJSON else { return }
+    let options = danmakuPrefs.makeFilterOptions(offsetMs: Int64(danmakuShiftMs))
+    let timeline = DanmakuTimelineProcessor.prepare(rawPayload: rawJSON, options: options)
+    danmakuMatchedCount = timeline.filteredCount
+    danmakuOverlay.applyPreferences(danmakuPrefs)
+    let currentPos = max(0, engine?.currentTimeMs ?? lastObservedPositionMs)
+    danmakuOverlay.load(timeline: timeline, currentPositionMs: currentPos)
+    danmakuOverlay.syncPlayback(
+      positionMs: currentPos,
+      isPlaying: engine?.isPlaying == true,
+      playbackRate: Double(engine?.rate ?? currentPlaybackRate)
+    )
+  }
+
+  private func presentDanmakuSettingsSheet() {
+    guard !isAudioPlayback, manifest.danmakuEnabled else { return }
+    let ep = danmakuMatch?.episode
+    let summary = [ep?.animeTitle, ep?.episodeTitle]
+      .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: " · ")
+    let shiftBinding = Binding<Int>(
+      get: { [weak self] in self?.danmakuShiftMs ?? 0 },
+      set: { [weak self] newValue in self?.danmakuShiftMs = newValue }
+    )
+    let sheet = DanmakuSettingsSheetView(
+      prefs: danmakuPrefs,
+      matchedSummary: summary,
+      totalCount: danmakuMatchedCount,
+      isFromBinding: danmakuMatch?.fromBinding == true,
+      shiftMs: shiftBinding,
+      onPreferencesChanged: { [weak self] in
+        guard let self else { return }
+        self.updateDanmakuControlsVisibility()
+        self.reprocessCurrentDanmakuTimeline()
+      },
+      onShiftChanged: { [weak self] nextMs in
+        guard let self else { return }
+        self.danmakuShiftMs = nextMs
+        self.reprocessCurrentDanmakuTimeline()
+      },
+      onSaveShiftToServer: { [weak self] in
+        await self?.persistCurrentDanmakuBinding()
+      },
+      onOpenManualMatch: { [weak self] in
+        Task { @MainActor [weak self] in
+          try? await Task.sleep(for: .milliseconds(260))
+          self?.presentDanmakuManualMatchSheet()
+        }
+      },
+      onForceRefresh: { [weak self] in
+        guard let self, let ep = self.danmakuMatch?.episode else { return }
+        await self.loadDanmakuComments(for: ep, forceRefresh: true, showToast: false)
+      }
+    )
+    let host = UIHostingController(rootView: sheet)
+    if let presentation = host.sheetPresentationController {
+      presentation.detents = [.medium(), .large()]
+      presentation.prefersGrabberVisible = true
+    }
+    present(host, animated: true)
+  }
+
+  private func presentDanmakuManualMatchSheet() {
+    guard !isAudioPlayback, manifest.danmakuEnabled, let repo = danmakuRepository else { return }
+    let defaultKeyword = DanmakuTimelineProcessor.normalizeQueryTitle(
+      seriesName: manifest.seriesName,
+      title: manifest.title.isEmpty ? displayTitle : manifest.title,
+      season: manifest.seasonNumber,
+      episode: manifest.episodeNumber,
+      fileName: manifest.fileName ?? manifest.fileNameHint
+    )
+    let sheet = DanmakuManualMatchSheetView(
+      repository: repo,
+      initialKeyword: defaultKeyword,
+      initialCandidates: danmakuMatch?.candidates ?? [],
+      isFromBinding: danmakuMatch?.fromBinding == true,
+      onSelectEpisode: { [weak self] chosen in
+        await self?.applyManualDanmakuSelection(chosen)
+      },
+      onUnbind: { [weak self] in
+        await self?.unbindDanmakuAndReload()
+      }
+    )
+    let host = UIHostingController(rootView: sheet)
+    if let presentation = host.sheetPresentationController {
+      presentation.detents = [.medium(), .large()]
+      presentation.prefersGrabberVisible = true
+    }
+    present(host, animated: true)
+  }
+
+  private func applyManualDanmakuSelection(_ chosen: DanmakuEpisodeCandidateDTO) async {
+    guard let repo = danmakuRepository else { return }
+    let payload = DanmakuBindingRequestPayload(
+      server: manifest.server,
+      itemId: manifest.itemId,
+      tmdbId: manifest.tmdbId,
+      seasonNumber: manifest.seasonNumber,
+      episodeNumber: manifest.episodeNumber,
+      episodeId: chosen.episodeId,
+      animeId: chosen.animeId,
+      animeTitle: chosen.animeTitle,
+      episodeTitle: chosen.episodeTitle,
+      shiftMs: danmakuShiftMs
+    )
+    _ = try? await repo.saveBinding(payload)
+    danmakuMatch = DanmakuMatchResponseDTO(
+      matched: true,
+      fromBinding: true,
+      shiftMs: danmakuShiftMs,
+      episode: chosen,
+      candidates: danmakuMatch?.candidates ?? [chosen]
+    )
+    await loadDanmakuComments(for: chosen, forceRefresh: false, showToast: true)
+  }
+
+  private func persistCurrentDanmakuBinding() async {
+    guard let repo = danmakuRepository, let ep = danmakuMatch?.episode else { return }
+    let payload = DanmakuBindingRequestPayload(
+      server: manifest.server,
+      itemId: manifest.itemId,
+      tmdbId: manifest.tmdbId,
+      seasonNumber: manifest.seasonNumber,
+      episodeNumber: manifest.episodeNumber,
+      episodeId: ep.episodeId,
+      animeId: ep.animeId,
+      animeTitle: ep.animeTitle,
+      episodeTitle: ep.episodeTitle,
+      shiftMs: danmakuShiftMs
+    )
+    _ = try? await repo.saveBinding(payload)
+  }
+
+  private func unbindDanmakuAndReload() async {
+    guard let repo = danmakuRepository else { return }
+    _ = try? await repo.deleteBinding(
+      server: manifest.server,
+      itemId: manifest.itemId,
+      tmdbId: manifest.tmdbId,
+      seasonNumber: manifest.seasonNumber,
+      episodeNumber: manifest.episodeNumber
+    )
+    loadDanmakuForCurrentItem(forceRefresh: false)
   }
 }
 

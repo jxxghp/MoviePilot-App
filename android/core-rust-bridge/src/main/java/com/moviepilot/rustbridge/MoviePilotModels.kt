@@ -786,6 +786,107 @@ data class MediaPlaybackManifestDto(
     val activeRouteKind: String = "",
     val fallbackRoutes: List<PlaybackRouteDto> = emptyList(),
     @SerialName("playback_routes") val playbackRoutes: List<PlaybackRouteDto> = emptyList(),
+    @SerialName("danmaku_enabled") val danmakuEnabled: Boolean = false,
+    @SerialName("series_name") val seriesName: String? = null,
+    @SerialName("season_number") val seasonNumber: Int? = null,
+    @SerialName("episode_number") val episodeNumber: Int? = null,
+    val year: Int? = null,
+    @SerialName("tmdb_id") val tmdbId: String? = null,
+    @SerialName("file_name") val fileName: String? = null,
+    @SerialName("file_size") val fileSize: Long? = null,
+)
+
+/** 弹幕本地磁盘缓存统计。 */
+@Serializable
+data class DanmakuCacheStatsDto(
+    @SerialName("file_count") val fileCount: Int = 0,
+    @SerialName("total_bytes") val totalBytes: Long = 0L,
+    @SerialName("max_mb") val maxMb: Int = 512,
+)
+
+/** 管理员弹幕服务脱敏配置快照。 */
+@Serializable
+data class DanmakuConfigDto(
+    val enabled: Boolean = false,
+    @SerialName("api_base_url") val apiBaseUrl: String = "",
+    @SerialName("auth_mode") val authMode: String = "none",
+    @SerialName("app_id") val appId: String = "",
+    @SerialName("has_app_secret") val hasAppSecret: Boolean = false,
+    @SerialName("token_header") val tokenHeader: String = "Authorization",
+    @SerialName("token_prefix") val tokenPrefix: String = "Bearer ",
+    @SerialName("has_token") val hasToken: Boolean = false,
+    @SerialName("with_related") val withRelated: Boolean = true,
+    @SerialName("ch_convert") val chConvert: Int = 1,
+    @SerialName("cache_ttl_hours") val cacheTtlHours: Int = 24,
+    @SerialName("cache_max_mb") val cacheMaxMb: Int = 512,
+    @SerialName("timeout_seconds") val timeoutSeconds: Int = 10,
+    @SerialName("use_proxy") val useProxy: Boolean = false,
+    @SerialName("verify_tls") val verifyTls: Boolean = true,
+    @SerialName("cache_stats") val cacheStats: DanmakuCacheStatsDto = DanmakuCacheStatsDto(),
+)
+
+/** 弹幕上游连通性测试回执。 */
+@Serializable
+data class DanmakuConfigTestResultDto(
+    val ok: Boolean = false,
+    @SerialName("latency_ms") val latencyMs: Int = 0,
+    @SerialName("status_code") val statusCode: Int? = null,
+    val message: String = "",
+)
+
+/** 弹幕缓存清理回执。 */
+@Serializable
+data class DanmakuCacheClearResultDto(
+    @SerialName("removed_files") val removedFiles: Int = 0,
+    @SerialName("freed_bytes") val freedBytes: Long = 0L,
+)
+
+/** 单个弹幕分集候选条目。 */
+@Serializable
+data class DanmakuEpisodeCandidateDto(
+    @SerialName("episode_id") val episodeId: Long = 0L,
+    @SerialName("anime_id") val animeId: Long? = null,
+    @SerialName("anime_title") val animeTitle: String = "",
+    @SerialName("episode_title") val episodeTitle: String = "",
+    @SerialName("episode_number") val episodeNumber: String? = null,
+    @SerialName("anime_type") val animeType: String? = null,
+    @SerialName("shift_ms") val shiftMs: Int = 0,
+)
+
+/** 弹幕自动匹配或手动绑定查询结果。 */
+@Serializable
+data class DanmakuMatchResponseDto(
+    val matched: Boolean = false,
+    @SerialName("from_binding") val fromBinding: Boolean = false,
+    @SerialName("shift_ms") val shiftMs: Int = 0,
+    val episode: DanmakuEpisodeCandidateDto? = null,
+    val candidates: List<DanmakuEpisodeCandidateDto> = emptyList(),
+)
+
+/** 手动搜剧返回的作品条目。 */
+@Serializable
+data class DanmakuAnimeSearchItemDto(
+    @SerialName("anime_id") val animeId: Long = 0L,
+    @SerialName("anime_title") val animeTitle: String = "",
+    @SerialName("anime_type") val animeType: String? = null,
+    @SerialName("episode_count") val episodeCount: Int? = null,
+    val episodes: List<DanmakuEpisodeCandidateDto> = emptyList(),
+)
+
+/** 指定作品的完整分集列表。 */
+@Serializable
+data class DanmakuBangumiDto(
+    @SerialName("anime_id") val animeId: Long = 0L,
+    @SerialName("anime_title") val animeTitle: String = "",
+    @SerialName("anime_type") val animeType: String? = null,
+    val episodes: List<DanmakuEpisodeCandidateDto> = emptyList(),
+)
+
+/** 拉取单集弹幕载荷的结果（含 ETag 304 内存复用标记）。 */
+data class DanmakuCommentsRawDto(
+    val rawJson: String,
+    val etag: String? = null,
+    val fromCache: Boolean = false,
 )
 
 /** 当前用户在单个媒体服务器上的脱敏账号绑定与同步模式状态。 */

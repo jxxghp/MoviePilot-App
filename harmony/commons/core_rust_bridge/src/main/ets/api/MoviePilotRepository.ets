@@ -509,6 +509,142 @@ export interface MpVideoStreamInfo {
   durationMs: number;
   subtitles: MpExternalSubtitle[];
   lyricsUrl: string;
+  danmakuEnabled?: boolean;
+  seriesName?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  year?: number;
+  tmdbId?: string;
+  fileName?: string;
+  fileSize?: number;
+}
+
+/** 弹幕本地磁盘缓存统计。 */
+export interface MpDanmakuCacheStats {
+  fileCount: number;
+  totalBytes: number;
+  maxMb: number;
+}
+
+/** 管理员弹幕服务脱敏配置快照。 */
+export interface MpDanmakuConfig {
+  enabled: boolean;
+  apiBaseUrl: string;
+  authMode: string;
+  appId: string;
+  hasAppSecret: boolean;
+  tokenHeader: string;
+  tokenPrefix: string;
+  hasToken: boolean;
+  withRelated: boolean;
+  chConvert: number;
+  cacheTtlHours: number;
+  cacheMaxMb: number;
+  timeoutSeconds: number;
+  useProxy: boolean;
+  verifyTls: boolean;
+  cacheStats: MpDanmakuCacheStats;
+}
+
+/** 弹幕上游连通性测试回执。 */
+export interface MpDanmakuConfigTestResult {
+  ok: boolean;
+  latencyMs: number;
+  statusCode?: number;
+  message: string;
+}
+
+/** 弹幕缓存清理回执。 */
+export interface MpDanmakuCacheClearResult {
+  removedFiles: number;
+  freedBytes: number;
+}
+
+/** 单个弹幕分集候选条目。 */
+export interface MpDanmakuEpisodeCandidate {
+  episodeId: number;
+  animeId?: number;
+  animeTitle: string;
+  episodeTitle: string;
+  episodeNumber?: string;
+  animeType?: string;
+  shiftMs: number;
+}
+
+/** 弹幕自动匹配或手动绑定查询结果。 */
+export interface MpDanmakuMatchResponse {
+  matched: boolean;
+  fromBinding: boolean;
+  shiftMs: number;
+  episode?: MpDanmakuEpisodeCandidate;
+  candidates: MpDanmakuEpisodeCandidate[];
+}
+
+/** 手动搜剧返回的作品条目。 */
+export interface MpDanmakuAnimeSearchItem {
+  animeId: number;
+  animeTitle: string;
+  animeType?: string;
+  episodeCount?: number;
+  episodes: MpDanmakuEpisodeCandidate[];
+}
+
+/** 指定作品的完整分集目录。 */
+export interface MpDanmakuBangumi {
+  animeId: number;
+  animeTitle: string;
+  animeType?: string;
+  episodes: MpDanmakuEpisodeCandidate[];
+}
+
+/** 拉取单集弹幕载荷的结果（含 ETag/304 复用标记）。 */
+export interface MpDanmakuCommentsRaw {
+  rawJson: string;
+  etag?: string;
+  fromCache: boolean;
+}
+
+/** 弹幕自动匹配请求参数。 */
+export interface MpDanmakuMatchParams {
+  itemId?: string;
+  server?: string;
+  title?: string;
+  seriesName?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  year?: number;
+  tmdbId?: string;
+  fileName?: string;
+  fileSize?: number;
+  durationMs?: number;
+}
+
+/** 持久化弹幕手动纠偏绑定请求参数。 */
+export interface MpDanmakuSaveBindingParams {
+  server?: string;
+  itemId?: string;
+  tmdbId?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  episodeId: number;
+  animeId?: number;
+  animeTitle: string;
+  episodeTitle: string;
+  shiftMs: number;
+}
+
+/** 解除弹幕手动绑定请求参数。 */
+export interface MpDanmakuDeleteBindingParams {
+  server?: string;
+  itemId?: string;
+  tmdbId?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+}
+
+interface MpDanmakuCachedEntry {
+  etag: string;
+  rawJson: string;
 }
 
 /** 播放进度与实时会话上报扩展参数。 */
@@ -1154,6 +1290,7 @@ export class MoviePilotRepository {
     this.cachedMediaServers = [];
     this.cachedSubscriptions = null;
     this.siteIconCache.clear();
+    this.danmakuCommentsCache.clear();
     this.transport.clearCookies();
   }
 
@@ -3523,7 +3660,15 @@ export class MoviePilotRepository {
       resumePositionMs: Math.max(0, Math.round(numVal(r, 'resume_position_ms', numVal(r, 'position_ms', 0)))),
       durationMs: Math.max(0, Math.round(numVal(r, 'duration_ms', 0))),
       subtitles: subtitles,
-      lyricsUrl: lyricsUrl
+      lyricsUrl: lyricsUrl,
+      danmakuEnabled: boolVal(r, 'danmaku_enabled', false),
+      seriesName: strVal(r, 'series_name').trim() || undefined,
+      seasonNumber: r['season_number'] !== undefined && r['season_number'] !== null ? Math.round(numVal(r, 'season_number', 0)) : undefined,
+      episodeNumber: r['episode_number'] !== undefined && r['episode_number'] !== null ? Math.round(numVal(r, 'episode_number', 0)) : undefined,
+      year: r['year'] !== undefined && r['year'] !== null ? Math.round(numVal(r, 'year', 0)) : undefined,
+      tmdbId: strVal(r, 'tmdb_id').trim() || undefined,
+      fileName: strVal(r, 'file_name').trim() || undefined,
+      fileSize: r['file_size'] !== undefined && r['file_size'] !== null ? Math.max(0, Math.round(numVal(r, 'file_size', 0))) : undefined
     };
   }
 
@@ -5285,5 +5430,286 @@ export class MoviePilotRepository {
   async revokeAuthorization(sessionId: string): Promise<boolean> {
     const resp = await this.deleteReq(['authorization', sessionId]);
     return resp.status >= 200 && resp.status < 300;
+  }
+
+  private danmakuCommentsCache: Map<number, MpDanmakuCachedEntry> = new Map<number, MpDanmakuCachedEntry>();
+
+  private extractDanmakuError(body: string, fallback: string): string {
+    const obj = asRec(parseJsonSafe(body));
+    const detail = strVal(obj, 'detail').trim();
+    if (detail.length > 0) { return detail; }
+    const msg = strVal(obj, 'message').trim();
+    if (msg.length > 0) { return msg; }
+    return fallback;
+  }
+
+  private parseDanmakuCandidate(r: Record<string, Object>): MpDanmakuEpisodeCandidate {
+    const rawAnimeId = r['anime_id'];
+    const epNum = strVal(r, 'episode_number').trim();
+    const animeType = strVal(r, 'anime_type').trim();
+    return {
+      episodeId: Math.round(numVal(r, 'episode_id', 0)),
+      animeId: rawAnimeId !== undefined && rawAnimeId !== null ? Math.round(numVal(r, 'anime_id', 0)) : undefined,
+      animeTitle: strVal(r, 'anime_title'),
+      episodeTitle: strVal(r, 'episode_title'),
+      episodeNumber: epNum.length > 0 ? epNum : undefined,
+      animeType: animeType.length > 0 ? animeType : undefined,
+      shiftMs: Math.round(numVal(r, 'shift_ms', 0))
+    };
+  }
+
+  private parseDanmakuConfigObj(r: Record<string, Object>): MpDanmakuConfig {
+    const statsObj = asRec(r['cache_stats']);
+    return {
+      enabled: boolVal(r, 'enabled', false),
+      apiBaseUrl: strVal(r, 'api_base_url'),
+      authMode: strVal(r, 'auth_mode', 'none'),
+      appId: strVal(r, 'app_id'),
+      hasAppSecret: boolVal(r, 'has_app_secret', false),
+      tokenHeader: strVal(r, 'token_header', 'Authorization'),
+      tokenPrefix: strVal(r, 'token_prefix', 'Bearer '),
+      hasToken: boolVal(r, 'has_token', false),
+      withRelated: boolVal(r, 'with_related', true),
+      chConvert: Math.round(numVal(r, 'ch_convert', 1)),
+      cacheTtlHours: Math.round(numVal(r, 'cache_ttl_hours', 24)),
+      cacheMaxMb: Math.round(numVal(r, 'cache_max_mb', 512)),
+      timeoutSeconds: Math.round(numVal(r, 'timeout_seconds', 10)),
+      useProxy: boolVal(r, 'use_proxy', false),
+      verifyTls: boolVal(r, 'verify_tls', true),
+      cacheStats: {
+        fileCount: Math.round(numVal(statsObj, 'file_count', 0)),
+        totalBytes: Math.max(0, Math.round(numVal(statsObj, 'total_bytes', 0))),
+        maxMb: Math.round(numVal(statsObj, 'max_mb', 512))
+      }
+    };
+  }
+
+  /** 查询当前实例弹幕服务启用状态（所有登录用户可用）。 */
+  async fetchDanmakuStatus(): Promise<boolean> {
+    const resp = await this.get(['danmaku', 'status']);
+    if (resp.status < 200 || resp.status >= 300) { return false; }
+    const obj = unwrapObject(parseJsonSafe(resp.body));
+    return boolVal(obj, 'enabled', false);
+  }
+
+  /** 管理员读取弹幕服务脱敏配置与磁盘缓存统计。 */
+  async fetchDanmakuConfig(): Promise<MpDanmakuConfig> {
+    const resp = await this.get(['danmaku', 'config']);
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '读取弹幕服务配置失败'));
+    }
+    const obj = unwrapObject(parseJsonSafe(resp.body));
+    if (!obj) { throw new Error('弹幕配置响应格式异常'); }
+    return this.parseDanmakuConfigObj(obj);
+  }
+
+  /** 管理员加密更新弹幕服务配置。 */
+  async updateDanmakuConfig(payloadJson: string): Promise<MpDanmakuConfig> {
+    const resp = await this.putJson(['danmaku', 'config'], payloadJson);
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '保存弹幕服务配置失败'));
+    }
+    const obj = unwrapObject(parseJsonSafe(resp.body));
+    if (!obj) { throw new Error('弹幕配置响应格式异常'); }
+    return this.parseDanmakuConfigObj(obj);
+  }
+
+  /** 管理员测试弹幕上游连通性与鉴权。 */
+  async testDanmakuConfig(payloadJson: string): Promise<MpDanmakuConfigTestResult> {
+    const resp = await this.postJson(['danmaku', 'config', 'test'], payloadJson);
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '测试弹幕服务连接失败'));
+    }
+    const obj = unwrapObject(parseJsonSafe(resp.body));
+    if (!obj) {
+      return { ok: false, latencyMs: 0, message: '测试响应格式异常' };
+    }
+    const rawCode = obj['status_code'];
+    return {
+      ok: boolVal(obj, 'ok', false),
+      latencyMs: Math.round(numVal(obj, 'latency_ms', 0)),
+      statusCode: rawCode !== undefined && rawCode !== null ? Math.round(numVal(obj, 'status_code', 0)) : undefined,
+      message: strVal(obj, 'message')
+    };
+  }
+
+  /** 管理员清空服务端弹幕元数据与磁盘缓存。 */
+  async clearDanmakuCache(): Promise<MpDanmakuCacheClearResult> {
+    const resp = await this.deleteReq(['danmaku', 'cache']);
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '清空弹幕缓存失败'));
+    }
+    this.danmakuCommentsCache.clear();
+    const obj = unwrapObject(parseJsonSafe(resp.body));
+    return {
+      removedFiles: Math.round(numVal(obj, 'removed_files', 0)),
+      freedBytes: Math.max(0, Math.round(numVal(obj, 'freed_bytes', 0)))
+    };
+  }
+
+  /** 匹配当前播放媒体对应的弹幕分集（优先手动绑定，再自动匹配与剧名兜底）。 */
+  async matchDanmaku(params: MpDanmakuMatchParams): Promise<MpDanmakuMatchResponse> {
+    const payload: Record<string, Object> = {};
+    if (params.itemId && params.itemId.trim().length > 0) { payload['item_id'] = params.itemId.trim(); }
+    if (params.server && params.server.trim().length > 0) { payload['server'] = params.server.trim(); }
+    if (params.title && params.title.trim().length > 0) { payload['title'] = params.title.trim(); }
+    if (params.seriesName && params.seriesName.trim().length > 0) { payload['series_name'] = params.seriesName.trim(); }
+    if (params.seasonNumber !== undefined) { payload['season_number'] = params.seasonNumber; }
+    if (params.episodeNumber !== undefined) { payload['episode_number'] = params.episodeNumber; }
+    if (params.year !== undefined && params.year > 0) { payload['year'] = params.year; }
+    if (params.tmdbId && params.tmdbId.trim().length > 0) { payload['tmdb_id'] = params.tmdbId.trim(); }
+    if (params.fileName && params.fileName.trim().length > 0) { payload['file_name'] = params.fileName.trim(); }
+    if (params.fileSize !== undefined && params.fileSize > 0) { payload['file_size'] = params.fileSize; }
+    if (params.durationMs !== undefined && params.durationMs > 0) { payload['duration_ms'] = params.durationMs; }
+
+    const resp = await this.postJson(['danmaku', 'match'], JSON.stringify(payload));
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '匹配弹幕失败'));
+    }
+    const obj = unwrapObject(parseJsonSafe(resp.body));
+    if (!obj) {
+      return { matched: false, fromBinding: false, shiftMs: 0, candidates: [] };
+    }
+    const epObj = asRec(obj['episode']);
+    const candsRaw = asArr(obj['candidates']);
+    const candidates: MpDanmakuEpisodeCandidate[] = [];
+    for (let i = 0; i < candsRaw.length; i++) {
+      const cr = asRec(candsRaw[i]);
+      if (cr) { candidates.push(this.parseDanmakuCandidate(cr)); }
+    }
+    return {
+      matched: boolVal(obj, 'matched', false),
+      fromBinding: boolVal(obj, 'from_binding', false),
+      shiftMs: Math.round(numVal(obj, 'shift_ms', 0)),
+      episode: epObj ? this.parseDanmakuCandidate(epObj) : undefined,
+      candidates: candidates
+    };
+  }
+
+  /** 手动搜剧查询弹幕候选作品与分集列表。 */
+  async searchDanmaku(keyword: string, episode: string = ''): Promise<MpDanmakuAnimeSearchItem[]> {
+    const q: Record<string, string> = {};
+    q['keyword'] = keyword.trim();
+    if (episode.trim().length > 0) { q['episode'] = episode.trim(); }
+    const resp = await this.get(['danmaku', 'search'], q);
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '搜索弹幕剧集失败'));
+    }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpDanmakuAnimeSearchItem[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (!r) { continue; }
+      const epsRaw = asArr(r['episodes']);
+      const eps: MpDanmakuEpisodeCandidate[] = [];
+      for (let j = 0; j < epsRaw.length; j++) {
+        const er = asRec(epsRaw[j]);
+        if (er) { eps.push(this.parseDanmakuCandidate(er)); }
+      }
+      const animeType = strVal(r, 'anime_type').trim();
+      const rawCount = r['episode_count'];
+      out.push({
+        animeId: Math.round(numVal(r, 'anime_id', 0)),
+        animeTitle: strVal(r, 'anime_title'),
+        animeType: animeType.length > 0 ? animeType : undefined,
+        episodeCount: rawCount !== undefined && rawCount !== null ? Math.round(numVal(r, 'episode_count', 0)) : undefined,
+        episodes: eps
+      });
+    }
+    return out;
+  }
+
+  /** 查询指定作品的完整弹幕分集目录。 */
+  async fetchDanmakuBangumi(animeId: number): Promise<MpDanmakuBangumi> {
+    const resp = await this.get(['danmaku', 'bangumi', String(Math.round(animeId))]);
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '获取分集列表失败'));
+    }
+    const obj = unwrapObject(parseJsonSafe(resp.body));
+    if (!obj) { throw new Error('分集目录响应异常'); }
+    const epsRaw = asArr(obj['episodes']);
+    const eps: MpDanmakuEpisodeCandidate[] = [];
+    for (let i = 0; i < epsRaw.length; i++) {
+      const er = asRec(epsRaw[i]);
+      if (er) { eps.push(this.parseDanmakuCandidate(er)); }
+    }
+    const animeType = strVal(obj, 'anime_type').trim();
+    return {
+      animeId: Math.round(numVal(obj, 'anime_id', animeId)),
+      animeTitle: strVal(obj, 'anime_title'),
+      animeType: animeType.length > 0 ? animeType : undefined,
+      episodes: eps
+    };
+  }
+
+  /** 拉取单集归一化紧凑弹幕载荷，自动携带 `If-None-Match` 协商 304 缓存命中。 */
+  async fetchDanmakuComments(episodeId: number, forceRefresh: boolean = false): Promise<MpDanmakuCommentsRaw> {
+    const epKey = Math.round(episodeId);
+    const cached = forceRefresh ? undefined : this.danmakuCommentsCache.get(epKey);
+    const q: Record<string, string> = {};
+    if (forceRefresh) { q['force_refresh'] = 'true'; }
+    let extraHeaders: Record<string, string> | undefined = undefined;
+    if (cached && cached.etag.length > 0) {
+      extraHeaders = {};
+      extraHeaders['If-None-Match'] = cached.etag;
+    }
+    const resp = await this.get(['danmaku', 'comments', String(epKey)], q, false, extraHeaders);
+    if (resp.status === 304 && cached) {
+      return { rawJson: cached.rawJson, etag: cached.etag, fromCache: true };
+    }
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '拉取弹幕失败'));
+    }
+    if (resp.etag && resp.etag.length > 0) {
+      if (this.danmakuCommentsCache.size >= 12) {
+        this.danmakuCommentsCache.clear();
+      }
+      this.danmakuCommentsCache.set(epKey, { etag: resp.etag, rawJson: resp.body });
+    }
+    return { rawJson: resp.body, etag: resp.etag, fromCache: false };
+  }
+
+  /** 持久化保存手动纠偏绑定与时间偏移至服务端，一端纠偏全端共享。 */
+  async saveDanmakuBinding(params: MpDanmakuSaveBindingParams): Promise<MpDanmakuEpisodeCandidate> {
+    const payload: Record<string, Object> = {};
+    if (params.server && params.server.trim().length > 0) { payload['server'] = params.server.trim(); }
+    if (params.itemId && params.itemId.trim().length > 0) { payload['item_id'] = params.itemId.trim(); }
+    if (params.tmdbId && params.tmdbId.trim().length > 0) { payload['tmdb_id'] = params.tmdbId.trim(); }
+    if (params.seasonNumber !== undefined) { payload['season_number'] = params.seasonNumber; }
+    if (params.episodeNumber !== undefined) { payload['episode_number'] = params.episodeNumber; }
+    payload['episode_id'] = Math.round(params.episodeId);
+    if (params.animeId !== undefined) { payload['anime_id'] = Math.round(params.animeId); }
+    payload['anime_title'] = params.animeTitle;
+    payload['episode_title'] = params.episodeTitle;
+    payload['shift_ms'] = Math.round(params.shiftMs);
+
+    const resp = await this.putJson(['danmaku', 'bindings'], JSON.stringify(payload));
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '保存弹幕绑定失败'));
+    }
+    const obj = unwrapObject(parseJsonSafe(resp.body));
+    if (obj) { return this.parseDanmakuCandidate(obj); }
+    return {
+      episodeId: params.episodeId,
+      animeId: params.animeId,
+      animeTitle: params.animeTitle,
+      episodeTitle: params.episodeTitle,
+      shiftMs: params.shiftMs
+    };
+  }
+
+  /** 删除媒体条目的手动弹幕绑定，恢复自动匹配。 */
+  async deleteDanmakuBinding(params: MpDanmakuDeleteBindingParams): Promise<boolean> {
+    const q: Record<string, string> = {};
+    if (params.server && params.server.trim().length > 0) { q['server'] = params.server.trim(); }
+    if (params.itemId && params.itemId.trim().length > 0) { q['item_id'] = params.itemId.trim(); }
+    if (params.tmdbId && params.tmdbId.trim().length > 0) { q['tmdb_id'] = params.tmdbId.trim(); }
+    if (params.seasonNumber !== undefined) { q['season_number'] = String(params.seasonNumber); }
+    if (params.episodeNumber !== undefined) { q['episode_number'] = String(params.episodeNumber); }
+    const resp = await this.deleteReq(['danmaku', 'bindings'], q);
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(this.extractDanmakuError(resp.body, '解除弹幕绑定失败'));
+    }
+    return true;
   }
 }

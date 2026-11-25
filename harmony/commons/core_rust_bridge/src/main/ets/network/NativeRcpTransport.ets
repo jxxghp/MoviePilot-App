@@ -7,6 +7,7 @@ import { RustCoreBridge } from '../bridge/RustCoreBridge';
 export interface NativeHttpResponse {
   status: number;
   body: string;
+  etag?: string;
 }
 
 /** SSE 流式事件回调载荷。 */
@@ -190,9 +191,21 @@ export class NativeRcpTransport {
       this.captureSetCookies(url, resp.header, resp.cookies ?? '');
       const text = typeof resp.result === 'string' ? resp.result : JSON.stringify(resp.result ?? '');
       this.notifyAuthIfExpired(url, token, resp.responseCode, text);
+      let respEtag: string | undefined = undefined;
+      if (resp.header) {
+        const hRec = resp.header as Record<string, Object>;
+        const rawEtag = hRec['etag'] ?? hRec['ETag'];
+        if (rawEtag !== undefined && rawEtag !== null) {
+          const etagStr = String(rawEtag).trim();
+          if (etagStr.length > 0) {
+            respEtag = etagStr;
+          }
+        }
+      }
       return {
         status: resp.responseCode,
-        body: text
+        body: text,
+        etag: respEtag
       };
     } finally {
       client.destroy();

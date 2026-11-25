@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -89,14 +90,17 @@ import com.moviepilot.designsystem.SkeletonCardStyle
 import com.moviepilot.designsystem.SkeletonSurfaceRole
 import com.moviepilot.rustbridge.ChannelAuthRecordDto
 import com.moviepilot.rustbridge.ChannelBindingCodeDto
+import com.moviepilot.rustbridge.DanmakuConfigDto
 import com.moviepilot.rustbridge.DirectoryConfigDto
 import com.moviepilot.rustbridge.MediaServerAccountBindingDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.ServiceConfigDto
+import com.moviepilot.rustbridge.SessionState
 import com.moviepilot.rustbridge.SiteItemDto
 import com.moviepilot.rustbridge.StorageConfigDto
 import com.moviepilot.rustbridge.SubscribeSearchSettingsDto
 import com.moviepilot.rustbridge.UserIdentity
+import org.json.JSONObject
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -2364,6 +2368,17 @@ fun PlaybackPreferencesScreen(
     var pendingUnbindTarget by remember { mutableStateOf<MediaServerAccountBindingDto?>(null) }
     var isUnbinding by remember { mutableStateOf(false) }
 
+    val currentSession = repository?.session?.collectAsState()?.value
+    val isAdmin = (currentSession as? SessionState.Authenticated)?.permissions?.admin == true
+    var showDanmakuAdminSheet by remember { mutableStateOf(false) }
+    var danmakuConfigSummary by remember { mutableStateOf<DanmakuConfigDto?>(null) }
+
+    suspend fun reloadDanmakuSummary() {
+        val repo = repository ?: return
+        if (!isAdmin) return
+        repo.fetchDanmakuConfig().onSuccess { danmakuConfigSummary = it }
+    }
+
     suspend fun reloadBindings() {
         val repo = repository ?: return
         bindingsLoading = true
@@ -2374,9 +2389,12 @@ fun PlaybackPreferencesScreen(
         bindingsLoading = false
     }
 
-    LaunchedEffect(repository) {
+    LaunchedEffect(repository, isAdmin) {
         if (repository != null) {
             reloadBindings()
+            if (isAdmin) {
+                reloadDanmakuSummary()
+            }
         }
     }
 
@@ -2842,8 +2860,85 @@ fun PlaybackPreferencesScreen(
                         )
                     }
                 }
+                if (isAdmin) {
+                    item(key = "danmaku_admin_service_config") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "弹幕服务（管理员）",
+                                color = colors.textSecondary,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            )
+                            CinematicPanel(padding = 0.dp, showsShadow = false) {
+                                val cfg = danmakuConfigSummary
+                                val statusText = when {
+                                    cfg == null -> "配置兼容 DandanPlay 协议的第三方弹幕服务地址与缓存策略"
+                                    cfg.enabled && cfg.apiBaseUrl.isNotBlank() ->
+                                        "已启用 · ${cfg.apiBaseUrl} · 缓存 ${cfg.cacheStats.fileCount} 集"
+                                    cfg.enabled -> "已启用（尚未填写上游地址）"
+                                    else -> "未启用 · 点击配置自定义弹幕服务与鉴权凭据"
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { showDanmakuAdminSheet = true }
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            Text(
+                                                "弹幕服务配置",
+                                                color = colors.textPrimary,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Medium,
+                                            )
+                                            if (cfg != null) {
+                                                NativeAdaptiveBadge(
+                                                    text = if (cfg.enabled) "已启用" else "未启用",
+                                                    tint = if (cfg.enabled) Color(0xFF2E9E5B) else colors.textMuted,
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            statusText,
+                                            color = colors.textMuted,
+                                            fontSize = 12.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Icon(
+                                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = colors.textMuted,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+
+    if (repository != null && isAdmin && showDanmakuAdminSheet) {
+        DanmakuAdminConfigSheet(
+            repository = repository,
+            initialConfig = danmakuConfigSummary,
+            onUpdated = { updated ->
+                danmakuConfigSummary = updated
+            },
+            onDismiss = { showDanmakuAdminSheet = false },
+        )
     }
 
     val bindTarget = activeBindTarget
@@ -2896,6 +2991,479 @@ fun PlaybackPreferencesScreen(
                 }
             },
         )
+    }
+}
+
+/** 管理员专属弹幕服务配置半弹窗（对齐 `/api/v1/danmaku/config*` 完整字段与缓存管理）。 */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun DanmakuAdminConfigSheet(
+    repository: MoviePilotRepository,
+    initialConfig: DanmakuConfigDto?,
+    onUpdated: (DanmakuConfigDto) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val scope = rememberCoroutineScope()
+    val snackbar = LocalSnackbarHostState.current
+
+    var loading by remember { mutableStateOf(initialConfig == null) }
+    var busy by remember { mutableStateOf(false) }
+    var feedback by remember { mutableStateOf<String?>(null) }
+    var feedbackIsError by remember { mutableStateOf(false) }
+
+    var enabled by remember { mutableStateOf(initialConfig?.enabled ?: false) }
+    var apiBaseUrl by remember { mutableStateOf(initialConfig?.apiBaseUrl.orEmpty()) }
+    var authMode by remember { mutableStateOf(initialConfig?.authMode ?: "none") }
+    var appId by remember { mutableStateOf(initialConfig?.appId.orEmpty()) }
+    var appSecret by remember { mutableStateOf("") }
+    var hasAppSecret by remember { mutableStateOf(initialConfig?.hasAppSecret ?: false) }
+    var clearAppSecret by remember { mutableStateOf(false) }
+    var tokenHeader by remember { mutableStateOf(initialConfig?.tokenHeader ?: "Authorization") }
+    var tokenPrefix by remember { mutableStateOf(initialConfig?.tokenPrefix ?: "Bearer ") }
+    var tokenValue by remember { mutableStateOf("") }
+    var hasToken by remember { mutableStateOf(initialConfig?.hasToken ?: false) }
+    var clearToken by remember { mutableStateOf(false) }
+    var withRelated by remember { mutableStateOf(initialConfig?.withRelated ?: true) }
+    var chConvert by remember { mutableIntStateOf(initialConfig?.chConvert ?: 1) }
+    var cacheTtlHoursText by remember { mutableStateOf((initialConfig?.cacheTtlHours ?: 24).toString()) }
+    var cacheMaxMbText by remember { mutableStateOf((initialConfig?.cacheMaxMb ?: 512).toString()) }
+    var timeoutSecondsText by remember { mutableStateOf((initialConfig?.timeoutSeconds ?: 10).toString()) }
+    var useProxy by remember { mutableStateOf(initialConfig?.useProxy ?: false) }
+    var verifyTls by remember { mutableStateOf(initialConfig?.verifyTls ?: true) }
+    var cacheFiles by remember { mutableIntStateOf(initialConfig?.cacheStats?.fileCount ?: 0) }
+    var cacheBytes by remember { mutableStateOf(initialConfig?.cacheStats?.totalBytes ?: 0L) }
+    var cacheMaxMbStat by remember { mutableIntStateOf(initialConfig?.cacheStats?.maxMb ?: 512) }
+
+    fun applyDto(cfg: DanmakuConfigDto) {
+        enabled = cfg.enabled
+        apiBaseUrl = cfg.apiBaseUrl
+        authMode = cfg.authMode
+        appId = cfg.appId
+        appSecret = ""
+        hasAppSecret = cfg.hasAppSecret
+        clearAppSecret = false
+        tokenHeader = cfg.tokenHeader.ifBlank { "Authorization" }
+        tokenPrefix = cfg.tokenPrefix
+        tokenValue = ""
+        hasToken = cfg.hasToken
+        clearToken = false
+        withRelated = cfg.withRelated
+        chConvert = cfg.chConvert
+        cacheTtlHoursText = cfg.cacheTtlHours.toString()
+        cacheMaxMbText = cfg.cacheMaxMb.toString()
+        timeoutSecondsText = cfg.timeoutSeconds.toString()
+        useProxy = cfg.useProxy
+        verifyTls = cfg.verifyTls
+        cacheFiles = cfg.cacheStats.fileCount
+        cacheBytes = cfg.cacheStats.totalBytes
+        cacheMaxMbStat = cfg.cacheStats.maxMb
+    }
+
+    LaunchedEffect(Unit) {
+        loading = true
+        repository.fetchDanmakuConfig()
+            .onSuccess {
+                applyDto(it)
+                onUpdated(it)
+            }
+            .onFailure {
+                feedbackIsError = true
+                feedback = it.message ?: "读取弹幕服务配置失败"
+            }
+        loading = false
+    }
+
+    fun buildPayloadJson(): String {
+        val obj = JSONObject()
+        obj.put("enabled", enabled)
+        obj.put("api_base_url", apiBaseUrl.trim())
+        obj.put("auth_mode", authMode)
+        obj.put("app_id", appId.trim())
+        if (appSecret.isNotEmpty()) {
+            obj.put("app_secret", appSecret)
+        }
+        if (clearAppSecret) {
+            obj.put("clear_app_secret", true)
+        }
+        obj.put("token_header", tokenHeader.trim().ifBlank { "Authorization" })
+        obj.put("token_prefix", tokenPrefix)
+        if (tokenValue.isNotEmpty()) {
+            obj.put("token", tokenValue)
+        }
+        if (clearToken) {
+            obj.put("clear_token", true)
+        }
+        obj.put("with_related", withRelated)
+        obj.put("ch_convert", chConvert)
+        obj.put("cache_ttl_hours", (cacheTtlHoursText.toIntOrNull() ?: 24).coerceIn(1, 720))
+        obj.put("cache_max_mb", (cacheMaxMbText.toIntOrNull() ?: 512).coerceIn(32, 4096))
+        obj.put("timeout_seconds", (timeoutSecondsText.toIntOrNull() ?: 10).coerceIn(3, 30))
+        obj.put("use_proxy", useProxy)
+        obj.put("verify_tls", verifyTls)
+        return obj.toString()
+    }
+
+    val authModes = listOf(
+        "none" to "无鉴权",
+        "dandanplay_v2" to "弹弹play 签名",
+        "header_token" to "请求头 Token",
+    )
+    val chConvertModes = listOf(
+        0 to "原文",
+        1 to "简体中文",
+        2 to "繁体中文",
+    )
+
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("弹幕服务配置", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "仅管理员可配置。MoviePilot 不内置默认弹幕接口，请填写您自建或经授权的 DandanPlay 协议兼容弹幕服务地址。",
+                color = colors.textSecondary,
+                fontSize = 12.sp,
+            )
+
+            if (loading) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(vertical = 12.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.accent)
+                    Text("正在加载服务端弹幕配置…", color = colors.textSecondary, fontSize = 13.5.sp)
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("启用弹幕服务", color = colors.textPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text("关闭后播放器不展示弹幕按钮，也不发起任何上游请求", color = colors.textMuted, fontSize = 11.5.sp)
+                    }
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = { enabled = it },
+                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                    )
+                }
+
+                OutlinedTextField(
+                    value = apiBaseUrl,
+                    onValueChange = { apiBaseUrl = it },
+                    label = { Text("弹幕服务 Base URL") },
+                    placeholder = { Text("https://danmaku.example.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("鉴权方式", color = colors.textPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        authModes.forEach { (id, label) ->
+                            NativeAdaptivePill(
+                                title = label,
+                                selected = authMode == id,
+                                onClick = { authMode = id },
+                            )
+                        }
+                    }
+                }
+
+                if (authMode == "dandanplay_v2") {
+                    OutlinedTextField(
+                        value = appId,
+                        onValueChange = { appId = it },
+                        label = { Text("AppId") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = appSecret,
+                        onValueChange = {
+                            appSecret = it
+                            if (it.isNotEmpty()) clearAppSecret = false
+                        },
+                        label = { Text("AppSecret") },
+                        placeholder = {
+                            Text(if (hasAppSecret && !clearAppSecret) "已加密保存，留空保持不变" else "输入 AppSecret")
+                        },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (hasAppSecret) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (clearAppSecret) "保存后将清除已存储的 AppSecret" else "服务端已加密保存 AppSecret",
+                                color = colors.textMuted,
+                                fontSize = 12.sp,
+                            )
+                            TextButton(onClick = { clearAppSecret = !clearAppSecret }) {
+                                Text(if (clearAppSecret) "撤销清除" else "清除密钥", color = colors.danger, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                } else if (authMode == "header_token") {
+                    OutlinedTextField(
+                        value = tokenHeader,
+                        onValueChange = { tokenHeader = it },
+                        label = { Text("请求头名称") },
+                        placeholder = { Text("Authorization") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = tokenPrefix,
+                        onValueChange = { tokenPrefix = it },
+                        label = { Text("前缀（可留空）") },
+                        placeholder = { Text("Bearer ") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = tokenValue,
+                        onValueChange = {
+                            tokenValue = it
+                            if (it.isNotEmpty()) clearToken = false
+                        },
+                        label = { Text("Token 密钥") },
+                        placeholder = {
+                            Text(if (hasToken && !clearToken) "已加密保存，留空保持不变" else "输入 Token")
+                        },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (hasToken) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (clearToken) "保存后将清除已存储的 Token" else "服务端已加密保存 Token",
+                                color = colors.textMuted,
+                                fontSize = 12.sp,
+                            )
+                            TextButton(onClick = { clearToken = !clearToken }) {
+                                Text(if (clearToken) "撤销清除" else "清除密钥", color = colors.danger, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = colors.divider)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("聚合第三方关联弹幕", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("拉取弹幕时附加 withRelated=true", color = colors.textMuted, fontSize = 11.5.sp)
+                    }
+                    Switch(
+                        checked = withRelated,
+                        onCheckedChange = { withRelated = it },
+                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("简繁转换", color = colors.textPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        chConvertModes.forEach { (code, label) ->
+                            NativeAdaptivePill(
+                                title = label,
+                                selected = chConvert == code,
+                                onClick = { chConvert = code },
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedTextField(
+                        value = cacheTtlHoursText,
+                        onValueChange = { cacheTtlHoursText = it.filter(Char::isDigit) },
+                        label = { Text("缓存小时") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = cacheMaxMbText,
+                        onValueChange = { cacheMaxMbText = it.filter(Char::isDigit) },
+                        label = { Text("上限(MB)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = timeoutSecondsText,
+                        onValueChange = { timeoutSecondsText = it.filter(Char::isDigit) },
+                        label = { Text("超时(秒)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("经系统代理访问上游", color = colors.textPrimary, fontSize = 14.sp)
+                    Switch(
+                        checked = useProxy,
+                        onCheckedChange = { useProxy = it },
+                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("严格校验 TLS 证书", color = colors.textPrimary, fontSize = 14.sp)
+                    Switch(
+                        checked = verifyTls,
+                        onCheckedChange = { verifyTls = it },
+                        colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                    )
+                }
+
+                HorizontalDivider(color = colors.divider)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val mbUsed = "%.2f".format(cacheBytes / (1024.0 * 1024.0))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("服务端弹幕缓存", color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("已缓存 $cacheFiles 集 · $mbUsed / $cacheMaxMbStat MB", color = colors.textMuted, fontSize = 12.sp)
+                    }
+                    TextButton(
+                        enabled = !busy,
+                        onClick = {
+                            scope.launch {
+                                busy = true
+                                feedback = null
+                                repository.clearDanmakuCache()
+                                    .onSuccess { res ->
+                                        cacheFiles = 0
+                                        cacheBytes = 0L
+                                        feedbackIsError = false
+                                        feedback = "已清理 ${res.removedFiles} 集缓存文件"
+                                        repository.fetchDanmakuConfig().onSuccess {
+                                            applyDto(it)
+                                            onUpdated(it)
+                                        }
+                                    }
+                                    .onFailure {
+                                        feedbackIsError = true
+                                        feedback = it.message ?: "清空缓存失败"
+                                    }
+                                busy = false
+                            }
+                        },
+                    ) {
+                        Text("清空缓存", color = colors.danger)
+                    }
+                }
+
+                if (!feedback.isNullOrBlank()) {
+                    Text(
+                        text = feedback.orEmpty(),
+                        color = if (feedbackIsError) colors.danger else Color(0xFF2E9E5B),
+                        fontSize = 12.5.sp,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    TextButton(
+                        enabled = !busy && apiBaseUrl.isNotBlank(),
+                        onClick = {
+                            scope.launch {
+                                busy = true
+                                feedback = null
+                                repository.testDanmakuConfig(buildPayloadJson())
+                                    .onSuccess { res ->
+                                        feedbackIsError = !res.ok
+                                        feedback = if (res.ok) {
+                                            "连接成功（${res.latencyMs}ms）"
+                                        } else {
+                                            res.message.ifBlank { "连接测试失败" }
+                                        }
+                                    }
+                                    .onFailure {
+                                        feedbackIsError = true
+                                        feedback = it.message ?: "测试连接失败"
+                                    }
+                                busy = false
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("测试连接", color = colors.accent, fontWeight = FontWeight.SemiBold)
+                    }
+                    Button(
+                        enabled = !busy,
+                        onClick = {
+                            scope.launch {
+                                busy = true
+                                feedback = null
+                                repository.updateDanmakuConfig(buildPayloadJson())
+                                    .onSuccess { saved ->
+                                        applyDto(saved)
+                                        onUpdated(saved)
+                                        feedbackIsError = false
+                                        feedback = "配置已保存"
+                                        snackbar?.showSnackbar("弹幕服务配置已保存")
+                                    }
+                                    .onFailure {
+                                        feedbackIsError = true
+                                        feedback = it.message ?: "保存配置失败"
+                                    }
+                                busy = false
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(if (busy) "处理中…" else "保存配置", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
     }
 }
 
