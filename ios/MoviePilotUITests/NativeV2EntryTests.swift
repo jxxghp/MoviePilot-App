@@ -740,7 +740,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.buttons["native-plugin-form-save"].isEnabled)
     app.navigationBars.buttons.firstMatch.tap()
 
-    // 联邦插件通过当前服务 Cookie 与主题外观注入后，原生栏进入协议协商完成态。
+    // 联邦插件默认通过本地预热运行时直接拉取远程分片并挂载，不依赖 3000 前端端口。
     let vuePlugin = app.descendants(matching: .any)[
       "native-installed-card-SubscribeAssistantEnhanced"
     ].firstMatch
@@ -749,11 +749,10 @@ final class NativeV2EntryTests: XCTestCase {
     tap(vuePlugin, app: app)
     XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 25))
     XCTAssertTrue(
-      app.descendants(matching: .any)["native-vue-plugin-sheet-ready"].waitForExistence(
+      app.descendants(matching: .any)["native-vue-local-runtime-ready"].waitForExistence(
         timeout: 25),
-      "前端必须确认只接管插件弹窗内容后，原生 Sheet 才能结束加载。")
+      "Vue 联邦插件本地预热运行时必须完成远程分片加载并挂载。")
     XCTAssertTrue(app.buttons["native-vue-plugin-sheet-close"].exists)
-    // WKWebView 会向辅助功能树暴露多个网页区域，只确认兼容宿主仍在当前 Sheet 中。
     XCTAssertTrue(app.webViews.firstMatch.exists)
     app.buttons["native-vue-plugin-sheet-close"].tap()
     XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 12))

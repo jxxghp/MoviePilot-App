@@ -403,11 +403,12 @@ class NativeHandler(BaseHTTPRequestHandler):
                 or re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/site/(?:test|icon)/[0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/search/media/1[0-9]{2}", endpoint)
-                or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
-                or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/1[0-9]{2}/(?:电影|电视剧)", endpoint)
+                or re.fullmatch(r"api/v1/media/[0-9]+", endpoint)
+                or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/[0-9]+/(?:电影|电视剧)", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/person(?:/credits)?/[0-9]{3}", endpoint)
                 or re.fullmatch(r"api/v1/user/config/[A-Za-z0-9_.-]+", endpoint)
                 or re.fullmatch(r"api/v1/subscribe/[0-9]+", endpoint)
+                or re.fullmatch(r"api/v1/subscribe/media/[A-Za-z0-9_-]+", endpoint)
                 or re.fullmatch(r"api/v1/music/album/[A-Za-z0-9_-]+", endpoint)
                 or re.fullmatch(r"api/v1/music/artist/[A-Za-z0-9_-]+(?:/albums)?", endpoint)
                 or re.fullmatch(r"api/v1/agent/sessions/[A-Za-z0-9_-]+", endpoint)
@@ -604,6 +605,8 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/mediaserver/seasons",
             "api/v1/mediaserver/season-episodes",
             "api/v1/mediaserver/search",
+            "api/v1/mediaserver/account-bindings",
+            "api/v1/danmaku/config",
             "api/v1/media/search",
             "api/v1/media/source",
             "api/v1/download/clients",
@@ -650,7 +653,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             or endpoint.startswith("api/v1/tmdb/")
             or endpoint.startswith("api/v1/music/")
             or endpoint == "api/v1/media/search"
-            or re.fullmatch(r"api/v1/media/1[0-9]{2}", endpoint)
+            or re.fullmatch(r"api/v1/media/[0-9]+", endpoint)
         )
         if requires_discovery and not self.permissions(mode)["discovery"]:
             self.reply(403, {"success": False})
@@ -743,8 +746,13 @@ class NativeHandler(BaseHTTPRequestHandler):
         elif endpoint in {
             "api/v1/discover/source",
             "api/v1/recommend/tmdb_trending",
+            "api/v1/authorization",
         }:
             value = []
+        elif endpoint == "api/v1/danmaku/config":
+            value = {"enabled": False, "sources": []}
+        elif re.fullmatch(r"api/v1/subscribe/media/[A-Za-z0-9_-]+", endpoint):
+            value = None
         elif endpoint.startswith("api/v1/mediaserver/"):
             value = self.mediaserver_fixture(endpoint, query, mode)
         elif endpoint.startswith("api/v1/user/config/"):
@@ -2208,6 +2216,8 @@ export async function get(moduleName) {
         server = query.get("server", ["Emby"])[0] or "Emby"
         if endpoint == "api/v1/mediaserver/clients":
             return [{"name": "Emby", "type": "emby"}]
+        if endpoint == "api/v1/mediaserver/account-bindings":
+            return []
         if endpoint == "api/v1/mediaserver/library":
             return [
                 {

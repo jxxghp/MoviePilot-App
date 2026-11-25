@@ -4168,6 +4168,9 @@ class MoviePilotRepository(context: Context) {
     /** 管理员读取弹幕服务配置快照及磁盘缓存统计。 */
     suspend fun fetchDanmakuConfig(): Result<DanmakuConfigDto> {
         val resp = authedRequest(segments = listOf("danmaku", "config")).getOrElse { return Result.failure(it) }
+        if (resp.status == 404) {
+            return Result.failure(IllegalStateException("当前后端版本暂不支持弹幕服务，请先升级 MoviePilot 后端"))
+        }
         if (resp.status !in 200..299) {
             return Result.failure(IllegalStateException(extractErrorMessage(resp.body, "读取弹幕服务配置失败")))
         }

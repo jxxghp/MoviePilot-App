@@ -11,7 +11,7 @@ import { vibrator } from '@kit.SensorServiceKit';
 import { notificationManager } from '@kit.NotificationKit';
 import { userAuth } from '@kit.UserAuthenticationKit';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
-import { RustCoreBridge } from '@moviepilot/core_rust_bridge';
+import { RustCoreBridge, MoviePilotRepository, CloudflareAccessOAuthManager } from '@moviepilot/core_rust_bridge';
 
 /**
  * 鸿蒙端 Vue 联邦插件全量原生本地能力服务：
@@ -1322,7 +1322,16 @@ export class HarmonyPluginNativeCapabilities {
         const reqHeader: Record<string, string> = {};
         reqHeader['Authorization'] = `Bearer ${token}`;
         reqHeader['Content-Type'] = 'application/json; charset=utf-8';
-        const resp = await req.request(`${origin}/api/v1/mediaserver/stream-ticket`, {
+        const ticketUrl = `${origin}/api/v1/mediaserver/stream-ticket`;
+        const cookieHdr = MoviePilotRepository.shared().transport.getCookieHeaderForUrl(ticketUrl);
+        if (cookieHdr.length > 0) {
+          reqHeader['Cookie'] = cookieHdr;
+        }
+        const cfToken = CloudflareAccessOAuthManager.shared().getAccessTokenForUrl(ticketUrl);
+        if (cfToken.length > 0) {
+          reqHeader['cf-access-token'] = cfToken;
+        }
+        const resp = await req.request(ticketUrl, {
           method: http.RequestMethod.POST,
           header: reqHeader,
           extraData: JSON.stringify(ticketBody),
@@ -1341,11 +1350,22 @@ export class HarmonyPluginNativeCapabilities {
             const infoReq = http.createHttp();
             let contentUrl = '';
             try {
+              const infoUrl = `${origin}/api/v1/mediaserver/stream-info?itemid=${encodeURIComponent(ticketId)}`;
+              const infoHeader: Record<string, string> = {};
+              infoHeader['Authorization'] = `Bearer ${token}`;
+              const infoCookie = MoviePilotRepository.shared().transport.getCookieHeaderForUrl(infoUrl);
+              if (infoCookie.length > 0) {
+                infoHeader['Cookie'] = infoCookie;
+              }
+              const infoCf = CloudflareAccessOAuthManager.shared().getAccessTokenForUrl(infoUrl);
+              if (infoCf.length > 0) {
+                infoHeader['cf-access-token'] = infoCf;
+              }
               const infoResp = await infoReq.request(
-                `${origin}/api/v1/mediaserver/stream-info?itemid=${encodeURIComponent(ticketId)}`,
+                infoUrl,
                 {
                   method: http.RequestMethod.GET,
-                  header: { 'Authorization': `Bearer ${token}` },
+                  header: infoHeader,
                   connectTimeout: 10000,
                   readTimeout: 15000,
                   expectDataType: http.HttpDataType.STRING

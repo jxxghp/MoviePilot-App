@@ -481,14 +481,23 @@ public final class APIClient: Sendable {
       let hasBody = http.statusCode != 204 && endpoint.method != .head
       if hasBody {
         guard let mime = http.mimeType?.lowercased() else { throw APIError.invalidResponse }
-        if endpoint.responseContract == .eventStream {
-          guard mime == "text/event-stream" else { throw APIError.invalidResponse }
-        } else if endpoint.responseContract == .plainText {
-          guard mime == "text/plain" else { throw APIError.invalidResponse }
-        } else {
-          guard
-            mime == "application/json" || mime.hasPrefix("application/") && mime.hasSuffix("+json")
-          else { throw APIError.invalidResponse }
+        let mimeMatches: Bool =
+          switch endpoint.responseContract {
+          case .eventStream: mime == "text/event-stream"
+          case .plainText: mime == "text/plain"
+          case .envelope, .payload:
+            mime == "application/json" || (mime.hasPrefix("application/") && mime.hasSuffix("+json"))
+          }
+        if !mimeMatches {
+          if mime == "text/html" {
+            let prefix = await Self.readForbiddenPrefix(bytes)
+            if CloudflareAccessProtocol.detectChallenge(
+              response: http, bodyData: prefix, requestURL: url
+            ).isChallenge {
+              throw APIError.cloudflareAccessRequired
+            }
+          }
+          throw APIError.invalidResponse
         }
       }
       guard http.expectedContentLength <= endpoint.maximumResponseBytes else {

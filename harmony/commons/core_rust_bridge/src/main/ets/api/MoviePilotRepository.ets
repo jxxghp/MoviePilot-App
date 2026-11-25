@@ -5529,6 +5529,9 @@ export class MoviePilotRepository {
   /** 管理员读取弹幕服务脱敏配置与磁盘缓存统计。 */
   async fetchDanmakuConfig(): Promise<MpDanmakuConfig> {
     const resp = await this.get(['danmaku', 'config']);
+    if (resp.status === 404) {
+      throw new Error('当前后端版本暂不支持弹幕服务，请先升级 MoviePilot 后端');
+    }
     if (resp.status < 200 || resp.status >= 300) {
       throw new Error(this.extractDanmakuError(resp.body, '读取弹幕服务配置失败'));
     }

@@ -458,6 +458,12 @@ struct APIClientTests {
     await #expect(throws: APIError.invalidResponse) {
       try await Self.client().request(endpoint, as: [Int].self)
     }
+    APIURLProtocol.state.prepare(
+      body: Data("<!DOCTYPE html><html><title>Sign in · Cloudflare Access</title></html>".utf8),
+      headers: ["Content-Type": "text/html; charset=utf-8"])
+    await #expect(throws: APIError.cloudflareAccessRequired) {
+      try await Self.client().request(endpoint, as: [Int].self)
+    }
   }
 
   /// 负页码、溢出、非整数和零窗口不能静默变成“没有更多数据”；同时兼容后端 0 基分页接口的 `X-Page: 0`。

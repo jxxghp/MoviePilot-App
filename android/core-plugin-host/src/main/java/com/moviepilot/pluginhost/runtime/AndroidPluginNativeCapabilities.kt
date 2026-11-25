@@ -1514,7 +1514,7 @@ class AndroidPluginNativeCapabilities(
 
         val ticketReq = Request.Builder()
             .url("$origin/api/v1/mediaserver/stream-ticket")
-            .header("Authorization", "Bearer ${session.authToken}")
+            .apply { authHeaders.forEach { (k, v) -> header(k, v) } }
             .post(reqBody)
             .build()
         runCatching {
@@ -1528,7 +1528,7 @@ class AndroidPluginNativeCapabilities(
                         val encId = URLEncoder.encode(ticketId, "UTF-8")
                         val infoReq = Request.Builder()
                             .url("$origin/api/v1/mediaserver/stream-info?itemid=$encId")
-                            .header("Authorization", "Bearer ${session.authToken}")
+                            .apply { authHeaders.forEach { (k, v) -> header(k, v) } }
                             .get()
                             .build()
                         val contentUrl = runCatching {
@@ -1612,10 +1612,15 @@ class AndroidPluginNativeCapabilities(
             "Authorization" to "Bearer ${session.authToken}",
             "X-MoviePilot-Locale" to "zh-CN",
         )
-        val cookieHeader = session.originCookies
+        val cookiePairs = session.originCookies
             .mapNotNull { it.substringBefore(';').trim().takeIf(String::isNotEmpty) }
-            .joinToString("; ")
+        val cookieHeader = cookiePairs.joinToString("; ")
         if (cookieHeader.isNotEmpty()) map["Cookie"] = cookieHeader
+        cookiePairs.firstOrNull { it.startsWith("CF_Authorization=", ignoreCase = true) }
+            ?.substringAfter('=')
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { map["cf-access-token"] = it }
         return map
     }
 

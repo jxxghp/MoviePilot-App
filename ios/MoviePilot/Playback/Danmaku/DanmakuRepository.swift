@@ -247,6 +247,7 @@ final class DanmakuRepository {
     request.httpMethod = method
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     if let body {
       request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
       request.httpBody = body
@@ -259,6 +260,9 @@ final class DanmakuRepository {
       || (http.statusCode == 403 && APIClient.isTokenInvalidForbiddenBody(data))
     {
       throw DanmakuRepositoryError.unauthorized
+    }
+    if http.statusCode == 404 {
+      throw DanmakuRepositoryError.message("当前后端版本暂不支持弹幕服务，请先升级 MoviePilot 后端")
     }
     guard (200..<300).contains(http.statusCode) else {
       throw DanmakuRepositoryError.message(parseError(data, fallback: fallbackError))
@@ -323,6 +327,7 @@ final class DanmakuRepository {
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     request.setValue("gzip", forHTTPHeaderField: "Accept-Encoding")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     if !forceRefresh, let cached = commentsMemoryCache[episodeId] {
       request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
     }
