@@ -231,10 +231,11 @@
     <string>UIInterfaceOrientationLandscapeRight</string>
   </array>
   <key>NSLocalNetworkUsageDescription</key><string>连接你在局域网中配置的 MoviePilot 服务。</string>
-  <key>NSCameraUsageDescription</key><string>在 MoviePilot 网页中选择拍照上传时使用相机。</string>
-  <key>NSMicrophoneUsageDescription</key><string>在智能助手中录制并发送语音消息时使用麦克风。</string>
-  <key>NSPhotoLibraryUsageDescription</key><string>在 MoviePilot 网页中选择要上传的照片。</string>
-  <key>NSPhotoLibraryAddUsageDescription</key><string>将你选择保存的智能助手图片存入照片图库。</string>
+  <key>NSCameraUsageDescription</key><string>在 MoviePilot 网页、扫码与插件中使用相机拍照或识别二维码。</string>
+  <key>NSMicrophoneUsageDescription</key><string>在智能助手与插件中录制语音消息或音频时使用麦克风。</string>
+  <key>NSPhotoLibraryUsageDescription</key><string>在 MoviePilot 网页与插件中选择要上传的照片或视频。</string>
+  <key>NSPhotoLibraryAddUsageDescription</key><string>将你选择保存的智能助手或插件图片存入照片图库。</string>
+  <key>NSFaceIDUsageDescription</key><string>用于验证你的身份以授权敏感操作或插件安全能力。</string>
   <key>NSAppTransportSecurity</key><dict>
     <!-- 用户可配置任意 HTTP 实例；本地或 WebContent 例外会覆盖此全局设置。 -->
     <key>NSAllowsArbitraryLoads</key><true/>

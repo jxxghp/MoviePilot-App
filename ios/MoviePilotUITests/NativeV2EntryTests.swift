@@ -3717,6 +3717,18 @@ final class NativeV2EntryTests: XCTestCase {
       "原生确认结果未回传至联邦插件"
     )
 
+    // 6b. 校验全量原生能力桥接（能力发现、剪贴板读写、屏幕常亮、录音状态、原生内联音频 WAV 播放与停止）
+    let capsBtn = webView.buttons.matching(
+      NSPredicate(format: "label CONTAINS[c] %@", "自检原生音频与硬件能力")
+    ).firstMatch
+    XCTAssertTrue(capsBtn.waitForExistence(timeout: 8))
+    capsBtn.tap()
+    let capsPass = webView.staticTexts.matching(
+      NSPredicate(format: "label CONTAINS %@", "本地能力与音频播放自检通过")
+    ).firstMatch
+    XCTAssertTrue(capsPass.waitForExistence(timeout: 12), "原生音频与硬件能力自检未通过")
+    capture("vue-runtime-04b-native-capabilities")
+
     // 6. 关闭弹窗 -> 切换浅色模式 -> 再次打开验证热池复用 + 磁盘缓存命中 + 浅色透明视觉融合
     let closeBtn = app.buttons["native-vue-plugin-sheet-close"]
     XCTAssertTrue(closeBtn.waitForExistence(timeout: 8))

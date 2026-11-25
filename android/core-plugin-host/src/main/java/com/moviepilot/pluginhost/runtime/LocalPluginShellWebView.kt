@@ -1,8 +1,20 @@
 package com.moviepilot.pluginhost.runtime
 
+import android.app.Activity
+import android.app.KeyguardManager
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import java.io.File
+import java.util.UUID
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -121,6 +133,119 @@ fun LocalPluginShellWebView(
     var activeToast by remember { mutableStateOf<AndroidPluginToast?>(null) }
     var standaloneConfirm by remember { mutableStateOf<VuePluginConfirmation?>(null) }
 
+    // Activity 作用域原生能力回调（权限申请、相册/相机/文件选取、设备认证、屏幕常亮、DeepLink 路由与播放）
+    val pendingPermissionCb = remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+    val pendingSinglePickCb = remember { mutableStateOf<((List<Uri>) -> Unit)?>(null) }
+    val pendingMultiPickCb = remember { mutableStateOf<((List<Uri>) -> Unit)?>(null) }
+    val pendingCameraCb = remember { mutableStateOf<Pair<Uri, (List<Uri>) -> Unit>?>(null) }
+    val pendingAuthCb = remember { mutableStateOf<((Boolean, String) -> Unit)?>(null) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val cb = pendingPermissionCb.value
+        pendingPermissionCb.value = null
+        cb?.invoke(granted)
+    }
+    val openSingleDocLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val cb = pendingSinglePickCb.value
+        pendingSinglePickCb.value = null
+        cb?.invoke(if (uri != null) listOf(uri) else emptyList())
+    }
+    val openMultiDocLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        val cb = pendingMultiPickCb.value
+        pendingMultiPickCb.value = null
+        cb?.invoke(uris)
+    }
+    val takePictureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
+        val pending = pendingCameraCb.value
+        pendingCameraCb.value = null
+        if (pending != null) {
+            pending.second(if (saved) listOf(pending.first) else emptyList())
+        }
+    }
+    val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val cb = pendingAuthCb.value
+        pendingAuthCb.value = null
+        cb?.invoke(result.resultCode == Activity.RESULT_OK, "deviceCredential")
+    }
+
+    val activityHost = remember(context) {
+        object : AndroidPluginActivityHost {
+            override fun requestPermission(permission: String, onResult: (Boolean) -> Unit) {
+                pendingPermissionCb.value = onResult
+                permissionLauncher.launch(permission)
+            }
+
+            override fun pickMedia(mediaType: String, multiple: Boolean, fromCamera: Boolean, onResult: (List<Uri>) -> Unit) {
+                if (fromCamera) {
+                    runCatching {
+                        val dir = File(context.cacheDir, "plugin_camera").apply { mkdirs() }
+                        val photo = File(dir, "cam_${UUID.randomUUID()}.jpg")
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", photo)
+                        pendingCameraCb.value = uri to onResult
+                        takePictureLauncher.launch(uri)
+                    }.onFailure {
+                        onResult(emptyList())
+                    }
+                    return
+                }
+                val mimeTypes = when (mediaType) {
+                    "video" -> arrayOf("video/*")
+                    "any" -> arrayOf("image/*", "video/*")
+                    else -> arrayOf("image/*")
+                }
+                if (multiple) {
+                    pendingMultiPickCb.value = onResult
+                    openMultiDocLauncher.launch(mimeTypes)
+                } else {
+                    pendingSinglePickCb.value = onResult
+                    openSingleDocLauncher.launch(mimeTypes)
+                }
+            }
+
+            override fun pickFile(accept: List<String>, multiple: Boolean, onResult: (List<Uri>) -> Unit) {
+                val mimes = accept.filter { it.contains("/") }.ifEmpty { listOf("*/*") }.toTypedArray()
+                if (multiple) {
+                    pendingMultiPickCb.value = onResult
+                    openMultiDocLauncher.launch(mimes)
+                } else {
+                    pendingSinglePickCb.value = onResult
+                    openSingleDocLauncher.launch(mimes)
+                }
+            }
+
+            override fun setKeepAwake(enabled: Boolean) {
+                val act = context.findHostActivity() ?: return
+                if (enabled) {
+                    act.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    act.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            }
+
+            override fun openDeepLink(deepLink: String) {
+                runCatching {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(deepLink)).apply {
+                        setPackage(context.packageName)
+                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
+                    context.startActivity(intent)
+                }
+            }
+
+            @Suppress("DEPRECATION")
+            override fun authenticate(reason: String, onResult: (Boolean, String) -> Unit) {
+                val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                val intent = km?.createConfirmDeviceCredentialIntent("身份验证", reason)
+                if (intent == null) {
+                    onResult(false, "none")
+                    return
+                }
+                pendingAuthCb.value = onResult
+                authLauncher.launch(intent)
+            }
+        }
+    }
+
     val visualTokens = remember(colors, appearance.pureBlackDark, fontScale) {
         AndroidPluginVisualTokens.from(colors, appearance, fontScale)
     }
@@ -179,7 +304,12 @@ fun LocalPluginShellWebView(
         }
 
         val slot = AndroidPluginWebViewPool.acquire(context, session)
+        slot.bridge.nativeCapabilities.activityHost = activityHost
         activeSlot = slot
+
+        slot.bridge.onOpenRoute = { deepLink ->
+            activityHost.openDeepLink(deepLink)
+        }
 
         slot.bridge.onPluginMounted = { _, _ ->
             isMounted = true
@@ -397,6 +527,12 @@ fun LocalPluginShellWebView(
             },
         )
     }
+}
+
+private tailrec fun Context.findHostActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findHostActivity()
+    else -> null
 }
 
 private fun attachPooledWebView(container: FrameLayout, webView: android.webkit.WebView) {

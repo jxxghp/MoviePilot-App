@@ -1,7 +1,9 @@
+import { common } from '@kit.AbilityKit';
 import { http } from '@kit.NetworkKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { webview } from '@kit.ArkWeb';
 import { RustCoreBridge } from '@moviepilot/core_rust_bridge';
+import { HarmonyPluginNativeCapabilities } from './HarmonyPluginNativeCapabilities';
 import { HarmonyPluginVisualTokens } from './HarmonyPluginVisualTokens';
 
 export interface HarmonyPluginHeaderAction {
@@ -64,18 +66,38 @@ export class HarmonyPluginHostBridgeV2 {
   private authToken: string;
   private callbacks: HarmonyPluginBridgeCallbacks;
   private inFlightRequests: Map<string, http.HttpRequest> = new Map<string, http.HttpRequest>();
+  readonly nativeCapabilities: HarmonyPluginNativeCapabilities;
   readonly jsProxy: HarmonyPluginBridgeJsProxy;
 
   constructor(
     controller: webview.WebviewController,
     serverUrl: string,
     authToken: string,
-    callbacks: HarmonyPluginBridgeCallbacks
+    callbacks: HarmonyPluginBridgeCallbacks,
+    getContext: () => common.UIAbilityContext | null = () => null
   ) {
     this.controller = controller;
     this.serverUrl = serverUrl.replace(/\/+$/, '');
     this.authToken = authToken;
     this.callbacks = callbacks;
+    this.nativeCapabilities = new HarmonyPluginNativeCapabilities(
+      getContext,
+      () => this.serverUrl,
+      () => this.authToken,
+      (requestId: string, ok: boolean, dataJson: string, errCode?: string, errStatus?: number, errMsg?: string) => {
+        if (ok) {
+          this.sendToWeb('bridge.response', `{"requestId":${JSON.stringify(requestId)},"ok":true,"data":${dataJson}}`);
+        } else {
+          this.sendApiError(requestId, errStatus ?? 500, errCode ?? 'NATIVE_ERROR', errMsg ?? 'Native capability failed');
+        }
+      },
+      (event: string, dataJson: string) => {
+        this.sendToWeb('device.event', `{"event":${JSON.stringify(event)},"data":${dataJson}}`);
+      },
+      (deepLink: string) => {
+        this.callbacks.onOpenRoute(deepLink);
+      }
+    );
     this.jsProxy = new HarmonyPluginBridgeJsProxy((rawJson: string) => {
       this.handleIncomingMessage(rawJson);
     });
@@ -95,6 +117,10 @@ export class HarmonyPluginHostBridgeV2 {
       }
     });
     this.inFlightRequests.clear();
+  }
+
+  cleanupNativeCapabilities(): void {
+    this.nativeCapabilities.cleanup();
   }
 
   sendToWeb(type: string, payloadJson: string = '{}'): void {
@@ -254,8 +280,14 @@ export class HarmonyPluginHostBridgeV2 {
         }
         break;
       }
+      case 'device.haptic': {
+        const style = typeof payload['style'] === 'string' ? (payload['style'] as string) : 'light';
+        this.nativeCapabilities.triggerHaptic(style);
+        break;
+      }
       case 'device.clipboard': {
         const text = typeof payload['text'] === 'string' ? (payload['text'] as string) : '';
+        const reqId = typeof payload['requestId'] === 'string' ? (payload['requestId'] as string) : '';
         if (text.length > 0) {
           try {
             const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
@@ -264,10 +296,16 @@ export class HarmonyPluginHostBridgeV2 {
             // ignore clipboard errors
           }
         }
+        if (reqId.length > 0) {
+          this.sendToWeb('bridge.response', `{"requestId":${JSON.stringify(reqId)},"ok":true,"data":{"copied":true}}`);
+        }
         break;
       }
-      default:
+      default: {
+        const reqId = typeof payload['requestId'] === 'string' ? (payload['requestId'] as string) : '';
+        this.nativeCapabilities.handle(type, reqId, payload);
         break;
+      }
     }
   }
 

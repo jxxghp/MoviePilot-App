@@ -1723,7 +1723,80 @@ function createDemoComponent(Vue, mode) {
       const apiStatus = ref('正在经 Native Bridge 请求状态…');
       const tokenAudit = ref('校验中…');
       const confirmResult = ref('尚未触发确认框');
+      const nativeCapResult = ref('尚未校验本地能力');
       const refreshCount = ref(0);
+
+      function buildTinyWavBase64() {
+        const sampleRate = 8000;
+        const numSamples = 1600;
+        const dataSize = numSamples * 2;
+        const buf = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buf);
+        const writeStr = (off, str) => {
+          for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i));
+        };
+        writeStr(0, 'RIFF');
+        view.setUint32(4, 36 + dataSize, true);
+        writeStr(8, 'WAVE');
+        writeStr(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeStr(36, 'data');
+        view.setUint32(40, dataSize, true);
+        for (let i = 0; i < numSamples; i++) {
+          const sample = Math.round(Math.sin((2 * Math.PI * 440 * i) / sampleRate) * 6000);
+          view.setInt16(44 + i * 2, sample, true);
+        }
+        let bin = '';
+        const bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin);
+      }
+
+      async function onVerifyNativeCaps() {
+        try {
+          const native = props.hostSdk && props.hostSdk.native;
+          if (!native) {
+            nativeCapResult.value = '本地能力失败：缺少 hostSdk.native';
+            return;
+          }
+          const caps = await native.device.getCapabilities();
+          const hasAudioRec = Array.isArray(caps.capabilities) && caps.capabilities.includes('audio.record');
+          const hasAudioPlay = Array.isArray(caps.capabilities) && caps.capabilities.includes('audio.play');
+          const hasPlayNative = Array.isArray(caps.capabilities) && caps.capabilities.includes('media.playNative');
+          await native.device.copyText('mp-native-cap-ok');
+          const clip = await native.device.readClipboard();
+          const awakeOn = await native.device.keepAwake(true);
+          const awakeOff = await native.device.keepAwake(false);
+          const recStatus = await native.audio.getRecordStatus();
+          const wavB64 = buildTinyWavBase64();
+          const playRes = await native.audio.play({ base64: wavB64, mimeType: 'audio/wav', volume: 0.2 });
+          const stopRes = await native.audio.stop();
+          if (
+            caps.platform === 'ios' &&
+            hasAudioRec &&
+            hasAudioPlay &&
+            hasPlayNative &&
+            clip.text === 'mp-native-cap-ok' &&
+            awakeOn.enabled === true &&
+            awakeOff.enabled === false &&
+            recStatus.state === 'idle' &&
+            playRes.playbackId &&
+            stopRes.stopped === true
+          ) {
+            nativeCapResult.value = '本地能力与音频播放自检通过 (' + caps.capabilities.length + ' 项)';
+          } else {
+            nativeCapResult.value = '本地能力校验不完整：' + JSON.stringify({ caps: caps.platform, clip: clip.text, rec: recStatus.state });
+          }
+        } catch (err) {
+          nativeCapResult.value = '本地能力异常：' + (err && err.message ? err.message : String(err));
+        }
+      }
 
       async function loadStatus() {
         try {
@@ -1812,6 +1885,7 @@ function createDemoComponent(Vue, mode) {
                       ]
                     ),
                     h('div', { style: { fontSize: '13px', opacity: '0.85' } }, confirmResult.value),
+                    h('div', { style: { fontSize: '13px', opacity: '0.9', marginTop: '6px' } }, nativeCapResult.value),
                   ]),
                 ],
               }
@@ -1836,6 +1910,11 @@ function createDemoComponent(Vue, mode) {
                           VBtn,
                           { color: 'secondary', variant: 'tonal', onClick: onTriggerConfirm },
                           () => '触发原生确认框'
+                        ),
+                        h(
+                          VBtn,
+                          { color: 'success', variant: 'tonal', onClick: onVerifyNativeCaps },
+                          () => '自检原生音频与硬件能力'
                         ),
                       ]
                     ),

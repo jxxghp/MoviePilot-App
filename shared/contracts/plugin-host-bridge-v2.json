@@ -18,7 +18,8 @@
     "No Bearer token, session secret, or localStorage.auth is ever written into the WebView.",
     "All authenticated plugin API requests traverse bridge message api.request with payload.requestId and are validated to strictly target /api/v1/ on the active MoviePilot instance.",
     "Remote plugin JS/CSS chunks are served through the platform virtual origin and disk-cached under {instanceHash}/{pluginId}/{versionOrHash}/.",
-    "Passive GET /api/v1/ requests (images, icons, plugin static assets) are intercepted and authenticated natively without exposing tokens to JS."
+    "Passive GET /api/v1/ requests (images, icons, plugin static assets) are intercepted and authenticated natively without exposing tokens to JS.",
+    "Native device/media capabilities enforce OS runtime permissions, cap returned base64 payloads at 15 MiB, and release active recordings, inline audio players, and keep-awake locks on plugin.unmount or WebView release."
   ],
   "hostToWebTypes": [
     "plugin.mount",
@@ -28,7 +29,8 @@
     "safeArea.update",
     "nav.back",
     "host.action",
-    "bridge.response"
+    "bridge.response",
+    "device.event"
   ],
   "webToHostTypes": [
     "shell.ready",
@@ -44,8 +46,43 @@
     "nav.backResult",
     "nav.openRoute",
     "nav.openExternal",
+    "device.capabilities",
+    "device.info",
+    "device.permission",
     "device.haptic",
-    "device.clipboard"
+    "device.clipboard",
+    "device.clipboard.read",
+    "device.share",
+    "device.keepAwake",
+    "device.notify",
+    "device.pickMedia",
+    "device.pickFile",
+    "device.saveMedia",
+    "device.scanCode",
+    "device.authenticate",
+    "audio.record.start",
+    "audio.record.pause",
+    "audio.record.resume",
+    "audio.record.stop",
+    "audio.record.cancel",
+    "audio.record.status",
+    "audio.play",
+    "audio.pause",
+    "audio.resume",
+    "audio.stop",
+    "audio.seek",
+    "audio.setRate",
+    "audio.setVolume",
+    "audio.status",
+    "media.playNative"
+  ],
+  "deviceEventNames": [
+    "audio.record.state",
+    "audio.record.level",
+    "audio.play.state",
+    "audio.play.progress",
+    "audio.play.ended",
+    "audio.play.error"
   ],
   "visualTokens": {
     "requiredFields": [

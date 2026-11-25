@@ -27,9 +27,46 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
   static let protocolMajor = 2
 
   weak var webView: WKWebView?
+  weak var nativeSession: NativeSession?
   private var sessionContext: PluginShellSchemeHandler.SessionContext?
   private var inFlightTasks: [String: Task<Void, Never>] = [:]
   private let urlSession: URLSession
+  private lazy var capabilitiesService: PluginNativeCapabilitiesService = {
+    PluginNativeCapabilitiesService(
+      urlSession: self.urlSession,
+      sendResponse: { [weak self] requestId, ok, data, error in
+        guard let self else { return }
+        if ok {
+          self.sendToWeb(
+            type: "bridge.response",
+            payload: [
+              "requestId": requestId,
+              "ok": true,
+              "data": data ?? [:],
+            ]
+          )
+        } else {
+          self.sendAPIError(
+            requestId: requestId,
+            status: error?.status ?? 500,
+            code: error?.code ?? "NATIVE_ERROR",
+            message: error?.message ?? "Native capability failed"
+          )
+        }
+      },
+      sendDeviceEvent: { [weak self] event, data in
+        self?.sendToWeb(
+          type: "device.event",
+          payload: [
+            "event": event,
+            "data": data,
+          ]
+        )
+      },
+      sessionContextProvider: { [weak self] in self?.sessionContext },
+      nativeSessionProvider: { [weak self] in self?.nativeSession }
+    )
+  }()
 
   var onShellReady: (() -> Void)?
   var onPluginMounted: ((_ mountId: String, _ title: String) -> Void)?
@@ -72,6 +109,11 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
       task.cancel()
     }
     inFlightTasks.removeAll()
+  }
+
+  func cleanupNativeCapabilities() {
+    capabilitiesService.cleanup()
+    nativeSession = nil
   }
 
   // MARK: - Host -> Web
@@ -262,10 +304,17 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
     case "device.clipboard":
       if let text = payload["text"] as? String {
         UIPasteboard.general.string = text
+        if let reqId = payload["requestId"] as? String, !reqId.isEmpty {
+          sendToWeb(
+            type: "bridge.response",
+            payload: ["requestId": reqId, "ok": true, "data": ["copied": true]]
+          )
+        }
       }
 
     default:
-      break
+      let requestId = (payload["requestId"] as? String) ?? ""
+      _ = capabilitiesService.handle(type: type, requestId: requestId, payload: payload)
     }
   }
 

@@ -66,6 +66,7 @@
 		A642DFCFFE0254BB381EE957 /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0A56C13BC20DA849FEC8E121 /* MoviePilotCore */; };
 		A7450D804DFEC7AA7069C158 /* NativeSystemRouteHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFCBFC58ED64133835C72B4E /* NativeSystemRouteHub.swift */; };
 		AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C5522D23DCCE1A49988D78B /* NotificationService.swift */; };
+		AC07DD66FE7609C2E207A531 /* PluginNativeCapabilitiesService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D13029A866D8EC8500F1592 /* PluginNativeCapabilitiesService.swift */; };
 		AC5C0E3A9E5BA8C48F089160 /* Provider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA63714518565C74DC4BC92B /* Provider.swift */; };
 		AE1BC677FE3EE056914DD6BA /* VLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 91C7B8794D4CD7E0C76EDFF0 /* VLCKit */; };
 		B3D2A711BFF5C857E13FF960 /* NativeMessagesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6459B12BBE68089FA81AC88 /* NativeMessagesPage.swift */; };
@@ -175,6 +176,7 @@
 		56A041E4198BE71B63A2B109 /* NativeAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppModel.swift; sourceTree = "<group>"; };
 		571C52ACC53E9ADFF2774ACA /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		57AF1DC6B88739AE85862902 /* NativeV2RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2RootView.swift; sourceTree = "<group>"; };
+		5D13029A866D8EC8500F1592 /* PluginNativeCapabilitiesService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginNativeCapabilitiesService.swift; sourceTree = "<group>"; };
 		5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSitesPage.swift; sourceTree = "<group>"; };
 		5F9B30B754752545394EF900 /* Widgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widgets.entitlements; sourceTree = "<group>"; };
 		64E08B040825C4BB1B965C7E /* NativeDiscoverPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDiscoverPage.swift; sourceTree = "<group>"; };
@@ -470,6 +472,7 @@
 				EEA3031D7DC4E14A074F6218 /* LegacyWebsiteStorage.swift */,
 				F2E56EC08A9E0B58E242AF9F /* NativePluginLocalRuntimeView.swift */,
 				9AC3FDF874F421F138E7F0B4 /* PluginHostBridgeV2.swift */,
+				5D13029A866D8EC8500F1592 /* PluginNativeCapabilitiesService.swift */,
 				17BA1AD0A6153767FAE766F9 /* PluginRemoteDiskCache.swift */,
 				B3FF0D1740E03C0842FF3D7E /* PluginRemoteRuntimeModels.swift */,
 				43A6F2A1F8489C21FBF44F14 /* PluginShellSchemeHandler.swift */,
@@ -707,6 +710,7 @@
 				570ED0CADD7D194D0F7AE95E /* PlaybackProgressReporter.swift in Sources */,
 				C3500C0B9397F6B2A29004A1 /* PlaybackRouteResolver.swift in Sources */,
 				E15865E566336959DDC120B0 /* PluginHostBridgeV2.swift in Sources */,
+				AC07DD66FE7609C2E207A531 /* PluginNativeCapabilitiesService.swift in Sources */,
 				0C84D194ABE2A7346BAF979C /* PluginRemoteDiskCache.swift in Sources */,
 				583FB6CD9EF8B2E2AC490998 /* PluginRemoteRuntimeModels.swift in Sources */,
 				FA3F4B6F20008329F812EEEB /* PluginShellSchemeHandler.swift in Sources */,

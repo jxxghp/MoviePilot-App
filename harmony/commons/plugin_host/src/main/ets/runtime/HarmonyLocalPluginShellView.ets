@@ -101,10 +101,15 @@ export struct HarmonyLocalPluginShellView {
         onConfirm: (spec: HarmonyPluginConfirmSpec) => {
           this.presentNativeConfirm(spec);
         },
-        onOpenRoute: (_path: string) => {
-          // 路由扩展保留给外层宿主
+        onOpenRoute: (path: string) => {
+          const parsed: string = RustCoreBridge.parseDeepLinkJson(path);
+          if (parsed && parsed.length > 2) {
+            AppStorage.setOrCreate('mp_pending_deeplink_origin', '');
+            AppStorage.setOrCreate('mp_pending_deeplink', parsed);
+          }
         }
-      }
+      },
+      () => this.getAbilityContext()
     );
     this.onRegisterActions(
       (actionId: string) => {
@@ -125,6 +130,7 @@ export struct HarmonyLocalPluginShellView {
     }
     this.bridge?.sendUnmount();
     this.bridge?.abortAllInFlight();
+    this.bridge?.cleanupNativeCapabilities();
   }
 
   onVisualChanged(): void {
@@ -526,12 +532,50 @@ export struct HarmonyLocalPluginShellView {
       })
         .javaScriptAccess(true)
         .domStorageAccess(true)
+        .mediaPlayGestureAccess(false)
         .backgroundColor(Color.Transparent)
         .javaScriptProxy({
           object: this.bridge ? this.bridge.jsProxy : new HarmonyPluginBridgeJsProxy(() => {}),
           name: HarmonyPluginHostBridgeV2.PROXY_NAME,
           methodList: ['postMessage'],
           controller: this.webController
+        })
+        .onPermissionRequest((ev) => {
+          if (!ev || !ev.request) {
+            return;
+          }
+          const origin = ev.request.getOrigin() ?? '';
+          if (!origin.startsWith(HarmonyLocalPluginShellView.VIRTUAL_ORIGIN)) {
+            ev.request.deny();
+            return;
+          }
+          const resources = ev.request.getAccessibleResource() ?? [];
+          const bridgeRef = this.bridge;
+          if (!bridgeRef) {
+            ev.request.deny();
+            return;
+          }
+          const ensurePermissions = async (): Promise<void> => {
+            let ok = true;
+            for (let i = 0; i < resources.length; i++) {
+              const res = resources[i];
+              if (res === 'TYPE_AUDIO_CAPTURE') {
+                const micOk = await bridgeRef.nativeCapabilities.checkOrRequestOhosPermission('ohos.permission.MICROPHONE', true);
+                if (!micOk) { ok = false; }
+              } else if (res === 'TYPE_VIDEO_CAPTURE') {
+                const camOk = await bridgeRef.nativeCapabilities.checkOrRequestOhosPermission('ohos.permission.CAMERA', true);
+                if (!camOk) { ok = false; }
+              }
+            }
+            if (ok) {
+              ev.request.grant(resources);
+            } else {
+              ev.request.deny();
+            }
+          };
+          ensurePermissions().catch(() => {
+            try { ev.request.deny(); } catch { /* ignore */ }
+          });
         })
         .onInterceptRequest((ev) => {
           if (!ev || !ev.request) {

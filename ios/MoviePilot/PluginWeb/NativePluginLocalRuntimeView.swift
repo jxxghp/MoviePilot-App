@@ -328,6 +328,7 @@ struct NativePluginLocalRuntimeView: View {
 
       // 3. 从预热池借出透明 WKWebView 槽
       let slot = PluginWebViewPool.shared.acquire(context: context)
+      slot.bridge.nativeSession = session
       activeSlot = slot
       bindBridgeCallbacks(for: slot)
 

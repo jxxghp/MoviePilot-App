@@ -1,18 +1,24 @@
 package com.moviepilot.pluginhost.runtime
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
+import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.core.content.ContextCompat
 import com.moviepilot.pluginhost.VuePluginSessionPayload
 
 /**
@@ -95,6 +101,7 @@ object AndroidPluginWebViewPool {
     fun release(slot: PooledAndroidPluginWebView, context: Context, forceDispose: Boolean = false) {
         slot.bridge.sendUnmount()
         slot.bridge.abortAllInFlightRequests()
+        slot.bridge.cleanupNativeCapabilities()
         slot.bridge.clearCallbacks()
         slot.bridge.updateSession(null)
         slot.interceptor.updateSession(null)
@@ -130,6 +137,7 @@ object AndroidPluginWebViewPool {
             }
             activeSlot?.let {
                 it.bridge.abortAllInFlightRequests()
+                it.bridge.cleanupNativeCapabilities()
                 it.bridge.updateSession(null)
                 it.interceptor.updateSession(null)
                 it.state = PooledAndroidPluginWebView.State.DISPOSED
@@ -169,7 +177,58 @@ object AndroidPluginWebViewPool {
             loadWithOverviewMode = true
         }
         wv.addJavascriptInterface(bridge, AndroidPluginHostBridgeV2.JS_INTERFACE_NAME)
-        wv.webChromeClient = WebChromeClient()
+        wv.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest) {
+                val originHost = request.origin?.host.orEmpty()
+                if (!originHost.equals(PluginShellRequestInterceptor.VIRTUAL_HOST, ignoreCase = true)) {
+                    request.deny()
+                    return
+                }
+                val resources = request.resources ?: emptyArray()
+                val needsAudio = PermissionRequest.RESOURCE_AUDIO_CAPTURE in resources
+                val needsVideo = PermissionRequest.RESOURCE_VIDEO_CAPTURE in resources
+                val neededPerms = mutableListOf<String>()
+                if (needsAudio && ContextCompat.checkSelfPermission(appContext, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    neededPerms += Manifest.permission.RECORD_AUDIO
+                }
+                if (needsVideo && ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                    neededPerms += Manifest.permission.CAMERA
+                }
+                if (neededPerms.isEmpty()) {
+                    request.grant(resources)
+                    return
+                }
+                val host = bridge.nativeCapabilities.activityHost
+                if (host == null) {
+                    request.deny()
+                    return
+                }
+                fun requestNext(idx: Int) {
+                    if (idx >= neededPerms.size) {
+                        request.grant(resources)
+                        return
+                    }
+                    host.requestPermission(neededPerms[idx]) { granted ->
+                        if (granted) requestNext(idx + 1) else request.deny()
+                    }
+                }
+                requestNext(0)
+            }
+
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>,
+                fileChooserParams: FileChooserParams,
+            ): Boolean {
+                val host = bridge.nativeCapabilities.activityHost ?: return false
+                val accept = fileChooserParams.acceptTypes?.filter { it.isNotBlank() }.orEmpty()
+                val multiple = fileChooserParams.mode == FileChooserParams.MODE_OPEN_MULTIPLE
+                host.pickFile(accept, multiple) { uris ->
+                    filePathCallback.onReceiveValue(if (uris.isEmpty()) null else uris.toTypedArray())
+                }
+                return true
+            }
+        }
         wv.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(
                 view: WebView,
@@ -210,6 +269,7 @@ object AndroidPluginWebViewPool {
     private fun disposeSlot(slot: PooledAndroidPluginWebView) {
         slot.state = PooledAndroidPluginWebView.State.DISPOSED
         slot.bridge.abortAllInFlightRequests()
+        slot.bridge.cleanupNativeCapabilities()
         slot.bridge.clearCallbacks()
         slot.bridge.updateSession(null)
         slot.interceptor.updateSession(null)

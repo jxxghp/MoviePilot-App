@@ -77,6 +77,36 @@ class AndroidPluginHostBridgeV2(
     @Volatile
     private var activeSession: VuePluginSessionPayload? = null
 
+    val nativeCapabilities: AndroidPluginNativeCapabilities = AndroidPluginNativeCapabilities(
+        appContext = appContext,
+        okHttp = okHttp,
+        executor = executor,
+        sessionProvider = { activeSession },
+        sendResponse = { requestId, ok, data, errorCode, errorStatus, errorMessage ->
+            if (ok) {
+                sendToWeb(
+                    type = "bridge.response",
+                    payload = buildJsonObject {
+                        put("requestId", requestId)
+                        put("ok", true)
+                        put("data", data ?: JsonObject(emptyMap()))
+                    },
+                )
+            } else {
+                sendApiError(requestId, errorStatus, errorCode ?: "NATIVE_ERROR", errorMessage ?: "Native capability failed")
+            }
+        },
+        sendDeviceEvent = { event, data ->
+            sendToWeb(
+                type = "device.event",
+                payload = buildJsonObject {
+                    put("event", event)
+                    put("data", data)
+                },
+            )
+        },
+    )
+
     var onShellReady: (() -> Unit)? = null
     var onPluginMounted: ((mountId: String, title: String) -> Unit)? = null
     var onPluginError: ((stage: String, message: String, recoverable: Boolean) -> Unit)? = null
@@ -105,6 +135,10 @@ class AndroidPluginHostBridgeV2(
         val calls = inFlightCalls.values.toList()
         inFlightCalls.clear()
         calls.forEach { runCatching { it.cancel() } }
+    }
+
+    fun cleanupNativeCapabilities() {
+        nativeCapabilities.cleanup()
     }
 
     // MARK: Host -> Web
@@ -255,10 +289,25 @@ class AndroidPluginHostBridgeV2(
             }
             "device.clipboard" -> {
                 val text = payload["text"]?.strOrNull() ?: return
+                val reqId = payload["requestId"]?.strOrNull().orEmpty()
                 mainHandler.post {
                     val cm = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                     cm?.setPrimaryClip(ClipData.newPlainText("MoviePilot", text))
+                    if (reqId.isNotBlank()) {
+                        sendToWeb(
+                            type = "bridge.response",
+                            payload = buildJsonObject {
+                                put("requestId", reqId)
+                                put("ok", true)
+                                put("data", buildJsonObject { put("copied", true) })
+                            },
+                        )
+                    }
                 }
+            }
+            else -> {
+                val reqId = payload["requestId"]?.strOrNull().orEmpty()
+                nativeCapabilities.handle(type, reqId, payload)
             }
         }
     }

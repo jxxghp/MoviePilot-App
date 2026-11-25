@@ -63,7 +63,7 @@ final class PooledPluginWebView: NSObject {
 /// - 每次打开不同 Vue 插件热复用已有壳实例，单实例复用上限 15 次；
 /// - 响应内存告警、WebContent 进程崩溃、退出登录/切换实例自动销毁并清理态。
 @MainActor
-final class PluginWebViewPool: NSObject, WKNavigationDelegate {
+final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
   static let shared = PluginWebViewPool()
 
   private let maxReusesPerSlot = 15
@@ -124,6 +124,7 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate {
   func release(_ slot: PooledPluginWebView, forceDispose: Bool = false) {
     slot.bridge.sendUnmount()
     slot.bridge.abortAllInFlightRequests()
+    slot.bridge.cleanupNativeCapabilities()
     slot.bridge.clearCallbacks()
     slot.bridge.updateSessionContext(nil)
     slot.schemeHandler.cancelAllRequests()
@@ -165,6 +166,7 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate {
     }
     if let active = activeSlot {
       active.bridge.abortAllInFlightRequests()
+      active.bridge.cleanupNativeCapabilities()
       active.bridge.updateSessionContext(nil)
       active.schemeHandler.cancelAllRequests()
       active.schemeHandler.updateSessionContext(nil)
@@ -186,6 +188,7 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate {
     let config = WKWebViewConfiguration()
     config.websiteDataStore = .nonPersistent()
     config.allowsInlineMediaPlayback = true
+    config.mediaTypesRequiringUserActionForPlayback = []
     config.setURLSchemeHandler(schemeHandler, forURLScheme: PluginShellSchemeHandler.scheme)
     config.userContentController.add(
       WeakPluginHostBridgeV2Handler(bridge),
@@ -194,6 +197,7 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate {
 
     let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: config)
     webView.navigationDelegate = self
+    webView.uiDelegate = self
     // Layer 1：彻底透明背景，包括回弹露底（underPageBackgroundColor）与滚动容器，透出底层原生流光背景。
     webView.isOpaque = false
     webView.backgroundColor = .clear
@@ -216,6 +220,7 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate {
   private func disposeSlot(_ slot: PooledPluginWebView) {
     slot.state = .disposed
     slot.bridge.abortAllInFlightRequests()
+    slot.bridge.cleanupNativeCapabilities()
     slot.bridge.clearCallbacks()
     slot.bridge.updateSessionContext(nil)
     slot.schemeHandler.cancelAllRequests()
@@ -224,7 +229,24 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate {
     slot.webView.configuration.userContentController.removeScriptMessageHandler(
       forName: PluginHostBridgeV2.handlerName)
     slot.webView.navigationDelegate = nil
+    slot.webView.uiDelegate = nil
     slot.webView.removeFromSuperview()
+  }
+
+  // MARK: - WKUIDelegate（仅对可信虚拟源 mp-plugin:// 放行网页标准麦克风/相机捕获权限）
+
+  func webView(
+    _ webView: WKWebView,
+    requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+    initiatedByFrame frame: WKFrameInfo,
+    type: WKMediaCaptureType,
+    decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void
+  ) {
+    if origin.protocol.lowercased() == PluginShellSchemeHandler.scheme {
+      decisionHandler(.grant)
+    } else {
+      decisionHandler(.deny)
+    }
   }
 
   // MARK: - WKNavigationDelegate
