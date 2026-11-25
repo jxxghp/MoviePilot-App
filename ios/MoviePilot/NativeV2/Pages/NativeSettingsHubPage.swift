@@ -2726,10 +2726,12 @@ private struct NativeMediaServerEditorSheet: View {
   }
 }
 
-// MARK: - 5. 播放偏好设置页（本机高频偏好）
+// MARK: - 5. 播放偏好设置页（本机高频偏好 + 媒体服务器进度同步账号绑定）
 
 @MainActor
 struct NativePlaybackPreferencesPage: View {
+  let session: NativeSession
+
   @AppStorage("nativeV2.playback.aspectFill") private var aspectFill = false
   @AppStorage("nativeV2.playback.defaultRate") private var defaultRate = 1.0
   @AppStorage("nativeV2.playback.preferChineseSub") private var preferChineseSub = true
@@ -2737,6 +2739,13 @@ struct NativePlaybackPreferencesPage: View {
   @AppStorage("nativeV2.playback.cellularWarn") private var cellularWarn = false
   @AppStorage("nativeV2.playback.keepMusicMiniBar") private var keepMusicMiniBar = true
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  @State private var accountBindings: [MediaServerAccountBindingDTO] = []
+  @State private var isLoadingBindings = true
+  @State private var bindingsError: String?
+  @State private var bindingSheetTarget: MediaServerAccountBindingDTO?
+  @State private var unbindConfirmTarget: MediaServerAccountBindingDTO?
+  @State private var isUnbinding = false
 
   var body: some View {
     ZStack {
@@ -2805,6 +2814,74 @@ struct NativePlaybackPreferencesPage: View {
                 .frame(minHeight: 54)
             }
           }
+
+          VStack(alignment: .leading, spacing: 10) {
+            HStack {
+              Text("媒体服务器进度同步")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+              Spacer()
+              if !isLoadingBindings {
+                Button {
+                  Task { await loadBindings() }
+                } label: {
+                  Image(systemName: "arrow.clockwise")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("刷新媒体服务器绑定状态")
+              }
+            }
+            .padding(.horizontal, 8)
+
+            CinematicPanel(padding: 0) {
+              if isLoadingBindings && accountBindings.isEmpty {
+                HStack(spacing: 10) {
+                  ProgressView().controlSize(.small)
+                  Text("正在加载媒体服务器同步状态…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+              } else if let bindingsError, accountBindings.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                  Text(bindingsError)
+                    .font(.subheadline)
+                    .foregroundStyle(NativeTheme.danger)
+                  Button("重试") {
+                    Task { await loadBindings() }
+                  }
+                  .font(.subheadline.weight(.semibold))
+                  .tint(appearance.accentColor)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+              } else if accountBindings.isEmpty {
+                Text("暂无已启用的媒体服务器")
+                  .font(.subheadline)
+                  .foregroundStyle(.secondary)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .padding(16)
+              } else {
+                VStack(spacing: 0) {
+                  ForEach(Array(accountBindings.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 {
+                      CinematicFormDivider()
+                    }
+                    bindingRow(item)
+                  }
+                }
+              }
+            }
+
+            Text("绑定 Emby、Jellyfin 或 Plex 个人账号后，播放进度将实时显示在媒体服务器「正在播放」仪表盘中；密码仅用于一次性换取令牌，绝不保存在本地。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .padding(.horizontal, 8)
+          }
         }
         .frame(maxWidth: 740, alignment: .leading)
         .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 16)
@@ -2816,6 +2893,303 @@ struct NativePlaybackPreferencesPage: View {
     .navigationTitle("播放偏好")
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
+    .task {
+      await loadBindings()
+    }
+    .sheet(item: $bindingSheetTarget) { target in
+      NativeMediaServerAccountBindSheet(session: session, target: target) { updated in
+        if let idx = accountBindings.firstIndex(where: { $0.server == updated.server }) {
+          accountBindings[idx] = updated
+        } else {
+          Task { await loadBindings() }
+        }
+      }
+    }
+    .confirmationDialog(
+      "解除账号绑定？",
+      isPresented: Binding(
+        get: { unbindConfirmTarget != nil },
+        set: { if !$0 { unbindConfirmTarget = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      if let target = unbindConfirmTarget {
+        Button("解绑 \(target.server)", role: .destructive) {
+          unbindConfirmTarget = nil
+          Task { await performUnbind(target) }
+        }
+      }
+      Button("取消", role: .cancel) { unbindConfirmTarget = nil }
+    } message: {
+      if let target = unbindConfirmTarget {
+        Text("解绑后将清除 \(target.server) 的个人同步令牌，恢复为服务器默认进度同步模式。")
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func bindingRow(_ item: MediaServerAccountBindingDTO) -> some View {
+    let badge = syncBadge(for: item)
+    HStack(alignment: .center, spacing: 12) {
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 8) {
+          Text(item.server)
+            .font(.body.weight(.medium))
+            .lineLimit(1)
+          Text(badge.label)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(badge.tint)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2.5)
+            .background(badge.tint.opacity(0.14), in: Capsule())
+        }
+        Text(bindingSubtitle(for: item))
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+      }
+      Spacer(minLength: 8)
+      if item.supportsBinding {
+        HStack(spacing: 8) {
+          if item.bound {
+            Button("解绑") {
+              unbindConfirmTarget = item
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(NativeTheme.danger)
+            .buttonStyle(.plain)
+            .disabled(isUnbinding)
+          }
+          Button(item.bound || item.status == "invalid" ? "重绑" : "绑定") {
+            bindingSheetTarget = item
+          }
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(appearance.accentColor)
+          .padding(.horizontal, 11)
+          .padding(.vertical, 6)
+          .background(appearance.accentColor.opacity(0.14), in: Capsule())
+          .buttonStyle(.plain)
+        }
+      }
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 13)
+  }
+
+  private func syncBadge(for item: MediaServerAccountBindingDTO) -> (label: String, tint: Color) {
+    if item.status == "invalid" {
+      return ("凭据已失效", NativeTheme.danger)
+    }
+    switch item.syncMode {
+    case "session":
+      return ("实时会话同步", Color.green)
+    case "userdata":
+      return ("仅进度同步", Color.orange)
+    case "scrobble":
+      return ("音乐记录", Color.blue)
+    default:
+      return ("暂不支持", Color.secondary)
+    }
+  }
+
+  private func bindingSubtitle(for item: MediaServerAccountBindingDTO) -> String {
+    let typeName = item.serverType.uppercased()
+    if item.status == "invalid" {
+      return "\(typeName) · 已保存的令牌失效，请重新绑定以恢复实时播放会话"
+    }
+    if item.bound, let remote = item.remoteUsername, !remote.isEmpty {
+      return "\(typeName) · 已绑定账号 \(remote)"
+    }
+    if item.status == "builtin" {
+      return "\(typeName) · 已内置启用同步，无需单独绑定"
+    }
+    if item.supportsBinding {
+      return item.syncMode == "session"
+        ? "\(typeName) · 当前走服务端共享身份，绑定个人账号可归属到本人"
+        : "\(typeName) · 绑定个人账号后可升级为实时「正在播放」会话"
+    }
+    return "\(typeName) · 当前媒体服务器不支持播放进度回写"
+  }
+
+  private func loadBindings() async {
+    isLoadingBindings = true
+    bindingsError = nil
+    defer { isLoadingBindings = false }
+    do {
+      accountBindings = try await MediaServerAccountBindingClient.listBindings(session: session)
+    } catch {
+      bindingsError = error.localizedDescription
+    }
+  }
+
+  private func performUnbind(_ target: MediaServerAccountBindingDTO) async {
+    isUnbinding = true
+    defer { isUnbinding = false }
+    do {
+      try await MediaServerAccountBindingClient.unbind(session: session, server: target.server)
+      await loadBindings()
+    } catch {
+      bindingsError = error.localizedDescription
+    }
+  }
+}
+
+/// 媒体服务器个人账号一次性绑定弹窗（密码仅用于向媒体服务器换取个人令牌，绝不保存在本地）。
+@MainActor
+private struct NativeMediaServerAccountBindSheet: View {
+  let session: NativeSession
+  let target: MediaServerAccountBindingDTO
+  let onBound: (MediaServerAccountBindingDTO) -> Void
+
+  @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+
+  @State private var usePlexToken = false
+  @State private var username: String
+  @State private var password = ""
+  @State private var plexToken = ""
+  @State private var isSubmitting = false
+  @State private var errorMessage: String?
+
+  init(
+    session: NativeSession,
+    target: MediaServerAccountBindingDTO,
+    onBound: @escaping (MediaServerAccountBindingDTO) -> Void
+  ) {
+    self.session = session
+    self.target = target
+    self.onBound = onBound
+    _username = State(initialValue: target.remoteUsername ?? session.user.name)
+  }
+
+  private var isPlex: Bool {
+    target.serverType.lowercased() == "plex"
+  }
+
+  private var canSubmit: Bool {
+    guard !isSubmitting else { return false }
+    if isPlex && usePlexToken {
+      return !plexToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    return !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
+  }
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        CinematicBackground()
+        ScrollView {
+          VStack(alignment: .leading, spacing: 18) {
+            if isPlex {
+              Picker("认证方式", selection: $usePlexToken) {
+                Text("账号密码").tag(false)
+                Text("Plex Token").tag(true)
+              }
+              .pickerStyle(.segmented)
+            }
+
+            CinematicPanel(padding: 0) {
+              VStack(spacing: 0) {
+                if isPlex && usePlexToken {
+                  HStack(spacing: 12) {
+                    Text("Token").font(.subheadline).frame(width: 72, alignment: .leading)
+                    SecureField("粘贴 X-Plex-Token", text: $plexToken)
+                      .font(.subheadline)
+                      .multilineTextAlignment(.trailing)
+                      .textInputAutocapitalization(.never)
+                      .autocorrectionDisabled()
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 12)
+                } else {
+                  HStack(spacing: 12) {
+                    Text("用户名").font(.subheadline).frame(width: 72, alignment: .leading)
+                    TextField("媒体服务器登录用户名", text: $username)
+                      .font(.subheadline)
+                      .multilineTextAlignment(.trailing)
+                      .textInputAutocapitalization(.never)
+                      .autocorrectionDisabled()
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 12)
+                  CinematicFormDivider()
+                  HStack(spacing: 12) {
+                    Text("密码").font(.subheadline).frame(width: 72, alignment: .leading)
+                    SecureField("媒体服务器登录密码", text: $password)
+                      .font(.subheadline)
+                      .multilineTextAlignment(.trailing)
+                  }
+                  .padding(.horizontal, 15).padding(.vertical, 12)
+                }
+              }
+            }
+
+            if let errorMessage, !errorMessage.isEmpty {
+              Text(errorMessage)
+                .font(.caption)
+                .foregroundStyle(NativeTheme.danger)
+                .padding(.horizontal, 6)
+            }
+
+            Text(
+              isPlex && usePlexToken
+                ? "开启两步验证（2FA）的 Plex 账号请直接粘贴个人 X-Plex-Token 完成绑定。"
+                : "账号密码仅提交给 MoviePilot 后台向 \(target.server) 一次性换取加密个人令牌，不会在设备或服务端明文保留密码。"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+          }
+          .padding(.horizontal, CinematicStyle.margin)
+          .padding(.vertical, 16)
+        }
+      }
+      .navigationTitle("绑定 \(target.server)")
+      .navigationBarTitleDisplayMode(.inline)
+      .nativeTopNavigationBar()
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("取消") { dismiss() }
+            .tint(.primary)
+            .disabled(isSubmitting)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            Task { await submit() }
+          } label: {
+            if isSubmitting {
+              ProgressView().controlSize(.small)
+            } else {
+              Text("绑定").fontWeight(.semibold)
+            }
+          }
+          .tint(appearance.accentColor)
+          .disabled(!canSubmit)
+        }
+      }
+    }
+    .nativeGlassSheet()
+  }
+
+  private func submit() async {
+    isSubmitting = true
+    errorMessage = nil
+    defer {
+      isSubmitting = false
+      password = ""
+      plexToken = ""
+    }
+    do {
+      let updated = try await MediaServerAccountBindingClient.bind(
+        session: session,
+        server: target.server,
+        username: usePlexToken ? nil : username,
+        password: usePlexToken ? nil : password,
+        token: usePlexToken ? plexToken : nil
+      )
+      onBound(updated)
+      dismiss()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
   }
 }
 

@@ -218,7 +218,10 @@ fun MusicAlbumDetailScreen(
                     headers = manifest.headers,
                     itemId = manifest.itemId,
                     server = manifest.server,
+                    serverType = manifest.serverType,
                     mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                    playSessionId = manifest.playSessionId,
+                    progressSyncMode = manifest.progressSyncMode,
                     queue = queue,
                     queueIndex = targetIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0)),
                 )

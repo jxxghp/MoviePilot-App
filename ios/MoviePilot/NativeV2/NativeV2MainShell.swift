@@ -215,6 +215,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         await loadDiscovery(forceRefresh: discoveryAttempt > 0)
       }
     }
+    .onReceive(NotificationCenter.default.publisher(for: .moviePilotPlaybackDidStop)) { _ in
+      guard canDiscover else { return }
+      Task { await loadDiscovery(forceRefresh: true) }
+    }
     .onChange(of: snapshot.user.permissions) { _ in
       if !canDiscover {
         discovery = NativeDiscoverContent(
@@ -1390,7 +1394,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     case .mediaServersManage:
       NativeMediaServersManagePage(session: session)
     case .playbackSettings:
-      NativePlaybackPreferencesPage()
+      NativePlaybackPreferencesPage(session: session)
     }
   }
 

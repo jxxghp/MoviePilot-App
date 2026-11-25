@@ -4,8 +4,9 @@ use mp_core_api::{
     ApiEndpoint, ResourceFilterCriteria, ResourceFilterEngine, ResourceItem, SseStreamParser,
 };
 use mp_core_model::{
-    AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, PlayableMediaFormat, ServerAddress,
-    SubscribeProgressModel,
+    AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, PendingPlaybackStop,
+    PlayableMediaFormat, PlaybackProgressPlanner, PlaybackSyncInput, PlaybackSyncState,
+    ServerAddress, SubscribeProgressModel,
 };
 use mp_core_plugin::{NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder};
 use mp_core_session::{NativePermissions, classify_auth_status, decode_jwt_claims};
@@ -394,6 +395,40 @@ pub fn compute_subscribe_progress(total_episode: i32, lack_episode: i32) -> Subs
         ratio: p.ratio,
         label: p.label,
     }
+}
+
+/// 执行一次跨端播放进度与实时会话上报状态机推演，返回决策及下一状态 JSON。
+#[uniffi::export]
+pub fn plan_playback_sync_step_json(
+    state_json: String,
+    input_json: String,
+) -> Result<String, CoreFfiError> {
+    let state: PlaybackSyncState = if state_json.trim().is_empty() {
+        PlaybackSyncState::default()
+    } else {
+        serde_json::from_str(&state_json)
+            .map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })?
+    };
+    let input: PlaybackSyncInput = serde_json::from_str(&input_json)
+        .map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })?;
+    let decision = PlaybackProgressPlanner::step(&state, &input);
+    serde_json::to_string(&decision).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 规整离线待补报 `stopped` 队列（去重、清理 7 天过期项并裁剪至上限）。
+#[uniffi::export]
+pub fn normalize_pending_playback_stops_json(
+    entries_json: String,
+    now_epoch_ms: i64,
+) -> Result<String, CoreFfiError> {
+    let entries: Vec<PendingPlaybackStop> = if entries_json.trim().is_empty() {
+        Vec::new()
+    } else {
+        serde_json::from_str(&entries_json)
+            .map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })?
+    };
+    let normalized = PlaybackProgressPlanner::normalize_pending_stops(entries, now_epoch_ms);
+    serde_json::to_string(&normalized).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
 }
 
 /// 返回 Rust 共享内核版本号，用于三端 FFI 冒烟健康检查。

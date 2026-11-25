@@ -167,6 +167,7 @@
     <string name="mp_5b6bd8b2" formatted="false">無法存取安全儲存，請解鎖裝置後重試。</string>
     <string name="mp_5c8a9476" formatted="false">當前安裝</string>
     <string name="mp_5e8c6fba" formatted="false">%1$s\n將清除此服務保存的帳號密碼、登錄狀態和網頁資料。</string>
+    <string name="mp_5ea60e8a" formatted="false">即時會話同步</string>
     <string name="mp_5f83e7f6" formatted="false">基礎</string>
     <string name="mp_637471eb" formatted="false">管理員已建立，請登入。</string>
     <string name="mp_63f6267b" formatted="false">訂閱與搜尋</string>
@@ -188,6 +189,7 @@
     <string name="mp_6ba4b7be" formatted="false">繼續觀看？</string>
     <string name="mp_6c14bd7f" formatted="false">關閉</string>
     <string name="mp_6d09dc34" formatted="false">插件中心</string>
+    <string name="mp_6ed2d0f9" formatted="false">解除綁定</string>
     <string name="mp_6f22a707" formatted="false">超級管理員</string>
     <string name="mp_70322e1a" formatted="false">插件圖標已加載</string>
     <string name="mp_70b20820" formatted="false">選擇</string>
@@ -195,6 +197,7 @@
     <string name="mp_7262b781" formatted="false">頁面準備完成後會自動進入，也可以立即重試或切換服務地址。</string>
     <string name="mp_7328deeb" formatted="false">連接</string>
     <string name="mp_73f8f537" formatted="false">每小時</string>
+    <string name="mp_740edb82" formatted="false">暫無已啟用的媒體伺服器</string>
     <string name="mp_743aaf95" formatted="false">已選擇</string>
     <string name="mp_75930b7d" formatted="false">主題與外觀</string>
     <string name="mp_75ae6a8a" formatted="false">顯示名稱</string>
@@ -208,6 +211,7 @@
     <string name="mp_7a5c0fd3" formatted="false">播放進度</string>
     <string name="mp_7a66c0d0" formatted="false">通知</string>
     <string name="mp_7d126146" formatted="false">刪除服務？</string>
+    <string name="mp_7d34369f" formatted="false">媒體伺服器進度同步與賬號綁定</string>
     <string name="mp_7debf9cb" formatted="false">設定</string>
     <string name="mp_7e45236f" formatted="false">分類探索</string>
     <string name="mp_7ea6ff3e" formatted="false">無法讀取播放資訊，請確認影片仍在媒體庫中並檢查後台連接。</string>
@@ -250,15 +254,18 @@
     <string name="mp_a0fb96d8" formatted="false">刪除已保存的服務？</string>
     <string name="mp_a1aaf352" formatted="false">用戶名</string>
     <string name="mp_a3148a4e" formatted="false">登錄你的服務，繼續管理訂閱與媒體。</string>
+    <string name="mp_a336277e" formatted="false">綁定媒體伺服器賬號</string>
     <string name="mp_a3ccf702" formatted="false">資料源</string>
     <string name="mp_a3ed811e" formatted="false">身份驗證器驗證碼</string>
     <string name="mp_a4474dd6" formatted="false">帳號與服務</string>
     <string name="mp_a5d9fdec" formatted="false">歡迎回來</string>
     <string name="mp_a61b00ed" formatted="false">資料待更新</string>
     <string name="mp_a690898d" formatted="false">當前簽名使用主屏幕通知</string>
+    <string name="mp_a721506c" formatted="false">憑證已失效</string>
     <string name="mp_a7786512" formatted="false">指定值</string>
     <string name="mp_a82c993d" formatted="false">我的</string>
     <string name="mp_a858e8aa" formatted="false">放棄未儲存的修改？</string>
+    <string name="mp_a8a0e7bb" formatted="false">重新綁定</string>
     <string name="mp_a95436c3" formatted="false">上次播放到 %1$s。</string>
     <string name="mp_aa9d83ef" formatted="false">懸浮智慧助手</string>
     <string name="mp_aaa5f2e9" formatted="false">字幕</string>
@@ -318,9 +325,11 @@
     <string name="mp_bd03b5c1" formatted="false">已啓用，只讀顯示當前帳號允許的內容。</string>
     <string name="mp_bde0b46a" formatted="false">密碼僅在本機安全儲存，驗證碼不會儲存。</string>
     <string name="mp_be7f8395" formatted="false">記住帳號密碼</string>
+    <string name="mp_bfc04721" formatted="false">密碼僅用於一次性換取存取權杖，不會儲存明文密碼。</string>
     <string name="mp_c15ac3ec" formatted="false">選擇字幕</string>
     <string name="mp_c1f0f76d" formatted="false">訂閱行事曆</string>
     <string name="mp_c2e7e96e" formatted="false">編輯排程</string>
+    <string name="mp_c46b84fe" formatted="false">僅進度同步</string>
     <string name="mp_c493338e" formatted="false">自訂</string>
     <string name="mp_c4ad2079" formatted="false">返回全螢幕</string>
     <string name="mp_c4e4c1a7" formatted="false">設定已儲存</string>
@@ -364,6 +373,7 @@
     <string name="mp_d53f301f" formatted="false">完整運算式</string>
     <string name="mp_d5bb6069" formatted="false">頁面仍在加載，正在等待連接和頁面資源就緒。</string>
     <string name="mp_d5d8edd1" formatted="false">介面語言</string>
+    <string name="mp_d806ebc1" formatted="false">驗證並綁定</string>
     <string name="mp_d84b7c84" formatted="false">每月最後一天</string>
     <string name="mp_d91f9f56" formatted="false">選取項目過多</string>
     <string name="mp_d949ea44" formatted="false">彈窗操作</string>
@@ -404,6 +414,7 @@
     <string name="mp_ee87f6ec" formatted="false">伺服器通知管道</string>
     <string name="mp_ef84e765" formatted="false">管理員</string>
     <string name="mp_efd9aa2e" formatted="false">下載狀態</string>
+    <string name="mp_emby_jellyfin_plex_377a4835" formatted="false">綁定個人媒體伺服器賬號後，在播放時可向 Emby / Jellyfin / Plex 儀表板即時同步正在播放狀態與精準進度。</string>
     <string name="mp_f0409080" formatted="false">搜尋</string>
     <string name="mp_f0739f4f" formatted="false">此實例要求客戶端證書，請使用網頁登錄。</string>
     <string name="mp_f12849f1" formatted="false">切換服務</string>
@@ -429,6 +440,7 @@
     <string name="mp_fc58bba4" formatted="false">自定義探索</string>
     <string name="mp_fcabadb2" formatted="false">正在讀取…</string>
     <string name="mp_fd099e4d" formatted="false">此外掛沒有設定項目</string>
+    <string name="mp_fd17e559" formatted="false">音樂記錄</string>
     <string name="mp_fd3b1706" formatted="false">無法產生安全金鑰，請重試。</string>
     <string name="mp_fd60ff58" formatted="false">訊息推播設定</string>
     <string name="mp_fdad07e6" formatted="false">下載速度 %1$s，上傳速度 %2$s</string>
@@ -465,6 +477,7 @@
     <string name="mp_moviepilot_d6f2bdb1" formatted="false">登出後需要重新輸入帳號密碼或憑證登入目前 MoviePilot 服務。</string>
     <string name="mp_moviepilot_e7f15286" formatted="false">當前頁面暫不支持，請更新 MoviePilot 後重試。</string>
     <string name="mp_moviepilot_f5a7ce49" formatted="false">長按主屏幕空白處，選擇“編輯”→“添加小組件”，搜索 MoviePilot。鎖屏可在自定中添加；向右滑到今天視圖，也可添加。編輯小組件可選擇服務和內容。</string>
+    <string name="mp_plex_x_plex_token_4678f466" formatted="false">Plex 存取權杖 (X-Plex-Token)</string>
     <string name="mp_push_notifications_serve_8bf6a5ef" formatted="false">使用帶 Push Notifications 能力的簽名和已配置的 Server 後開啓。</string>
     <string name="mp_safari_app_24c9c662" formatted="false">在 Safari 開啟通知網頁，加入主畫面，再從主畫面開啟並輸入綁定碼。通知由主畫面網頁接收，點擊後可返回 App。</string>
     <string name="mp_web_7f1d362a" formatted="false">此外掛使用 Web 介面，相容入口正在遷移。</string>

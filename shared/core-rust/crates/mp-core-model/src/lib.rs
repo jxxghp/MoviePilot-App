@@ -4,11 +4,16 @@
 pub mod deep_link;
 pub mod markdown;
 pub mod medals;
+pub mod playback_sync;
 pub mod server_address;
 pub mod subscribe;
 
 pub use deep_link::{AppDeepLink, PlayableMediaFormat, PlayableMediaKind, StrmStreamSpec};
 pub use markdown::{AgentMarkdownParser, MarkdownBlock, MarkdownBlockKind};
 pub use medals::{CommunityMedalPalette, CommunityMedalsModel};
+pub use playback_sync::{
+    PendingPlaybackStop, PlaybackProgressPlanner, PlaybackSyncDecision, PlaybackSyncInput,
+    PlaybackSyncState, PlaybackSyncTrigger,
+};
 pub use server_address::{ServerAddress, ServerAddressError};
 pub use subscribe::{SubscribeProgress, SubscribeProgressModel};

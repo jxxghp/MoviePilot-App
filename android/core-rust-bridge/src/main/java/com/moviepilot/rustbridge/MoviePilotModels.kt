@@ -731,7 +731,10 @@ data class MediaStreamSubtitleDto(
 data class MediaPlaybackManifestDto(
     val itemId: String = "",
     val server: String = "",
+    @SerialName("server_type") val serverType: String = "",
     @SerialName("media_source_id") val mediaSourceId: String? = null,
+    @SerialName("play_session_id") val playSessionId: String? = null,
+    @SerialName("progress_sync_mode") val progressSyncMode: String? = null,
     val mediaType: String = "video",
     val title: String = "",
     val contentUrl: String = "",
@@ -744,6 +747,76 @@ data class MediaPlaybackManifestDto(
     val resumePositionMs: Long = 0L,
     val headers: Map<String, String> = emptyMap(),
     val sameOriginHeaders: Map<String, String> = emptyMap(),
+)
+
+/** 当前用户在单个媒体服务器上的脱敏账号绑定与同步模式状态。 */
+@Serializable
+data class MediaServerAccountBindingDto(
+    val server: String = "",
+    @SerialName("server_type") val serverType: String = "",
+    @SerialName("sync_mode") val syncMode: String = "none",
+    @SerialName("supports_binding") val supportsBinding: Boolean = false,
+    val bound: Boolean = false,
+    val status: String = "unsupported",
+    @SerialName("remote_username") val remoteUsername: String? = null,
+    val source: String? = null,
+    @SerialName("updated_at") val updatedAt: Long? = null,
+)
+
+/** 跨端播放同步状态机持久化快照（对齐 Rust `PlaybackSyncState`）。 */
+@Serializable
+data class PlaybackSyncStateDto(
+    @SerialName("play_session_id") val playSessionId: String = "",
+    @SerialName("started_sent") val startedSent: Boolean = false,
+    @SerialName("stopped_sent") val stoppedSent: Boolean = false,
+    @SerialName("paused_since_ms") val pausedSinceMs: Long? = null,
+    @SerialName("last_report_at_ms") val lastReportAtMs: Long? = null,
+    @SerialName("last_playing_tick_at_ms") val lastPlayingTickAtMs: Long? = null,
+    @SerialName("last_seek_at_ms") val lastSeekAtMs: Long? = null,
+    @SerialName("cumulative_playback_time_ms") val cumulativePlaybackTimeMs: Long = 0L,
+    val seq: Long = 0L,
+    @SerialName("last_position_ms") val lastPositionMs: Long = 0L,
+    @SerialName("last_audio_stream_index") val lastAudioStreamIndex: Int? = null,
+    @SerialName("last_subtitle_stream_index") val lastSubtitleStreamIndex: Int? = null,
+)
+
+/** 播放同步单步规划输入（对齐 Rust `PlaybackSyncInput`）。 */
+@Serializable
+data class PlaybackSyncInputDto(
+    val trigger: String,
+    @SerialName("now_ms") val nowMs: Long,
+    @SerialName("position_ms") val positionMs: Long,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    @SerialName("is_paused") val isPaused: Boolean = false,
+    @SerialName("audio_stream_index") val audioStreamIndex: Int? = null,
+    @SerialName("subtitle_stream_index") val subtitleStreamIndex: Int? = null,
+)
+
+/** 播放同步单步规划输出（对齐 Rust `PlaybackSyncDecision`）。 */
+@Serializable
+data class PlaybackSyncDecisionDto(
+    @SerialName("should_report") val shouldReport: Boolean = false,
+    val state: String = "playing",
+    @SerialName("event_name") val eventName: String? = null,
+    @SerialName("is_paused") val isPaused: Boolean = false,
+    @SerialName("position_ms") val positionMs: Long = 0L,
+    @SerialName("playback_time_ms") val playbackTimeMs: Long = 0L,
+    val seq: Long = 0L,
+    @SerialName("next_state") val nextState: PlaybackSyncStateDto = PlaybackSyncStateDto(),
+)
+
+/** 离线或网络异常时持久化的终态 `stopped` 补报条目（对齐 Rust `PendingPlaybackStop`）。 */
+@Serializable
+data class PendingPlaybackStopDto(
+    val server: String,
+    @SerialName("item_id") val itemId: String,
+    @SerialName("media_source_id") val mediaSourceId: String? = null,
+    @SerialName("position_ms") val positionMs: Long = 0L,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    @SerialName("play_session_id") val playSessionId: String? = null,
+    @SerialName("playback_time_ms") val playbackTimeMs: Long? = null,
+    val seq: Long? = null,
+    @SerialName("updated_at_ms") val updatedAtMs: Long = 0L,
 )
 
 /** 存储文件播放解析结果：普通文件返回本地缓存 URI，`.strm` 文件解析后返回客户端 HTTP(S) 直链与可选请求头。 */

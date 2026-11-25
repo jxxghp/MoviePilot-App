@@ -13,6 +13,7 @@ import os
 struct MediaPlaybackManifest: Decodable, Sendable {
   let itemId: String
   let server: String?
+  let serverType: String?
   let title: String
   let contentUrl: URL
   let strmUrl: URL?
@@ -23,12 +24,15 @@ struct MediaPlaybackManifest: Decodable, Sendable {
   let subtitles: [MediaPlaybackSubtitle]
   let lyricsUrl: URL?
   let mediaSourceId: String?
+  let playSessionId: String?
+  let progressSyncMode: String?
   let resumePositionMs: Int?
   let durationMs: Int?
 
   private enum CodingKeys: String, CodingKey {
     case itemId
     case server
+    case serverType
     case title
     case contentUrl
     case strmUrl
@@ -38,6 +42,8 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     case subtitles
     case lyricsUrl
     case mediaSourceId
+    case playSessionId
+    case progressSyncMode
     case resumePositionMs
     case durationMs
   }
@@ -45,6 +51,7 @@ struct MediaPlaybackManifest: Decodable, Sendable {
   init(
     itemId: String,
     server: String?,
+    serverType: String? = nil,
     title: String,
     contentUrl: URL,
     strmUrl: URL? = nil,
@@ -55,11 +62,14 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     subtitles: [MediaPlaybackSubtitle],
     lyricsUrl: URL?,
     mediaSourceId: String? = nil,
+    playSessionId: String? = nil,
+    progressSyncMode: String? = nil,
     resumePositionMs: Int? = nil,
     durationMs: Int? = nil
   ) {
     self.itemId = itemId
     self.server = server
+    self.serverType = serverType
     self.title = title
     self.contentUrl = contentUrl
     self.strmUrl = strmUrl
@@ -70,6 +80,8 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     self.subtitles = subtitles
     self.lyricsUrl = lyricsUrl
     self.mediaSourceId = mediaSourceId
+    self.playSessionId = playSessionId
+    self.progressSyncMode = progressSyncMode
     self.resumePositionMs = resumePositionMs
     self.durationMs = durationMs
   }
@@ -78,6 +90,7 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     itemId = try container.decode(String.self, forKey: .itemId)
     server = try container.decodeIfPresent(String.self, forKey: .server)
+    serverType = try container.decodeIfPresent(String.self, forKey: .serverType)
     title = try container.decode(String.self, forKey: .title)
     contentUrl = try container.decode(URL.self, forKey: .contentUrl)
     let rawStrm = try container.decodeIfPresent(String.self, forKey: .strmUrl)
@@ -90,6 +103,8 @@ struct MediaPlaybackManifest: Decodable, Sendable {
       try container.decodeIfPresent([MediaPlaybackSubtitle].self, forKey: .subtitles) ?? []
     lyricsUrl = try container.decodeIfPresent(URL.self, forKey: .lyricsUrl)
     mediaSourceId = try container.decodeIfPresent(String.self, forKey: .mediaSourceId)
+    playSessionId = try container.decodeIfPresent(String.self, forKey: .playSessionId)
+    progressSyncMode = try container.decodeIfPresent(String.self, forKey: .progressSyncMode)
     resumePositionMs = try container.decodeIfPresent(Int.self, forKey: .resumePositionMs)
     durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
   }
@@ -193,6 +208,10 @@ final class MediaPlaybackClient {
     var request = URLRequest(url: url)
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
+    let clientHeaders = await MainActor.run { PlaybackProgressReporter.shared.clientHeaders() }
+    for (headerName, headerValue) in clientHeaders {
+      request.setValue(headerValue, forHTTPHeaderField: headerName)
+    }
     let (data, response) = try await session.data(for: request)
     guard let response = response as? HTTPURLResponse else {
       throw MediaPlaybackError.unavailable
@@ -236,7 +255,8 @@ final class MediaPlaybackClient {
     return manifest
   }
 
-  /// 尽力将当前播放位置和状态异步回传给媒体服务器（不阻塞交互、失败静默忽略）。
+  /// 将当前播放位置、会话生命周期及轨道上下文异步回传给媒体服务器，返回 HTTP 2xx 是否成功。
+  @discardableResult
   func reportProgress(
     itemId: String,
     server: String?,
@@ -244,9 +264,22 @@ final class MediaPlaybackClient {
     positionMs: Int,
     durationMs: Int?,
     isPaused: Bool,
-    state: String
-  ) async {
-    guard let server, !server.isEmpty, !itemId.isEmpty, !itemId.hasPrefix("file.") else { return }
+    state: String,
+    eventName: String? = nil,
+    playSessionId: String? = nil,
+    clientId: String? = nil,
+    deviceName: String? = nil,
+    platform: String? = "iOS",
+    appVersion: String? = nil,
+    playMethod: String = "DirectPlay",
+    playbackTimeMs: Int? = nil,
+    audioStreamIndex: Int? = nil,
+    subtitleStreamIndex: Int? = nil,
+    seq: Int? = nil
+  ) async -> Bool {
+    guard let server, !server.isEmpty, !itemId.isEmpty, !itemId.hasPrefix("file."),
+      !itemId.hasPrefix("file:")
+    else { return false }
     let url = endpoint(["api", "v1", "mediaserver", "progress"])
     var payload: [String: Any] = [
       "item_id": itemId,
@@ -254,16 +287,32 @@ final class MediaPlaybackClient {
       "position_ms": max(0, positionMs),
       "is_paused": isPaused,
       "state": state,
+      "play_method": playMethod,
     ]
     if let mediaSourceId, !mediaSourceId.isEmpty { payload["media_source_id"] = mediaSourceId }
     if let durationMs, durationMs > 0 { payload["duration_ms"] = durationMs }
-    guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
+    if let eventName, !eventName.isEmpty { payload["event_name"] = eventName }
+    if let playSessionId, !playSessionId.isEmpty { payload["play_session_id"] = playSessionId }
+    if let clientId, !clientId.isEmpty { payload["client_id"] = clientId }
+    if let deviceName, !deviceName.isEmpty { payload["device_name"] = deviceName }
+    if let platform, !platform.isEmpty { payload["platform"] = platform }
+    if let appVersion, !appVersion.isEmpty { payload["app_version"] = appVersion }
+    if let playbackTimeMs, playbackTimeMs >= 0 { payload["playback_time_ms"] = playbackTimeMs }
+    if let audioStreamIndex, audioStreamIndex >= 0 {
+      payload["audio_stream_index"] = audioStreamIndex
+    }
+    if let subtitleStreamIndex { payload["subtitle_stream_index"] = subtitleStreamIndex }
+    if let seq, seq >= 0 { payload["seq"] = seq }
+    guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return false }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
     request.httpBody = body
-    _ = try? await session.data(for: request)
+    guard let (_, response) = try? await session.data(for: request),
+      let http = response as? HTTPURLResponse
+    else { return false }
+    return (200..<300).contains(http.statusCode)
   }
 
   /// 下载所选外挂字幕到 App 临时目录，避免把账号令牌放进播放器 URL。
@@ -353,6 +402,10 @@ final class MediaPlaybackClient {
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    let clientHeaders = await MainActor.run { PlaybackProgressReporter.shared.clientHeaders() }
+    for (headerName, headerValue) in clientHeaders {
+      request.setValue(headerValue, forHTTPHeaderField: headerName)
+    }
     request.httpBody = try JSONEncoder().encode(payload)
     let (data, response) = try await session.data(for: request)
     guard let response = response as? HTTPURLResponse else {
@@ -516,7 +569,7 @@ final class MediaPlaybackClient {
       url.path == endpoint(["api", "v1", "mediaserver", "stream"]).path,
       let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
     else { return false }
-    let allowedNames: Set<String> = ["itemid", "server", "media_source_id"]
+    let allowedNames: Set<String> = ["itemid", "server", "media_source_id", "play_session_id"]
     guard queryItems.allSatisfy({ allowedNames.contains($0.name) }),
       Set(queryItems.map(\.name)).count == queryItems.count,
       queryItems.first(where: { $0.name == "itemid" })?.value == itemId,
@@ -730,8 +783,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private var lastObservedDurationMs = 0
   private var hasPlayedCurrentItem = false
   private var didFallbackFromStrmDirect = false
-  private var lastProgressReportAt: Date = .distantPast
-  private var progressReportTask: Task<Void, Never>?
+  private var syncState = PlaybackSyncState()
 
   // Music utility bar buttons
   private let lyricsToggleButton = UIButton(type: .system)
@@ -860,6 +912,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     self.instanceId = instanceId
     self.itemId = itemId
     self.displayTitle = displayTitle
+    self.syncState = PlaybackSyncState(
+      playSessionId: manifest.playSessionId ?? UUID().uuidString.lowercased()
+    )
     self.artworkURL = artworkURL
     self.initialArtwork = initialArtwork
     self.deleteContentFileOnClose = deleteContentFileOnClose
@@ -888,6 +943,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     guard configurePlayer() else { return }
     configureAudioSession()
     configureRemoteCommands()
+    configureAppLifecycleObservers()
+    if let client {
+      PlaybackProgressReporter.shared.flushPendingStops(using: client)
+    }
     updateTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.refreshPlaybackState() }
     }
@@ -2486,12 +2545,13 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private func handlePossiblePlaybackCompletion() {
     guard hasPlayedCurrentItem, trackSwitchTask == nil, !resumeDecisionPending else { return }
     let duration = max(lastObservedDurationMs, Int(player.media?.length.intValue ?? 0))
-    let position = max(lastObservedPositionMs, Int(player.time.intValue))
+    let livePosition = Int(player.time.intValue)
+    let position = livePosition > 0 ? livePosition : lastObservedPositionMs
     let nearEnd =
       duration > 5_000
       && (position >= duration * 93 / 100 || (duration - position) <= 3_500)
     guard nearEnd else { return }
-    reportPlaybackProgress(state: "stopped", force: true)
+    reportPlaybackEvent(.finish, positionOverrideMs: duration > 0 ? duration : position)
     guard queue.indices.contains(queueIndex + 1) else { return }
     if isAudioPlayback {
       playNextTrack()
@@ -2591,29 +2651,98 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 向源媒体服务器异步回传播放进度（每 15 秒节流，暂停/停止立即发送）。
-  private func reportPlaybackProgress(state: String, force: Bool = false) {
-    guard let client, let server = manifest.server, !server.isEmpty else { return }
-    let now = Date()
-    if !force && now.timeIntervalSince(lastProgressReportAt) < 15 { return }
-    lastProgressReportAt = now
-    let position = max(lastObservedPositionMs, Int(player.time.intValue))
-    let duration = max(lastObservedDurationMs, Int(player.media?.length.intValue ?? 0))
-    let paused = state == "paused" || !player.isPlaying
-    let itemId = self.itemId
-    let mediaSourceId = manifest.mediaSourceId
-    progressReportTask?.cancel()
-    progressReportTask = Task {
-      await client.reportProgress(
-        itemId: itemId,
-        server: server,
-        mediaSourceId: mediaSourceId,
-        positionMs: position,
-        durationMs: duration > 0 ? duration : nil,
-        isPaused: paused,
-        state: state
-      )
+  /// 监听应用前后台与终止生命周期，确保非画中画视频切后台上报暂停、强退前提交 `stopped`，回前台补报离线队列。
+  private func configureAppLifecycleObservers() {
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleAppDidEnterBackground),
+      name: UIApplication.didEnterBackgroundNotification,
+      object: nil)
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleAppWillEnterForeground),
+      name: UIApplication.willEnterForegroundNotification,
+      object: nil)
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleAppWillTerminate),
+      name: UIApplication.willTerminateNotification,
+      object: nil)
+  }
+
+  @objc private func handleAppDidEnterBackground() {
+    guard !closed, hasPlayedCurrentItem else { return }
+    if !isAudioPlayback && !pictureInPicture.keepsPlaybackAlive {
+      reportPlaybackEvent(.background)
     }
+  }
+
+  @objc private func handleAppWillEnterForeground() {
+    guard !closed, let client else { return }
+    PlaybackProgressReporter.shared.flushPendingStops(using: client)
+  }
+
+  @objc private func handleAppWillTerminate() {
+    guard !closed, hasPlayedCurrentItem else { return }
+    reportPlaybackEvent(.stop)
+  }
+
+  /// 当前已选内嵌音轨的顺序索引，用于向 Emby / Jellyfin 上报音轨变更。
+  private func selectedAudioTrackOrdinal() -> Int? {
+    player.audioTracks.firstIndex(where: \.isSelected)
+  }
+
+  /// 当前已选字幕的顺序索引（`-1` 表示关闭字幕）。
+  private func selectedSubtitleTrackOrdinal() -> Int? {
+    if activeExternalSubtitleID != nil {
+      return nil
+    }
+    if let index = player.textTracks.firstIndex(where: \.isSelected) {
+      return index
+    }
+    return -1
+  }
+
+  /// 通过共享 `PlaybackProgressPlanner` 驱动起播、播放心跳、暂停保活、Seek 防抖、切轨与终态停止上报。
+  private func reportPlaybackEvent(
+    _ trigger: PlaybackSyncTrigger,
+    positionOverrideMs: Int? = nil,
+    isPausedOverride: Bool? = nil
+  ) {
+    guard let client, let server = manifest.server, !server.isEmpty else { return }
+    let livePosition = Int(player.time.intValue)
+    let rawPos = positionOverrideMs ?? (livePosition > 0 ? livePosition : lastObservedPositionMs)
+    let duration = max(lastObservedDurationMs, Int(player.media?.length.intValue ?? 0))
+    let paused = isPausedOverride ?? (trigger == .pause || trigger == .background || !player.isPlaying)
+    let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+    let audioIdx = selectedAudioTrackOrdinal()
+    let subtitleIdx = selectedSubtitleTrackOrdinal()
+    let decision = PlaybackProgressPlanner.step(
+      syncState,
+      input: PlaybackSyncInput(
+        trigger: trigger,
+        nowMs: nowMs,
+        positionMs: Int64(max(0, rawPos)),
+        durationMs: duration > 0 ? Int64(duration) : nil,
+        isPaused: paused,
+        audioStreamIndex: audioIdx,
+        subtitleStreamIndex: subtitleIdx
+      )
+    )
+    syncState = decision.nextState
+    guard decision.shouldReport else { return }
+    PlaybackProgressReporter.shared.enqueueReport(
+      client: client,
+      itemId: itemId,
+      server: server,
+      mediaSourceId: manifest.mediaSourceId,
+      decision: decision,
+      playSessionId: syncState.playSessionId.isEmpty ? manifest.playSessionId : syncState.playSessionId,
+      durationMs: duration > 0 ? duration : nil,
+      playMethod: "DirectPlay",
+      audioStreamIndex: audioIdx,
+      subtitleStreamIndex: subtitleIdx
+    )
   }
 
   /// 当客户端直连容器内网 STRM 地址不可达时，自动回退一次服务端受控代理流重试。
@@ -2814,8 +2943,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 用户点选歌词时跳转到该句的 LRC 时间戳。
   private func seekToLyric(_ index: Int) {
     guard lyricCues.indices.contains(index), player.isSeekable else { return }
-    player.time = VLCTime(int: Int32(clamping: Int(lyricCues[index].time * 1000)))
-    refreshLyrics(currentMilliseconds: Int(player.time.intValue))
+    let target = Int(lyricCues[index].time * 1000)
+    player.time = VLCTime(int: Int32(clamping: target))
+    lastObservedPositionMs = target
+    reportPlaybackEvent(.seek, positionOverrideMs: target)
+    refreshLyrics(currentMilliseconds: target)
     refreshPlaybackState()
   }
 
@@ -3002,7 +3134,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       hasPlayedCurrentItem = true
       applyDefaultRateIfNeeded()
       applyTrackPreferencesIfReady()
-      reportPlaybackProgress(state: "playing")
+      reportPlaybackEvent(.tick, positionOverrideMs: current, isPausedOverride: false)
+    } else if hasPlayedCurrentItem && !resumeDecisionPending {
+      // 暂停态也持续由状态机驱动 12s 保活心跳及 15 分钟自动释放会话
+      reportPlaybackEvent(.tick, positionOverrideMs: current > 0 ? current : lastObservedPositionMs, isPausedOverride: true)
     }
 
     if !isAudioPlayback {
@@ -3122,10 +3257,11 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
     if player.isPlaying {
       player.pause()
-      reportPlaybackProgress(state: "paused", force: true)
+      reportPlaybackEvent(.pause, isPausedOverride: true)
     } else {
       cancelUpNextCountdown(markDismissed: false)
       player.play()
+      reportPlaybackEvent(.resume, isPausedOverride: false)
     }
     refreshPlaybackState()
     if !isAudioPlayback { showControls() }
@@ -3138,6 +3274,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     let duration = max(0, Int(player.media?.length.intValue ?? 0))
     let target = min(duration, max(0, current + seconds * 1000))
     player.time = VLCTime(int: Int32(clamping: target))
+    lastObservedPositionMs = target
+    reportPlaybackEvent(.seek, positionOverrideMs: target)
     if showHud && !isAudioPlayback {
       presentSeekHud(seconds < 0 ? "« \(abs(seconds)) 秒" : "\(seconds) 秒 »")
     }
@@ -3304,7 +3442,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       index != queueIndex, let client
     else { return }
     cancelUpNextCountdown(markDismissed: false)
-    reportPlaybackProgress(state: "stopped", force: true)
+    if hasPlayedCurrentItem {
+      reportPlaybackEvent(.stop)
+    }
     let item = queue[index]
     let wasAudio = isAudioPlayback
     if wasAudio {
@@ -3403,6 +3543,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         self.lastObservedPositionMs = 0
         self.lastObservedDurationMs = 0
         self.hasPlayedCurrentItem = false
+        self.syncState = PlaybackSyncState(
+          playSessionId: nextManifest.playSessionId ?? UUID().uuidString.lowercased()
+        )
         self.queueIndex = index
         self.player.time = VLCTime(int: 0)
         self.player.play()
@@ -3515,8 +3658,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
     let target = Int(Float(duration) * positionSlider.value)
     player.time = VLCTime(int: Int32(clamping: target))
+    lastObservedPositionMs = target
     isScrubbing = false
     updateTimeLabels(current: target, duration: duration)
+    reportPlaybackEvent(.seek, positionOverrideMs: target)
     if !isAudioPlayback { showControls() }
   }
 
@@ -3677,6 +3822,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         guard let self else { return }
         self.activeExternalSubtitleID = nil
         self.player.deselectAllTextTracks()
+        self.reportPlaybackEvent(.trackChange)
       })
     for track in tracks {
       let name =
@@ -3687,6 +3833,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
           [weak self] _ in
           self?.activeExternalSubtitleID = nil
           track.isSelectedExclusively = true
+          self?.reportPlaybackEvent(.trackChange)
         })
     }
     for subtitle in manifest.subtitles {
@@ -3738,8 +3885,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         track.trackName.isEmpty ? (track.trackDescription ?? L10n.text("音轨")) : track.trackName
       let prefix = track.isSelected ? "✓ " : ""
       alert.addAction(
-        UIAlertAction(title: "\(prefix)\(name)", style: .default) { _ in
+        UIAlertAction(title: "\(prefix)\(name)", style: .default) { [weak self] _ in
           track.isSelectedExclusively = true
+          self?.reportPlaybackEvent(.trackChange)
         })
     }
     alert.addAction(UIAlertAction(title: L10n.text("取消"), style: .cancel))
@@ -3789,7 +3937,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private func closePlayback() {
     guard !closed else { return }
     if hasPlayedCurrentItem {
-      reportPlaybackProgress(state: "stopped", force: true)
+      reportPlaybackEvent(.stop)
     }
     closed = true
     updateTimer?.invalidate()
@@ -3861,6 +4009,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   @objc private func remotePlay() -> MPRemoteCommandHandlerStatus {
     guard !interruption.isInterrupted else { return .commandFailed }
     player.play()
+    reportPlaybackEvent(.resume, isPausedOverride: false)
     return .success
   }
 
@@ -3868,6 +4017,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   @objc private func remotePause() -> MPRemoteCommandHandlerStatus {
     interruption.cancelResume()
     player.pause()
+    reportPlaybackEvent(.pause, isPausedOverride: true)
     showControls()
     return .success
   }
@@ -3884,6 +4034,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   {
     let milliseconds = Int(max(0, event.positionTime) * 1000)
     player.time = VLCTime(int: Int32(clamping: milliseconds))
+    lastObservedPositionMs = milliseconds
+    reportPlaybackEvent(.seek, positionOverrideMs: milliseconds)
     return .success
   }
 

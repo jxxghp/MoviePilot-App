@@ -167,6 +167,7 @@
     <string name="mp_5b6bd8b2" formatted="false">Secure storage is unavailable. Unlock your device and try again.</string>
     <string name="mp_5c8a9476" formatted="false">This installation</string>
     <string name="mp_5e8c6fba" formatted="false">%1$s\nSaved credentials, sign-in status and web data for this server will be removed.</string>
+    <string name="mp_5ea60e8a" formatted="false">Live Session Sync</string>
     <string name="mp_5f83e7f6" formatted="false">Basic</string>
     <string name="mp_637471eb" formatted="false">Administrator created. Please sign in.</string>
     <string name="mp_63f6267b" formatted="false">Subscribe &amp; Search</string>
@@ -188,6 +189,7 @@
     <string name="mp_6ba4b7be" formatted="false">Resume watching?</string>
     <string name="mp_6c14bd7f" formatted="false">Close</string>
     <string name="mp_6d09dc34" formatted="false">Plugin Center</string>
+    <string name="mp_6ed2d0f9" formatted="false">Unbind Account</string>
     <string name="mp_6f22a707" formatted="false">Administrator</string>
     <string name="mp_70322e1a" formatted="false">Plugin icon loaded</string>
     <string name="mp_70b20820" formatted="false">Select</string>
@@ -195,6 +197,7 @@
     <string name="mp_7262b781" formatted="false">The page will open when ready. You can also retry now or change the server address.</string>
     <string name="mp_7328deeb" formatted="false">Connect</string>
     <string name="mp_73f8f537" formatted="false">Every hour</string>
+    <string name="mp_740edb82" formatted="false">No enabled media servers</string>
     <string name="mp_743aaf95" formatted="false">Selected</string>
     <string name="mp_75930b7d" formatted="false">Theme &amp; Appearance</string>
     <string name="mp_75ae6a8a" formatted="false">Display name</string>
@@ -208,6 +211,7 @@
     <string name="mp_7a5c0fd3" formatted="false">Playback progress</string>
     <string name="mp_7a66c0d0" formatted="false">Notifications</string>
     <string name="mp_7d126146" formatted="false">Delete Service?</string>
+    <string name="mp_7d34369f" formatted="false">Media Server Progress Sync &amp; Account Binding</string>
     <string name="mp_7debf9cb" formatted="false">Settings</string>
     <string name="mp_7e45236f" formatted="false">Explore Categories</string>
     <string name="mp_7ea6ff3e" formatted="false">Unable to load playback information. Check the library item and server connection.</string>
@@ -250,15 +254,18 @@
     <string name="mp_a0fb96d8" formatted="false">Delete saved server?</string>
     <string name="mp_a1aaf352" formatted="false">Username</string>
     <string name="mp_a3148a4e" formatted="false">Sign in to manage your subscriptions and media.</string>
+    <string name="mp_a336277e" formatted="false">Bind Media Server Account</string>
     <string name="mp_a3ccf702" formatted="false">Source</string>
     <string name="mp_a3ed811e" formatted="false">Authenticator code</string>
     <string name="mp_a4474dd6" formatted="false">Account &amp; Service</string>
     <string name="mp_a5d9fdec" formatted="false">Welcome back</string>
     <string name="mp_a61b00ed" formatted="false">Update pending</string>
     <string name="mp_a690898d" formatted="false">This signature uses Home Screen notifications</string>
+    <string name="mp_a721506c" formatted="false">Token Expired</string>
     <string name="mp_a7786512" formatted="false">Specific values</string>
     <string name="mp_a82c993d" formatted="false">Mine</string>
     <string name="mp_a858e8aa" formatted="false">Discard unsaved changes?</string>
+    <string name="mp_a8a0e7bb" formatted="false">Rebind</string>
     <string name="mp_a95436c3" formatted="false">Last played at %1$s.</string>
     <string name="mp_aa9d83ef" formatted="false">Floating AI Assistant</string>
     <string name="mp_aaa5f2e9" formatted="false">Subtitles</string>
@@ -318,9 +325,11 @@
     <string name="mp_bd03b5c1" formatted="false">Enabled. Only content allowed for the current account is displayed.</string>
     <string name="mp_bde0b46a" formatted="false">Passwords are stored securely on this device only. Verification codes are never saved.</string>
     <string name="mp_be7f8395" formatted="false">Remember credentials</string>
+    <string name="mp_bfc04721" formatted="false">Your password is only used once to obtain a token and is never stored.</string>
     <string name="mp_c15ac3ec" formatted="false">Select subtitles</string>
     <string name="mp_c1f0f76d" formatted="false">Calendar</string>
     <string name="mp_c2e7e96e" formatted="false">Edit schedule</string>
+    <string name="mp_c46b84fe" formatted="false">Progress Only</string>
     <string name="mp_c493338e" formatted="false">Custom</string>
     <string name="mp_c4ad2079" formatted="false">Return to full screen</string>
     <string name="mp_c4e4c1a7" formatted="false">Settings saved</string>
@@ -364,6 +373,7 @@
     <string name="mp_d53f301f" formatted="false">Full expression</string>
     <string name="mp_d5bb6069" formatted="false">Waiting for the connection and page resources to finish loading.</string>
     <string name="mp_d5d8edd1" formatted="false">Language</string>
+    <string name="mp_d806ebc1" formatted="false">Verify &amp; Bind</string>
     <string name="mp_d84b7c84" formatted="false">Last day of each month</string>
     <string name="mp_d91f9f56" formatted="false">Too many items selected</string>
     <string name="mp_d949ea44" formatted="false">Dialog actions</string>
@@ -404,6 +414,7 @@
     <string name="mp_ee87f6ec" formatted="false">Server Channels</string>
     <string name="mp_ef84e765" formatted="false">Administrator</string>
     <string name="mp_efd9aa2e" formatted="false">Download status</string>
+    <string name="mp_emby_jellyfin_plex_377a4835" formatted="false">Bind your media server account to sync live Now Playing status and accurate progress to Emby, Jellyfin, and Plex.</string>
     <string name="mp_f0409080" formatted="false">Search</string>
     <string name="mp_f0739f4f" formatted="false">This instance requires a client certificate. Sign in with a browser.</string>
     <string name="mp_f12849f1" formatted="false">Switch Server</string>
@@ -429,6 +440,7 @@
     <string name="mp_fc58bba4" formatted="false">Customize discovery</string>
     <string name="mp_fcabadb2" formatted="false">Loading…</string>
     <string name="mp_fd099e4d" formatted="false">This plugin has no settings</string>
+    <string name="mp_fd17e559" formatted="false">Music Scrobble</string>
     <string name="mp_fd3b1706" formatted="false">Unable to generate a secure key. Please try again.</string>
     <string name="mp_fd60ff58" formatted="false">Notification Channels</string>
     <string name="mp_fdad07e6" formatted="false">Download %1$s, upload %2$s</string>
@@ -465,6 +477,7 @@
     <string name="mp_moviepilot_d6f2bdb1" formatted="false">You will need to sign in again to access this MoviePilot server.</string>
     <string name="mp_moviepilot_e7f15286" formatted="false">This page is not supported yet. Update MoviePilot and retry.</string>
     <string name="mp_moviepilot_f5a7ce49" formatted="false">Touch and hold the Home Screen, choose Edit → Add Widget and search for MoviePilot. You can also add widgets from Lock Screen customization or Today View. Edit a widget to select its server and content.</string>
+    <string name="mp_plex_x_plex_token_4678f466" formatted="false">Plex Access Token (X-Plex-Token)</string>
     <string name="mp_push_notifications_serve_8bf6a5ef" formatted="false">Enable after signing with Push Notifications capability and configuring the Server.</string>
     <string name="mp_safari_app_24c9c662" formatted="false">Open the notification page in Safari and add it to the Home Screen. Open it there and enter the pairing code. Tap a notification to return to the App.</string>
     <string name="mp_web_7f1d362a" formatted="false">This plugin uses a web interface. Its compatibility view is being migrated.</string>

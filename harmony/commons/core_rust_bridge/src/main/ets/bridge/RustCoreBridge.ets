@@ -24,6 +24,56 @@ export interface NativeCoreModule {
   analyzeCronJson(expr: string): string;
   computeMedalPaletteJson(medalId: string): string;
   computeSubscribeProgressJson(total: number, lack: number): string;
+  planPlaybackSyncStepJson?(stateJson: string, inputJson: string): string;
+  normalizePendingPlaybackStopsJson?(entriesJson: string, nowEpochMs: number): string;
+}
+
+export interface PlaybackSyncState {
+  play_session_id: string;
+  started_sent: boolean;
+  stopped_sent: boolean;
+  paused_since_ms?: number | null;
+  last_report_at_ms?: number | null;
+  last_playing_tick_at_ms?: number | null;
+  last_seek_at_ms?: number | null;
+  cumulative_playback_time_ms: number;
+  seq: number;
+  last_position_ms: number;
+  last_audio_stream_index?: number | null;
+  last_subtitle_stream_index?: number | null;
+}
+
+export interface PlaybackSyncInput {
+  trigger: 'start' | 'tick' | 'pause' | 'resume' | 'seek' | 'track_change' | 'background' | 'stop' | 'finish';
+  now_ms: number;
+  position_ms: number;
+  duration_ms?: number | null;
+  is_paused: boolean;
+  audio_stream_index?: number | null;
+  subtitle_stream_index?: number | null;
+}
+
+export interface PlaybackSyncDecision {
+  should_report: boolean;
+  state: string;
+  event_name?: string | null;
+  is_paused: boolean;
+  position_ms: number;
+  playback_time_ms: number;
+  seq: number;
+  next_state: PlaybackSyncState;
+}
+
+export interface PendingPlaybackStop {
+  server: string;
+  item_id: string;
+  media_source_id?: string | null;
+  position_ms: number;
+  duration_ms?: number | null;
+  play_session_id?: string | null;
+  playback_time_ms?: number | null;
+  seq?: number | null;
+  updated_at_ms: number;
 }
 
 export interface MedalPalette {
@@ -462,5 +512,239 @@ export class RustCoreBridge {
       ratio: safeTotal > 0 ? completed / safeTotal : 0,
       label: safeTotal > 0 ? `${completed}/${safeTotal}` : '监控中',
     };
+  }
+
+  /** 构造空播放进度同步状态快照。 */
+  static createInitialPlaybackSyncState(playSessionId: string = ''): PlaybackSyncState {
+    return {
+      play_session_id: playSessionId,
+      started_sent: false,
+      stopped_sent: false,
+      paused_since_ms: null,
+      last_report_at_ms: null,
+      last_playing_tick_at_ms: null,
+      last_seek_at_ms: null,
+      cumulative_playback_time_ms: 0,
+      seq: 0,
+      last_position_ms: 0,
+      last_audio_stream_index: null,
+      last_subtitle_stream_index: null
+    };
+  }
+
+  /** 调用 Rust 播放进度与会话上报状态机（优先走原生 NAPI，异常时回退同构 ArkTS 实现）。 */
+  static planPlaybackSyncStep(state: PlaybackSyncState, input: PlaybackSyncInput): PlaybackSyncDecision {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.planPlaybackSyncStepJson) {
+        const raw = RustCoreBridge.nativeLib.planPlaybackSyncStepJson(JSON.stringify(state), JSON.stringify(input));
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as PlaybackSyncDecision;
+        }
+      }
+    } catch {
+      // fallback
+    }
+    return RustCoreBridge.fallbackPlanPlaybackSyncStep(state, input);
+  }
+
+  /** 整理离线待补报 `stopped` 队列（去重留新、清理 7 天过期、上限 30 条）。 */
+  static normalizePendingPlaybackStops(entries: PendingPlaybackStop[], nowEpochMs: number): PendingPlaybackStop[] {
+    if (entries.length === 0) {
+      return [];
+    }
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.normalizePendingPlaybackStopsJson) {
+        const raw = RustCoreBridge.nativeLib.normalizePendingPlaybackStopsJson(JSON.stringify(entries), Math.round(nowEpochMs));
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as PendingPlaybackStop[];
+        }
+      }
+    } catch {
+      // fallback
+    }
+    const cutoff = nowEpochMs - 7 * 24 * 60 * 60 * 1000;
+    const dedup = new Map<string, PendingPlaybackStop>();
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      const srv = (e.server ?? '').trim();
+      const id = (e.item_id ?? '').trim();
+      if (!srv || !id || e.updated_at_ms < cutoff) {
+        continue;
+      }
+      const key = `${srv}\u0000${id}`;
+      const existing = dedup.get(key);
+      if (!existing || e.updated_at_ms >= existing.updated_at_ms) {
+        dedup.set(key, {
+          server: srv,
+          item_id: id,
+          media_source_id: e.media_source_id,
+          position_ms: Math.max(0, Math.round(e.position_ms)),
+          duration_ms: e.duration_ms,
+          play_session_id: e.play_session_id,
+          playback_time_ms: e.playback_time_ms,
+          seq: e.seq,
+          updated_at_ms: e.updated_at_ms
+        });
+      }
+    }
+    const result: PendingPlaybackStop[] = [];
+    dedup.forEach((v: PendingPlaybackStop) => { result.push(v); });
+    result.sort((a: PendingPlaybackStop, b: PendingPlaybackStop) => b.updated_at_ms - a.updated_at_ms);
+    return result.slice(0, 30);
+  }
+
+  private static fallbackPlanPlaybackSyncStep(current: PlaybackSyncState, input: PlaybackSyncInput): PlaybackSyncDecision {
+    const now = Math.max(0, Math.round(input.now_ms));
+    const next: PlaybackSyncState = {
+      play_session_id: current.play_session_id,
+      started_sent: current.started_sent,
+      stopped_sent: current.stopped_sent,
+      paused_since_ms: current.paused_since_ms ?? null,
+      last_report_at_ms: current.last_report_at_ms ?? null,
+      last_playing_tick_at_ms: current.last_playing_tick_at_ms ?? null,
+      last_seek_at_ms: current.last_seek_at_ms ?? null,
+      cumulative_playback_time_ms: current.cumulative_playback_time_ms,
+      seq: current.seq,
+      last_position_ms: current.last_position_ms,
+      last_audio_stream_index: current.last_audio_stream_index ?? null,
+      last_subtitle_stream_index: current.last_subtitle_stream_index ?? null
+    };
+    if (!input.is_paused && input.trigger !== 'pause' && input.trigger !== 'background') {
+      if (next.last_playing_tick_at_ms !== null && next.last_playing_tick_at_ms !== undefined && now > next.last_playing_tick_at_ms) {
+        next.cumulative_playback_time_ms += Math.min(60000, now - next.last_playing_tick_at_ms);
+      }
+      next.last_playing_tick_at_ms = now;
+    } else {
+      next.last_playing_tick_at_ms = null;
+    }
+
+    let resolvedPos = Math.max(0, Math.round(input.position_ms));
+    if (input.trigger === 'finish' && input.duration_ms && input.duration_ms > 0) {
+      resolvedPos = Math.round(input.duration_ms);
+    } else if (
+      input.trigger !== 'seek' &&
+      resolvedPos <= 0 &&
+      next.last_position_ms > 0 &&
+      (input.trigger === 'stop' || input.trigger === 'pause' || input.trigger === 'background')
+    ) {
+      resolvedPos = next.last_position_ms;
+    }
+    next.last_position_ms = resolvedPos;
+    if (input.audio_stream_index !== undefined && input.audio_stream_index !== null) {
+      next.last_audio_stream_index = input.audio_stream_index;
+    }
+    if (input.subtitle_stream_index !== undefined && input.subtitle_stream_index !== null) {
+      next.last_subtitle_stream_index = input.subtitle_stream_index;
+    }
+
+    const emit = (stateStr: string, eventName: string | null, paused: boolean): PlaybackSyncDecision => {
+      next.seq += 1;
+      next.last_report_at_ms = now;
+      return {
+        should_report: true,
+        state: stateStr,
+        event_name: eventName,
+        is_paused: paused,
+        position_ms: resolvedPos,
+        playback_time_ms: next.cumulative_playback_time_ms,
+        seq: next.seq,
+        next_state: next
+      };
+    };
+    const skip = (stateStr: string, paused: boolean): PlaybackSyncDecision => ({
+      should_report: false,
+      state: stateStr,
+      event_name: null,
+      is_paused: paused,
+      position_ms: resolvedPos,
+      playback_time_ms: next.cumulative_playback_time_ms,
+      seq: next.seq,
+      next_state: next
+    });
+
+    if (input.trigger === 'start') {
+      if (next.started_sent && !next.stopped_sent) {
+        return skip(input.is_paused ? 'paused' : 'playing', input.is_paused);
+      }
+      next.started_sent = true;
+      next.stopped_sent = false;
+      next.paused_since_ms = input.is_paused ? now : null;
+      return emit('started', null, input.is_paused);
+    }
+    if (input.trigger === 'pause') {
+      if (next.stopped_sent) { return skip('stopped', true); }
+      next.started_sent = true;
+      if (next.paused_since_ms === null || next.paused_since_ms === undefined) {
+        next.paused_since_ms = now;
+      }
+      return emit('paused', 'pause', true);
+    }
+    if (input.trigger === 'resume') {
+      next.started_sent = true;
+      next.paused_since_ms = null;
+      next.last_playing_tick_at_ms = now;
+      if (next.stopped_sent) {
+        next.stopped_sent = false;
+        return emit('started', null, false);
+      }
+      return emit('playing', 'unpause', false);
+    }
+    if (input.trigger === 'seek') {
+      if (next.stopped_sent) { return skip('stopped', true); }
+      if (next.last_seek_at_ms !== null && next.last_seek_at_ms !== undefined && now - next.last_seek_at_ms >= 0 && now - next.last_seek_at_ms < 300) {
+        return skip(input.is_paused ? 'paused' : 'playing', input.is_paused);
+      }
+      next.started_sent = true;
+      next.last_seek_at_ms = now;
+      return emit(input.is_paused ? 'paused' : 'playing', 'timeupdate', input.is_paused);
+    }
+    if (input.trigger === 'track_change') {
+      if (next.stopped_sent) { return skip('stopped', true); }
+      next.started_sent = true;
+      return emit(input.is_paused ? 'paused' : 'playing', 'trackchange', input.is_paused);
+    }
+    if (input.trigger === 'background') {
+      if (next.stopped_sent) { return skip('stopped', true); }
+      next.started_sent = true;
+      next.paused_since_ms = input.is_paused ? (next.paused_since_ms ?? now) : null;
+      return emit(input.is_paused ? 'paused' : 'playing', input.is_paused ? 'pause' : 'timeupdate', input.is_paused);
+    }
+    if (input.trigger === 'stop' || input.trigger === 'finish') {
+      if (next.stopped_sent) { return skip('stopped', true); }
+      next.stopped_sent = true;
+      next.paused_since_ms = null;
+      next.last_playing_tick_at_ms = null;
+      return emit('stopped', null, true);
+    }
+    // tick
+    if (next.stopped_sent) { return skip('stopped', true); }
+    if (!next.started_sent) {
+      next.started_sent = true;
+      next.stopped_sent = false;
+      next.paused_since_ms = input.is_paused ? now : null;
+      return emit('started', null, input.is_paused);
+    }
+    if (input.is_paused) {
+      if (next.paused_since_ms === null || next.paused_since_ms === undefined) {
+        next.paused_since_ms = now;
+      }
+      if (now - next.paused_since_ms >= 15 * 60 * 1000) {
+        next.stopped_sent = true;
+        next.paused_since_ms = null;
+        next.last_playing_tick_at_ms = null;
+        return emit('stopped', null, true);
+      }
+      const elapsed = next.last_report_at_ms !== null && next.last_report_at_ms !== undefined ? now - next.last_report_at_ms : 999999;
+      if (elapsed >= 12000) {
+        return emit('paused', 'timeupdate', true);
+      }
+      return skip('paused', true);
+    }
+    next.paused_since_ms = null;
+    const elapsed = next.last_report_at_ms !== null && next.last_report_at_ms !== undefined ? now - next.last_report_at_ms : 999999;
+    if (elapsed >= 10000) {
+      return emit('playing', 'timeupdate', false);
+    }
+    return skip('playing', false);
   }
 }

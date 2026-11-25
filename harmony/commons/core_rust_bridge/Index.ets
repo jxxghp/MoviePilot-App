@@ -4,7 +4,11 @@ export {
   MedalPalette,
   SubscribeProgress,
   CronSummary,
-  ParsedStrmStream
+  ParsedStrmStream,
+  PlaybackSyncState,
+  PlaybackSyncInput,
+  PlaybackSyncDecision,
+  PendingPlaybackStop
 } from './src/main/ets/bridge/RustCoreBridge';
 
 export {
@@ -67,6 +71,9 @@ export {
   MpFilterRuleGroup,
   MpExternalSubtitle,
   MpVideoStreamInfo,
+  MpProgressReportOptions,
+  MpMediaServerAccountBinding,
+  MpMediaServerAccountBindResult,
   MpManualTransferTargetHint,
   MpManualTransferHistoryHint,
   MpManualTransferPreviewItem,
@@ -102,3 +109,9 @@ export {
 export {
   HarmonyUsageReporter
 } from './src/main/ets/api/HarmonyUsageReporter';
+
+export {
+  HarmonyPlaybackSyncTracker,
+  HarmonyPlaybackProgressReporter,
+  PLAYBACK_SYNC_REVISION_KEY
+} from './src/main/ets/api/HarmonyPlaybackProgressReporter';

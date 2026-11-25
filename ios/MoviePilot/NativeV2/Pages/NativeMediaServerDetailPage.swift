@@ -282,6 +282,9 @@ struct NativeMediaServerDetailPage: View {
     .task(id: "\(server ?? "")|\(itemID)") {
       await loadAll()
     }
+    .onReceive(NotificationCenter.default.publisher(for: .moviePilotPlaybackDidStop)) { _ in
+      Task { await loadAll() }
+    }
     .sheet(item: $activeFilesTarget) { target in
       NativeSubscribeFilesSheet(session: session, target: target)
         .nativeAdaptiveSheetSizing()

@@ -90,6 +90,7 @@ import com.moviepilot.designsystem.SkeletonSurfaceRole
 import com.moviepilot.rustbridge.ChannelAuthRecordDto
 import com.moviepilot.rustbridge.ChannelBindingCodeDto
 import com.moviepilot.rustbridge.DirectoryConfigDto
+import com.moviepilot.rustbridge.MediaServerAccountBindingDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.ServiceConfigDto
 import com.moviepilot.rustbridge.SiteItemDto
@@ -2342,14 +2343,42 @@ fun ChannelAuthorizationScreen(
 /**
  * 播放偏好原生配置页（统一采用 `ExpressiveTintedScaffold` + 表现力胶囊选择器，真实读写 `PlaybackPreferencesStore` 并联动 `NativePlayerScreen`）。
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun PlaybackPreferencesScreen(onBack: () -> Unit) {
+fun PlaybackPreferencesScreen(
+    repository: MoviePilotRepository? = null,
+    onBack: () -> Unit,
+) {
     val colors = LocalMoviePilotColors.current
     val context = LocalContext.current
     val store = remember(context) { PlaybackPreferencesStore(context) }
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val bottomOverlayInset = LocalBottomOverlayInset.current
+    val scope = rememberCoroutineScope()
+    val snackbar = LocalSnackbarHostState.current
+
+    var bindings by remember { mutableStateOf<List<MediaServerAccountBindingDto>>(emptyList()) }
+    var bindingsLoading by remember { mutableStateOf(repository != null) }
+    var bindingsError by remember { mutableStateOf<String?>(null) }
+    var activeBindTarget by remember { mutableStateOf<MediaServerAccountBindingDto?>(null) }
+    var pendingUnbindTarget by remember { mutableStateOf<MediaServerAccountBindingDto?>(null) }
+    var isUnbinding by remember { mutableStateOf(false) }
+
+    suspend fun reloadBindings() {
+        val repo = repository ?: return
+        bindingsLoading = true
+        bindingsError = null
+        repo.fetchMediaServerAccountBindings()
+            .onSuccess { bindings = it }
+            .onFailure { bindingsError = it.message ?: "加载媒体服务器同步状态失败" }
+        bindingsLoading = false
+    }
+
+    LaunchedEffect(repository) {
+        if (repository != null) {
+            reloadBindings()
+        }
+    }
 
     val qualities = remember { listOf("自适应原画", "4K 原盘", "1080p", "720p") }
     val speeds = remember {
@@ -2523,6 +2552,407 @@ fun PlaybackPreferencesScreen(onBack: () -> Unit) {
                                 }
                             }
                         }
+                    }
+                }
+            }
+            if (repository != null) {
+                item(key = "media_server_progress_sync") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "媒体服务器进度同步",
+                                color = colors.textSecondary,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            IconButton(
+                                onClick = { scope.launch { reloadBindings() } },
+                                enabled = !bindingsLoading,
+                                modifier = Modifier.size(30.dp),
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Refresh,
+                                    contentDescription = "刷新媒体服务器绑定状态",
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        CinematicPanel(padding = 0.dp, showsShadow = false) {
+                            when {
+                                bindingsLoading && bindings.isEmpty() -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = colors.accent,
+                                        )
+                                        Text("正在加载媒体服务器同步状态…", color = colors.textSecondary, fontSize = 14.sp)
+                                    }
+                                }
+                                bindingsError != null && bindings.isEmpty() -> {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Text(bindingsError.orEmpty(), color = colors.danger, fontSize = 13.5.sp)
+                                        TextButton(onClick = { scope.launch { reloadBindings() } }) {
+                                            Text("重试", color = colors.accent)
+                                        }
+                                    }
+                                }
+                                bindings.isEmpty() -> {
+                                    Text(
+                                        "暂无已启用的媒体服务器",
+                                        color = colors.textMuted,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    )
+                                }
+                                else -> {
+                                    Column {
+                                        bindings.forEachIndexed { idx, item ->
+                                            if (idx > 0) {
+                                                HorizontalDivider(
+                                                    color = colors.divider,
+                                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                                )
+                                            }
+                                            MediaServerBindingRow(
+                                                item = item,
+                                                isUnbinding = isUnbinding,
+                                                onBindClick = { activeBindTarget = item },
+                                                onUnbindClick = { pendingUnbindTarget = item },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Text(
+                            "绑定 Emby、Jellyfin 或 Plex 个人账号后，播放进度将实时同步到媒体服务器「正在播放」仪表盘；密码仅用于一次性换取令牌，绝不保存在设备或服务端。",
+                            color = colors.textMuted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    val bindTarget = activeBindTarget
+    if (repository != null && bindTarget != null) {
+        MediaServerAccountBindSheet(
+            repository = repository,
+            target = bindTarget,
+            onDismiss = { activeBindTarget = null },
+            onBound = { updated ->
+                bindings = bindings.map { if (it.server == updated.server) updated else it }
+                activeBindTarget = null
+                scope.launch {
+                    snackbar?.showSnackbar("已绑定 ${updated.server}，实时会话同步已启用")
+                }
+            },
+        )
+    }
+
+    val unbindTarget = pendingUnbindTarget
+    if (repository != null && unbindTarget != null) {
+        AlertDialog(
+            onDismissRequest = { if (!isUnbinding) pendingUnbindTarget = null },
+            title = { Text("解除 ${unbindTarget.server} 绑定？") },
+            text = { Text("解绑后将清除已保存的个人同步令牌，恢复为服务器默认进度同步模式。") },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingUnbindTarget = null },
+                    enabled = !isUnbinding,
+                ) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isUnbinding,
+                    onClick = {
+                        isUnbinding = true
+                        scope.launch {
+                            val res = repository.unbindMediaServerAccount(unbindTarget.server)
+                            isUnbinding = false
+                            pendingUnbindTarget = null
+                            res.onSuccess { msg ->
+                                reloadBindings()
+                                snackbar?.showSnackbar(msg)
+                            }.onFailure { err ->
+                                snackbar?.showSnackbar(err.message ?: "解绑失败")
+                            }
+                        }
+                    },
+                ) {
+                    Text("确认解绑", color = colors.danger)
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun MediaServerBindingRow(
+    item: MediaServerAccountBindingDto,
+    isUnbinding: Boolean,
+    onBindClick: () -> Unit,
+    onUnbindClick: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val (badgeLabel, badgeTint) = when {
+        item.status == "invalid" -> "凭据已失效" to colors.danger
+        item.syncMode == "session" -> "实时会话同步" to Color(0xFF2E9E5B)
+        item.syncMode == "userdata" -> "仅进度同步" to Color(0xFFE08B2B)
+        item.syncMode == "scrobble" -> "音乐记录" to colors.accent
+        else -> "暂不支持" to colors.textMuted
+    }
+    val typeUpper = item.serverType.uppercase()
+    val subtitle = when {
+        item.status == "invalid" -> "$typeUpper · 已保存令牌失效，请重新绑定以恢复实时播放会话"
+        item.bound && !item.remoteUsername.isNullOrBlank() -> "$typeUpper · 已绑定账号 ${item.remoteUsername}"
+        item.status == "builtin" -> "$typeUpper · 已内置启用同步，无需单独绑定"
+        item.supportsBinding && item.syncMode == "session" -> "$typeUpper · 当前走服务端共享身份，绑定个人账号可归属本人"
+        item.supportsBinding -> "$typeUpper · 绑定个人账号后可升级为实时「正在播放」会话"
+        else -> "$typeUpper · 当前媒体服务器不支持播放进度回写"
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        NativeEntityLogo(
+            kind = "mediaserver",
+            value = item.serverType.ifBlank { item.server },
+            size = 36.dp,
+            cornerRadius = 10.dp,
+        )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    item.server,
+                    color = colors.textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                NativeAdaptiveBadge(text = badgeLabel, tint = badgeTint)
+            }
+            Text(
+                subtitle,
+                color = colors.textMuted,
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (item.supportsBinding) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (item.bound) {
+                    TextButton(
+                        onClick = onUnbindClick,
+                        enabled = !isUnbinding,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text("解绑", color = colors.danger, fontSize = 12.5.sp)
+                    }
+                }
+                Surface(
+                    onClick = onBindClick,
+                    shape = CircleShape,
+                    color = colors.accent.copy(alpha = 0.14f),
+                ) {
+                    Text(
+                        text = if (item.bound || item.status == "invalid") "重绑" else "绑定",
+                        color = colors.accent,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun MediaServerAccountBindSheet(
+    repository: MoviePilotRepository,
+    target: MediaServerAccountBindingDto,
+    onDismiss: () -> Unit,
+    onBound: (MediaServerAccountBindingDto) -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val scope = rememberCoroutineScope()
+    val isPlex = target.serverType.equals("plex", ignoreCase = true)
+    var usePlexToken by remember(target.server) { mutableStateOf(false) }
+    var username by remember(target.server) { mutableStateOf(target.remoteUsername.orEmpty()) }
+    var password by remember(target.server) { mutableStateOf("") }
+    var plexToken by remember(target.server) { mutableStateOf("") }
+    var submitting by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    val canSubmit = !submitting && if (isPlex && usePlexToken) {
+        plexToken.trim().isNotEmpty()
+    } else {
+        username.trim().isNotEmpty() && password.isNotEmpty()
+    }
+
+    NativeGlassSheet(onDismissRequest = { if (!submitting) onDismiss() }) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(
+                text = "绑定 ${target.server}",
+                color = colors.textPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            if (isPlex) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NativeAdaptivePill(
+                        title = "账号密码",
+                        selected = !usePlexToken,
+                        onClick = {
+                            usePlexToken = false
+                            errorMsg = null
+                        },
+                    )
+                    NativeAdaptivePill(
+                        title = "Plex Token",
+                        selected = usePlexToken,
+                        onClick = {
+                            usePlexToken = true
+                            errorMsg = null
+                        },
+                    )
+                }
+            }
+            if (isPlex && usePlexToken) {
+                OutlinedTextField(
+                    value = plexToken,
+                    onValueChange = { plexToken = it },
+                    label = { Text("X-Plex-Token") },
+                    placeholder = { Text("粘贴您的个人 Plex 访问令牌") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = colors.accent,
+                        unfocusedBorderColor = colors.divider,
+                    ),
+                )
+            } else {
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("媒体服务器用户名") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = colors.accent,
+                        unfocusedBorderColor = colors.divider,
+                    ),
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("媒体服务器密码") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = colors.accent,
+                        unfocusedBorderColor = colors.divider,
+                    ),
+                )
+            }
+            if (!errorMsg.isNullOrBlank()) {
+                Text(errorMsg.orEmpty(), color = colors.danger, fontSize = 12.5.sp)
+            }
+            Text(
+                text = if (isPlex && usePlexToken) {
+                    "开启两步验证（2FA）的 Plex 账号请直接粘贴 X-Plex-Token 完成绑定。"
+                } else {
+                    "账号密码仅提交给 MoviePilot 后台向 ${target.server} 一次性换取加密个人令牌，不会在设备或服务端保留明文密码。"
+                },
+                color = colors.textMuted,
+                fontSize = 12.sp,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                TextButton(
+                    onClick = onDismiss,
+                    enabled = !submitting,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("取消", color = colors.textSecondary)
+                }
+                Button(
+                    onClick = {
+                        submitting = true
+                        errorMsg = null
+                        val submittedUser = username.trim()
+                        val submittedPass = password
+                        val submittedTok = plexToken.trim()
+                        scope.launch {
+                            val res = repository.bindMediaServerAccount(
+                                server = target.server,
+                                username = if (isPlex && usePlexToken) null else submittedUser,
+                                password = if (isPlex && usePlexToken) null else submittedPass,
+                                token = if (isPlex && usePlexToken) submittedTok else null,
+                            )
+                            password = ""
+                            plexToken = ""
+                            submitting = false
+                            res.onSuccess { updated ->
+                                onBound(updated)
+                            }.onFailure { err ->
+                                errorMsg = err.message ?: "绑定失败，请核对凭据"
+                            }
+                        }
+                    },
+                    enabled = canSubmit,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.accent,
+                        contentColor = colors.primaryButtonFg,
+                    ),
+                ) {
+                    if (submitting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.primaryButtonFg,
+                        )
+                    } else {
+                        Text("确认绑定")
                     }
                 }
             }

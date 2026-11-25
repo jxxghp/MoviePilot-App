@@ -167,6 +167,7 @@
     <string name="mp_5b6bd8b2" formatted="false">无法访问安全存储，请解锁设备后重试。</string>
     <string name="mp_5c8a9476" formatted="false">当前安装</string>
     <string name="mp_5e8c6fba" formatted="false">%1$s\n将清除此服务保存的账号密码、登录状态和网页数据。</string>
+    <string name="mp_5ea60e8a" formatted="false">实时会话同步</string>
     <string name="mp_5f83e7f6" formatted="false">基础</string>
     <string name="mp_637471eb" formatted="false">管理员已创建，请登录。</string>
     <string name="mp_63f6267b" formatted="false">订阅与搜索</string>
@@ -188,6 +189,7 @@
     <string name="mp_6ba4b7be" formatted="false">继续观看？</string>
     <string name="mp_6c14bd7f" formatted="false">关闭</string>
     <string name="mp_6d09dc34" formatted="false">插件中心</string>
+    <string name="mp_6ed2d0f9" formatted="false">解绑账号</string>
     <string name="mp_6f22a707" formatted="false">超级管理员</string>
     <string name="mp_70322e1a" formatted="false">插件图标已加载</string>
     <string name="mp_70b20820" formatted="false">选择</string>
@@ -195,6 +197,7 @@
     <string name="mp_7262b781" formatted="false">页面准备完成后会自动进入，也可以立即重试或切换服务地址。</string>
     <string name="mp_7328deeb" formatted="false">连接</string>
     <string name="mp_73f8f537" formatted="false">每小时</string>
+    <string name="mp_740edb82" formatted="false">暂无已启用的媒体服务器</string>
     <string name="mp_743aaf95" formatted="false">已选择</string>
     <string name="mp_75930b7d" formatted="false">主题与外观</string>
     <string name="mp_75ae6a8a" formatted="false">显示名称</string>
@@ -208,6 +211,7 @@
     <string name="mp_7a5c0fd3" formatted="false">播放进度</string>
     <string name="mp_7a66c0d0" formatted="false">通知</string>
     <string name="mp_7d126146" formatted="false">删除服务？</string>
+    <string name="mp_7d34369f" formatted="false">媒体服务器进度同步与账号绑定</string>
     <string name="mp_7debf9cb" formatted="false">设置</string>
     <string name="mp_7e45236f" formatted="false">分类探索</string>
     <string name="mp_7ea6ff3e" formatted="false">无法读取播放信息，请确认影片仍在媒体库中并检查后台连接。</string>
@@ -250,15 +254,18 @@
     <string name="mp_a0fb96d8" formatted="false">删除已保存的服务？</string>
     <string name="mp_a1aaf352" formatted="false">用户名</string>
     <string name="mp_a3148a4e" formatted="false">登录你的服务，继续管理订阅与媒体。</string>
+    <string name="mp_a336277e" formatted="false">绑定媒体服务器账号</string>
     <string name="mp_a3ccf702" formatted="false">数据源</string>
     <string name="mp_a3ed811e" formatted="false">身份验证器验证码</string>
     <string name="mp_a4474dd6" formatted="false">账号与服务</string>
     <string name="mp_a5d9fdec" formatted="false">欢迎回来</string>
     <string name="mp_a61b00ed" formatted="false">数据待更新</string>
     <string name="mp_a690898d" formatted="false">当前签名使用主屏幕通知</string>
+    <string name="mp_a721506c" formatted="false">凭据已失效</string>
     <string name="mp_a7786512" formatted="false">指定值</string>
     <string name="mp_a82c993d" formatted="false">我的</string>
     <string name="mp_a858e8aa" formatted="false">放弃未保存的修改？</string>
+    <string name="mp_a8a0e7bb" formatted="false">重新绑定</string>
     <string name="mp_a95436c3" formatted="false">上次播放到 %1$s。</string>
     <string name="mp_aa9d83ef" formatted="false">悬浮智能助手</string>
     <string name="mp_aaa5f2e9" formatted="false">字幕</string>
@@ -318,9 +325,11 @@
     <string name="mp_bd03b5c1" formatted="false">已启用，只读显示当前账号允许的内容。</string>
     <string name="mp_bde0b46a" formatted="false">密码仅在本机安全保存，验证码不会保存。</string>
     <string name="mp_be7f8395" formatted="false">记住账号密码</string>
+    <string name="mp_bfc04721" formatted="false">密码仅用于一次性换取访问令牌，不会保存明文密码。</string>
     <string name="mp_c15ac3ec" formatted="false">选择字幕</string>
     <string name="mp_c1f0f76d" formatted="false">订阅日历</string>
     <string name="mp_c2e7e96e" formatted="false">编辑计划</string>
+    <string name="mp_c46b84fe" formatted="false">仅进度同步</string>
     <string name="mp_c493338e" formatted="false">自定义</string>
     <string name="mp_c4ad2079" formatted="false">返回全屏</string>
     <string name="mp_c4e4c1a7" formatted="false">配置已保存</string>
@@ -364,6 +373,7 @@
     <string name="mp_d53f301f" formatted="false">完整表达式</string>
     <string name="mp_d5bb6069" formatted="false">页面仍在加载，正在等待连接和页面资源就绪。</string>
     <string name="mp_d5d8edd1" formatted="false">界面语言</string>
+    <string name="mp_d806ebc1" formatted="false">验证并绑定</string>
     <string name="mp_d84b7c84" formatted="false">每月最后一天</string>
     <string name="mp_d91f9f56" formatted="false">选中项过多</string>
     <string name="mp_d949ea44" formatted="false">弹窗操作</string>
@@ -404,6 +414,7 @@
     <string name="mp_ee87f6ec" formatted="false">服务端通知渠道</string>
     <string name="mp_ef84e765" formatted="false">管理员</string>
     <string name="mp_efd9aa2e" formatted="false">下载状态</string>
+    <string name="mp_emby_jellyfin_plex_377a4835" formatted="false">绑定个人媒体服务器账号后，在播放时可向 Emby / Jellyfin / Plex 仪表盘实时同步正在播放状态与精确进度。</string>
     <string name="mp_f0409080" formatted="false">搜索</string>
     <string name="mp_f0739f4f" formatted="false">此实例要求客户端证书，请使用网页登录。</string>
     <string name="mp_f12849f1" formatted="false">切换服务</string>
@@ -429,6 +440,7 @@
     <string name="mp_fc58bba4" formatted="false">自定义探索</string>
     <string name="mp_fcabadb2" formatted="false">正在读取…</string>
     <string name="mp_fd099e4d" formatted="false">此插件没有配置项</string>
+    <string name="mp_fd17e559" formatted="false">音乐记录</string>
     <string name="mp_fd3b1706" formatted="false">无法生成安全密钥，请重试。</string>
     <string name="mp_fd60ff58" formatted="false">消息推送配置</string>
     <string name="mp_fdad07e6" formatted="false">下载速度 %1$s，上传速度 %2$s</string>
@@ -465,6 +477,7 @@
     <string name="mp_moviepilot_d6f2bdb1" formatted="false">退出后需要重新输入账号密码或凭据登录当前 MoviePilot 服务。</string>
     <string name="mp_moviepilot_e7f15286" formatted="false">当前页面暂不支持，请更新 MoviePilot 后重试。</string>
     <string name="mp_moviepilot_f5a7ce49" formatted="false">长按主屏幕空白处，选择“编辑”→“添加小组件”，搜索 MoviePilot。锁屏可在自定中添加；向右滑到今天视图，也可添加。编辑小组件可选择服务和内容。</string>
+    <string name="mp_plex_x_plex_token_4678f466" formatted="false">Plex 访问令牌 (X-Plex-Token)</string>
     <string name="mp_push_notifications_serve_8bf6a5ef" formatted="false">使用带 Push Notifications 能力的签名和已配置的 Server 后开启。</string>
     <string name="mp_safari_app_24c9c662" formatted="false">在 Safari 打开通知网页，添加到主屏幕，再从主屏幕打开并输入绑定码。通知由主屏幕网页接收，点击后可返回 App。</string>
     <string name="mp_web_7f1d362a" formatted="false">此插件使用 Web 界面，兼容入口正在迁移。</string>

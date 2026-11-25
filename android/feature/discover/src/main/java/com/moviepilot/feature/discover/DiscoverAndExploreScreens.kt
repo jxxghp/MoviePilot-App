@@ -308,6 +308,14 @@ fun DiscoverScreen(
         }
     }
 
+    LaunchedEffect(repository) {
+        repository.playbackProgressReporter.playbackStoppedEvents.collect {
+            val refreshed = repository.fetchContinueWatching()
+            continueItems = refreshed
+            syncDiscoverCache()
+        }
+    }
+
     // 开启按需榜单（如豆瓣热映 / 豆瓣 Top250 / 热门音乐）时自动懒加载数据
     val showingEnabled = modules.any { it.id == "douban_showing" && it.enabled }
     val top250Enabled = modules.any { it.id == "douban_top250" && it.enabled }

@@ -665,6 +665,10 @@
       "value": "%s\nSaved credentials, sign-in status and web data for this server will be removed."
     },
     {
+      "name": "mp_5ea60e8a",
+      "value": "Live Session Sync"
+    },
+    {
       "name": "mp_5f83e7f6",
       "value": "Basic"
     },
@@ -749,6 +753,10 @@
       "value": "Plugin Center"
     },
     {
+      "name": "mp_6ed2d0f9",
+      "value": "Unbind Account"
+    },
+    {
       "name": "mp_6f22a707",
       "value": "Administrator"
     },
@@ -775,6 +783,10 @@
     {
       "name": "mp_73f8f537",
       "value": "Every hour"
+    },
+    {
+      "name": "mp_740edb82",
+      "value": "No enabled media servers"
     },
     {
       "name": "mp_743aaf95",
@@ -827,6 +839,10 @@
     {
       "name": "mp_7d126146",
       "value": "Delete Service?"
+    },
+    {
+      "name": "mp_7d34369f",
+      "value": "Media Server Progress Sync & Account Binding"
     },
     {
       "name": "mp_7debf9cb",
@@ -997,6 +1013,10 @@
       "value": "Sign in to manage your subscriptions and media."
     },
     {
+      "name": "mp_a336277e",
+      "value": "Bind Media Server Account"
+    },
+    {
       "name": "mp_a3ccf702",
       "value": "Source"
     },
@@ -1021,6 +1041,10 @@
       "value": "This signature uses Home Screen notifications"
     },
     {
+      "name": "mp_a721506c",
+      "value": "Token Expired"
+    },
+    {
       "name": "mp_a7786512",
       "value": "Specific values"
     },
@@ -1031,6 +1055,10 @@
     {
       "name": "mp_a858e8aa",
       "value": "Discard unsaved changes?"
+    },
+    {
+      "name": "mp_a8a0e7bb",
+      "value": "Rebind"
     },
     {
       "name": "mp_a95436c3",
@@ -1269,6 +1297,10 @@
       "value": "Remember credentials"
     },
     {
+      "name": "mp_bfc04721",
+      "value": "Your password is only used once to obtain a token and is never stored."
+    },
+    {
       "name": "mp_c15ac3ec",
       "value": "Select subtitles"
     },
@@ -1279,6 +1311,10 @@
     {
       "name": "mp_c2e7e96e",
       "value": "Edit schedule"
+    },
+    {
+      "name": "mp_c46b84fe",
+      "value": "Progress Only"
     },
     {
       "name": "mp_c493338e",
@@ -1453,6 +1489,10 @@
       "value": "Language"
     },
     {
+      "name": "mp_d806ebc1",
+      "value": "Verify & Bind"
+    },
+    {
       "name": "mp_d84b7c84",
       "value": "Last day of each month"
     },
@@ -1613,6 +1653,10 @@
       "value": "Download status"
     },
     {
+      "name": "mp_emby_jellyfin_plex_377a4835",
+      "value": "Bind your media server account to sync live Now Playing status and accurate progress to Emby, Jellyfin, and Plex."
+    },
+    {
       "name": "mp_f0409080",
       "value": "Search"
     },
@@ -1711,6 +1755,10 @@
     {
       "name": "mp_fd099e4d",
       "value": "This plugin has no settings"
+    },
+    {
+      "name": "mp_fd17e559",
+      "value": "Music Scrobble"
     },
     {
       "name": "mp_fd3b1706",
@@ -1855,6 +1903,10 @@
     {
       "name": "mp_moviepilot_f5a7ce49",
       "value": "Touch and hold the Home Screen, choose Edit → Add Widget and search for MoviePilot. You can also add widgets from Lock Screen customization or Today View. Edit a widget to select its server and content."
+    },
+    {
+      "name": "mp_plex_x_plex_token_4678f466",
+      "value": "Plex Access Token (X-Plex-Token)"
     },
     {
       "name": "mp_push_notifications_serve_8bf6a5ef",

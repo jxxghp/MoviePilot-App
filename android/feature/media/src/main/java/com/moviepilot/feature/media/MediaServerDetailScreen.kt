@@ -431,6 +431,15 @@ fun MediaServerDetailScreen(
         loadAll(clearOverrides = false)
     }
 
+    LaunchedEffect(repository, screenKey) {
+        repository.playbackProgressReporter.playbackStoppedEvents.collect { (stoppedServer, _) ->
+            val currentSrv = detail?.server?.ifBlank { server } ?: server
+            if (stoppedServer.isBlank() || currentSrv.isBlank() || stoppedServer == currentSrv) {
+                loadAll(clearOverrides = false)
+            }
+        }
+    }
+
     val d = detail
     val isMusicAlbum = d?.let {
         it.itemType.equals("MusicAlbum", ignoreCase = true) || it.mediaType.equals("MusicAlbum", ignoreCase = true)
@@ -611,8 +620,10 @@ fun MediaServerDetailScreen(
                         headers = manifest.headers,
                         itemId = manifest.itemId,
                         server = manifest.server.ifBlank { activeServerName },
-                        serverType = d?.serverType.orEmpty(),
+                        serverType = manifest.serverType.ifBlank { d?.serverType.orEmpty() },
                         mediaSourceId = manifest.mediaSourceId ?: sourceId.orEmpty(),
+                        playSessionId = manifest.playSessionId,
+                        progressSyncMode = manifest.progressSyncMode,
                         resumePositionMs = manifest.resumePositionMs,
                         subtitles = manifest.subtitles.map {
                             SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)

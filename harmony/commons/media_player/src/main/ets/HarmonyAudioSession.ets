@@ -7,7 +7,13 @@ import { fileIo } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import { PlaybackPreferencesStore } from '@moviepilot/design_system';
-import { MoviePilotRepository, RustCoreBridge, ParsedStrmStream } from '@moviepilot/core_rust_bridge';
+import {
+  MoviePilotRepository,
+  RustCoreBridge,
+  ParsedStrmStream,
+  HarmonyPlaybackSyncTracker,
+  HarmonyPlaybackProgressReporter
+} from '@moviepilot/core_rust_bridge';
 import {
   HarmonyPlaybackRequest,
   HarmonyQueueItem,
@@ -272,6 +278,9 @@ export class HarmonyAudioSession {
   private artworkPixelMap: image.PixelMap | null = null;
 
   private progressTimerId: number = -1;
+  private progressTickCount: number = 0;
+  private audioSyncTracker: HarmonyPlaybackSyncTracker = new HarmonyPlaybackSyncTracker();
+  private audioStartedSent: boolean = false;
   private loadGeneration: number = 0;
   private listeners: AudioStateListener[] = [];
 
@@ -425,10 +434,13 @@ export class HarmonyAudioSession {
   private async loadTrackInternal(req: HarmonyPlaybackRequest, resetSpeedToNormal: boolean): Promise<void> {
     const gen = ++this.loadGeneration;
     if (this.activeReq) {
-      this.reportProgressNow('stopped', true);
+      this.dispatchAudioSync('stop', true);
     }
     await this.releasePlayerOnly();
     this.releaseArtworkPixelMap();
+    this.audioSyncTracker.reset(req.playSessionId ?? '');
+    this.audioStartedSent = false;
+    this.progressTickCount = 0;
 
     if (resetSpeedToNormal) {
       this.speedIdx = DEFAULT_AUDIO_SPEED_INDEX;
@@ -449,7 +461,10 @@ export class HarmonyAudioSession {
       lyricsUrl: req.lyricsUrl,
       itemId: req.itemId,
       server: req.server,
+      serverType: req.serverType,
       mediaSourceId: req.mediaSourceId,
+      playSessionId: req.playSessionId,
+      progressSyncMode: req.progressSyncMode,
       resumePositionMs: req.resumePositionMs,
       isSessionBound: req.isSessionBound,
       queue: this.queue,
@@ -619,12 +634,14 @@ export class HarmonyAudioSession {
           this.playing = true;
           this.startBackgroundPlaybackIfNeeded();
           this.startProgressTimer();
+          this.dispatchAudioSync(this.audioStartedSent ? 'resume' : 'start', false);
           this.syncAvSessionPlaybackState();
           this.notify();
         } else if (state === 'paused') {
           this.playing = false;
-          this.stopProgressTimer();
-          this.reportProgressNow('paused', true);
+          // 保持 1 秒状态机心跳计时器运行以发送 12 秒暂停保活和 15 分钟自动释放
+          this.startProgressTimer();
+          this.dispatchAudioSync('pause', true);
           this.syncAvSessionPlaybackState();
           this.notify();
         } else if (state === 'completed') {
@@ -633,7 +650,7 @@ export class HarmonyAudioSession {
           if (this.activeReq) {
             PlaybackPreferencesStore.clearLocalResumeMs(buildPlaybackResumeKey(this.activeReq));
           }
-          this.reportProgressNow('stopped', false);
+          this.dispatchAudioSync('finish', true, this.durMs > 0 ? this.durMs : this.posMs);
           this.syncAvSessionPlaybackState();
           this.notify();
           this.handleTrackCompleted().catch(() => {});
@@ -1020,12 +1037,23 @@ export class HarmonyAudioSession {
   }
 
   private startProgressTimer(): void {
-    this.stopProgressTimer();
+    if (this.progressTimerId !== -1) {
+      return;
+    }
     this.progressTimerId = setInterval(() => {
-      if (this.playing) {
-        this.reportProgressNow('playing', false);
+      if (!this.activeReq) {
+        this.stopProgressTimer();
+        return;
       }
-    }, 15000);
+      this.progressTickCount += 1;
+      if (this.progressTickCount % 10 === 0 && this.durMs > 60000) {
+        const resumeKey = buildPlaybackResumeKey(this.activeReq);
+        if (resumeKey.length > 0) {
+          PlaybackPreferencesStore.saveLocalResumeMs(resumeKey, this.posMs, this.durMs);
+        }
+      }
+      this.dispatchAudioSync('tick', !this.playing);
+    }, 1000);
   }
 
   private stopProgressTimer(): void {
@@ -1035,29 +1063,40 @@ export class HarmonyAudioSession {
     }
   }
 
-  private reportProgressNow(state: 'playing' | 'paused' | 'stopped', isPaused: boolean): void {
+  private dispatchAudioSync(
+    trigger: 'start' | 'tick' | 'pause' | 'resume' | 'seek' | 'track_change' | 'background' | 'stop' | 'finish',
+    isPaused: boolean,
+    posOverrideMs?: number
+  ): void {
     const req = this.activeReq;
     if (!req) {
       return;
     }
-    const resumeKey = buildPlaybackResumeKey(req);
-    if (resumeKey.length > 0 && this.durMs > 60000) {
-      PlaybackPreferencesStore.saveLocalResumeMs(resumeKey, this.posMs, this.durMs);
+    const pos = posOverrideMs !== undefined ? Math.max(0, Math.round(posOverrideMs)) : this.posMs;
+    if ((trigger === 'pause' || trigger === 'stop') && this.durMs > 60000) {
+      const resumeKey = buildPlaybackResumeKey(req);
+      if (resumeKey.length > 0) {
+        PlaybackPreferencesStore.saveLocalResumeMs(resumeKey, pos, this.durMs);
+      }
     }
     const itemId = (req.itemId ?? '').trim();
     const server = (req.server ?? '').trim();
-    if (itemId.length === 0 || server.length === 0 || itemId.startsWith('file.')) {
+    if (itemId.length === 0 || server.length === 0 || itemId.startsWith('file.') || itemId.startsWith('file:')) {
       return;
     }
-    MoviePilotRepository.shared().reportMediaServerProgress(
+    const decision = this.audioSyncTracker.step(trigger, pos, this.durMs, isPaused);
+    if (decision.state === 'started') {
+      this.audioStartedSent = true;
+    }
+    HarmonyPlaybackProgressReporter.shared().enqueueDecision(
+      MoviePilotRepository.shared(),
       itemId,
       server,
       req.mediaSourceId ?? '',
-      this.posMs,
-      this.durMs,
-      isPaused,
-      state
-    ).catch(() => {});
+      decision,
+      req.playSessionId ?? this.audioSyncTracker.getPlaySessionId(),
+      this.durMs
+    );
   }
 
   /** 切换音频播放/暂停。 */
@@ -1075,8 +1114,8 @@ export class HarmonyAudioSession {
           this.startProgressTimer();
         } else {
           this.player.pause().catch(() => {});
-          this.stopProgressTimer();
-          this.reportProgressNow('paused', true);
+          this.startProgressTimer();
+          this.dispatchAudioSync('pause', true);
         }
       } catch {
         // ignore
@@ -1100,6 +1139,7 @@ export class HarmonyAudioSession {
         // ignore
       }
     }
+    this.dispatchAudioSync('seek', !this.playing, clamped);
     this.syncAvSessionPlaybackState();
     this.notify();
   }
@@ -1162,7 +1202,7 @@ export class HarmonyAudioSession {
   /** 彻底停止并释放后台音频、`AVSession` 与后台长时任务。 */
   stopAndRelease(): void {
     this.loadGeneration++;
-    this.reportProgressNow('stopped', true);
+    this.dispatchAudioSync('stop', true);
     this.playing = false;
     this.buffering = false;
     this.activeSourceKey = '';

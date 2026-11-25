@@ -15,6 +15,7 @@ import {
   MpDirectoryConfig,
   MpStorageConfig,
   MpAuthorizationItem,
+  MpMediaServerAccountBinding,
   MpImageLoader,
   MpRemoteImage,
   formatByteSize
@@ -704,6 +705,18 @@ export struct HarmonySettingsHubPage {
   @State private showNotificationsSheet: boolean = false;
   @State private showNotifEditorSheet: boolean = false;
   @State private showPlaybackSheet: boolean = false;
+  @State private mediaServerBindings: MpMediaServerAccountBinding[] = [];
+  @State private loadingBindings: boolean = false;
+  @State private bindingsNotice: string = '';
+  @State private showAccountBindSheet: boolean = false;
+  @State private bindTargetServer: string = '';
+  @State private bindTargetServerType: string = '';
+  @State private bindAuthMode: number = 0; // 0: 账号密码, 1: Plex Token
+  @State private bindUsername: string = '';
+  @State private bindPassword: string = '';
+  @State private bindPlexToken: string = '';
+  @State private bindSubmitting: boolean = false;
+  @State private bindError: string = '';
   @State private showMedalsSheet: boolean = false;
   @State private activeMedalIdx: number = 0;
   @State private medalBusy: boolean = false;
@@ -782,7 +795,7 @@ export struct HarmonySettingsHubPage {
     }
     AppStorage.setOrCreate('mp_open_settings_sheet', '');
     if (req === 'playback') {
-      this.showPlaybackSheet = true;
+      this.openPlaybackSettingsSheet();
     } else if (req === 'appearance') {
       this.showAppearanceSheet = true;
     } else if (req === 'users') {
@@ -2216,6 +2229,109 @@ export struct HarmonySettingsHubPage {
             }
             .width('100%')
           }
+
+          Row() {
+            Text('媒体服务器进度同步')
+              .fontSize(13)
+              .fontColor(mpSecondaryText(this.isDark))
+              .layoutWeight(1)
+            Text(this.loadingBindings ? '刷新中…' : '刷新')
+              .fontSize(12.5)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.accentHex)
+              .onClick(() => {
+                if (!this.loadingBindings) {
+                  this.loadMediaServerBindings();
+                }
+              })
+          }.width('100%')
+
+          if (this.bindingsNotice.length > 0) {
+            Text(this.bindingsNotice)
+              .fontSize(12)
+              .fontColor(this.accentHex)
+              .width('100%')
+          }
+
+          CinematicPanel({ panelPadding: 0, cornerRadius: 16 }) {
+            if (this.loadingBindings && this.mediaServerBindings.length === 0) {
+              Row({ space: 8 }) {
+                LoadingProgress().width(18).height(18).color(this.accentHex)
+                Text('正在加载媒体服务器同步状态…').fontSize(13.5).fontColor(mpSecondaryText(this.isDark))
+              }.width('100%').padding(16)
+            } else if (this.mediaServerBindings.length === 0) {
+              Text('暂无已启用的媒体服务器')
+                .fontSize(13.5)
+                .fontColor(mpSecondaryText(this.isDark))
+                .width('100%')
+                .padding(16)
+            } else {
+              Column() {
+                ForEach(this.mediaServerBindings, (binding: MpMediaServerAccountBinding, idx: number) => {
+                  Column() {
+                    if (idx > 0) {
+                      Divider().color(HarmonyThemeColors.divider(this.isDark)).margin({ left: 16, right: 16 })
+                    }
+                    Row({ space: 10 }) {
+                      HarmonyEntityLogo({
+                        kind: 'mediaserver',
+                        value: binding.serverType || binding.server,
+                        logoSize: 34,
+                        cornerRadius: 10
+                      })
+                      Column({ space: 4 }) {
+                        Row({ space: 6 }) {
+                          Text(binding.server)
+                            .fontSize(14.5)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(mpPrimaryText(this.isDark))
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          NativeAdaptiveBadge({
+                            text: this.bindingStatusLabel(binding),
+                            tintHex: this.bindingStatusTint(binding)
+                          })
+                        }.alignItems(VerticalAlign.Center)
+                        Text(this.bindingSubtitle(binding))
+                          .fontSize(11.5)
+                          .fontColor(mpSecondaryText(this.isDark))
+                          .maxLines(2)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+
+                      if (binding.supportsBinding) {
+                        Row({ space: 6 }) {
+                          if (binding.bound) {
+                            Text('解绑')
+                              .fontSize(12)
+                              .fontWeight(FontWeight.Medium)
+                              .fontColor('#E84855')
+                              .padding({ left: 6, right: 6, top: 6, bottom: 6 })
+                              .onClick(() => { this.confirmUnbindMediaServer(binding.server); })
+                          }
+                          Text((binding.bound || binding.status === 'invalid') ? '重绑' : '绑定')
+                            .fontSize(12)
+                            .fontWeight(FontWeight.Bold)
+                            .fontColor(this.accentHex)
+                            .padding({ left: 11, right: 11, top: 6, bottom: 6 })
+                            .borderRadius(14)
+                            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                            .onClick(() => { this.openMediaServerBindSheet(binding); })
+                        }
+                      }
+                    }
+                    .width('100%')
+                    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+                  }
+                }, (b: MpMediaServerAccountBinding, idx: number) => `ms_bind_${idx}_${b.server}_${b.status}_${b.bound}_${b.remoteUsername}`)
+              }.width('100%')
+            }
+          }
+
+          Text('绑定 Emby、Jellyfin 或 Plex 个人账号后，播放进度将实时显示在媒体服务器「正在播放」仪表盘中；密码仅用于一次性换取加密令牌，绝不保存在本地。')
+            .fontSize(11.5)
+            .fontColor(mpSecondaryText(this.isDark))
+            .width('100%')
         }
         .width('100%')
         .padding({ bottom: 20 })
@@ -2223,6 +2339,205 @@ export struct HarmonySettingsHubPage {
       .scrollBar(BarState.Off)
       .layoutWeight(1)
       .width('100%')
+    }
+    .padding(20)
+    .width('100%')
+    .height('100%')
+  }
+
+  private openPlaybackSettingsSheet(): void {
+    this.bindingsNotice = '';
+    this.showPlaybackSheet = true;
+    this.loadMediaServerBindings();
+  }
+
+  private loadMediaServerBindings(): void {
+    this.loadingBindings = true;
+    MoviePilotRepository.shared().fetchMediaServerAccountBindings().then((list: MpMediaServerAccountBinding[]) => {
+      this.mediaServerBindings = list;
+      this.loadingBindings = false;
+    }).catch(() => {
+      this.loadingBindings = false;
+    });
+  }
+
+  private bindingStatusLabel(item: MpMediaServerAccountBinding): string {
+    if (item.status === 'invalid') { return '凭据已失效'; }
+    if (item.syncMode === 'session') { return '实时会话同步'; }
+    if (item.syncMode === 'userdata') { return '仅进度同步'; }
+    if (item.syncMode === 'scrobble') { return '音乐记录'; }
+    return '暂不支持';
+  }
+
+  private bindingStatusTint(item: MpMediaServerAccountBinding): string {
+    if (item.status === 'invalid') { return '#E84855'; }
+    if (item.syncMode === 'session') { return '#34C759'; }
+    if (item.syncMode === 'userdata') { return '#FF9500'; }
+    if (item.syncMode === 'scrobble') { return this.accentHex; }
+    return '#8E98A8';
+  }
+
+  private bindingSubtitle(item: MpMediaServerAccountBinding): string {
+    const typeName = (item.serverType || '').toUpperCase();
+    if (item.status === 'invalid') {
+      return `${typeName} · 令牌已失效，请重新绑定以恢复实时播放会话`;
+    }
+    if (item.bound && item.remoteUsername.length > 0) {
+      return `${typeName} · 已绑定账号 ${item.remoteUsername}`;
+    }
+    if (item.status === 'builtin') {
+      return `${typeName} · 已内置启用同步，无需单独绑定`;
+    }
+    if (item.supportsBinding) {
+      return item.syncMode === 'session'
+        ? `${typeName} · 当前走服务端共享身份，绑定个人账号可归属本人`
+        : `${typeName} · 绑定个人账号后升级为实时「正在播放」会话`;
+    }
+    return `${typeName} · 当前媒体服务器不支持播放进度回写`;
+  }
+
+  private openMediaServerBindSheet(item: MpMediaServerAccountBinding): void {
+    this.bindTargetServer = item.server;
+    this.bindTargetServerType = item.serverType;
+    this.bindAuthMode = 0;
+    this.bindUsername = item.remoteUsername || '';
+    this.bindPassword = '';
+    this.bindPlexToken = '';
+    this.bindError = '';
+    this.bindSubmitting = false;
+    this.showAccountBindSheet = true;
+  }
+
+  private confirmUnbindMediaServer(server: string): void {
+    AlertDialog.show({
+      title: `解除 ${server} 绑定？`,
+      message: '解绑后将清除已保存的个人同步令牌，恢复为服务器默认进度同步模式。',
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '取消',
+        action: () => {}
+      },
+      secondaryButton: {
+        value: '确认解绑',
+        fontColor: '#E84855',
+        action: () => {
+          MoviePilotRepository.shared().unbindMediaServerAccount(server).then((res) => {
+            this.bindingsNotice = res.message;
+            this.loadMediaServerBindings();
+          }).catch(() => {});
+        }
+      }
+    });
+  }
+
+  private submitMediaServerBind(): void {
+    if (this.bindSubmitting) { return; }
+    const isPlexToken = this.bindTargetServerType.toLowerCase() === 'plex' && this.bindAuthMode === 1;
+    const submittedUser = this.bindUsername.trim();
+    const submittedPass = this.bindPassword;
+    const submittedTok = this.bindPlexToken.trim();
+    if (isPlexToken && submittedTok.length === 0) {
+      this.bindError = '请粘贴您的 Plex 访问令牌（X-Plex-Token）';
+      return;
+    }
+    if (!isPlexToken && (submittedUser.length === 0 || submittedPass.length === 0)) {
+      this.bindError = '请填写媒体服务器用户名和密码';
+      return;
+    }
+    this.bindSubmitting = true;
+    this.bindError = '';
+    MoviePilotRepository.shared().bindMediaServerAccount(
+      this.bindTargetServer,
+      isPlexToken ? '' : submittedUser,
+      isPlexToken ? '' : submittedPass,
+      isPlexToken ? submittedTok : ''
+    ).then((res) => {
+      this.bindPassword = '';
+      this.bindPlexToken = '';
+      this.bindSubmitting = false;
+      if (res.success) {
+        this.showAccountBindSheet = false;
+        this.bindingsNotice = `已绑定 ${this.bindTargetServer}，实时会话同步已启用`;
+        this.loadMediaServerBindings();
+      } else {
+        this.bindError = res.message || '绑定失败，请核对凭据';
+      }
+    }).catch(() => {
+      this.bindPassword = '';
+      this.bindPlexToken = '';
+      this.bindSubmitting = false;
+      this.bindError = '网络异常，请稍后重试';
+    });
+  }
+
+  @Builder
+  accountBindSheetBuilder() {
+    Column({ space: 14 }) {
+      HarmonySheetHeader({
+        title: `绑定 ${this.bindTargetServer}`,
+        cancelText: '取消',
+        actionText: this.bindSubmitting ? '验证中' : '绑定',
+        actionEnabled: !this.bindSubmitting,
+        onCancel: () => {
+          this.bindPassword = '';
+          this.bindPlexToken = '';
+          this.showAccountBindSheet = false;
+        },
+        onAction: () => { this.submitMediaServerBind(); }
+      })
+      Scroll() {
+        Column({ space: 14 }) {
+          if (this.bindTargetServerType.toLowerCase() === 'plex') {
+            HarmonySegmentedSwitch({
+              options: ['账号密码', 'Plex Token'],
+              selectedIndex: this.bindAuthMode,
+              onSelect: (idx: number) => {
+                this.bindAuthMode = idx;
+                this.bindError = '';
+              }
+            })
+          }
+
+          CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+            Column({ space: 12 }) {
+              if (this.bindTargetServerType.toLowerCase() === 'plex' && this.bindAuthMode === 1) {
+                Text('X-Plex-Token').fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                TextInput({ text: this.bindPlexToken, placeholder: '粘贴您的个人 Plex 访问令牌' })
+                  .type(InputType.Password)
+                  .width('100%')
+                  .onChange((v: string) => { this.bindPlexToken = v; })
+              } else {
+                Text('媒体服务器用户名').fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                TextInput({ text: this.bindUsername, placeholder: '请输入媒体服务器登录账号' })
+                  .width('100%')
+                  .onChange((v: string) => { this.bindUsername = v; })
+                Text('媒体服务器密码').fontSize(12.5).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                TextInput({ text: this.bindPassword, placeholder: '请输入媒体服务器登录密码' })
+                  .type(InputType.Password)
+                  .width('100%')
+                  .onChange((v: string) => { this.bindPassword = v; })
+              }
+            }.width('100%')
+          }
+
+          if (this.bindError.length > 0) {
+            Text(this.bindError)
+              .fontSize(12.5)
+              .fontColor('#E84855')
+              .width('100%')
+          }
+
+          Text(
+            (this.bindTargetServerType.toLowerCase() === 'plex' && this.bindAuthMode === 1)
+              ? '开启两步验证（2FA）的 Plex 账号请直接粘贴 X-Plex-Token 完成绑定。'
+              : `账号密码仅提交给 MoviePilot 后台向 ${this.bindTargetServer} 一次性换取加密个人令牌，不会在设备或服务端明文保留密码。`
+          )
+            .fontSize(12)
+            .fontColor(mpSecondaryText(this.isDark))
+            .width('100%')
+        }.width('100%').padding({ bottom: 20 })
+      }.scrollBar(BarState.Off).layoutWeight(1)
     }
     .padding(20)
     .width('100%')
@@ -2569,7 +2884,7 @@ export struct HarmonySettingsHubPage {
                   ),
                   symbolName: 'sys.symbol.play_circle_fill',
                   symbolTint: '#5AC8FA',
-                  onTap: () => { this.showPlaybackSheet = true; }
+                  onTap: () => { this.openPlaybackSettingsSheet(); }
                 })
               }
             }
@@ -2747,6 +3062,14 @@ export struct HarmonySettingsHubPage {
       })
       Blank().width(0).height(0).bindSheet($$this.showPlaybackSheet, this.playbackSheetBuilder(), {
         detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
+        blurStyle: BlurStyle.COMPONENT_REGULAR,
+        dragBar: true,
+        showClose: false,
+        backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+      })
+      Blank().width(0).height(0).bindSheet($$this.showAccountBindSheet, this.accountBindSheetBuilder(), {
+        detents: [SheetSize.MEDIUM, SheetSize.LARGE],
         preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,
         dragBar: true,

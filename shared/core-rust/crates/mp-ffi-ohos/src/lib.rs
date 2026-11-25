@@ -3,8 +3,9 @@
 
 use mp_core_api::{ApiEndpoint, ResourceFilterCriteria, ResourceFilterEngine, ResourceItem};
 use mp_core_model::{
-    AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, PlayableMediaFormat, ServerAddress,
-    SubscribeProgressModel,
+    AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, PendingPlaybackStop,
+    PlayableMediaFormat, PlaybackProgressPlanner, PlaybackSyncInput, PlaybackSyncState,
+    ServerAddress, SubscribeProgressModel,
 };
 use mp_core_plugin::{NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder};
 use mp_core_session::{NativePermissions, classify_auth_status, decode_jwt_claims};
@@ -146,6 +147,34 @@ pub mod bridge {
         serde_json::to_string(&SubscribeProgressModel::compute(total, lack))
             .unwrap_or_else(|_| "{}".to_string())
     }
+
+    pub fn plan_playback_sync_step_json(
+        state_json: &str,
+        input_json: &str,
+    ) -> Result<String, String> {
+        let state: PlaybackSyncState = if state_json.trim().is_empty() {
+            PlaybackSyncState::default()
+        } else {
+            serde_json::from_str(state_json).map_err(|e| e.to_string())?
+        };
+        let input: PlaybackSyncInput =
+            serde_json::from_str(input_json).map_err(|e| e.to_string())?;
+        serde_json::to_string(&PlaybackProgressPlanner::step(&state, &input))
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn normalize_pending_playback_stops_json(
+        entries_json: &str,
+        now_epoch_ms: i64,
+    ) -> Result<String, String> {
+        let entries: Vec<PendingPlaybackStop> = if entries_json.trim().is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(entries_json).map_err(|e| e.to_string())?
+        };
+        let normalized = PlaybackProgressPlanner::normalize_pending_stops(entries, now_epoch_ms);
+        serde_json::to_string(&normalized).map_err(|e| e.to_string())
+    }
 }
 
 #[cfg(target_env = "ohos")]
@@ -257,6 +286,21 @@ mod napi_exports {
     #[napi]
     pub fn compute_subscribe_progress_json(total: i32, lack: i32) -> String {
         bridge::compute_subscribe_progress_json(total, lack)
+    }
+
+    #[napi]
+    pub fn plan_playback_sync_step_json(state_json: String, input_json: String) -> Result<String> {
+        bridge::plan_playback_sync_step_json(&state_json, &input_json)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn normalize_pending_playback_stops_json(
+        entries_json: String,
+        now_epoch_ms: i64,
+    ) -> Result<String> {
+        bridge::normalize_pending_playback_stops_json(&entries_json, now_epoch_ms)
+            .map_err(napi_ohos::Error::from_reason)
     }
 }
 

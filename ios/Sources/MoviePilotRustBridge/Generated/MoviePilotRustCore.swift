@@ -549,11 +549,11 @@ fileprivate struct FfiConverterString: FfiConverter {
  * 有状态流式 SSE 解析器对象，供原生网络流逐块喂入字节并消费事件帧。
  */
 public protocol NativeSseParserProtocol: AnyObject, Sendable {
-
+    
     func finish()  -> [SseEventFfi]
-
+    
     func pushChunk(chunk: String)  -> [SseEventFfi]
-
+    
 }
 /**
  * 有状态流式 SSE 解析器对象，供原生网络流逐块喂入字节并消费事件帧。
@@ -614,16 +614,16 @@ public convenience init() {
         try! rustCall { uniffi_moviepilot_core_fn_free_nativesseparser(pointer, $0) }
     }
 
+    
 
-
-
+    
 open func finish() -> [SseEventFfi]  {
     return try!  FfiConverterSequenceTypeSseEventFfi.lift(try! rustCall() {
     uniffi_moviepilot_core_fn_method_nativesseparser_finish(self.uniffiClonePointer(),$0
     )
 })
 }
-
+    
 open func pushChunk(chunk: String) -> [SseEventFfi]  {
     return try!  FfiConverterSequenceTypeSseEventFfi.lift(try! rustCall() {
     uniffi_moviepilot_core_fn_method_nativesseparser_push_chunk(self.uniffiClonePointer(),
@@ -631,7 +631,7 @@ open func pushChunk(chunk: String) -> [SseEventFfi]  {
     )
 })
 }
-
+    
 
 }
 
@@ -758,11 +758,11 @@ public struct FfiConverterTypeCronSummaryFfi: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CronSummaryFfi {
         return
             try CronSummaryFfi(
-                rawValue: FfiConverterString.read(from: &buf),
-                format: FfiConverterString.read(from: &buf),
-                fields: FfiConverterSequenceString.read(from: &buf),
-                hasAmbiguousWeekday: FfiConverterBool.read(from: &buf),
-                descriptionZh: FfiConverterString.read(from: &buf),
+                rawValue: FfiConverterString.read(from: &buf), 
+                format: FfiConverterString.read(from: &buf), 
+                fields: FfiConverterSequenceString.read(from: &buf), 
+                hasAmbiguousWeekday: FfiConverterBool.read(from: &buf), 
+                descriptionZh: FfiConverterString.read(from: &buf), 
                 isValidFiveField: FfiConverterBool.read(from: &buf)
         )
     }
@@ -857,10 +857,10 @@ public struct FfiConverterTypeJwtClaimsFfi: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> JwtClaimsFfi {
         return
             try JwtClaimsFfi(
-                subject: FfiConverterOptionString.read(from: &buf),
-                userName: FfiConverterOptionString.read(from: &buf),
-                exp: FfiConverterOptionInt64.read(from: &buf),
-                superUser: FfiConverterBool.read(from: &buf),
+                subject: FfiConverterOptionString.read(from: &buf), 
+                userName: FfiConverterOptionString.read(from: &buf), 
+                exp: FfiConverterOptionInt64.read(from: &buf), 
+                superUser: FfiConverterBool.read(from: &buf), 
                 isExpired: FfiConverterBool.read(from: &buf)
         )
     }
@@ -960,11 +960,11 @@ public struct FfiConverterTypeMarkdownBlockFfi: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarkdownBlockFfi {
         return
             try MarkdownBlockFfi(
-                kind: FfiConverterString.read(from: &buf),
-                level: FfiConverterUInt8.read(from: &buf),
-                language: FfiConverterOptionString.read(from: &buf),
-                text: FfiConverterString.read(from: &buf),
-                items: FfiConverterSequenceString.read(from: &buf),
+                kind: FfiConverterString.read(from: &buf), 
+                level: FfiConverterUInt8.read(from: &buf), 
+                language: FfiConverterOptionString.read(from: &buf), 
+                text: FfiConverterString.read(from: &buf), 
+                items: FfiConverterSequenceString.read(from: &buf), 
                 rowsJson: FfiConverterString.read(from: &buf)
         )
     }
@@ -1065,11 +1065,11 @@ public struct FfiConverterTypeMedalPaletteFfi: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MedalPaletteFfi {
         return
             try MedalPaletteFfi(
-                medalId: FfiConverterString.read(from: &buf),
-                baseHex: FfiConverterString.read(from: &buf),
-                rimHex: FfiConverterString.read(from: &buf),
-                engraveDarkHex: FfiConverterString.read(from: &buf),
-                engraveLightHex: FfiConverterString.read(from: &buf),
+                medalId: FfiConverterString.read(from: &buf), 
+                baseHex: FfiConverterString.read(from: &buf), 
+                rimHex: FfiConverterString.read(from: &buf), 
+                engraveDarkHex: FfiConverterString.read(from: &buf), 
+                engraveLightHex: FfiConverterString.read(from: &buf), 
                 tier: FfiConverterString.read(from: &buf)
         )
     }
@@ -1164,10 +1164,10 @@ public struct FfiConverterTypePermissionsFfi: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PermissionsFfi {
         return
             try PermissionsFfi(
-                discovery: FfiConverterBool.read(from: &buf),
-                search: FfiConverterBool.read(from: &buf),
-                subscribe: FfiConverterBool.read(from: &buf),
-                manage: FfiConverterBool.read(from: &buf),
+                discovery: FfiConverterBool.read(from: &buf), 
+                search: FfiConverterBool.read(from: &buf), 
+                subscribe: FfiConverterBool.read(from: &buf), 
+                manage: FfiConverterBool.read(from: &buf), 
                 admin: FfiConverterBool.read(from: &buf)
         )
     }
@@ -1255,9 +1255,9 @@ public struct FfiConverterTypeSseEventFfi: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SseEventFfi {
         return
             try SseEventFfi(
-                event: FfiConverterString.read(from: &buf),
-                data: FfiConverterString.read(from: &buf),
-                id: FfiConverterOptionString.read(from: &buf),
+                event: FfiConverterString.read(from: &buf), 
+                data: FfiConverterString.read(from: &buf), 
+                id: FfiConverterOptionString.read(from: &buf), 
                 isDone: FfiConverterBool.read(from: &buf)
         )
     }
@@ -1338,8 +1338,8 @@ public struct FfiConverterTypeStrmStreamFfi: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StrmStreamFfi {
         return
             try StrmStreamFfi(
-                url: FfiConverterString.read(from: &buf),
-                headersJson: FfiConverterString.read(from: &buf),
+                url: FfiConverterString.read(from: &buf), 
+                headersJson: FfiConverterString.read(from: &buf), 
                 mediaKind: FfiConverterString.read(from: &buf)
         )
     }
@@ -1431,10 +1431,10 @@ public struct FfiConverterTypeSubscribeProgressFfi: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SubscribeProgressFfi {
         return
             try SubscribeProgressFfi(
-                total: FfiConverterInt32.read(from: &buf),
-                completed: FfiConverterInt32.read(from: &buf),
-                lack: FfiConverterInt32.read(from: &buf),
-                ratio: FfiConverterDouble.read(from: &buf),
+                total: FfiConverterInt32.read(from: &buf), 
+                completed: FfiConverterInt32.read(from: &buf), 
+                lack: FfiConverterInt32.read(from: &buf), 
+                ratio: FfiConverterDouble.read(from: &buf), 
                 label: FfiConverterString.read(from: &buf)
         )
     }
@@ -1469,8 +1469,8 @@ public func FfiConverterTypeSubscribeProgressFfi_lower(_ value: SubscribeProgres
  */
 public enum CoreFfiError: Swift.Error {
 
-
-
+    
+    
     case InvalidAddress(msg: String
     )
     case InvalidEndpoint(msg: String
@@ -1490,9 +1490,9 @@ public struct FfiConverterTypeCoreFfiError: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
 
+        
 
-
-
+        
         case 1: return .InvalidAddress(
             msg: try FfiConverterString.read(from: &buf)
             )
@@ -1510,24 +1510,24 @@ public struct FfiConverterTypeCoreFfiError: FfiConverterRustBuffer {
     public static func write(_ value: CoreFfiError, into buf: inout [UInt8]) {
         switch value {
 
+        
 
-
-
-
+        
+        
         case let .InvalidAddress(msg):
             writeInt(&buf, Int32(1))
             FfiConverterString.write(msg, into: &buf)
-
-
+            
+        
         case let .InvalidEndpoint(msg):
             writeInt(&buf, Int32(2))
             FfiConverterString.write(msg, into: &buf)
-
-
+            
+        
         case let .InvalidJson(msg):
             writeInt(&buf, Int32(3))
             FfiConverterString.write(msg, into: &buf)
-
+            
         }
     }
 }
@@ -1815,6 +1815,17 @@ public func filterAndGroupResources(resourcesJson: String, criteriaJson: String)
 })
 }
 /**
+ * 规整离线待补报 `stopped` 队列（去重、清理 7 天过期项并裁剪至上限）。
+ */
+public func normalizePendingPlaybackStopsJson(entriesJson: String, nowEpochMs: Int64)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_normalize_pending_playback_stops_json(
+        FfiConverterString.lower(entriesJson),
+        FfiConverterInt64.lower(nowEpochMs),$0
+    )
+})
+}
+/**
  * 规范化 MoviePilot 实例地址（保留反向代理子路径，拒绝非法协议与内嵌凭据）。
  */
 public func normalizeServerAddress(raw: String)throws  -> String  {
@@ -1852,6 +1863,17 @@ public func parseStrmContent(rawText: String, fallbackFileName: String?)throws  
     uniffi_moviepilot_core_fn_func_parse_strm_content(
         FfiConverterString.lower(rawText),
         FfiConverterOptionString.lower(fallbackFileName),$0
+    )
+})
+}
+/**
+ * 执行一次跨端播放进度与实时会话上报状态机推演，返回决策及下一状态 JSON。
+ */
+public func planPlaybackSyncStepJson(stateJson: String, inputJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_plan_playback_sync_step_json(
+        FfiConverterString.lower(stateJson),
+        FfiConverterString.lower(inputJson),$0
     )
 })
 }
@@ -1928,6 +1950,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_filter_and_group_resources() != 54382) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json() != 59689) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_normalize_server_address() != 63452) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1938,6 +1963,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_parse_strm_content() != 31599) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_plan_playback_sync_step_json() != 57831) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_plan_plugin_form_json() != 32974) {

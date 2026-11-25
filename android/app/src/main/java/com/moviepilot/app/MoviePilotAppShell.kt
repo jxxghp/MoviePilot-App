@@ -133,6 +133,7 @@ import com.moviepilot.rustbridge.MediaPersonDto
 import com.moviepilot.rustbridge.MediaServerLibraryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.MusicAlbumDto
+import com.moviepilot.rustbridge.PlaybackSyncSessionTracker
 import com.moviepilot.rustbridge.PluginItemDto
 import com.moviepilot.rustbridge.RustCoreBridge
 import com.moviepilot.rustbridge.SessionState
@@ -443,20 +444,39 @@ fun MoviePilotRootShell(
         }
     }
 
-    fun reportAudioProgressAsync(req: MediaPlaybackRequest?, posMs: Long, durMs: Long, isPaused: Boolean, state: String) {
+    var bgAudioSyncTracker by remember { mutableStateOf<PlaybackSyncSessionTracker?>(null) }
+    var bgAudioStartedSent by remember { mutableStateOf(false) }
+
+    fun dispatchAudioSync(
+        req: MediaPlaybackRequest?,
+        trigger: String,
+        posMs: Long,
+        durMs: Long,
+        isPaused: Boolean,
+    ) {
         val r = req ?: return
         if (r.itemId.isBlank() || r.server.isBlank()) return
-        scope.launch {
-            repository.reportMediaPlaybackProgress(
-                itemId = r.itemId,
-                server = r.server,
-                positionMs = posMs,
-                durationMs = durMs,
-                isPaused = isPaused,
-                state = state,
-                mediaSourceId = r.mediaSourceId.ifBlank { null },
-            )
+        val tracker = bgAudioSyncTracker ?: PlaybackSyncSessionTracker(r.playSessionId.orEmpty()).also {
+            bgAudioSyncTracker = it
         }
+        val decision = tracker.step(
+            trigger = trigger,
+            positionMs = posMs,
+            durationMs = durMs.takeIf { it > 0L },
+            isPaused = isPaused,
+        )
+        if (decision.state == "started") {
+            bgAudioStartedSent = true
+        }
+        repository.playbackProgressReporter.enqueueDecision(
+            repository = repository,
+            itemId = r.itemId,
+            server = r.server,
+            mediaSourceId = r.mediaSourceId.ifBlank { null },
+            decision = decision,
+            playSessionId = r.playSessionId,
+            durationMs = durMs.takeIf { it > 0L },
+        )
     }
 
     fun releaseBackgroundAudio(reportStopped: Boolean = true) {
@@ -468,13 +488,15 @@ fun MoviePilotRootShell(
             val dur = prevPlayer.duration.coerceAtLeast(0L)
             localHistoryStore.recordPlaybackProgress(instanceUrl, prevReq.server, prevReq.localResumeId, pos, dur)
             if (reportStopped) {
-                reportAudioProgressAsync(prevReq, pos, dur, isPaused = true, state = "stopped")
+                dispatchAudioSync(prevReq, "stop", pos, dur, isPaused = true)
             }
         }
         PlaybackServiceBridge.detachIfMatching(prevPlayer)
         prevPlayer?.release()
         bgAudioPlayer = null
         bgAudioRequest = null
+        bgAudioSyncTracker = null
+        bgAudioStartedSent = false
         bgAudioPlaying = false
         deleteTempFileIfUnused(prevReq?.tempFilePath, keepPaths = setOf(activePlayerRequest?.tempFilePath))
     }
@@ -553,7 +575,10 @@ fun MoviePilotRootShell(
                     allowSelfSignedTls = repository.secretStore.allowSelfSignedTls,
                     itemId = manifest.itemId,
                     server = manifest.server,
+                    serverType = manifest.serverType,
                     mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                    playSessionId = manifest.playSessionId,
+                    progressSyncMode = manifest.progressSyncMode,
                 )
             }
 
@@ -576,7 +601,10 @@ fun MoviePilotRootShell(
                     allowSelfSignedTls = repository.secretStore.allowSelfSignedTls,
                     itemId = manifest.itemId,
                     server = manifest.server.ifBlank { spec.server },
+                    serverType = manifest.serverType.ifBlank { rawReq.serverType },
                     mediaSourceId = manifest.mediaSourceId ?: spec.mediaSourceId.orEmpty(),
+                    playSessionId = manifest.playSessionId,
+                    progressSyncMode = manifest.progressSyncMode,
                     resumePositionMs = manifest.resumePositionMs.takeIf { it > 0L } ?: rawReq.resumePositionMs,
                     subtitles = manifest.subtitles.map {
                         SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
@@ -677,11 +705,13 @@ fun MoviePilotRootShell(
                         val prevPos = prevPlayer.currentPosition.coerceAtLeast(0L)
                         val prevDur = prevPlayer.duration.coerceAtLeast(0L)
                         localHistoryStore.recordPlaybackProgress(instanceUrl, prevReq.server, prevReq.localResumeId, prevPos, prevDur)
-                        reportAudioProgressAsync(prevReq, prevPos, prevDur, isPaused = true, state = "stopped")
+                        dispatchAudioSync(prevReq, "stop", prevPos, prevDur, isPaused = true)
                         PlaybackServiceBridge.detachIfMatching(prevPlayer)
                         prevPlayer.release()
                         deleteTempFileIfUnused(prevReq.tempFilePath, keepPaths = setOf(req.tempFilePath))
                     }
+                    bgAudioSyncTracker = PlaybackSyncSessionTracker(req.playSessionId.orEmpty())
+                    bgAudioStartedSent = false
                     val savedMs = localHistoryStore.readResumePositionMs(instanceUrl, req.server, req.localResumeId)
                     val bestMs = LocalPlaybackHistoryStore.resolveBestResumeMs(savedMs, req.resumePositionMs)
                     val player = buildConfiguredExoPlayer(context, req, resumePositionOverrideMs = bestMs).apply {
@@ -689,18 +719,40 @@ fun MoviePilotRootShell(
                         repeatMode = if (audioRepeatMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
                     }
                     player.addListener(object : Player.Listener {
+                        override fun onPositionDiscontinuity(
+                            oldPosition: Player.PositionInfo,
+                            newPosition: Player.PositionInfo,
+                            reason: Int,
+                        ) {
+                            if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+                                val curReq = latestBgAudioReq ?: req
+                                dispatchAudioSync(
+                                    req = curReq,
+                                    trigger = "seek",
+                                    posMs = newPosition.positionMs.coerceAtLeast(0L),
+                                    durMs = player.duration.coerceAtLeast(0L),
+                                    isPaused = !player.isPlaying,
+                                )
+                            }
+                        }
+
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
                             bgAudioPlaying = isPlaying
                             val curReq = latestBgAudioReq ?: req
                             val pos = player.currentPosition.coerceAtLeast(0L)
                             val dur = player.duration.coerceAtLeast(0L)
                             localHistoryStore.recordPlaybackProgress(currentActiveInstanceUrl(), curReq.server, curReq.localResumeId, pos, dur)
-                            reportAudioProgressAsync(
+                            val trigger = when {
+                                isPlaying && !bgAudioStartedSent -> "start"
+                                isPlaying -> "resume"
+                                else -> "pause"
+                            }
+                            dispatchAudioSync(
                                 req = curReq,
+                                trigger = trigger,
                                 posMs = pos,
                                 durMs = dur,
                                 isPaused = !isPlaying,
-                                state = if (isPlaying) "playing" else "paused",
                             )
                         }
 
@@ -708,12 +760,13 @@ fun MoviePilotRootShell(
                             if (playbackState == Player.STATE_ENDED) {
                                 val curReq = latestBgAudioReq ?: req
                                 localHistoryStore.clearResumePosition(currentActiveInstanceUrl(), curReq.server, curReq.localResumeId)
-                                reportAudioProgressAsync(
+                                val dur = player.duration.coerceAtLeast(0L)
+                                dispatchAudioSync(
                                     req = curReq,
-                                    posMs = player.duration.coerceAtLeast(0L),
-                                    durMs = player.duration.coerceAtLeast(0L),
+                                    trigger = "finish",
+                                    posMs = dur,
+                                    durMs = dur,
                                     isPaused = true,
-                                    state = "stopped",
                                 )
                                 advanceAudioTrack(forward = true, autoEnded = true)
                             }
@@ -762,23 +815,27 @@ fun MoviePilotRootShell(
         executeStartPlayback(req, expandOverlay = true)
     }
 
-    // 根壳层持续 15 秒音频进度上报（无论全屏、收起至悬浮迷你播控条还是切至系统后台均不中断）
+    // 根壳层 1 秒音频状态机心跳（覆盖播放中 10s 心跳、暂停 12s 保活与 15 分钟暂停自动释放，全屏/迷你条/后台均不中断）
     LaunchedEffect(bgAudioPlayer, bgAudioRequest) {
         val player = bgAudioPlayer ?: return@LaunchedEffect
         val req = bgAudioRequest ?: return@LaunchedEffect
+        var tick = 0
         while (true) {
-            delay(15_000L)
+            delay(1_000L)
+            tick++
             val pos = player.currentPosition.coerceAtLeast(0L)
             val dur = player.duration.coerceAtLeast(0L)
             val playing = player.isPlaying
             if (dur > 1_000L) {
-                localHistoryStore.recordPlaybackProgress(activeInstanceUrl, req.server, req.localResumeId, pos, dur)
-                reportAudioProgressAsync(
+                if (tick % 10 == 0) {
+                    localHistoryStore.recordPlaybackProgress(activeInstanceUrl, req.server, req.localResumeId, pos, dur)
+                }
+                dispatchAudioSync(
                     req = req,
+                    trigger = "tick",
                     posMs = pos,
                     durMs = dur,
                     isPaused = !playing,
-                    state = if (playing) "playing" else "paused",
                 )
             }
         }
@@ -786,8 +843,8 @@ fun MoviePilotRootShell(
 
     DisposableEffect(Unit) {
         onDispose {
+            releaseBackgroundAudio(reportStopped = true)
             PlaybackServiceBridge.releaseAll()
-            bgAudioPlayer?.release()
         }
     }
 
@@ -1411,7 +1468,10 @@ fun MoviePilotRootShell(
                                                     isAdmin = s.permissions.admin,
                                                     onBack = ::popRoute,
                                                 )
-                                                AppRoute.PlaybackSettings -> PlaybackPreferencesScreen(onBack = ::popRoute)
+                                                AppRoute.PlaybackSettings -> PlaybackPreferencesScreen(
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                )
                                                 is AppRoute.Plugins -> PluginsCenterScreen(
                                                     repository = repository,
                                                     initialInstalledOnly = route.installedOnly,
@@ -1573,23 +1633,7 @@ fun MoviePilotRootShell(
                         null
                     },
                     onSwitchRequest = { next -> executeStartPlayback(next, expandOverlay = true) },
-                    onReportProgress = if (!req.isAudio && req.itemId.isNotBlank() && req.server.isNotBlank()) {
-                        { posMs, durMs, isPaused, state ->
-                            scope.launch {
-                                repository.reportMediaPlaybackProgress(
-                                    itemId = req.itemId,
-                                    server = req.server,
-                                    positionMs = posMs,
-                                    durationMs = durMs,
-                                    isPaused = isPaused,
-                                    state = state,
-                                    mediaSourceId = req.mediaSourceId.ifBlank { null },
-                                )
-                            }
-                        }
-                    } else {
-                        null
-                    },
+                    repository = repository,
                 )
             }
 

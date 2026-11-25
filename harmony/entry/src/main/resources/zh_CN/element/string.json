@@ -665,6 +665,10 @@
       "value": "%s\n将清除此服务保存的账号密码、登录状态和网页数据。"
     },
     {
+      "name": "mp_5ea60e8a",
+      "value": "实时会话同步"
+    },
+    {
       "name": "mp_5f83e7f6",
       "value": "基础"
     },
@@ -749,6 +753,10 @@
       "value": "插件中心"
     },
     {
+      "name": "mp_6ed2d0f9",
+      "value": "解绑账号"
+    },
+    {
       "name": "mp_6f22a707",
       "value": "超级管理员"
     },
@@ -775,6 +783,10 @@
     {
       "name": "mp_73f8f537",
       "value": "每小时"
+    },
+    {
+      "name": "mp_740edb82",
+      "value": "暂无已启用的媒体服务器"
     },
     {
       "name": "mp_743aaf95",
@@ -827,6 +839,10 @@
     {
       "name": "mp_7d126146",
       "value": "删除服务？"
+    },
+    {
+      "name": "mp_7d34369f",
+      "value": "媒体服务器进度同步与账号绑定"
     },
     {
       "name": "mp_7debf9cb",
@@ -997,6 +1013,10 @@
       "value": "登录你的服务，继续管理订阅与媒体。"
     },
     {
+      "name": "mp_a336277e",
+      "value": "绑定媒体服务器账号"
+    },
+    {
       "name": "mp_a3ccf702",
       "value": "数据源"
     },
@@ -1021,6 +1041,10 @@
       "value": "当前签名使用主屏幕通知"
     },
     {
+      "name": "mp_a721506c",
+      "value": "凭据已失效"
+    },
+    {
       "name": "mp_a7786512",
       "value": "指定值"
     },
@@ -1031,6 +1055,10 @@
     {
       "name": "mp_a858e8aa",
       "value": "放弃未保存的修改？"
+    },
+    {
+      "name": "mp_a8a0e7bb",
+      "value": "重新绑定"
     },
     {
       "name": "mp_a95436c3",
@@ -1269,6 +1297,10 @@
       "value": "记住账号密码"
     },
     {
+      "name": "mp_bfc04721",
+      "value": "密码仅用于一次性换取访问令牌，不会保存明文密码。"
+    },
+    {
       "name": "mp_c15ac3ec",
       "value": "选择字幕"
     },
@@ -1279,6 +1311,10 @@
     {
       "name": "mp_c2e7e96e",
       "value": "编辑计划"
+    },
+    {
+      "name": "mp_c46b84fe",
+      "value": "仅进度同步"
     },
     {
       "name": "mp_c493338e",
@@ -1453,6 +1489,10 @@
       "value": "界面语言"
     },
     {
+      "name": "mp_d806ebc1",
+      "value": "验证并绑定"
+    },
+    {
       "name": "mp_d84b7c84",
       "value": "每月最后一天"
     },
@@ -1613,6 +1653,10 @@
       "value": "下载状态"
     },
     {
+      "name": "mp_emby_jellyfin_plex_377a4835",
+      "value": "绑定个人媒体服务器账号后，在播放时可向 Emby / Jellyfin / Plex 仪表盘实时同步正在播放状态与精确进度。"
+    },
+    {
       "name": "mp_f0409080",
       "value": "搜索"
     },
@@ -1711,6 +1755,10 @@
     {
       "name": "mp_fd099e4d",
       "value": "此插件没有配置项"
+    },
+    {
+      "name": "mp_fd17e559",
+      "value": "音乐记录"
     },
     {
       "name": "mp_fd3b1706",
@@ -1855,6 +1903,10 @@
     {
       "name": "mp_moviepilot_f5a7ce49",
       "value": "长按主屏幕空白处，选择“编辑”→“添加小组件”，搜索 MoviePilot。锁屏可在自定中添加；向右滑到今天视图，也可添加。编辑小组件可选择服务和内容。"
+    },
+    {
+      "name": "mp_plex_x_plex_token_4678f466",
+      "value": "Plex 访问令牌 (X-Plex-Token)"
     },
     {
       "name": "mp_push_notifications_serve_8bf6a5ef",

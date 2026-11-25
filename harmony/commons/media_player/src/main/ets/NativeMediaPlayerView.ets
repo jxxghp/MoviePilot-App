@@ -9,7 +9,9 @@ import {
 } from '@moviepilot/design_system';
 import {
   MoviePilotRepository,
-  MpRemoteImage
+  MpRemoteImage,
+  HarmonyPlaybackSyncTracker,
+  HarmonyPlaybackProgressReporter
 } from '@moviepilot/core_rust_bridge';
 import {
   HarmonySubtitleOption,
@@ -167,6 +169,10 @@ export struct NativeMediaPlayerView {
   private controlsHideTimer: number = -1;
   private videoProgressTimer: number = -1;
   private interruptedVideoWhilePlaying: boolean = false;
+
+  private videoSyncTracker: HarmonyPlaybackSyncTracker = new HarmonyPlaybackSyncTracker();
+  private videoStartedSent: boolean = false;
+  private videoProgressTickCount: number = 0;
 
   private audioListener: AudioStateListener = () => {
     this.syncFromAudioSession();
@@ -457,7 +463,7 @@ export struct NativeMediaPlayerView {
         // 画中画小窗运行中：保持底层 AVPlayer 不断流续播，待小窗关闭时再释放
         return;
       }
-      this.reportVideoProgressNow('stopped', true);
+      this.dispatchVideoSync('stop', true);
       this.pipController.destroy().catch(() => {});
       this.releaseVideoPlayerResources();
     }
@@ -513,12 +519,23 @@ export struct NativeMediaPlayerView {
   }
 
   private startVideoProgressTimer(): void {
-    this.stopVideoProgressTimer();
+    if (this.videoProgressTimer !== -1) {
+      return;
+    }
     this.videoProgressTimer = setInterval(() => {
-      if (this.isPlaying && !this.request.isAudio) {
-        this.reportVideoProgressNow('playing', false);
+      if (this.request.isAudio || !this.activeVideoReq) {
+        this.stopVideoProgressTimer();
+        return;
       }
-    }, 15000);
+      this.videoProgressTickCount += 1;
+      if (this.videoProgressTickCount % 10 === 0 && this.durationMs > 0) {
+        const resumeKey = buildPlaybackResumeKey(this.activeVideoReq);
+        if (resumeKey.length > 0) {
+          PlaybackPreferencesStore.saveLocalResumeMs(resumeKey, this.positionMs, this.durationMs);
+        }
+      }
+      this.dispatchVideoSync('tick', !this.isPlaying);
+    }, 1000);
   }
 
   private stopVideoProgressTimer(): void {
@@ -528,29 +545,55 @@ export struct NativeMediaPlayerView {
     }
   }
 
-  private reportVideoProgressNow(state: 'playing' | 'paused' | 'stopped', isPaused: boolean): void {
+  private resolveCurrentSubtitleStreamIndex(): number | null {
+    if (this.selectedSubId === 'off') {
+      return -1;
+    }
+    if (this.activeEmbeddedSubTrackIndex >= 0) {
+      return this.activeEmbeddedSubTrackIndex;
+    }
+    const idx = this.subtitleOptions.findIndex((o: HarmonySubtitleOption) => o.id === this.selectedSubId);
+    return idx >= 0 ? idx : null;
+  }
+
+  private dispatchVideoSync(
+    trigger: 'start' | 'tick' | 'pause' | 'resume' | 'seek' | 'track_change' | 'background' | 'stop' | 'finish',
+    isPaused: boolean,
+    posOverrideMs?: number
+  ): void {
     const req = this.activeVideoReq;
     if (!req) {
       return;
     }
-    const resumeKey = buildPlaybackResumeKey(req);
-    if (resumeKey.length > 0 && this.durationMs > 0) {
-      PlaybackPreferencesStore.saveLocalResumeMs(resumeKey, this.positionMs, this.durationMs);
+    const pos = posOverrideMs !== undefined ? Math.max(0, Math.round(posOverrideMs)) : this.positionMs;
+    if ((trigger === 'pause' || trigger === 'stop') && this.durationMs > 0) {
+      const resumeKey = buildPlaybackResumeKey(req);
+      if (resumeKey.length > 0) {
+        PlaybackPreferencesStore.saveLocalResumeMs(resumeKey, pos, this.durationMs);
+      }
     }
     const itemId = (req.itemId ?? '').trim();
     const server = (req.server ?? '').trim();
-    if (itemId.length === 0 || server.length === 0 || itemId.startsWith('file.')) {
+    if (itemId.length === 0 || server.length === 0 || itemId.startsWith('file.') || itemId.startsWith('file:')) {
       return;
     }
-    MoviePilotRepository.shared().reportMediaServerProgress(
+    const audioIdx = this.selectedAudioTrackIndex >= 0 ? this.selectedAudioTrackIndex : null;
+    const subIdx = this.resolveCurrentSubtitleStreamIndex();
+    const decision = this.videoSyncTracker.step(trigger, pos, this.durationMs, isPaused, audioIdx, subIdx);
+    if (decision.state === 'started') {
+      this.videoStartedSent = true;
+    }
+    HarmonyPlaybackProgressReporter.shared().enqueueDecision(
+      MoviePilotRepository.shared(),
       itemId,
       server,
       req.mediaSourceId ?? '',
-      this.positionMs,
+      decision,
+      req.playSessionId ?? this.videoSyncTracker.getPlaySessionId(),
       this.durationMs,
-      isPaused,
-      state
-    ).catch(() => {});
+      audioIdx,
+      subIdx
+    );
   }
 
   private clearResumeBannerTimer(): void {
@@ -627,6 +670,9 @@ export struct NativeMediaPlayerView {
   private async initVideoPlayer(req: HarmonyPlaybackRequest): Promise<void> {
     const gen = ++this.videoLoadGeneration;
     this.releaseVideoPlayerResources();
+    this.videoSyncTracker.reset(req.playSessionId ?? '');
+    this.videoStartedSent = false;
+    this.videoProgressTickCount = 0;
 
     this.activeVideoReq = req;
     this.displayTitle = req.title;
@@ -749,7 +795,10 @@ export struct NativeMediaPlayerView {
             lyricsUrl: req.lyricsUrl,
             itemId: req.itemId,
             server: req.server,
+            serverType: req.serverType,
             mediaSourceId: req.mediaSourceId,
+            playSessionId: req.playSessionId,
+            progressSyncMode: req.progressSyncMode,
             resumePositionMs: req.resumePositionMs,
             subtitles: req.subtitles,
             preferredAudioLang: req.preferredAudioLang,
@@ -829,12 +878,14 @@ export struct NativeMediaPlayerView {
           this.isPlaying = true;
           this.pipController.updatePlayState(true);
           this.startVideoProgressTimer();
+          this.dispatchVideoSync(this.videoStartedSent ? 'resume' : 'start', false);
           this.resetControlsAutoHideTimer();
         } else if (state === 'paused') {
           this.isPlaying = false;
           this.pipController.updatePlayState(false);
-          this.stopVideoProgressTimer();
-          this.reportVideoProgressNow('paused', true);
+          // 保持 1 秒状态机心跳以支持暂停 12 秒保活与 15 分钟自动释放会话
+          this.startVideoProgressTimer();
+          this.dispatchVideoSync('pause', true);
           this.clearControlsAutoHideTimer();
         } else if (state === 'completed') {
           this.isPlaying = false;
@@ -844,7 +895,7 @@ export struct NativeMediaPlayerView {
           if (resumeKey.length > 0) {
             PlaybackPreferencesStore.clearLocalResumeMs(resumeKey);
           }
-          this.reportVideoProgressNow('stopped', false);
+          this.dispatchVideoSync('finish', true, this.durationMs > 0 ? this.durationMs : this.positionMs);
           if (!this.upNextDismissedForCurrent && this.videoQueueIdx + 1 < this.videoQueue.length) {
             this.clearUpNextTimer();
             this.showUpNextCard = false;
@@ -916,7 +967,7 @@ export struct NativeMediaPlayerView {
         },
         onPipStateChanged: (_active: boolean, stoppedWithoutRestore: boolean) => {
           if (stoppedWithoutRestore && this.viewDisappeared) {
-            this.reportVideoProgressNow('stopped', true);
+            this.dispatchVideoSync('stop', true);
             this.pipController.destroy().catch(() => {});
             this.releaseVideoPlayerResources();
           }
@@ -1075,6 +1126,9 @@ export struct NativeMediaPlayerView {
     if (!opt) {
       this.selectedSubId = 'off';
       this.activeSubIsExternal = false;
+      if (this.videoStartedSent) {
+        this.dispatchVideoSync('track_change', !this.isPlaying);
+      }
       return;
     }
 
@@ -1098,6 +1152,9 @@ export struct NativeMediaPlayerView {
         // ignore
       }
     }
+    if (this.videoStartedSent) {
+      this.dispatchVideoSync('track_change', !this.isPlaying);
+    }
   }
 
   private async selectAudioTrack(opt: HarmonyAudioTrackOption): Promise<void> {
@@ -1109,6 +1166,9 @@ export struct NativeMediaPlayerView {
       } catch {
         // ignore
       }
+    }
+    if (this.videoStartedSent) {
+      this.dispatchVideoSync('track_change', !this.isPlaying);
     }
   }
 
@@ -1131,7 +1191,7 @@ export struct NativeMediaPlayerView {
     if (index < 0 || index >= this.videoQueue.length) {
       return;
     }
-    this.reportVideoProgressNow('stopped', true);
+    this.dispatchVideoSync('stop', true);
     this.didFallbackToProxy = false;
     this.videoQueueIdx = index;
     const ep = this.videoQueue[index];
@@ -1177,7 +1237,10 @@ export struct NativeMediaPlayerView {
       isAudio: false,
       itemId: stream.itemId,
       server: stream.server,
+      serverType: stream.serverType,
       mediaSourceId: stream.mediaSourceId,
+      playSessionId: stream.playSessionId,
+      progressSyncMode: stream.progressSyncMode,
       resumePositionMs: ep.resumePositionMs && ep.resumePositionMs > 0 ? ep.resumePositionMs : stream.resumePositionMs,
       subtitles: mapExternalSubtitlesToOptions(stream.subtitles),
       preferredAudioLang: this.activeVideoReq.preferredAudioLang,
@@ -1200,8 +1263,8 @@ export struct NativeMediaPlayerView {
         this.resetControlsAutoHideTimer();
       } else {
         this.videoPlayer.pause().catch(() => {});
-        this.stopVideoProgressTimer();
-        this.reportVideoProgressNow('paused', true);
+        this.startVideoProgressTimer();
+        this.dispatchVideoSync('pause', true);
         this.clearControlsAutoHideTimer();
       }
     }
@@ -1233,6 +1296,7 @@ export struct NativeMediaPlayerView {
         // ignore
       }
     }
+    this.dispatchVideoSync('seek', !this.isPlaying, clamped);
   }
 
   private seekVideoRelativeMs(deltaMs: number): void {

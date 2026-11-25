@@ -4,7 +4,8 @@ import {
   MpCastMember,
   MpMediaServerLibrary,
   MpMusicAlbum,
-  MpRemoteImage
+  MpRemoteImage,
+  PLAYBACK_SYNC_REVISION_KEY
 } from '@moviepilot/core_rust_bridge';
 import {
   CinematicPanel,
@@ -248,6 +249,7 @@ struct PosterCard {
 export struct HarmonyDiscoverPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_PALETTE_ID) paletteId: string = 'harmony_blue';
+  @StorageProp(PLAYBACK_SYNC_REVISION_KEY) @Watch('onPlaybackSyncRevisionChanged') playbackSyncRevision: number = 0;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_DISCOVER_MODULES) modulesRaw: string = '';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
@@ -278,6 +280,15 @@ export struct HarmonyDiscoverPage {
   aboutToAppear(): void {
     this.modules = HarmonyAppearanceStore.parseModules(this.modulesRaw, DEFAULT_DISCOVER_MODULES);
     this.loadData();
+  }
+
+  private onPlaybackSyncRevisionChanged(): void {
+    if (this.playbackSyncRevision <= 0) {
+      return;
+    }
+    MoviePilotRepository.shared().fetchContinueWatching().then((items: MpMediaItem[]) => {
+      this.continueItems = items;
+    }).catch(() => {});
   }
 
   private persistModules(next: CustomModulePref[]): void {

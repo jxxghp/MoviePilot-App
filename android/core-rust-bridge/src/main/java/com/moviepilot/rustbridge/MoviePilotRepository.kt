@@ -54,6 +54,7 @@ class MoviePilotRepository(context: Context) {
     private val appContext = context.applicationContext
     val secretStore = NativeSecretStore(appContext)
     val transport = NativeHttpTransport(allowSelfSignedTls = { secretStore.allowSelfSignedTls })
+    val playbackProgressReporter = PlaybackProgressReporter(appContext)
     val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
     private val _session = MutableStateFlow<SessionState>(SessionState.Unconnected)
@@ -357,11 +358,12 @@ class MoviePilotRepository(context: Context) {
         query: List<Pair<String, String>> = emptyList(),
         body: String? = null,
         trailingSlash: Boolean = false,
+        extraHeaders: Map<String, String> = emptyMap(),
     ): Result<NativeHttpResponse> {
         val auth = _session.value as? SessionState.Authenticated
             ?: return Result.failure(IllegalStateException("未登录"))
-        val url = if (segments.any { seg -> seg.any { it.code > 127 } }) {
-            // 含中文路径段（如 `/tmdb/credits/{id}/电视剧`）直接进行单次 UTF-8 百分号编码，避免双重转义
+        val url = if (segments.any { seg -> seg.any { it.code > 127 || it == ' ' } }) {
+            // 含中文或空格路径段（如 `/tmdb/credits/{id}/电视剧` 或 `/account-bindings/My Emby`）直接单次 UTF-8 百分号编码
             val base = auth.serverUrl.trimEnd('/')
             val encodedPath = segments.joinToString("/") { seg ->
                 URLEncoder.encode(seg, "UTF-8").replace("+", "%20")
@@ -376,7 +378,13 @@ class MoviePilotRepository(context: Context) {
             }.getOrElse { return Result.failure(it) }
         }
         val resp = runCatching {
-            transport.execute(url = url, method = method, token = auth.token, body = body)
+            transport.execute(
+                url = url,
+                method = method,
+                token = auth.token,
+                body = body,
+                extraHeaders = extraHeaders,
+            )
         }.getOrElse { return Result.failure(it) }
 
         if (RustCoreBridge.classifyAuthStatus(resp.status, resp.body) == "logout") {
@@ -3241,8 +3249,13 @@ class MoviePilotRepository(context: Context) {
             if (!server.isNullOrBlank()) add("server" to server)
             if (!mediaSourceId.isNullOrBlank()) add("media_source_id" to mediaSourceId)
         }
-        val resp = authedRequest(listOf("mediaserver", "stream-info"), query = q).getOrNull() ?: return null
+        val resp = authedRequest(
+            segments = listOf("mediaserver", "stream-info"),
+            query = q,
+            extraHeaders = playbackProgressReporter.clientHeaders(),
+        ).getOrNull() ?: return null
         if (resp.status !in 200..299) return null
+        playbackProgressReporter.flushPendingStops(this)
         val obj = extractObject(resp.body) ?: return null
         val rawUrl = obj.str("content_url")?.takeIf { it.isNotBlank() } ?: return null
         val sameOriginUrl = resolveSameOriginUrl(auth.serverUrl, rawUrl)
@@ -3271,7 +3284,10 @@ class MoviePilotRepository(context: Context) {
         return MediaPlaybackManifestDto(
             itemId = obj.str("item_id") ?: itemId,
             server = obj.str("server") ?: server.orEmpty(),
+            serverType = obj.str("server_type").orEmpty(),
             mediaSourceId = obj.str("media_source_id") ?: mediaSourceId,
+            playSessionId = obj.str("play_session_id")?.takeIf { it.isNotBlank() },
+            progressSyncMode = obj.str("progress_sync_mode")?.takeIf { it.isNotBlank() },
             mediaType = obj.str("media_type") ?: "video",
             title = obj.str("title").orEmpty(),
             contentUrl = activeUrl,
@@ -3301,8 +3317,10 @@ class MoviePilotRepository(context: Context) {
             segments = listOf("mediaserver", "stream-info", "music"),
             method = "POST",
             body = "{${parts.joinToString(",")}}",
+            extraHeaders = playbackProgressReporter.clientHeaders(),
         ).getOrNull() ?: return null
         if (resp.status !in 200..299) return null
+        playbackProgressReporter.flushPendingStops(this)
         val obj = extractObject(resp.body) ?: return null
         val rawUrl = obj.str("content_url")?.takeIf { it.isNotBlank() } ?: return null
         val sameOriginUrl = resolveSameOriginUrl(auth.serverUrl, rawUrl)
@@ -3321,7 +3339,10 @@ class MoviePilotRepository(context: Context) {
         return MediaPlaybackManifestDto(
             itemId = obj.str("item_id").orEmpty(),
             server = obj.str("server").orEmpty(),
+            serverType = obj.str("server_type").orEmpty(),
             mediaSourceId = obj.str("media_source_id"),
+            playSessionId = obj.str("play_session_id")?.takeIf { it.isNotBlank() },
+            progressSyncMode = obj.str("progress_sync_mode")?.takeIf { it.isNotBlank() },
             mediaType = "audio",
             title = obj.str("title") ?: title,
             contentUrl = activeUrl,
@@ -3401,7 +3422,7 @@ class MoviePilotRepository(context: Context) {
         )
     }
 
-    /** 回传当前播放位置与状态到媒体服务器（`POST /api/v1/mediaserver/progress`，附带可选 `media_source_id`）。 */
+    /** 回传当前播放位置、会话生命周期及轨道上下文到媒体服务器（`POST /api/v1/mediaserver/progress`）。 */
     suspend fun reportMediaPlaybackProgress(
         itemId: String,
         server: String,
@@ -3410,23 +3431,135 @@ class MoviePilotRepository(context: Context) {
         isPaused: Boolean,
         state: String,
         mediaSourceId: String? = null,
-    ) {
-        if (itemId.isBlank() || server.isBlank() || itemId.startsWith("file.")) return
+        eventName: String? = null,
+        playSessionId: String? = null,
+        clientId: String? = null,
+        deviceName: String? = null,
+        platform: String? = "Android",
+        appVersion: String? = null,
+        playMethod: String = "DirectPlay",
+        playbackTimeMs: Long? = null,
+        audioStreamIndex: Int? = null,
+        subtitleStreamIndex: Int? = null,
+        seq: Long? = null,
+    ): Boolean {
+        if (itemId.isBlank() || server.isBlank() || itemId.startsWith("file.") || itemId.startsWith("file:")) {
+            return false
+        }
         val fields = mutableListOf(
             """"item_id":"${esc(itemId)}"""",
             """"server":"${esc(server)}"""",
             """"position_ms":${positionMs.coerceAtLeast(0L)}""",
-            """"duration_ms":${durationMs.coerceAtLeast(0L)}""",
             """"is_paused":$isPaused""",
             """"state":"${esc(state)}"""",
+            """"play_method":"${esc(playMethod)}"""",
         )
-        if (!mediaSourceId.isNullOrBlank()) {
-            fields += """"media_source_id":"${esc(mediaSourceId)}""""
-        }
+        if (durationMs > 0L) fields += """"duration_ms":$durationMs"""
+        if (!mediaSourceId.isNullOrBlank()) fields += """"media_source_id":"${esc(mediaSourceId)}""""
+        if (!eventName.isNullOrBlank()) fields += """"event_name":"${esc(eventName)}""""
+        if (!playSessionId.isNullOrBlank()) fields += """"play_session_id":"${esc(playSessionId)}""""
+        if (!clientId.isNullOrBlank()) fields += """"client_id":"${esc(clientId)}""""
+        if (!deviceName.isNullOrBlank()) fields += """"device_name":"${esc(deviceName)}""""
+        if (!platform.isNullOrBlank()) fields += """"platform":"${esc(platform)}""""
+        if (!appVersion.isNullOrBlank()) fields += """"app_version":"${esc(appVersion)}""""
+        if (playbackTimeMs != null && playbackTimeMs >= 0L) fields += """"playback_time_ms":$playbackTimeMs"""
+        if (audioStreamIndex != null && audioStreamIndex >= 0) fields += """"audio_stream_index":$audioStreamIndex"""
+        if (subtitleStreamIndex != null) fields += """"subtitle_stream_index":$subtitleStreamIndex"""
+        if (seq != null && seq >= 0L) fields += """"seq":$seq"""
         val body = "{${fields.joinToString(",")}}"
-        runCatching {
-            authedRequest(listOf("mediaserver", "progress"), method = "POST", body = body)
+        val resp = runCatching {
+            authedRequest(listOf("mediaserver", "progress"), method = "POST", body = body).getOrNull()
+        }.getOrNull() ?: return false
+        return resp.status in 200..299
+    }
+
+    /** 查询当前用户在全部已启用媒体服务器上的账号绑定状态与同步模式（`GET /api/v1/mediaserver/account-bindings`）。 */
+    suspend fun fetchMediaServerAccountBindings(): Result<List<MediaServerAccountBindingDto>> {
+        val resp = authedRequest(listOf("mediaserver", "account-bindings")).getOrElse {
+            return Result.failure(it)
         }
+        if (resp.status !in 200..299) {
+            val err = parseApiErrorDetail(resp.body) ?: "加载媒体服务器绑定状态失败 (HTTP ${resp.status})"
+            return Result.failure(IllegalStateException(err))
+        }
+        val arr = extractArray(resp.body)
+            ?: return Result.success(emptyList())
+        val items = arr.mapNotNull { el ->
+            val o = el.asObj() ?: return@mapNotNull null
+            parseMediaServerAccountBinding(o)
+        }
+        return Result.success(items)
+    }
+
+    /** 使用账号密码或 Plex Token 一次性换取加密个人令牌并绑定到当前用户（绝不在本地保存密码）。 */
+    suspend fun bindMediaServerAccount(
+        server: String,
+        username: String? = null,
+        password: String? = null,
+        token: String? = null,
+    ): Result<MediaServerAccountBindingDto> {
+        val fields = mutableListOf(""""server":"${esc(server)}"""")
+        if (!token.isNullOrBlank()) {
+            fields += """"token":"${esc(token.trim())}""""
+        } else {
+            if (!username.isNullOrBlank()) fields += """"username":"${esc(username.trim())}""""
+            if (!password.isNullOrEmpty()) fields += """"password":"${esc(password)}""""
+        }
+        val resp = authedRequest(
+            segments = listOf("mediaserver", "account-bindings"),
+            method = "POST",
+            body = "{${fields.joinToString(",")}}",
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            val err = parseApiErrorDetail(resp.body) ?: "媒体服务器账号验证失败，请检查凭据"
+            return Result.failure(IllegalStateException(err))
+        }
+        val obj = extractObject(resp.body)
+            ?: return Result.failure(IllegalStateException("绑定响应格式异常"))
+        val dto = parseMediaServerAccountBinding(obj)
+            ?: return Result.failure(IllegalStateException("绑定响应缺少服务器标识"))
+        return Result.success(dto)
+    }
+
+    /** 解除当前用户在指定媒体服务器上的个人令牌绑定（`DELETE /api/v1/mediaserver/account-bindings/{server}`）。 */
+    suspend fun unbindMediaServerAccount(server: String): Result<String> {
+        val clean = server.trim()
+        if (clean.isEmpty() || clean == "." || clean == ".." || '/' in clean || '\\' in clean) {
+            return Result.failure(IllegalArgumentException("媒体服务器名称格式无效"))
+        }
+        val resp = authedRequest(
+            segments = listOf("mediaserver", "account-bindings", clean),
+            method = "DELETE",
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            val err = parseApiErrorDetail(resp.body) ?: "解绑媒体服务器账号失败"
+            return Result.failure(IllegalStateException(err))
+        }
+        val msg = runCatching { json.parseToJsonElement(resp.body).asObj()?.str("message") }.getOrNull()
+            ?: "已解除账号绑定"
+        return Result.success(msg)
+    }
+
+    private fun parseApiErrorDetail(rawBody: String): String? {
+        val obj = runCatching { json.parseToJsonElement(rawBody).asObj() }.getOrNull() ?: return null
+        return obj.str("detail")?.takeIf { it.isNotBlank() }
+            ?: obj.str("message")?.takeIf { it.isNotBlank() }
+    }
+
+    private fun parseMediaServerAccountBinding(o: JsonObject): MediaServerAccountBindingDto? {
+        val srv = o.str("server")?.takeIf { it.isNotBlank() } ?: return null
+        val srvType = o.str("server_type").orEmpty()
+        return MediaServerAccountBindingDto(
+            server = srv,
+            serverType = srvType,
+            syncMode = o.str("sync_mode") ?: "none",
+            supportsBinding = o.bool("supports_binding") ?: false,
+            bound = o.bool("bound") ?: false,
+            status = o.str("status") ?: "unsupported",
+            remoteUsername = o.str("remote_username")?.takeIf { it.isNotBlank() },
+            source = o.str("source")?.takeIf { it.isNotBlank() },
+            updatedAt = o.lng("updated_at"),
+        )
     }
 
     /** 执行插件页面/表单按钮声明的同源 API 动作（对齐 iOS `triggerPluginAction`）。 */

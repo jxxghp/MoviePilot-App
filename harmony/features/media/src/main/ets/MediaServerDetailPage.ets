@@ -10,6 +10,7 @@ import {
   MpMediaServerStream,
   MpMediaTrackOption,
   MpRemoteImage,
+  PLAYBACK_SYNC_REVISION_KEY,
   formatByteSize
 } from '@moviepilot/core_rust_bridge';
 import {
@@ -76,6 +77,7 @@ export struct HarmonyMediaServerDetailPage {
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP) safeBottomVp: number = 16;
+  @StorageProp(PLAYBACK_SYNC_REVISION_KEY) @Watch('onPlaybackSyncRevisionChanged') playbackSyncRevision: number = 0;
   @Prop @Watch('onItemChanged') item: MpMediaItem = {
     id: '', mediaId: '', tmdbId: '', doubanId: '', title: '', enTitle: '', year: '', type: '电影',
     overview: '', vote: 0, posterUrl: '', backdropUrl: '', logoUrl: '', source: 'mediaserver',
@@ -241,6 +243,12 @@ export struct HarmonyMediaServerDetailPage {
       return this.subscribedSeasons.includes(sn) || (this.subscribed && this.subscribedSeasons.length === 0);
     }
     return this.subscribed || this.subscribedSeasons.length > 0;
+  }
+
+  private onPlaybackSyncRevisionChanged(): void {
+    if (this.playbackSyncRevision > 0 && !this.loading) {
+      this.loadAll();
+    }
   }
 
   private async loadAll(): Promise<void> {

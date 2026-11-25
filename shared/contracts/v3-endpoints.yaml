@@ -55,6 +55,9 @@ discover_and_media:
   mediaserver_stream_info: "GET /mediaserver/stream-info"
   mediaserver_stream: "GET /mediaserver/stream"
   mediaserver_progress: "POST /mediaserver/progress"
+  mediaserver_account_bindings: "GET /mediaserver/account-bindings"
+  mediaserver_account_bind: "POST /mediaserver/account-bindings"
+  mediaserver_account_unbind: "DELETE /mediaserver/account-bindings/{server}"
 subscribe:
   list: "GET /subscribe/"
   create: "POST /subscribe/"

@@ -33,6 +33,7 @@
 		49B4D0B75FD74C15C723375D /* MediaPictureInPictureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D33F2AC19EE7708468CFADFF /* MediaPictureInPictureController.swift */; };
 		528DDA8EB6B423A11DB733E6 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */; };
 		54E9EBAF180B0BCF04DE4FC6 /* VLCKit in Frameworks */ = {isa = PBXBuildFile; productRef = 91C7B8794D4CD7E0C76EDFF0 /* VLCKit */; };
+		570ED0CADD7D194D0F7AE95E /* PlaybackProgressReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0741479EF6479213B9E981B /* PlaybackProgressReporter.swift */; };
 		5927F511B04B6D1BA62E7ACD /* NativeWorkflowCanvasPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1F71B18FE29C82A939B7C /* NativeWorkflowCanvasPage.swift */; };
 		5D3E6E5DA1BB440CBDF5E6FA /* NativeSubscribeEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7566D9064F4C7139A064B5BD /* NativeSubscribeEditorSheet.swift */; };
 		6051CDC21EA5C85DA1DD6D3E /* NativeFileManagerPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4560BBC8ECE63C86B8D993DF /* NativeFileManagerPage.swift */; };
@@ -183,6 +184,7 @@
 		BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicForms.swift; sourceTree = "<group>"; };
 		BFCBFC58ED64133835C72B4E /* NativeSystemRouteHub.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemRouteHub.swift; sourceTree = "<group>"; };
 		C0583F9328402162806C7EB8 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		C0741479EF6479213B9E981B /* PlaybackProgressReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackProgressReporter.swift; sourceTree = "<group>"; };
 		C70F0E54BFC5895C7EBDD0AD /* NativePluginCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginCatalogView.swift; sourceTree = "<group>"; };
 		C90415B5DDCA525A940F84A9 /* NativeCommunityMedalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCommunityMedalsView.swift; sourceTree = "<group>"; };
 		CA63714518565C74DC4BC92B /* Provider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Provider.swift; sourceTree = "<group>"; };
@@ -251,6 +253,7 @@
 				D33F2AC19EE7708468CFADFF /* MediaPictureInPictureController.swift */,
 				7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */,
 				3C5522D23DCCE1A49988D78B /* NotificationService.swift */,
+				C0741479EF6479213B9E981B /* PlaybackProgressReporter.swift */,
 				EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */,
 				7E0A361DAFEEE9F51B4F91B7 /* TokenStore.swift */,
 				DDA1934688E4D109E194DB96 /* WidgetService.swift */,
@@ -632,6 +635,7 @@
 				5927F511B04B6D1BA62E7ACD /* NativeWorkflowCanvasPage.swift in Sources */,
 				3CBB675738DCDAD4D0C9ADB9 /* NativeWorkflowsPage.swift in Sources */,
 				AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */,
+				570ED0CADD7D194D0F7AE95E /* PlaybackProgressReporter.swift in Sources */,
 				D25729D75787FFE684BCE836 /* SceneDelegate.swift in Sources */,
 				528DDA8EB6B423A11DB733E6 /* TokenStore.swift in Sources */,
 				1239E3EF7CE49B9F5D5C757C /* WidgetService.swift in Sources */,

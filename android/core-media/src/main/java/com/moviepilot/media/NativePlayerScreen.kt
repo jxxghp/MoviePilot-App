@@ -158,7 +158,9 @@ import com.moviepilot.designsystem.LocalAppearanceStore
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.PlaybackPreferencesStore
+import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.NativeSecretStore
+import com.moviepilot.rustbridge.PlaybackSyncSessionTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -212,6 +214,8 @@ data class MediaPlaybackRequest(
     val server: String = "",
     val serverType: String = "",
     val mediaSourceId: String = "",
+    val playSessionId: String? = null,
+    val progressSyncMode: String? = null,
     val resumePositionMs: Long = 0L,
     val subtitles: List<SubtitleTrackItem> = emptyList(),
     val queue: List<MediaPlaybackRequest> = emptyList(),
@@ -541,6 +545,7 @@ fun NativeMediaPlayerOverlay(
     onClose: () -> Unit,
     onMinimizeToMiniBar: (() -> Unit)? = null,
     onSwitchRequest: ((MediaPlaybackRequest) -> Unit)? = null,
+    repository: MoviePilotRepository? = null,
     onReportProgress: ((positionMs: Long, durationMs: Long, isPaused: Boolean, state: String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -636,6 +641,80 @@ fun NativeMediaPlayerOverlay(
     val latestReportProgress by rememberUpdatedState(onReportProgress)
     val latestSwitchRequest by rememberUpdatedState(onSwitchRequest)
     val latestClose by rememberUpdatedState(onClose)
+    val videoSyncTracker = remember(request.url, request.playSessionId, ownsPlayer) {
+        PlaybackSyncSessionTracker(request.playSessionId.orEmpty())
+    }
+    var hasEmittedVideoStart by remember(request.url, request.playSessionId, ownsPlayer) {
+        mutableStateOf(false)
+    }
+
+    fun resolveSelectedAudioIndex(): Int? {
+        var ordinal = 0
+        for (grp in exoPlayer.currentTracks.groups) {
+            if (grp.type != C.TRACK_TYPE_AUDIO) continue
+            for (i in 0 until grp.length) {
+                if (grp.isTrackSelected(i)) return ordinal
+                ordinal++
+            }
+        }
+        return null
+    }
+
+    fun resolveSelectedSubtitleIndex(): Int? {
+        if (exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) {
+            return -1
+        }
+        var ordinal = 0
+        for (grp in exoPlayer.currentTracks.groups) {
+            if (grp.type != C.TRACK_TYPE_TEXT) continue
+            for (i in 0 until grp.length) {
+                if (grp.isTrackSelected(i)) return ordinal
+                ordinal++
+            }
+        }
+        return null
+    }
+
+    fun dispatchVideoSync(
+        trigger: String,
+        posOverrideMs: Long? = null,
+        durOverrideMs: Long? = null,
+        pausedOverride: Boolean? = null,
+    ) {
+        if (!ownsPlayer || request.isAudio) return
+        val pos = (posOverrideMs ?: exoPlayer.currentPosition).coerceAtLeast(0L)
+        val dur = (durOverrideMs ?: exoPlayer.duration).coerceAtLeast(0L)
+        val paused = pausedOverride ?: !exoPlayer.isPlaying
+        val audioIdx = resolveSelectedAudioIndex()
+        val subIdx = resolveSelectedSubtitleIndex()
+        val decision = videoSyncTracker.step(
+            trigger = trigger,
+            positionMs = pos,
+            durationMs = dur.takeIf { it > 0L },
+            isPaused = paused,
+            audioStreamIndex = audioIdx,
+            subtitleStreamIndex = subIdx,
+        )
+        if (decision.state == "started") {
+            hasEmittedVideoStart = true
+        }
+        if (!decision.shouldReport) return
+        if (repository != null) {
+            repository.playbackProgressReporter.enqueueDecision(
+                repository = repository,
+                itemId = request.itemId,
+                server = request.server,
+                mediaSourceId = request.mediaSourceId.ifBlank { null },
+                decision = decision,
+                playSessionId = request.playSessionId,
+                durationMs = dur.takeIf { it > 0L },
+                audioStreamIndex = audioIdx,
+                subtitleStreamIndex = subIdx,
+            )
+        } else {
+            latestReportProgress?.invoke(decision.positionMs, dur, decision.isPaused, decision.state)
+        }
+    }
 
     fun bumpInteraction() {
         lastInteractionTick = System.currentTimeMillis()
@@ -659,7 +738,7 @@ fun NativeMediaPlayerOverlay(
             val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
             val dur = exoPlayer.duration.coerceAtLeast(0L)
             localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
-            latestReportProgress?.invoke(pos, dur, true, "stopped")
+            dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
         }
         latestClose()
     }
@@ -670,7 +749,7 @@ fun NativeMediaPlayerOverlay(
             val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
             val dur = exoPlayer.duration.coerceAtLeast(0L)
             localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
-            latestReportProgress?.invoke(pos, dur, true, "stopped")
+            dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
         }
         latestSwitchRequest?.invoke(buildCarryOverEpisodeRequest(target, nextIdx))
     }
@@ -964,8 +1043,27 @@ fun NativeMediaPlayerOverlay(
             }
 
             override fun onTracksChanged(tracks: Tracks) {
+                val hadInitial = appliedInitialTracks
                 tracksVersion++
                 applyInitialTrackPreferencesIfReady(tracks)
+                if (ownsPlayer && !request.isAudio && hadInitial && hasEmittedVideoStart) {
+                    dispatchVideoSync("track_change")
+                }
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                if (
+                    ownsPlayer &&
+                    !request.isAudio &&
+                    (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)
+                ) {
+                    val targetPos = newPosition.positionMs.coerceAtLeast(0L)
+                    dispatchVideoSync("seek", posOverrideMs = targetPos)
+                }
             }
 
             override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -976,32 +1074,27 @@ fun NativeMediaPlayerOverlay(
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
-                if (ownsPlayer) {
+                if (ownsPlayer && !request.isAudio) {
                     val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
                     val dur = exoPlayer.duration.coerceAtLeast(0L)
                     localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
-                    latestReportProgress?.invoke(
-                        pos,
-                        dur,
-                        !playing,
-                        if (playing) "playing" else "paused",
-                    )
+                    val trigger = when {
+                        playing && !hasEmittedVideoStart -> "start"
+                        playing -> "resume"
+                        else -> "pause"
+                    }
+                    dispatchVideoSync(trigger, posOverrideMs = pos, durOverrideMs = dur, pausedOverride = !playing)
                 }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED && ownsPlayer && !request.isAudio) {
                     localHistoryStore.clearResumePosition(instanceUrl, request.server, request.localResumeId)
+                    val dur = exoPlayer.duration.coerceAtLeast(0L)
+                    dispatchVideoSync("finish", posOverrideMs = dur, durOverrideMs = dur, pausedOverride = true)
                     if (hasNextVideoEpisode && !upNextCancelled && !autoAdvancedTriggered) {
                         autoAdvancedTriggered = true
                         switchVideoEpisode(request.queueIndex + 1)
-                    } else {
-                        latestReportProgress?.invoke(
-                            exoPlayer.duration.coerceAtLeast(0L),
-                            exoPlayer.duration.coerceAtLeast(0L),
-                            true,
-                            "stopped",
-                        )
                     }
                 }
             }
@@ -1012,27 +1105,34 @@ fun NativeMediaPlayerOverlay(
         }
         onDispose {
             exoPlayer.removeListener(listener)
-            // 仅在播放器归属当前页面时释放并记录本地断点；共享后台音乐播放器交由根壳协调器托管（绝不误发 stopped）
+            // 仅在播放器归属当前页面时释放并补齐幂等 stopped 与本地断点；共享后台音乐播放器交由根壳协调器托管
             if (ownsPlayer) {
                 val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
                 val dur = exoPlayer.duration.coerceAtLeast(0L)
                 localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
+                if (!request.isAudio) {
+                    dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
+                }
                 exoPlayer.release()
             }
         }
     }
 
-    // 400ms 刷新界面进度，视频独立播放器每 15 秒（37 * 400ms ≈ 14.8s）同步一次服务端与本地续播进度
-    LaunchedEffect(exoPlayer, ownsPlayer) {
+    // 400ms 刷新界面进度，每 3 轮（~1.2s）驱动一次共享状态机（播放 10s 心跳 / 暂停 12s 保活 / 15 分钟自动释放）
+    LaunchedEffect(exoPlayer, ownsPlayer, request.url) {
         var tick = 0
         while (true) {
             isPlaying = exoPlayer.isPlaying
             positionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
             durationMs = exoPlayer.duration.coerceAtLeast(1L)
             tick++
-            if (ownsPlayer && tick % 37 == 0 && durationMs > 1L) {
-                localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, positionMs, durationMs)
-                latestReportProgress?.invoke(positionMs, durationMs, !isPlaying, if (isPlaying) "playing" else "paused")
+            if (ownsPlayer && !request.isAudio && durationMs > 1L) {
+                if (tick % 3 == 0) {
+                    dispatchVideoSync("tick", posOverrideMs = positionMs, durOverrideMs = durationMs, pausedOverride = !isPlaying)
+                }
+                if (tick % 25 == 0) {
+                    localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, positionMs, durationMs)
+                }
             }
             delay(400L)
         }

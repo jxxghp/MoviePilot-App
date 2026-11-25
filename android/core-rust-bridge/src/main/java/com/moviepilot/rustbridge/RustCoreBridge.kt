@@ -20,12 +20,16 @@ import com.moviepilot.rustcore.detectPlayableMediaKind
 import com.moviepilot.rustcore.evaluatePluginExpression
 import com.moviepilot.rustcore.evaluateUserPermissions
 import com.moviepilot.rustcore.filterAndGroupResources
+import com.moviepilot.rustcore.normalizePendingPlaybackStopsJson
 import com.moviepilot.rustcore.normalizeServerAddress
 import com.moviepilot.rustcore.parseAgentMarkdown
 import com.moviepilot.rustcore.parseDeepLinkJson
 import com.moviepilot.rustcore.parseStrmContent
+import com.moviepilot.rustcore.planPlaybackSyncStepJson
 import com.moviepilot.rustcore.planPluginFormJson
 import com.moviepilot.rustcore.serverAddressContains
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /**
  * Rust 共享业务内核统一 Kotlin 门面：所有无 UI 核心逻辑（路由解析、SSE 流、9 维筛选分组、
@@ -143,6 +147,241 @@ object RustCoreBridge {
     /** 计算剧集订阅完成进度。 */
     fun subscribeProgress(total: Int, lack: Int): SubscribeProgressFfi =
         computeSubscribeProgress(total, lack)
+
+    private val syncJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
+
+    /** 调用 Rust 播放进度与会话上报状态机，未加载 JNI 时回退同构纯 Kotlin 实现（保障 JVM 单测）。 */
+    fun planPlaybackSyncStep(
+        state: PlaybackSyncStateDto,
+        input: PlaybackSyncInputDto,
+    ): PlaybackSyncDecisionDto {
+        val stateJson = syncJson.encodeToString(state)
+        val inputJson = syncJson.encodeToString(input)
+        val raw = runCatching { planPlaybackSyncStepJson(stateJson, inputJson) }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<PlaybackSyncDecisionDto>(raw) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        return fallbackPlanPlaybackSyncStep(state, input)
+    }
+
+    /** 整理离线待补报 `stopped` 队列（同服务器同条目保留最新、7 天过期清理、上限 30 条）。 */
+    fun normalizePendingPlaybackStops(
+        entries: List<PendingPlaybackStopDto>,
+        nowEpochMs: Long,
+    ): List<PendingPlaybackStopDto> {
+        if (entries.isEmpty()) return emptyList()
+        val entriesJson = syncJson.encodeToString(entries)
+        val raw = runCatching { normalizePendingPlaybackStopsJson(entriesJson, nowEpochMs) }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<List<PendingPlaybackStopDto>>(raw) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        return fallbackNormalizePendingPlaybackStops(entries, nowEpochMs)
+    }
+
+    private fun fallbackPlanPlaybackSyncStep(
+        current: PlaybackSyncStateDto,
+        input: PlaybackSyncInputDto,
+    ): PlaybackSyncDecisionDto {
+        val now = input.nowMs.coerceAtLeast(0L)
+        var next = current
+        val playingNow = !input.isPaused && input.trigger != "pause" && input.trigger != "background"
+        if (playingNow) {
+            val prevTick = next.lastPlayingTickAtMs
+            val added = if (prevTick != null && now > prevTick) (now - prevTick).coerceAtMost(60_000L) else 0L
+            next = next.copy(
+                cumulativePlaybackTimeMs = next.cumulativePlaybackTimeMs + added,
+                lastPlayingTickAtMs = now,
+            )
+        } else {
+            next = next.copy(lastPlayingTickAtMs = null)
+        }
+
+        val resolvedPos = when (input.trigger) {
+            "seek" -> input.positionMs.coerceAtLeast(0L)
+            "finish" -> input.durationMs?.takeIf { it > 0L }
+                ?: maxOf(input.positionMs, next.lastPositionMs, 0L)
+            else -> if (input.positionMs > 0L) {
+                input.positionMs
+            } else if (next.lastPositionMs > 0L && input.trigger in setOf("stop", "pause", "background")) {
+                next.lastPositionMs
+            } else {
+                0L
+            }
+        }
+        next = next.copy(lastPositionMs = resolvedPos)
+        if (input.audioStreamIndex != null) {
+            next = next.copy(lastAudioStreamIndex = input.audioStreamIndex)
+        }
+        if (input.subtitleStreamIndex != null) {
+            next = next.copy(lastSubtitleStreamIndex = input.subtitleStreamIndex)
+        }
+
+        fun emit(state: String, eventName: String?, paused: Boolean, update: (PlaybackSyncStateDto) -> PlaybackSyncStateDto = { it }): PlaybackSyncDecisionDto {
+            val updated = update(next).let { s ->
+                s.copy(
+                    seq = s.seq + 1L,
+                    lastReportAtMs = now,
+                )
+            }
+            return PlaybackSyncDecisionDto(
+                shouldReport = true,
+                state = state,
+                eventName = eventName,
+                isPaused = paused,
+                positionMs = resolvedPos,
+                playbackTimeMs = updated.cumulativePlaybackTimeMs,
+                seq = updated.seq,
+                nextState = updated,
+            )
+        }
+
+        fun skip(state: String, paused: Boolean, updated: PlaybackSyncStateDto = next): PlaybackSyncDecisionDto =
+            PlaybackSyncDecisionDto(
+                shouldReport = false,
+                state = state,
+                eventName = null,
+                isPaused = paused,
+                positionMs = resolvedPos,
+                playbackTimeMs = updated.cumulativePlaybackTimeMs,
+                seq = updated.seq,
+                nextState = updated,
+            )
+
+        return when (input.trigger) {
+            "start" -> {
+                if (next.startedSent && !next.stoppedSent) {
+                    skip(if (input.isPaused) "paused" else "playing", input.isPaused)
+                } else {
+                    emit("started", null, input.isPaused) { s ->
+                        s.copy(
+                            startedSent = true,
+                            stoppedSent = false,
+                            pausedSinceMs = if (input.isPaused) now else null,
+                        )
+                    }
+                }
+            }
+            "pause" -> {
+                if (next.stoppedSent) return skip("stopped", true)
+                val pausedSince = next.pausedSinceMs ?: now
+                emit("paused", "pause", true) { s ->
+                    s.copy(startedSent = true, pausedSinceMs = pausedSince)
+                }
+            }
+            "resume" -> {
+                if (next.stoppedSent) {
+                    emit("started", null, false) { s ->
+                        s.copy(
+                            startedSent = true,
+                            stoppedSent = false,
+                            pausedSinceMs = null,
+                            lastPlayingTickAtMs = now,
+                        )
+                    }
+                } else {
+                    emit("playing", "unpause", false) { s ->
+                        s.copy(startedSent = true, pausedSinceMs = null, lastPlayingTickAtMs = now)
+                    }
+                }
+            }
+            "seek" -> {
+                if (next.stoppedSent) return skip("stopped", true)
+                val lastSeek = next.lastSeekAtMs
+                if (lastSeek != null && (now - lastSeek) in 0 until 300L) {
+                    skip(if (input.isPaused) "paused" else "playing", input.isPaused)
+                } else {
+                    val st = if (input.isPaused) "paused" else "playing"
+                    emit(st, "timeupdate", input.isPaused) { s ->
+                        s.copy(startedSent = true, lastSeekAtMs = now)
+                    }
+                }
+            }
+            "track_change" -> {
+                if (next.stoppedSent) return skip("stopped", true)
+                val st = if (input.isPaused) "paused" else "playing"
+                emit(st, "trackchange", input.isPaused) { s ->
+                    s.copy(startedSent = true)
+                }
+            }
+            "background" -> {
+                if (next.stoppedSent) return skip("stopped", true)
+                val pausedSince = if (input.isPaused) (next.pausedSinceMs ?: now) else null
+                val st = if (input.isPaused) "paused" else "playing"
+                emit(st, if (input.isPaused) "pause" else "timeupdate", input.isPaused) { s ->
+                    s.copy(startedSent = true, pausedSinceMs = pausedSince)
+                }
+            }
+            "stop", "finish" -> {
+                if (next.stoppedSent) return skip("stopped", true)
+                emit("stopped", null, true) { s ->
+                    s.copy(stoppedSent = true, pausedSinceMs = null, lastPlayingTickAtMs = null)
+                }
+            }
+            else -> { // tick
+                if (next.stoppedSent) return skip("stopped", true)
+                if (!next.startedSent) {
+                    return emit("started", null, input.isPaused) { s ->
+                        s.copy(
+                            startedSent = true,
+                            stoppedSent = false,
+                            pausedSinceMs = if (input.isPaused) now else null,
+                        )
+                    }
+                }
+                if (input.isPaused) {
+                    val pausedSince = next.pausedSinceMs ?: now
+                    next = next.copy(pausedSinceMs = pausedSince)
+                    if (now - pausedSince >= 15 * 60 * 1_000L) {
+                        return emit("stopped", null, true) { s ->
+                            s.copy(stoppedSent = true, pausedSinceMs = null, lastPlayingTickAtMs = null)
+                        }
+                    }
+                    val elapsed = next.lastReportAtMs?.let { now - it } ?: Long.MAX_VALUE
+                    if (elapsed >= 12_000L) {
+                        emit("paused", "timeupdate", true)
+                    } else {
+                        skip("paused", true, next)
+                    }
+                } else {
+                    next = next.copy(pausedSinceMs = null)
+                    val elapsed = next.lastReportAtMs?.let { now - it } ?: Long.MAX_VALUE
+                    if (elapsed >= 10_000L) {
+                        emit("playing", "timeupdate", false)
+                    } else {
+                        skip("playing", false, next)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun fallbackNormalizePendingPlaybackStops(
+        entries: List<PendingPlaybackStopDto>,
+        nowEpochMs: Long,
+    ): List<PendingPlaybackStopDto> {
+        val cutoff = nowEpochMs - 7L * 24L * 60L * 60L * 1000L
+        val deduped = linkedMapOf<Pair<String, String>, PendingPlaybackStopDto>()
+        for (item in entries) {
+            val srv = item.server.trim()
+            val id = item.itemId.trim()
+            if (srv.isEmpty() || id.isEmpty() || item.updatedAtMs < cutoff) continue
+            val normalized = item.copy(server = srv, itemId = id, positionMs = item.positionMs.coerceAtLeast(0L))
+            val key = srv to id
+            val existing = deduped[key]
+            if (existing == null || normalized.updatedAtMs >= existing.updatedAtMs) {
+                deduped[key] = normalized
+            }
+        }
+        return deduped.values.sortedByDescending { it.updatedAtMs }.take(30)
+    }
 
     private fun escapeJson(s: String): String =
         s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")

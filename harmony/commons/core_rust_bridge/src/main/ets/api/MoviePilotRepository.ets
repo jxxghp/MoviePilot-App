@@ -3,6 +3,7 @@ import { util } from '@kit.ArkTS';
 import { RustCoreBridge } from '../bridge/RustCoreBridge';
 import { NativeRcpTransport, NativeHttpResponse, SseEventChunk } from '../network/NativeRcpTransport';
 import { NativeHuksStore } from '../security/NativeHuksStore';
+import { HarmonyPlaybackProgressReporter } from './HarmonyPlaybackProgressReporter';
 
 export interface MpLoginResult {
   success: boolean;
@@ -487,6 +488,7 @@ export interface MpExternalSubtitle {
 export interface MpVideoStreamInfo {
   itemId: string;
   server: string;
+  serverType?: string;
   title: string;
   contentUrl: string;
   strmUrl?: string;
@@ -498,10 +500,47 @@ export interface MpVideoStreamInfo {
   album: string;
   artworkUrl: string;
   mediaSourceId: string;
+  playSessionId?: string;
+  progressSyncMode?: string;
   resumePositionMs: number;
   durationMs: number;
   subtitles: MpExternalSubtitle[];
   lyricsUrl: string;
+}
+
+/** 播放进度与实时会话上报扩展参数。 */
+export interface MpProgressReportOptions {
+  eventName?: string;
+  playSessionId?: string;
+  clientId?: string;
+  deviceName?: string;
+  platform?: string;
+  appVersion?: string;
+  playMethod?: string;
+  playbackTimeMs?: number;
+  audioStreamIndex?: number;
+  subtitleStreamIndex?: number;
+  seq?: number;
+}
+
+/** 当前用户在单个媒体服务器上的脱敏账号绑定状态。 */
+export interface MpMediaServerAccountBinding {
+  server: string;
+  serverType: string;
+  syncMode: string;
+  supportsBinding: boolean;
+  bound: boolean;
+  status: string;
+  remoteUsername: string;
+  source: string;
+  updatedAt: number;
+}
+
+/** 媒体服务器账号绑定或解绑请求结果。 */
+export interface MpMediaServerAccountBindResult {
+  success: boolean;
+  message: string;
+  binding?: MpMediaServerAccountBinding;
 }
 
 export interface MpManualTransferTargetHint {
@@ -1158,33 +1197,63 @@ export class MoviePilotRepository {
     return this.resolveImageUrl(officialUrl);
   }
 
-  async get(segments: string[], query: Record<string, string> = {}, trailingSlash: boolean = false): Promise<NativeHttpResponse> {
-    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, query, trailingSlash);
-    return this.transport.execute(url, 'GET', this.token);
+  private buildEndpointUrlSafe(segments: string[], query: Record<string, string> = {}, trailingSlash: boolean = false): string {
+    const hasSpaceOrNonAscii = segments.some((s: string) => /[^\x21-\x7e]/.test(s));
+    if (hasSpaceOrNonAscii) {
+      const cleanBase = RustCoreBridge.normalizeServerAddress(this.baseUrl);
+      const encodedPath = segments.map((s: string) => encodeURIComponent(s)).join('/');
+      let url = `${cleanBase}/api/v1/${encodedPath}${trailingSlash ? '/' : ''}`;
+      const keys = Object.keys(query);
+      if (keys.length > 0) {
+        const pairs: string[] = [];
+        for (let i = 0; i < keys.length; i++) {
+          const k = keys[i];
+          pairs.push(`${encodeURIComponent(k)}=${encodeURIComponent(query[k])}`);
+        }
+        url += `?${pairs.join('&')}`;
+      }
+      return url;
+    }
+    return RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, query, trailingSlash);
   }
 
-  async postJson(segments: string[], payload: string, trailingSlash: boolean = false): Promise<NativeHttpResponse> {
-    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, {}, trailingSlash);
-    return this.transport.execute(url, 'POST', this.token, payload, 'application/json');
+  async get(
+    segments: string[],
+    query: Record<string, string> = {},
+    trailingSlash: boolean = false,
+    extraHeaders?: Record<string, string>
+  ): Promise<NativeHttpResponse> {
+    const url = this.buildEndpointUrlSafe(segments, query, trailingSlash);
+    return this.transport.execute(url, 'GET', this.token, '', 'application/json', extraHeaders);
+  }
+
+  async postJson(
+    segments: string[],
+    payload: string,
+    trailingSlash: boolean = false,
+    extraHeaders?: Record<string, string>
+  ): Promise<NativeHttpResponse> {
+    const url = this.buildEndpointUrlSafe(segments, {}, trailingSlash);
+    return this.transport.execute(url, 'POST', this.token, payload, 'application/json', extraHeaders);
   }
 
   async postJsonQuery(segments: string[], query: Record<string, string>, payload: string, trailingSlash: boolean = false): Promise<NativeHttpResponse> {
-    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, query, trailingSlash);
+    const url = this.buildEndpointUrlSafe(segments, query, trailingSlash);
     return this.transport.execute(url, 'POST', this.token, payload, 'application/json');
   }
 
   async putJson(segments: string[], payload: string, trailingSlash: boolean = false): Promise<NativeHttpResponse> {
-    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, {}, trailingSlash);
+    const url = this.buildEndpointUrlSafe(segments, {}, trailingSlash);
     return this.transport.execute(url, 'PUT', this.token, payload, 'application/json');
   }
 
   async putJsonQuery(segments: string[], query: Record<string, string>, payload: string = '{}', trailingSlash: boolean = false): Promise<NativeHttpResponse> {
-    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, query, trailingSlash);
+    const url = this.buildEndpointUrlSafe(segments, query, trailingSlash);
     return this.transport.execute(url, 'PUT', this.token, payload, 'application/json');
   }
 
   async deleteReq(segments: string[], query: Record<string, string> = {}, trailingSlash: boolean = false, body: string = ''): Promise<NativeHttpResponse> {
-    const url = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, segments, query, trailingSlash);
+    const url = this.buildEndpointUrlSafe(segments, query, trailingSlash);
     return this.transport.execute(url, 'DELETE', this.token, body, 'application/json');
   }
 
@@ -3333,9 +3402,14 @@ export class MoviePilotRepository {
     const lyricsUrl = rawLyrics.length > 0 ? this.resolveTrustedSameOriginUrl(rawLyrics) : '';
     const artworkRaw = strVal(r, 'poster') || strVal(r, 'thumb') || strVal(r, 'artwork_url') || strVal(r, 'image');
 
+    const rawPlaySessionId = strVal(r, 'play_session_id');
+    const rawSyncMode = strVal(r, 'progress_sync_mode');
+    const rawServerType = strVal(r, 'server_type');
+
     return {
       itemId: strVal(r, 'item_id', fallbackItemId),
       server: strVal(r, 'server', fallbackServer),
+      serverType: rawServerType.length > 0 ? rawServerType : undefined,
       title: strVal(r, 'title'),
       contentUrl: activeUrl,
       strmUrl: strmUrl.length > 0 ? strmUrl : undefined,
@@ -3347,6 +3421,8 @@ export class MoviePilotRepository {
       album: strVal(r, 'album'),
       artworkUrl: artworkRaw.length > 0 ? this.resolveImageUrl(artworkRaw) : '',
       mediaSourceId: strVal(r, 'media_source_id', fallbackMediaSourceId),
+      playSessionId: rawPlaySessionId.length > 0 ? rawPlaySessionId : undefined,
+      progressSyncMode: rawSyncMode.length > 0 ? rawSyncMode : undefined,
       resumePositionMs: Math.max(0, Math.round(numVal(r, 'resume_position_ms', numVal(r, 'position_ms', 0)))),
       durationMs: Math.max(0, Math.round(numVal(r, 'duration_ms', 0))),
       subtitles: subtitles,
@@ -3366,8 +3442,10 @@ export class MoviePilotRepository {
     q['itemid'] = cleanId;
     if (server.trim().length > 0) { q['server'] = server.trim(); }
     if (mediaSourceId.trim().length > 0) { q['media_source_id'] = mediaSourceId.trim(); }
-    const resp = await this.get(['mediaserver', 'stream-info'], q);
+    const clientHeaders = await HarmonyPlaybackProgressReporter.shared().getClientHeaders();
+    const resp = await this.get(['mediaserver', 'stream-info'], q, false, clientHeaders);
     if (resp.status !== 200) { return null; }
+    HarmonyPlaybackProgressReporter.shared().flushPendingStops(this);
     const r = unwrapObject(parseJsonSafe(resp.body));
     if (!r) { return null; }
     return this.parseStreamManifestResponse(r, cleanId, server.trim(), mediaSourceId.trim());
@@ -3403,14 +3481,16 @@ export class MoviePilotRepository {
     if (trackNumber > 0) {
       payload['track_number'] = Math.round(trackNumber);
     }
-    let resp = await this.postJson(['mediaserver', 'stream-info', 'music'], JSON.stringify(payload));
+    const clientHeaders = await HarmonyPlaybackProgressReporter.shared().getClientHeaders();
+    let resp = await this.postJson(['mediaserver', 'stream-info', 'music'], JSON.stringify(payload), false, clientHeaders);
     if (resp.status === 422) {
       const legacyPayload: Record<string, string> = { 'title': cleanTitle };
       if (artist.trim().length > 0) { legacyPayload['artist'] = artist.trim(); }
       if (album.trim().length > 0) { legacyPayload['album'] = album.trim(); }
-      resp = await this.postJson(['mediaserver', 'stream-info', 'music'], JSON.stringify(legacyPayload));
+      resp = await this.postJson(['mediaserver', 'stream-info', 'music'], JSON.stringify(legacyPayload), false, clientHeaders);
     }
     if (resp.status !== 200) { return null; }
+    HarmonyPlaybackProgressReporter.shared().flushPendingStops(this);
     const r = unwrapObject(parseJsonSafe(resp.body));
     if (!r) { return null; }
     const parsed = this.parseStreamManifestResponse(r, '', '', '');
@@ -3424,7 +3504,7 @@ export class MoviePilotRepository {
   }
 
   /**
-   * 异步回传当前播放进度与状态至媒体服务器（`POST /api/v1/mediaserver/progress`）。
+   * 异步回传当前播放进度、会话生命周期及轨道上下文至媒体服务器（`POST /api/v1/mediaserver/progress`）。
    * 自动跳过无 `server` 的外部直链、本机文件及 `file.` 短期流票据。
    */
   async reportMediaServerProgress(
@@ -3434,8 +3514,9 @@ export class MoviePilotRepository {
     positionMs: number,
     durationMs: number,
     isPaused: boolean,
-    state: string
-  ): Promise<void> {
+    state: string,
+    options?: MpProgressReportOptions
+  ): Promise<boolean> {
     const cleanItem = itemId.trim();
     const cleanSrv = server.trim();
     if (
@@ -3446,14 +3527,16 @@ export class MoviePilotRepository {
       cleanItem.startsWith('local:') ||
       cleanItem.startsWith('external:')
     ) {
-      return;
+      return false;
     }
+    const validState = state === 'started' || state === 'paused' || state === 'stopped' ? state : 'playing';
     const payload: Record<string, Object> = {
       'item_id': cleanItem,
       'server': cleanSrv,
       'position_ms': Math.max(0, Math.round(positionMs)),
       'is_paused': isPaused,
-      'state': state === 'paused' || state === 'stopped' ? state : 'playing'
+      'state': validState,
+      'play_method': options?.playMethod ?? 'DirectPlay'
     };
     if (mediaSourceId.trim().length > 0) {
       payload['media_source_id'] = mediaSourceId.trim();
@@ -3461,10 +3544,143 @@ export class MoviePilotRepository {
     if (durationMs > 0) {
       payload['duration_ms'] = Math.round(durationMs);
     }
+    if (options?.eventName && options.eventName.length > 0) {
+      payload['event_name'] = options.eventName;
+    }
+    if (options?.playSessionId && options.playSessionId.length > 0) {
+      payload['play_session_id'] = options.playSessionId;
+    }
+    if (options?.clientId && options.clientId.length > 0) {
+      payload['client_id'] = options.clientId;
+    }
+    if (options?.deviceName && options.deviceName.length > 0) {
+      payload['device_name'] = options.deviceName;
+    }
+    if (options?.platform && options.platform.length > 0) {
+      payload['platform'] = options.platform;
+    }
+    if (options?.appVersion && options.appVersion.length > 0) {
+      payload['app_version'] = options.appVersion;
+    }
+    if (options?.playbackTimeMs !== undefined && options.playbackTimeMs >= 0) {
+      payload['playback_time_ms'] = Math.round(options.playbackTimeMs);
+    }
+    if (options?.audioStreamIndex !== undefined && options.audioStreamIndex >= 0) {
+      payload['audio_stream_index'] = Math.round(options.audioStreamIndex);
+    }
+    if (options?.subtitleStreamIndex !== undefined) {
+      payload['subtitle_stream_index'] = Math.round(options.subtitleStreamIndex);
+    }
+    if (options?.seq !== undefined && options.seq >= 0) {
+      payload['seq'] = Math.round(options.seq);
+    }
     try {
-      await this.postJson(['mediaserver', 'progress'], JSON.stringify(payload));
+      const resp = await this.postJson(['mediaserver', 'progress'], JSON.stringify(payload));
+      return resp.status >= 200 && resp.status < 300;
     } catch {
-      // 进度回传失败静默忽略，不阻塞前台播放体验
+      return false;
+    }
+  }
+
+  private parseAccountBindingRecord(o: Record<string, Object>): MpMediaServerAccountBinding | null {
+    const srv = strVal(o, 'server');
+    if (srv.length === 0) { return null; }
+    return {
+      server: srv,
+      serverType: strVal(o, 'server_type'),
+      syncMode: strVal(o, 'sync_mode', 'none'),
+      supportsBinding: boolVal(o, 'supports_binding', false),
+      bound: boolVal(o, 'bound', false),
+      status: strVal(o, 'status', 'unsupported'),
+      remoteUsername: strVal(o, 'remote_username'),
+      source: strVal(o, 'source'),
+      updatedAt: numVal(o, 'updated_at', 0)
+    };
+  }
+
+  private extractErrorDetail(body: string, fallback: string): string {
+    const root = asRec(parseJsonSafe(body));
+    if (root) {
+      const detail = strVal(root, 'detail');
+      if (detail.length > 0) { return detail; }
+      const msg = strVal(root, 'message');
+      if (msg.length > 0) { return msg; }
+    }
+    return fallback;
+  }
+
+  /** 查询当前用户在全部已启用媒体服务器上的账号绑定状态与同步模式。 */
+  async fetchMediaServerAccountBindings(): Promise<MpMediaServerAccountBinding[]> {
+    const resp = await this.get(['mediaserver', 'account-bindings']);
+    if (resp.status < 200 || resp.status >= 300) {
+      return [];
+    }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const result: MpMediaServerAccountBinding[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const rec = asRec(arr[i]);
+      if (!rec) { continue; }
+      const parsed = this.parseAccountBindingRecord(rec);
+      if (parsed) { result.push(parsed); }
+    }
+    return result;
+  }
+
+  /** 使用账号密码或 Plex Token 为当前用户绑定媒体服务器以启用实时播放会话（密码绝不在本地落盘）。 */
+  async bindMediaServerAccount(
+    server: string,
+    username: string = '',
+    password: string = '',
+    token: string = ''
+  ): Promise<MpMediaServerAccountBindResult> {
+    const payload: Record<string, string> = { 'server': server.trim() };
+    if (token.trim().length > 0) {
+      payload['token'] = token.trim();
+    } else {
+      if (username.trim().length > 0) { payload['username'] = username.trim(); }
+      if (password.length > 0) { payload['password'] = password; }
+    }
+    try {
+      const resp = await this.postJson(['mediaserver', 'account-bindings'], JSON.stringify(payload));
+      if (resp.status < 200 || resp.status >= 300) {
+        return {
+          success: false,
+          message: this.extractErrorDetail(resp.body, '媒体服务器账号验证失败，请检查凭据')
+        };
+      }
+      const dataRec = unwrapObject(parseJsonSafe(resp.body));
+      const parsed = dataRec ? this.parseAccountBindingRecord(dataRec) : null;
+      return {
+        success: parsed !== null,
+        message: parsed ? '绑定成功' : '绑定响应格式异常',
+        binding: parsed ?? undefined
+      };
+    } catch {
+      return { success: false, message: '网络连接失败，请稍后重试' };
+    }
+  }
+
+  /** 解除当前用户在指定媒体服务器上的个人令牌绑定。 */
+  async unbindMediaServerAccount(server: string): Promise<MpMediaServerAccountBindResult> {
+    const clean = server.trim();
+    if (!clean || clean === '.' || clean === '..' || clean.includes('/') || clean.includes('\\')) {
+      return { success: false, message: '媒体服务器名称无效' };
+    }
+    try {
+      const resp = await this.deleteReq(['mediaserver', 'account-bindings', clean]);
+      if (resp.status < 200 || resp.status >= 300) {
+        return {
+          success: false,
+          message: this.extractErrorDetail(resp.body, '解绑媒体服务器账号失败')
+        };
+      }
+      const root = asRec(parseJsonSafe(resp.body));
+      return {
+        success: true,
+        message: root ? (strVal(root, 'message') || '已解除账号绑定') : '已解除账号绑定'
+      };
+    } catch {
+      return { success: false, message: '网络连接失败，请稍后重试' };
     }
   }
 

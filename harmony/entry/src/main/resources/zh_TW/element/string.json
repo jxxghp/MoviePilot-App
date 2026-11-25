@@ -665,6 +665,10 @@
       "value": "%s\n將清除此服務保存的帳號密碼、登錄狀態和網頁資料。"
     },
     {
+      "name": "mp_5ea60e8a",
+      "value": "即時會話同步"
+    },
+    {
       "name": "mp_5f83e7f6",
       "value": "基礎"
     },
@@ -749,6 +753,10 @@
       "value": "插件中心"
     },
     {
+      "name": "mp_6ed2d0f9",
+      "value": "解除綁定"
+    },
+    {
       "name": "mp_6f22a707",
       "value": "超級管理員"
     },
@@ -775,6 +783,10 @@
     {
       "name": "mp_73f8f537",
       "value": "每小時"
+    },
+    {
+      "name": "mp_740edb82",
+      "value": "暫無已啟用的媒體伺服器"
     },
     {
       "name": "mp_743aaf95",
@@ -827,6 +839,10 @@
     {
       "name": "mp_7d126146",
       "value": "刪除服務？"
+    },
+    {
+      "name": "mp_7d34369f",
+      "value": "媒體伺服器進度同步與賬號綁定"
     },
     {
       "name": "mp_7debf9cb",
@@ -997,6 +1013,10 @@
       "value": "登錄你的服務，繼續管理訂閱與媒體。"
     },
     {
+      "name": "mp_a336277e",
+      "value": "綁定媒體伺服器賬號"
+    },
+    {
       "name": "mp_a3ccf702",
       "value": "資料源"
     },
@@ -1021,6 +1041,10 @@
       "value": "當前簽名使用主屏幕通知"
     },
     {
+      "name": "mp_a721506c",
+      "value": "憑證已失效"
+    },
+    {
       "name": "mp_a7786512",
       "value": "指定值"
     },
@@ -1031,6 +1055,10 @@
     {
       "name": "mp_a858e8aa",
       "value": "放棄未儲存的修改？"
+    },
+    {
+      "name": "mp_a8a0e7bb",
+      "value": "重新綁定"
     },
     {
       "name": "mp_a95436c3",
@@ -1269,6 +1297,10 @@
       "value": "記住帳號密碼"
     },
     {
+      "name": "mp_bfc04721",
+      "value": "密碼僅用於一次性換取存取權杖，不會儲存明文密碼。"
+    },
+    {
       "name": "mp_c15ac3ec",
       "value": "選擇字幕"
     },
@@ -1279,6 +1311,10 @@
     {
       "name": "mp_c2e7e96e",
       "value": "編輯排程"
+    },
+    {
+      "name": "mp_c46b84fe",
+      "value": "僅進度同步"
     },
     {
       "name": "mp_c493338e",
@@ -1453,6 +1489,10 @@
       "value": "介面語言"
     },
     {
+      "name": "mp_d806ebc1",
+      "value": "驗證並綁定"
+    },
+    {
       "name": "mp_d84b7c84",
       "value": "每月最後一天"
     },
@@ -1613,6 +1653,10 @@
       "value": "下載狀態"
     },
     {
+      "name": "mp_emby_jellyfin_plex_377a4835",
+      "value": "綁定個人媒體伺服器賬號後，在播放時可向 Emby / Jellyfin / Plex 儀表板即時同步正在播放狀態與精準進度。"
+    },
+    {
       "name": "mp_f0409080",
       "value": "搜尋"
     },
@@ -1711,6 +1755,10 @@
     {
       "name": "mp_fd099e4d",
       "value": "此外掛沒有設定項目"
+    },
+    {
+      "name": "mp_fd17e559",
+      "value": "音樂記錄"
     },
     {
       "name": "mp_fd3b1706",
@@ -1855,6 +1903,10 @@
     {
       "name": "mp_moviepilot_f5a7ce49",
       "value": "長按主屏幕空白處，選擇“編輯”→“添加小組件”，搜索 MoviePilot。鎖屏可在自定中添加；向右滑到今天視圖，也可添加。編輯小組件可選擇服務和內容。"
+    },
+    {
+      "name": "mp_plex_x_plex_token_4678f466",
+      "value": "Plex 存取權杖 (X-Plex-Token)"
     },
     {
       "name": "mp_push_notifications_serve_8bf6a5ef",

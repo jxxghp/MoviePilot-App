@@ -63,7 +63,10 @@ export interface HarmonyPlaybackRequest {
   lyricsUrl?: string;
   itemId?: string;
   server?: string;
+  serverType?: string;
   mediaSourceId?: string;
+  playSessionId?: string;
+  progressSyncMode?: string;
   resumePositionMs?: number;
   subtitles?: HarmonySubtitleOption[];
   preferredAudioLang?: string;
@@ -255,7 +258,10 @@ export function buildPlaybackRequestFromStreamInfo(
     lyricsUrl: stream.lyricsUrl,
     itemId: stream.itemId,
     server: stream.server,
+    serverType: stream.serverType,
     mediaSourceId: stream.mediaSourceId,
+    playSessionId: stream.playSessionId,
+    progressSyncMode: stream.progressSyncMode,
     resumePositionMs: resumeMs,
     subtitles: mapExternalSubtitlesToOptions(stream.subtitles),
     preferredAudioLang: extras?.preferredAudioLang,

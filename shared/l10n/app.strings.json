@@ -51,6 +51,11 @@
       "zh-Hant": "MoviePilot 狀態",
       "en": "MoviePilot status"
     },
+    "Plex 访问令牌 (X-Plex-Token)": {
+      "zh-Hans": "Plex 访问令牌 (X-Plex-Token)",
+      "zh-Hant": "Plex 存取權杖 (X-Plex-Token)",
+      "en": "Plex Access Token (X-Plex-Token)"
+    },
     "上一页预览": {
       "zh-Hans": "上一页预览",
       "zh-Hant": "上一頁預覽",
@@ -140,6 +145,11 @@
       "zh-Hans": "人物",
       "zh-Hant": "人物",
       "en": "People"
+    },
+    "仅进度同步": {
+      "zh-Hans": "仅进度同步",
+      "zh-Hant": "僅進度同步",
+      "en": "Progress Only"
     },
     "从头开始": {
       "zh-Hans": "从头开始",
@@ -240,6 +250,11 @@
       "zh-Hans": "内嵌 · %@",
       "zh-Hant": "內嵌 · %@",
       "en": "Embedded · %@"
+    },
+    "凭据已失效": {
+      "zh-Hans": "凭据已失效",
+      "zh-Hant": "憑證已失效",
+      "en": "Token Expired"
     },
     "分类探索": {
       "zh-Hans": "分类探索",
@@ -461,6 +476,11 @@
       "zh-Hant": "媒體伺服器",
       "en": "Media Servers"
     },
+    "媒体服务器进度同步与账号绑定": {
+      "zh-Hans": "媒体服务器进度同步与账号绑定",
+      "zh-Hant": "媒體伺服器進度同步與賬號綁定",
+      "en": "Media Server Progress Sync & Account Binding"
+    },
     "字幕": {
       "zh-Hans": "字幕",
       "zh-Hant": "字幕",
@@ -501,6 +521,11 @@
       "zh-Hant": "實例與重新整理",
       "en": "Instance & Refresh"
     },
+    "实时会话同步": {
+      "zh-Hans": "实时会话同步",
+      "zh-Hant": "即時會話同步",
+      "en": "Live Session Sync"
+    },
     "密码": {
       "zh-Hans": "密码",
       "zh-Hant": "密碼",
@@ -515,6 +540,11 @@
       "zh-Hans": "密码仅在本机安全保存，验证码不会保存。",
       "zh-Hant": "密碼僅在本機安全儲存，驗證碼不會儲存。",
       "en": "Passwords are stored securely on this device only. Verification codes are never saved."
+    },
+    "密码仅用于一次性换取访问令牌，不会保存明文密码。": {
+      "zh-Hans": "密码仅用于一次性换取访问令牌，不会保存明文密码。",
+      "zh-Hant": "密碼僅用於一次性換取存取權杖，不會儲存明文密碼。",
+      "en": "Your password is only used once to obtain a token and is never stored."
     },
     "将清空本机已缓存的海报图片与页面快照，不会影响服务器数据。": {
       "zh-Hans": "将清空本机已缓存的海报图片与页面快照，不会影响服务器数据。",
@@ -1136,6 +1166,11 @@
       "zh-Hant": "暫無同名 LRC 歌詞",
       "en": "No matching LRC lyrics"
     },
+    "暂无已启用的媒体服务器": {
+      "zh-Hans": "暂无已启用的媒体服务器",
+      "zh-Hant": "暫無已啟用的媒體伺服器",
+      "en": "No enabled media servers"
+    },
     "暂无已安装插件": {
       "zh-Hans": "暂无已安装插件",
       "zh-Hant": "暫無已安裝外掛",
@@ -1701,6 +1736,16 @@
       "zh-Hant": "索引與流量",
       "en": "Index & Traffic"
     },
+    "绑定个人媒体服务器账号后，在播放时可向 Emby / Jellyfin / Plex 仪表盘实时同步正在播放状态与精确进度。": {
+      "zh-Hans": "绑定个人媒体服务器账号后，在播放时可向 Emby / Jellyfin / Plex 仪表盘实时同步正在播放状态与精确进度。",
+      "zh-Hant": "綁定個人媒體伺服器賬號後，在播放時可向 Emby / Jellyfin / Plex 儀表板即時同步正在播放狀態與精準進度。",
+      "en": "Bind your media server account to sync live Now Playing status and accurate progress to Emby, Jellyfin, and Plex."
+    },
+    "绑定媒体服务器账号": {
+      "zh-Hans": "绑定媒体服务器账号",
+      "zh-Hant": "綁定媒體伺服器賬號",
+      "en": "Bind Media Server Account"
+    },
     "绑定码已复制。请在主屏幕通知网页中粘贴。": {
       "zh-Hans": "绑定码已复制。请在主屏幕通知网页中粘贴。",
       "zh-Hant": "綁定碼已複製。請在主屏幕通知網頁中粘貼。",
@@ -1785,6 +1830,11 @@
       "zh-Hans": "视频画面",
       "zh-Hant": "影片畫面",
       "en": "Video"
+    },
+    "解绑账号": {
+      "zh-Hans": "解绑账号",
+      "zh-Hant": "解除綁定",
+      "en": "Unbind Account"
     },
     "解除本机及配对网页绑定": {
       "zh-Hans": "解除本机及配对网页绑定",
@@ -2211,6 +2261,11 @@
       "zh-Hant": "重新產生 API Key",
       "en": "Regenerate API Key"
     },
+    "重新绑定": {
+      "zh-Hans": "重新绑定",
+      "zh-Hant": "重新綁定",
+      "en": "Rebind"
+    },
     "重试连接": {
       "zh-Hans": "重试连接",
       "zh-Hant": "重試連線",
@@ -2260,6 +2315,11 @@
       "zh-Hans": "音乐订阅",
       "zh-Hant": "音樂訂閱",
       "en": "Music subscriptions"
+    },
+    "音乐记录": {
+      "zh-Hans": "音乐记录",
+      "zh-Hant": "音樂記錄",
+      "en": "Music Scrobble"
     },
     "音乐资源": {
       "zh-Hans": "音乐资源",
@@ -2320,6 +2380,11 @@
       "zh-Hans": "首次设置",
       "zh-Hant": "首次設定",
       "en": "First-time Setup"
+    },
+    "验证并绑定": {
+      "zh-Hans": "验证并绑定",
+      "zh-Hant": "驗證並綁定",
+      "en": "Verify & Bind"
     },
     "默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。": {
       "zh-Hans": "默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。",
