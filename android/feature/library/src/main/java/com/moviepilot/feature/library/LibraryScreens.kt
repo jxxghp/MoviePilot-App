@@ -1223,7 +1223,7 @@ fun TransferHistoryScreen(
                             showsShadow = false,
                             modifier = Modifier.combinedClickable(
                                 onClick = { retransferTarget = rec },
-                                onLongClick = { deleteTarget = rec },
+                                onLongClick = { rowMenuOpen = true },
                             ),
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1268,7 +1268,7 @@ fun TransferHistoryScreen(
                                                         )
                                                     }
                                                     DropdownMenuItem(
-                                                        text = { Text("重新手动识别整理") },
+                                                        text = { Text("重新整理") },
                                                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, contentDescription = null) },
                                                         onClick = {
                                                             rowMenuOpen = false

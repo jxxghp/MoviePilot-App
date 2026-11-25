@@ -114,6 +114,10 @@ export struct HarmonySubscriptionsPage {
   @State private confirmDeleteSub: MpSubscribeItem | null = null;
   @State private showDeleteConfirm: boolean = false;
 
+  // 社区分享复用确认弹窗
+  @State private pendingForkShare: MpSubscribeShareItem | null = null;
+  @State private showForkConfirm: boolean = false;
+
   // 订阅文件详情弹窗（GET /api/v1/subscribe/files/{subscribe_id}）
   @State private showFilesSheet: boolean = false;
   @State private filesTargetSub: MpSubscribeItem | null = null;
@@ -1316,6 +1320,46 @@ export struct HarmonySubscriptionsPage {
   }
 
   @Builder
+  forkConfirmSheetBuilder() {
+    Scroll() {
+      Column({ space: 16 }) {
+        Text('复用订阅')
+          .fontSize(18)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(mpPrimaryText(this.isDark))
+          .width('100%')
+        Text(`将「${this.pendingForkShare ? (this.pendingForkShare.shareTitle || this.pendingForkShare.name) : ''}」的过滤规则添加到我的订阅列表吗？`)
+          .fontSize(14)
+          .fontColor(mpSecondaryText(this.isDark))
+          .width('100%')
+        Row({ space: 12 }) {
+          Button('取消')
+            .layoutWeight(1).height(46).borderRadius(23)
+            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+            .fontColor(mpPrimaryText(this.isDark))
+            .onClick(() => { this.showForkConfirm = false; })
+          Button('确认复用')
+            .layoutWeight(1).height(46).borderRadius(23)
+            .backgroundColor(this.accentHex)
+            .fontColor(Color.White)
+            .fontWeight(FontWeight.Bold)
+            .onClick(() => {
+              const target = this.pendingForkShare;
+              this.showForkConfirm = false;
+              if (target) {
+                this.handleForkShare(target);
+              }
+            })
+        }.width('100%')
+      }
+      .padding(22)
+      .width('100%')
+    }
+    .scrollBar(BarState.Off)
+    .width('100%')
+  }
+
+  @Builder
   popularGrid(list: MpMediaItem[]) {
     Grid() {
       ForEach(list, (it: MpMediaItem) => {
@@ -1608,43 +1652,42 @@ export struct HarmonySubscriptionsPage {
             Grid() {
               ForEach(this.filteredItems(), (sub: MpSubscribeItem) => {
                 GridItem() {
-                  CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
-                    Row({ space: 12 }) {
-                      Column() {
-                        if (sub.posterUrl.length > 0) {
-                          MpRemoteImage({
-                            src: sub.posterUrl,
-                            imgWidth: 72,
-                            imgHeight: 106,
-                            imgRadius: 12,
-                            placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                          })
-                        } else {
-                          Column()
-                            .width(72)
-                            .height(106)
-                            .borderRadius(12)
-                            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                  Column() {
+                    CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
+                      Row({ space: 12 }) {
+                        Column() {
+                          if (sub.posterUrl.length > 0) {
+                            MpRemoteImage({
+                              src: sub.posterUrl,
+                              imgWidth: 72,
+                              imgHeight: 106,
+                              imgRadius: 12,
+                              placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                            })
+                          } else {
+                            Column()
+                              .width(72)
+                              .height(106)
+                              .borderRadius(12)
+                              .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                          }
                         }
-                      }
-                      .onClick(() => this.openSubMediaDetail(sub))
 
-                      Column({ space: 6 }) {
-                        Row({ space: 8 }) {
-                          Text(`${sub.name}${sub.season > 0 ? ' S' + String(sub.season).padStart(2, '0') : ''}`)
-                            .fontSize(15.5)
-                            .fontWeight(FontWeight.Bold)
-                            .fontColor(mpPrimaryText(this.isDark))
-                            .maxLines(1)
-                            .textOverflow({ overflow: TextOverflow.Ellipsis })
-                            .layoutWeight(1)
-                            .onClick(() => this.openSubMediaDetail(sub))
-                          NativeAdaptiveBadge({
-                            text: sub.state === 'S' ? '已暂停' : '订阅中',
-                            tintHex: sub.state === 'S' ? '#F29B38' : '#34C759'
-                          })
-                        }
-                        .width('100%')
+                        Column({ space: 6 }) {
+                          Row({ space: 8 }) {
+                            Text(`${sub.name}${sub.season > 0 ? ' S' + String(sub.season).padStart(2, '0') : ''}`)
+                              .fontSize(15.5)
+                              .fontWeight(FontWeight.Bold)
+                              .fontColor(mpPrimaryText(this.isDark))
+                              .maxLines(1)
+                              .textOverflow({ overflow: TextOverflow.Ellipsis })
+                              .layoutWeight(1)
+                            NativeAdaptiveBadge({
+                              text: sub.state === 'S' ? '已暂停' : '订阅中',
+                              tintHex: sub.state === 'S' ? '#F29B38' : '#34C759'
+                            })
+                          }
+                          .width('100%')
 
                         Row({ space: 6 }) {
                           Text(`${sub.year ? sub.year + ' · ' : ''}${sub.type}`)
@@ -1758,6 +1801,9 @@ export struct HarmonySubscriptionsPage {
                     }
                     .width('100%')
                   }
+                  }
+                  .width('100%')
+                  .onClick(() => { this.openFilesSheet(sub); })
                 }
               }, (sub: MpSubscribeItem) => `${sub.id}_${sub.state}_${sub.lackEpisode}`)
             }
@@ -1810,78 +1856,103 @@ export struct HarmonySubscriptionsPage {
             Grid() {
               ForEach(this.shares, (sh: MpSubscribeShareItem) => {
                 GridItem() {
-                  CinematicPanel({ panelPadding: 13, cornerRadius: 18 }) {
-                    Row({ space: 12 }) {
-                      Column() {
-                        if (sh.posterUrl.length > 0) {
-                          MpRemoteImage({
-                            src: sh.posterUrl,
-                            imgWidth: 58,
-                            imgHeight: 86,
-                            imgRadius: 10,
-                            placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
-                          })
-                        } else {
-                          Column()
-                            .width(58)
-                            .height(86)
-                            .borderRadius(10)
-                            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                        }
-                      }
-                      .onClick(() => this.openShareMediaDetail(sh))
-
-                      Column({ space: 6 }) {
-                        Row({ space: 6 }) {
-                          Text(sh.shareTitle || sh.name)
-                            .fontSize(14.5)
-                            .fontWeight(FontWeight.Bold)
-                            .fontColor(mpPrimaryText(this.isDark))
-                            .maxLines(1)
-                            .textOverflow({ overflow: TextOverflow.Ellipsis })
-                            .layoutWeight(1)
-                            .onClick(() => this.openShareMediaDetail(sh))
-                          NativeAdaptiveBadge({ text: `${sh.count} 复用`, tintHex: this.accentHex })
-                        }.width('100%')
-
-                        if (sh.shareComment.length > 0) {
-                          Text(sh.shareComment)
-                            .fontSize(12)
-                            .fontColor(mpSecondaryText(this.isDark))
-                            .maxLines(2)
-                            .width('100%')
-                            .onClick(() => this.openShareMediaDetail(sh))
-                        }
-
-                        Row({ space: 8 }) {
-                          Text(`分享者：${sh.shareUser} · ${sh.type}${sh.year ? ' · ' + sh.year : ''}`)
-                            .fontSize(11)
-                            .fontColor(mpSecondaryText(this.isDark))
-                            .maxLines(1)
-                            .textOverflow({ overflow: TextOverflow.Ellipsis })
-                            .layoutWeight(1)
-
-                          Row({ space: 4 }) {
-                            SymbolGlyph($r('sys.symbol.plus'))
-                              .fontSize(12)
-                              .fontColor([Color.White])
-                            Text(this.forkingShareId === sh.id ? '复用中…' : '复用订阅')
-                              .fontSize(12)
-                              .fontWeight(FontWeight.Bold)
-                              .fontColor(Color.White)
+                  Column() {
+                    CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
+                      Row({ space: 12 }) {
+                        Column() {
+                          if (sh.posterUrl.length > 0) {
+                            MpRemoteImage({
+                              src: sh.posterUrl,
+                              imgWidth: 58,
+                              imgHeight: 86,
+                              imgRadius: 10,
+                              placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                            })
+                          } else {
+                            Column()
+                              .width(58)
+                              .height(86)
+                              .borderRadius(10)
+                              .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
                           }
-                          .padding({ left: 10, right: 12, top: 5, bottom: 5 })
-                          .borderRadius(14)
-                          .backgroundColor(this.accentHex)
-                          .opacity(this.forkingShareId === sh.id ? 0.6 : 1)
-                          .onClick(() => { this.handleForkShare(sh); })
                         }
-                        .width('100%')
-                      }
-                      .alignItems(HorizontalAlign.Start)
-                      .layoutWeight(1)
-                    }.width('100%')
+
+                        Column({ space: 6 }) {
+                          Row({ space: 6 }) {
+                            Text(sh.shareTitle || sh.name)
+                              .fontSize(14.5)
+                              .fontWeight(FontWeight.Bold)
+                              .fontColor(mpPrimaryText(this.isDark))
+                              .maxLines(1)
+                              .textOverflow({ overflow: TextOverflow.Ellipsis })
+                              .layoutWeight(1)
+                            if (sh.count > 0) {
+                              Row({ space: 3 }) {
+                                SymbolGlyph($r('sys.symbol.flame'))
+                                  .fontSize(11)
+                                  .fontColor(['#F29B38'])
+                                Text(`${sh.count}`)
+                                  .fontSize(11)
+                                  .fontWeight(FontWeight.Medium)
+                                  .fontColor('#F29B38')
+                              }
+                              .padding({ left: 7, right: 7, top: 3, bottom: 3 })
+                              .borderRadius(10)
+                              .backgroundColor(HarmonyAppearanceStore.withAlpha('#F29B38', this.isDark ? '26' : '16'))
+                              .accessibilityText(`复用 ${sh.count} 次`)
+                            }
+                          }.width('100%')
+
+                          if (sh.shareComment.length > 0) {
+                            Text(sh.shareComment)
+                              .fontSize(12)
+                              .fontColor(mpSecondaryText(this.isDark))
+                              .maxLines(2)
+                              .width('100%')
+                          }
+
+                          Row({ space: 8 }) {
+                            Text(`分享者：${sh.shareUser} · ${sh.type}${sh.year ? ' · ' + sh.year : ''}`)
+                              .fontSize(11)
+                              .fontColor(mpSecondaryText(this.isDark))
+                              .maxLines(1)
+                              .textOverflow({ overflow: TextOverflow.Ellipsis })
+                              .layoutWeight(1)
+
+                            Row({ space: 4 }) {
+                              SymbolGlyph($r('sys.symbol.plus'))
+                                .fontSize(12)
+                                .fontColor([Color.White])
+                              Text(this.forkingShareId === sh.id ? '复用中…' : '复用订阅')
+                                .fontSize(12)
+                                .fontWeight(FontWeight.Bold)
+                                .fontColor(Color.White)
+                            }
+                            .padding({ left: 10, right: 12, top: 5, bottom: 5 })
+                            .borderRadius(14)
+                            .backgroundColor(this.accentHex)
+                            .opacity(this.forkingShareId === sh.id ? 0.6 : 1)
+                            .onClick(() => {
+                              if (this.forkingShareId === -1) {
+                                this.pendingForkShare = sh;
+                                this.showForkConfirm = true;
+                              }
+                            })
+                          }
+                          .width('100%')
+                        }
+                        .alignItems(HorizontalAlign.Start)
+                        .layoutWeight(1)
+                      }.width('100%')
+                    }
                   }
+                  .width('100%')
+                  .onClick(() => {
+                    if (this.forkingShareId === -1) {
+                      this.pendingForkShare = sh;
+                      this.showForkConfirm = true;
+                    }
+                  })
                 }
               }, (sh: MpSubscribeShareItem) => `${sh.id}_${sh.count}`)
             }
@@ -1914,6 +1985,16 @@ export struct HarmonySubscriptionsPage {
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showDeleteConfirm, this.deleteConfirmSheetBuilder(), {
+        detents: (this.windowHeightVp > 0 && this.windowHeightVp < 500)
+          ? [SheetSize.LARGE]
+          : [SheetSize.FIT_CONTENT, SheetSize.MEDIUM],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
+        blurStyle: BlurStyle.COMPONENT_REGULAR,
+        dragBar: true,
+        showClose: false,
+        backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+      })
+      Blank().width(0).height(0).bindSheet($$this.showForkConfirm, this.forkConfirmSheetBuilder(), {
         detents: (this.windowHeightVp > 0 && this.windowHeightVp < 500)
           ? [SheetSize.LARGE]
           : [SheetSize.FIT_CONTENT, SheetSize.MEDIUM],

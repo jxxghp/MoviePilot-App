@@ -334,7 +334,7 @@ fun SubscriptionsScreen(
 
                         CinematicPanel(
                             padding = 14.dp,
-                            modifier = Modifier.clickable { editingItem = sub },
+                            modifier = Modifier.clickable { viewingFilesItem = sub },
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1338,6 +1338,7 @@ private fun SubscribeCommunityContent(
     var isLoading by remember(tab) { mutableStateOf(true) }
     var forkedIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
     var forkingId by remember { mutableStateOf<String?>(null) }
+    var pendingForkShare by remember { mutableStateOf<MediaCardItem?>(null) }
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
 
@@ -1399,7 +1400,11 @@ private fun SubscribeCommunityContent(
                     val isForking = forkingId == shareKey
                     CinematicPanel(
                         padding = 14.dp,
-                        modifier = Modifier.clickable { onOpenMedia(share) },
+                        modifier = Modifier.clickable {
+                            if (!isForked && !isForking) {
+                                pendingForkShare = share
+                            }
+                        },
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -1409,41 +1414,82 @@ private fun SubscribeCommunityContent(
                                     AsyncImage(model = share.posterPath, contentDescription = share.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                                 }
                             }
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(share.title, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = share.title,
+                                        color = colors.textPrimary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (share.popularityCount > 0) {
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(CircleShape)
+                                                .background(colors.warning.copy(alpha = if (colors.isDark) 0.18f else 0.12f))
+                                                .border(0.6.dp, colors.warning.copy(alpha = 0.34f), CircleShape)
+                                                .padding(horizontal = 7.dp, vertical = 2.5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.LocalFireDepartment,
+                                                contentDescription = "复用次数",
+                                                tint = colors.warning,
+                                                modifier = Modifier.size(12.dp),
+                                            )
+                                            Text(
+                                                text = "${share.popularityCount}",
+                                                color = colors.warning,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                        }
+                                    }
+                                }
                                 if (!share.shareComment.isNullOrBlank()) {
                                     Text(share.shareComment!!, color = colors.textSecondary, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
                                     if (!share.shareUser.isNullOrBlank()) {
-                                        Text("分享者：${share.shareUser}", color = colors.textMuted, fontSize = 11.sp)
+                                        Text(
+                                            text = "分享者：${share.shareUser}",
+                                            color = colors.textMuted,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    } else {
+                                        Spacer(Modifier.weight(1f))
                                     }
-                                    if (share.popularityCount > 0) {
-                                        NativeAdaptiveBadge("复用 ${share.popularityCount}", tint = colors.accent)
-                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    NativeAdaptivePill(
+                                        title = when {
+                                            isForked -> "已复用"
+                                            isForking -> "复用中…"
+                                            else -> "复用订阅"
+                                        },
+                                        selected = !isForked,
+                                        onClick = {
+                                            if (!isForked && !isForking) {
+                                                pendingForkShare = share
+                                            }
+                                        },
+                                    )
                                 }
                             }
-                            NativeAdaptivePill(
-                                title = when {
-                                    isForked -> "已复用"
-                                    isForking -> "复用中…"
-                                    else -> "复用订阅"
-                                },
-                                selected = !isForked,
-                                onClick = {
-                                    if (!isForked && !isForking) {
-                                        forkingId = shareKey
-                                        scope.launch {
-                                            val (ok, msg) = repository.forkSubscribeShare(share)
-                                            forkingId = null
-                                            if (ok) {
-                                                forkedIds = forkedIds + shareKey
-                                            }
-                                            snackbar?.showSnackbar(msg)
-                                        }
-                                    }
-                                },
-                            )
                         }
                     }
                 }
@@ -1475,6 +1521,40 @@ private fun SubscribeCommunityContent(
                 }
             }
         }
+    }
+
+    pendingForkShare?.let { share ->
+        val shareKey = "${share.resolvedId}_${share.shareUser}"
+        AlertDialog(
+            onDismissRequest = { pendingForkShare = null },
+            title = { Text("复用订阅") },
+            text = { Text("将「${share.title}」的过滤规则添加到我的订阅列表吗？") },
+            dismissButton = {
+                TextButton(onClick = { pendingForkShare = null }) {
+                    Text("取消")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingForkShare = null
+                        if (shareKey !in forkedIds && forkingId != shareKey) {
+                            forkingId = shareKey
+                            scope.launch {
+                                val (ok, msg) = repository.forkSubscribeShare(share)
+                                forkingId = null
+                                if (ok) {
+                                    forkedIds = forkedIds + shareKey
+                                }
+                                snackbar?.showSnackbar(msg)
+                            }
+                        }
+                    },
+                ) {
+                    Text("确认复用")
+                }
+            },
+        )
     }
 }
 

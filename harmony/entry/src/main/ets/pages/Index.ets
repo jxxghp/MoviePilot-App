@@ -32,7 +32,8 @@ import {
   MpImageLoader,
   MpMediaItem,
   MpCastMember,
-  MoviePilotRepository
+  MoviePilotRepository,
+  HarmonyUsageReporter
 } from '@moviepilot/core_rust_bridge';
 import { HarmonyServerConnectionPage, HarmonyLoginPage } from '@moviepilot/auth';
 import {
@@ -90,6 +91,7 @@ struct Index {
   @State private userName: string = 'admin';
   @State private userAvatar: string = '';
   @State private isSuperuser: boolean = true;
+  @State private userLevel: number = 1;
   @State private savedServers: SavedServerEntry[] = [];
   @State private selectedTab: HarmonyMainTab = 'discover';
   @State private routeStack: string[] = [];
@@ -153,11 +155,14 @@ struct Index {
         this.userName = activeSess.userName || 'admin';
         this.isSuperuser = activeSess.isSuperuser;
         this.userAvatar = activeSess.userAvatar || '';
+        this.userLevel = activeSess.userLevel ?? MoviePilotRepository.parseJwtLevel(activeSess.token) ?? 1;
         this.allowSelfSigned = activeSess.allowSelfSigned;
         const repo = MoviePilotRepository.shared();
         repo.configureServer(activeSess.serverUrl, activeSess.allowSelfSigned);
         repo.setAuthToken(activeSess.token);
+        repo.userLevel = this.userLevel;
         this.authStage = 'main';
+        this.triggerUsageReportIfAdmin();
         this.consumePendingIntents();
       } else if (this.savedServers.length > 0) {
         this.serverUrl = this.savedServers[0].url;
@@ -168,6 +173,16 @@ struct Index {
     }
     this.hydratingSession = false;
     this.consumePendingIntents();
+  }
+
+  /** 仅在超级管理员会话下检查实例统计开关，若开启则异步执行 24 小时节流匿名版本上报。 */
+  private triggerUsageReportIfAdmin(): void {
+    if (!this.isSuperuser) { return; }
+    MoviePilotRepository.shared().fetchUsageReportingConfig().then((cfg) => {
+      if (cfg && cfg.enabled) {
+        HarmonyUsageReporter.shared().report(true, cfg.serverHost).catch(() => {});
+      }
+    }).catch(() => {});
   }
 
   onPendingDeepLinkChanged(): void {
@@ -715,6 +730,7 @@ struct Index {
           userName: this.userName,
           userAvatar: this.userAvatar,
           isSuperuser: this.isSuperuser,
+          userLevel: this.userLevel,
           serverUrl: this.serverUrl,
           onOpenShortcutRoute: (routeId: string) => this.pushRoute(routeId),
           onOpenMedia: (it: MpMediaItem) => this.openMediaSmart(it)
@@ -962,10 +978,12 @@ struct Index {
             this.serverSwitchReturnStage = 'login';
             this.authStage = 'connect';
           },
-          onLoginSuccess: (token: string, name: string, isSu: boolean, avatar: string, keepLogin: boolean) => {
+          onLoginSuccess: (token: string, name: string, isSu: boolean, avatar: string, keepLogin: boolean, userLv?: number) => {
+            const resolvedLevel = userLv ?? MoviePilotRepository.parseJwtLevel(token) ?? 1;
             this.userName = name;
             this.isSuperuser = isSu;
             this.userAvatar = avatar;
+            this.userLevel = resolvedLevel;
             const sess: PersistedAuthSession = {
               serverUrl: this.serverUrl,
               token: token,
@@ -973,7 +991,8 @@ struct Index {
               isSuperuser: isSu,
               userAvatar: avatar,
               keepLogin: keepLogin,
-              allowSelfSigned: this.allowSelfSigned
+              allowSelfSigned: this.allowSelfSigned,
+              userLevel: resolvedLevel
             };
             NativeHuksStore.shared().saveActiveSession(sess).catch(() => {});
             const updatedServers = this.savedServers.map((s: SavedServerEntry): SavedServerEntry => {
@@ -993,6 +1012,7 @@ struct Index {
             NativeHuksStore.shared().saveServersList(updatedServers).catch(() => {});
             this.serverSwitchReturnStage = '';
             this.authStage = 'main';
+            this.triggerUsageReportIfAdmin();
             this.consumePendingIntents();
           }
         })

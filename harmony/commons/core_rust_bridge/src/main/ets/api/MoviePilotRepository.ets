@@ -11,7 +11,13 @@ export interface MpLoginResult {
   userName: string;
   isSuperuser: boolean;
   avatar: string;
+  userLevel?: number;
   message: string;
+}
+
+export interface MpUsageReportingConfig {
+  enabled: boolean;
+  serverHost: string;
 }
 
 export interface MpMediaItem {
@@ -1038,6 +1044,30 @@ export class MoviePilotRepository {
   userName: string = '';
   isSuperuser: boolean = false;
   userAvatar: string = '';
+  userLevel: number = 1;
+
+  /** 从 JWT Payload 提取签发时的 `level`（用于重启恢复与 `/user/current` 未返回该字段时回退）。 */
+  static parseJwtLevel(token: string): number | null {
+    const parts = token.split('.');
+    if (parts.length !== 3) { return null; }
+    try {
+      let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const pad = (4 - (payload.length % 4)) % 4;
+      for (let i = 0; i < pad; i++) {
+        payload += '=';
+      }
+      const b64 = new util.Base64Helper();
+      const bytes = b64.decodeSync(payload);
+      const dec = util.TextDecoder.create('utf-8', { ignoreBOM: true });
+      const text = dec.decodeToString(bytes);
+      const rec = asRec(parseJsonSafe(text));
+      if (!rec || rec['level'] === undefined || rec['level'] === null) { return null; }
+      const lv = Number(rec['level']);
+      return Number.isFinite(lv) && lv >= 0 ? Math.trunc(lv) : null;
+    } catch {
+      return null;
+    }
+  }
 
   static shared(): MoviePilotRepository {
     if (!MoviePilotRepository.instance) {
@@ -1184,17 +1214,21 @@ export class MoviePilotRepository {
     const name = strVal(rec, 'user_name', username.trim());
     const su = boolVal(rec, 'super_user', true);
     const avatar = strVal(rec, 'avatar');
+    const rawLevel = rec && rec['level'] !== undefined && rec['level'] !== null ? Number(rec['level']) : NaN;
+    const jwtLevel = MoviePilotRepository.parseJwtLevel(token);
+    const level = Number.isFinite(rawLevel) && rawLevel >= 0 ? Math.trunc(rawLevel) : (jwtLevel ?? 1);
     if (token.length === 0) {
       return {
-        success: false, requiresOtp: false, token: '', userName: name, isSuperuser: su, avatar: '',
+        success: false, requiresOtp: false, token: '', userName: name, isSuperuser: su, avatar: '', userLevel: 1,
         message: '服务器未返回有效访问令牌'
       };
     }
     this.configure(cleanUrl, token, name, su, avatar);
+    this.userLevel = level;
     await this.hydrateSession();
     return {
       success: true, requiresOtp: false, token: token, userName: this.userName,
-      isSuperuser: this.isSuperuser, avatar: this.userAvatar, message: ''
+      isSuperuser: this.isSuperuser, avatar: this.userAvatar, userLevel: this.userLevel, message: ''
     };
   }
 
@@ -1209,6 +1243,17 @@ export class MoviePilotRepository {
           const nm = strVal(u, 'name');
           if (nm.length > 0) { this.userName = nm; }
           this.isSuperuser = boolVal(u, 'is_superuser', this.isSuperuser);
+          if (u['level'] !== undefined && u['level'] !== null) {
+            const lv = Number(u['level']);
+            if (Number.isFinite(lv) && lv >= 0) {
+              this.userLevel = Math.trunc(lv);
+            }
+          } else {
+            const jwtLevel = MoviePilotRepository.parseJwtLevel(this.token);
+            if (jwtLevel !== null) {
+              this.userLevel = jwtLevel;
+            }
+          }
         }
       }
     } catch {
@@ -4888,6 +4933,32 @@ export class MoviePilotRepository {
       resp = await this.postJson(['authorization', idOrCode, 'approve'], '{}');
     }
     return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 读取当前实例的匿名版本统计开关与统计服务地址（`GET /api/v1/system/env`）。 */
+  async fetchUsageReportingConfig(): Promise<MpUsageReportingConfig | null> {
+    try {
+      const resp = await this.get(['system', 'env']);
+      if (resp.status !== 200) { return null; }
+      const root = unwrapObject(parseJsonSafe(resp.body));
+      if (!root) { return null; }
+      const rawShare = root['USAGE_STATISTIC_SHARE'];
+      let enabled = false;
+      if (typeof rawShare === 'boolean') {
+        enabled = rawShare;
+      } else if (typeof rawShare === 'string') {
+        enabled = rawShare.trim().toLowerCase() === 'true';
+      } else if (typeof rawShare === 'number') {
+        enabled = rawShare !== 0;
+      }
+      const host = strVal(root, 'MP_SERVER_HOST').trim();
+      return {
+        enabled: enabled,
+        serverHost: host.length > 0 ? host : 'https://movie-pilot.org'
+      };
+    } catch {
+      return null;
+    }
   }
 
   /** 撤销已授权的渠道绑定（`DELETE /api/v1/authorization/{id}`）。 */

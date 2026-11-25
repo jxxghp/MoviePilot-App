@@ -28,6 +28,7 @@ export {
 export {
   MoviePilotRepository,
   MpLoginResult,
+  MpUsageReportingConfig,
   MpMediaItem,
   MpCastMember,
   MpSeasonInfo,
@@ -97,3 +98,7 @@ export {
   formatByteSize,
   formatSpeed
 } from './src/main/ets/api/MoviePilotRepository';
+
+export {
+  HarmonyUsageReporter
+} from './src/main/ets/api/HarmonyUsageReporter';

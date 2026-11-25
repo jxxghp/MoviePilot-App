@@ -609,8 +609,8 @@ struct NativeDashboardPage: View {
                         .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if let state = task.state, !state.isEmpty {
-                      Text(state)
+                    if let stateLabel = task.localizedState, !stateLabel.isEmpty {
+                      Text(stateLabel)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     }
@@ -1802,6 +1802,45 @@ private struct NativeDashboardDownloadTask: Decodable, Sendable, Identifiable {
     return min(max(raw, 0), 1)
   }
 
+  /// 将下载器原始英文状态翻译为中文展示文案。
+  var localizedState: String? {
+    guard let raw = state?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      return nil
+    }
+    let lower = raw.lowercased()
+    switch lower {
+    case "downloading", "forceddl", "metadl", "allocating":
+      return "下载中"
+    case "paused", "pauseddl", "pausedup", "stopped", "stoppeddl", "stoppedup":
+      return "已暂停"
+    case "completed", "complete", "finished":
+      return "已完成"
+    case "seeding", "uploading", "forcedup", "stalledup":
+      return "做种中"
+    case "stalleddl", "stalled":
+      return "等待中"
+    case "queueddl", "queuedup", "queued", "waiting", "check_wait", "download_wait", "seed_wait":
+      return "排队中"
+    case "checkingdl", "checkingup", "checkingresumedata", "checking", "check":
+      return "校验中"
+    case "moving":
+      return "移动中"
+    case "error", "missingfiles":
+      return "出错"
+    case "unknown":
+      return "未知"
+    default:
+      if lower.contains("pause") || lower.contains("stop") { return "已暂停" }
+      if lower.contains("download") { return "下载中" }
+      if lower.contains("seed") || lower.contains("upload") { return "做种中" }
+      if lower.contains("check") { return "校验中" }
+      if lower.contains("queue") || lower.contains("wait") { return "排队中" }
+      if lower.contains("complete") || lower.contains("finish") { return "已完成" }
+      if lower.contains("error") || lower.contains("fail") { return "出错" }
+      return raw
+    }
+  }
+
   private enum CodingKeys: String, CodingKey {
     case hash, title, name, progress, state, dlspeed
     case leftTime = "left_time"
@@ -2187,9 +2226,7 @@ struct NativeDashboardUserProfileCard: View {
             VStack(alignment: .leading, spacing: 5) {
               HStack(spacing: 6) {
                 roleBadge
-                if user.level >= 2 {
-                  levelBadge
-                }
+                levelBadge
               }
               if earnedMedalCount > 0 {
                 medalBadge
@@ -2219,9 +2256,7 @@ struct NativeDashboardUserProfileCard: View {
   @ViewBuilder
   private var profileBadges: some View {
     roleBadge
-    if user.level >= 2 {
-      levelBadge
-    }
+    levelBadge
     if earnedMedalCount > 0 {
       medalBadge
     }
@@ -2235,7 +2270,11 @@ struct NativeDashboardUserProfileCard: View {
   }
 
   private var levelBadge: some View {
-    NativeAdaptiveBadge("Lv.\(user.level)", tint: NativeTheme.warning)
+    let isVerified = user.level >= 2
+    return NativeAdaptiveBadge(
+      isVerified ? t("已认证") : t("未认证"),
+      tint: isVerified ? NativeTheme.success : NativeTheme.warning
+    )
   }
 
   private var medalBadge: some View {

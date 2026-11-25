@@ -100,6 +100,19 @@ class MoviePilotRepository(context: Context) {
         restoreSessionIfPossible()
     }
 
+    /** 从 JWT Payload 提取签发时的 `level`（用于重启恢复与 `/user/current` 未返回该字段时回退）。 */
+    private fun parseJwtLevel(token: String): Int? {
+        val parts = token.split('.')
+        if (parts.size != 3) return null
+        return runCatching {
+            val payload = parts[1].replace('-', '+').replace('_', '/')
+            val padded = payload + "=".repeat((4 - payload.length % 4) % 4)
+            val decoded = android.util.Base64.decode(padded, android.util.Base64.DEFAULT)
+            val obj = json.parseToJsonElement(String(decoded, Charsets.UTF_8)).asObj()
+            obj?.int("level")?.takeIf { it >= 0 }
+        }.getOrNull()
+    }
+
     /** 启动时尝试恢复上次已连接的实例与有效会话；若 JWT 已过期则安全退回登录页。 */
     private fun restoreSessionIfPossible() {
         val activeUrl = secretStore.activeServerUrl() ?: return
@@ -114,6 +127,7 @@ class MoviePilotRepository(context: Context) {
                     identity = UserIdentity(
                         name = claims.userName ?: "admin",
                         isSuperuser = claims.superUser,
+                        level = parseJwtLevel(token) ?: 1,
                     ),
                     permissions = perms,
                 )
@@ -140,7 +154,7 @@ class MoviePilotRepository(context: Context) {
                 isSuperuser = isSu,
                 isActive = dataObj.bool("is_active") ?: true,
                 isOtp = dataObj.bool("is_otp") ?: false,
-                level = dataObj.int("level") ?: auth.identity.level,
+                level = dataObj.int("level") ?: parseJwtLevel(auth.token) ?: auth.identity.level,
                 avatar = dataObj.str("avatar") ?: auth.identity.avatar,
             )
             val perms = RustCoreBridge.evaluatePermissions(
@@ -191,7 +205,11 @@ class MoviePilotRepository(context: Context) {
             _session.value = SessionState.Authenticated(
                 serverUrl = entry.url,
                 token = existingToken,
-                identity = UserIdentity(name = entry.username.ifBlank { claims.userName ?: "admin" }, isSuperuser = claims.superUser),
+                identity = UserIdentity(
+                    name = entry.username.ifBlank { claims.userName ?: "admin" },
+                    isSuperuser = claims.superUser,
+                    level = parseJwtLevel(existingToken) ?: 1,
+                ),
                 permissions = RustCoreBridge.evaluatePermissions("{}", claims.superUser),
             )
         } else {
@@ -3451,6 +3469,16 @@ class MoviePilotRepository(context: Context) {
     fun exportOriginCookieEntries(): List<String> {
         val auth = _session.value as? SessionState.Authenticated ?: return emptyList()
         return transport.exportSetCookieEntries(auth.serverUrl)
+    }
+
+    /** 查询当前管理员实例环境变量中的匿名版本统计开关与服务地址（失败返回 `null`）。 */
+    suspend fun fetchUsageReportingConfig(): Pair<Boolean, String>? {
+        val resp = authedRequest(listOf("system", "env")).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val data = extractObject(resp.body) ?: return null
+        val enabled = data.bool("USAGE_STATISTIC_SHARE") == true
+        val rawHost = data.str("MP_SERVER_HOST")?.trim().orEmpty()
+        return enabled to rawHost.ifEmpty { "https://movie-pilot.org" }
     }
 
     private fun resolveSameOriginUrl(serverUrl: String, raw: String): String {

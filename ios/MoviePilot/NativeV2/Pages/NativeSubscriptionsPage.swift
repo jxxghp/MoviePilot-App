@@ -55,6 +55,7 @@ struct NativeSubscriptionsPage: View {
   @State private var attempt = 0
   @State private var mutatingID: Int?
   @State private var viewingFilesItem: NativeSubscribeItem?
+  @State private var detailDestination: NativeMediaIdentity?
   @State private var editingItem: NativeSubscribeItem?
   @State private var pendingDelete: NativeSubscribeItem?
   @State private var feedback: NativeSubscribeFeedback?
@@ -127,6 +128,16 @@ struct NativeSubscriptionsPage: View {
     }
     .task(id: attempt) {
       await load(forceRefresh: attempt > 0)
+    }
+    .navigationDestination(
+      isPresented: Binding(
+        get: { detailDestination != nil },
+        set: { if !$0 { detailDestination = nil } }
+      )
+    ) {
+      if let identity = detailDestination {
+        NativeMediaDetailPage(session: session, identity: identity)
+      }
     }
     .sheet(item: $viewingFilesItem) { item in
       NativeSubscribeFilesSheet(
@@ -537,39 +548,16 @@ struct NativeSubscriptionsPage: View {
     let isMutating = mutatingID == item.id
     return CinematicPanel(padding: 13) {
       HStack(alignment: .top, spacing: 13) {
-        Group {
-          if let identity = item.detailIdentity {
-            NavigationLink {
-              NativeMediaDetailPage(session: session, identity: identity)
-            } label: {
-              posterView(poster, vote: item.vote)
-            }
-            .buttonStyle(.plain)
-          } else {
-            posterView(poster, vote: item.vote)
-          }
-        }
+        posterView(poster, vote: item.vote)
 
         VStack(alignment: .leading, spacing: 7) {
           HStack(alignment: .top, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-              if let identity = item.detailIdentity {
-                NavigationLink {
-                  NativeMediaDetailPage(session: session, identity: identity)
-                } label: {
-                  Text(item.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                }
-                .buttonStyle(.plain)
-              } else {
-                Text(item.name)
-                  .font(.headline)
-                  .foregroundStyle(.primary)
-                  .lineLimit(2)
-              }
+              Text(item.name)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
 
               if let seasonTag = item.seasonTag {
                 NativeAdaptiveBadge(seasonTag, tint: appearance.accentColor)
@@ -640,11 +628,22 @@ struct NativeSubscriptionsPage: View {
         }
       }
     }
+    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .onTapGesture {
+      viewingFilesItem = item
+    }
     .contextMenu {
       Button {
         viewingFilesItem = item
       } label: {
         Label("文件详情", systemImage: "doc.text.magnifyingglass")
+      }
+      if let identity = item.detailIdentity {
+        Button {
+          detailDestination = identity
+        } label: {
+          Label("媒体详情", systemImage: "film")
+        }
       }
       Button {
         editingItem = item

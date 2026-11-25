@@ -437,7 +437,7 @@ export struct HarmonyLoginPage {
   @State private isError: boolean = false;
   @State private loading: boolean = false;
   onSwitchServer: () => void = () => {};
-  onLoginSuccess: (token: string, userName: string, isSuperuser: boolean, avatar: string, keepLogin: boolean) => void = () => {};
+  onLoginSuccess: (token: string, userName: string, isSuperuser: boolean, avatar: string, keepLogin: boolean, userLevel?: number) => void = () => {};
 
   aboutToAppear(): void {
     this.hydrateSavedCredentials();
@@ -478,7 +478,7 @@ export struct HarmonyLoginPage {
         } else {
           await NativeHuksStore.shared().clearCredentials(this.serverUrl);
         }
-        this.onLoginSuccess(res.token, res.userName, res.isSuperuser, res.avatar, this.keepLogin);
+        this.onLoginSuccess(res.token, res.userName, res.isSuperuser, res.avatar, this.keepLogin, res.userLevel ?? 1);
       } else {
         this.showOtp = res.requiresOtp || this.showOtp;
         this.notice = res.message || '登录失败';

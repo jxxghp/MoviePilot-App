@@ -396,7 +396,7 @@ struct NativeTransferHistoryPage: View {
         Button {
           pendingReorganize = record
         } label: {
-          Label("整理", systemImage: "tray.and.arrow.down")
+          Label("重新整理", systemImage: "tray.and.arrow.down")
         }
       }
       Button {

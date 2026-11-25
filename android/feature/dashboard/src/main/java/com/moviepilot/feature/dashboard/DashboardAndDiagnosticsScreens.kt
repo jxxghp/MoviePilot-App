@@ -809,8 +809,8 @@ private fun DashboardUserProfileCard(
     val hostLabel = remember(serverUrl) {
         serverUrl.substringAfter("://").substringBefore("/").ifBlank { "MoviePilot" }
     }
-    val levelValue = identity.level.coerceAtLeast(1)
-    val levelLabel = if (levelValue >= 2) "Lv.$levelValue 已认证" else "Lv.$levelValue"
+    val isVerified = identity.level >= 2
+    val authStatusLabel = if (isVerified) "已认证" else "未认证"
 
     CinematicPanel(padding = 18.dp) {
         Row(
@@ -884,8 +884,8 @@ private fun DashboardUserProfileCard(
                     }
 
                     NativeAdaptiveBadge(
-                        text = levelLabel,
-                        tint = if (levelValue >= 2) colors.success else colors.info,
+                        text = authStatusLabel,
+                        tint = if (isVerified) colors.success else colors.warning,
                     )
 
                     if (identity.isOtp) {

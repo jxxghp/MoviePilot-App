@@ -375,18 +375,23 @@ struct NativeSubscribeCommunityPage: View {
               .lineLimit(2)
             Spacer(minLength: 4)
             if let count = item.count, count > 0 {
-              Text("复用 \(count)")
-                .font(.caption2.weight(.semibold).monospacedDigit())
-                .foregroundStyle(NativeTheme.brand)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background {
-                  Capsule()
-                    .fill(.primary.opacity(0.10))
-                    .overlay {
-                      Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6)
-                    }
-                }
+              HStack(spacing: 3) {
+                Image(systemName: "flame.fill")
+                  .font(.system(size: 10, weight: .semibold))
+                Text("\(count)")
+                  .font(.caption2.weight(.semibold).monospacedDigit())
+              }
+              .foregroundStyle(NativeTheme.warning)
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
+              .background {
+                Capsule()
+                  .fill(.primary.opacity(0.10))
+                  .overlay {
+                    Capsule().strokeBorder(.primary.opacity(0.16), lineWidth: 0.6)
+                  }
+              }
+              .accessibilityLabel("复用 \(count) 次")
             }
           }
           if let user = item.shareUser, !user.isEmpty {
@@ -445,6 +450,11 @@ struct NativeSubscribeCommunityPage: View {
           .padding(.top, 2)
         }
       }
+    }
+    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .onTapGesture {
+      guard forkingID == nil else { return }
+      pendingFork = item
     }
   }
 

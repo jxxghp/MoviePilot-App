@@ -133,6 +133,7 @@ export struct HarmonyDashboardPage {
   @Prop userName: string = 'admin';
   @Prop userAvatar: string = '';
   @Prop isSuperuser: boolean = true;
+  @Prop userLevel: number = 1;
   @Prop serverUrl: string = '';
   @State private stats: MpDashboardStats = {
     movieCount: 0, tvCount: 0, episodeCount: 0, userCount: 0, musicCount: 0,
@@ -344,10 +345,14 @@ export struct HarmonyDashboardPage {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
 
-          Row({ space: 8 }) {
+          Row({ space: 6 }) {
             NativeAdaptiveBadge({
               text: this.isSuperuser ? '超级管理员' : '普通成员',
               tintHex: this.accentHex
+            })
+            NativeAdaptiveBadge({
+              text: this.userLevel >= 2 ? '已认证' : '未认证',
+              tintHex: this.userLevel >= 2 ? '#34C759' : '#F29B38'
             })
             if (this.community.earnedCount > 0) {
               NativeAdaptiveBadge({

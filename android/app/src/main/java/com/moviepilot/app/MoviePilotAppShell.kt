@@ -828,11 +828,29 @@ fun MoviePilotRootShell(
         }
     }
 
-    // 鉴权就绪后拉取权威用户信息（真实头像）并预热图片代理 Cookie
+    // 鉴权就绪后拉取权威用户信息（真实头像）、预热图片代理 Cookie，并在管理员实例允许时执行匿名版本统计上报
     val authKey = (session as? SessionState.Authenticated)?.let { "${it.serverUrl}|${it.token.takeLast(8)}" }
     LaunchedEffect(authKey) {
         if (authKey != null) {
             repository.hydrateAuthenticatedSession()
+            val latestAuth = repository.session.value as? SessionState.Authenticated
+            if (latestAuth?.permissions?.admin == true) {
+                val appVersion = runCatching {
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                }.getOrNull()?.takeIf { it.isNotBlank() }.orEmpty()
+                if (appVersion.isNotEmpty()) {
+                    runCatching {
+                        val cfg = repository.fetchUsageReportingConfig()
+                        if (cfg != null && cfg.first) {
+                            AppUsageReporter.forContext(context).report(
+                                enabled = true,
+                                host = cfg.second,
+                                version = appVersion,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 

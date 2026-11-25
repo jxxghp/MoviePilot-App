@@ -420,6 +420,8 @@
 "插件" = "Plugins";
 "超级管理员" = "Administrator";
 "普通成员" = "Member";
+"已认证" = "Verified";
+"未认证" = "Unverified";
 "站点管理" = "Sites";
 "索引与流量" = "Index & Traffic";
 "用户管理" = "Users";

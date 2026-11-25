@@ -23,6 +23,7 @@ export interface PersistedAuthSession {
   userAvatar: string;
   keepLogin: boolean;
   allowSelfSigned: boolean;
+  userLevel?: number;
 }
 
 /** 加密保存的账号密码对。 */
@@ -298,6 +299,9 @@ export class NativeHuksStore {
     meta['userAvatar'] = session.userAvatar;
     meta['keepLogin'] = session.keepLogin;
     meta['allowSelfSigned'] = session.allowSelfSigned;
+    if (session.userLevel !== undefined && Number.isFinite(session.userLevel)) {
+      meta['userLevel'] = Math.trunc(session.userLevel);
+    }
     await this.saveString(NativeHuksStore.KEY_ACTIVE_SESSION, JSON.stringify(meta));
   }
 
@@ -311,6 +315,8 @@ export class NativeHuksStore {
       if (!serverUrl) { return null; }
       const keepLogin = Boolean(rec['keepLogin']);
       const token = keepLogin ? await this.loadToken(serverUrl) : '';
+      const rawLevel = rec['userLevel'];
+      const parsedLevel = rawLevel !== undefined ? Number(rawLevel) : NaN;
       return {
         serverUrl: serverUrl,
         token: token,
@@ -318,7 +324,8 @@ export class NativeHuksStore {
         isSuperuser: rec['isSuperuser'] !== undefined ? Boolean(rec['isSuperuser']) : true,
         userAvatar: String(rec['userAvatar'] ?? ''),
         keepLogin: keepLogin,
-        allowSelfSigned: Boolean(rec['allowSelfSigned'])
+        allowSelfSigned: Boolean(rec['allowSelfSigned']),
+        userLevel: Number.isFinite(parsedLevel) && parsedLevel >= 0 ? Math.trunc(parsedLevel) : undefined
       };
     } catch {
       return null;
@@ -435,5 +442,15 @@ export class NativeHuksStore {
   /** 读取桌面服务卡片只读缓存快照。 */
   async loadWidgetSnapshot(): Promise<string> {
     return this.loadString(NativeHuksStore.KEY_WIDGET_SNAPSHOT);
+  }
+
+  /** 保存匿名版本统计所需的本机偏好键值（随机 installation_id 或 24 小时节流时间戳）。 */
+  async saveUsagePreference(key: string, value: string): Promise<void> {
+    await this.saveString(key, value);
+  }
+
+  /** 读取匿名版本统计所需的本机偏好键值。 */
+  async loadUsagePreference(key: string): Promise<string> {
+    return this.loadString(key);
   }
 }
