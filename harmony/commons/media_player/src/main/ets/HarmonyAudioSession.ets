@@ -11,8 +11,10 @@ import {
   MoviePilotRepository,
   RustCoreBridge,
   ParsedStrmStream,
+  PlaybackRouteCandidate,
   HarmonyPlaybackSyncTracker,
-  HarmonyPlaybackProgressReporter
+  HarmonyPlaybackProgressReporter,
+  HarmonyPlaybackRouteResolver
 } from '@moviepilot/core_rust_bridge';
 import {
   HarmonyPlaybackRequest,
@@ -451,6 +453,10 @@ export class HarmonyAudioSession {
       fdPath: req.fdPath,
       cleanupTempOnClose: req.cleanupTempOnClose,
       headers: req.headers,
+      proxyFallbackUrl: req.proxyFallbackUrl,
+      proxyFallbackHeaders: req.proxyFallbackHeaders,
+      activeRouteKind: req.activeRouteKind,
+      fallbackRoutes: req.fallbackRoutes ? req.fallbackRoutes.slice() : undefined,
       title: req.title,
       subtitle: req.subtitle,
       artist: req.artist,
@@ -589,6 +595,60 @@ export class HarmonyAudioSession {
 
       av.on('error', () => {
         if (gen !== this.loadGeneration) { return; }
+        if (this.posMs <= 1000) {
+          const serverName = (enrichedReq.server ?? '').trim();
+          const curKind = (enrichedReq.activeRouteKind ?? '').trim();
+          if ((curKind === 'server_lan' || curKind === 'server_wan') && enrichedReq.url.length > 0) {
+            HarmonyPlaybackRouteResolver.shared().markRouteFailed(serverName, enrichedReq.url);
+          }
+          const fallbacks: PlaybackRouteCandidate[] = enrichedReq.fallbackRoutes ? enrichedReq.fallbackRoutes.slice() : [];
+          const legacyUrl = (enrichedReq.proxyFallbackUrl ?? '').trim();
+          if (legacyUrl.length > 0 && legacyUrl !== enrichedReq.url && !fallbacks.some((f: PlaybackRouteCandidate) => f.url === legacyUrl)) {
+            fallbacks.push({
+              kind: 'mp_proxy',
+              url: legacyUrl,
+              probe_url: null,
+              headers: enrichedReq.proxyFallbackHeaders ?? {},
+              priority: 100,
+              requires_same_origin_auth: true
+            });
+          }
+          while (fallbacks.length > 0) {
+            const nextRoute = fallbacks.shift();
+            if (!nextRoute || !nextRoute.url || nextRoute.url === enrichedReq.url) { continue; }
+            const nextHeaders = nextRoute.kind === 'mp_proxy'
+              ? (enrichedReq.proxyFallbackHeaders ?? nextRoute.headers)
+              : nextRoute.headers;
+            const fallbackReq: HarmonyPlaybackRequest = {
+              url: nextRoute.url,
+              headers: nextHeaders,
+              proxyFallbackUrl: enrichedReq.proxyFallbackUrl,
+              proxyFallbackHeaders: enrichedReq.proxyFallbackHeaders,
+              activeRouteKind: nextRoute.kind,
+              fallbackRoutes: fallbacks,
+              title: enrichedReq.title,
+              subtitle: enrichedReq.subtitle,
+              artist: enrichedReq.artist,
+              album: enrichedReq.album,
+              artworkUrl: enrichedReq.artworkUrl,
+              isAudio: true,
+              lyricsLrc: enrichedReq.lyricsLrc,
+              lyricsUrl: enrichedReq.lyricsUrl,
+              itemId: enrichedReq.itemId,
+              server: enrichedReq.server,
+              serverType: enrichedReq.serverType,
+              mediaSourceId: enrichedReq.mediaSourceId,
+              playSessionId: enrichedReq.playSessionId,
+              progressSyncMode: enrichedReq.progressSyncMode,
+              resumePositionMs: enrichedReq.resumePositionMs,
+              isSessionBound: enrichedReq.isSessionBound,
+              queue: this.queue,
+              queueIndex: this.queueIdx
+            };
+            this.loadTrackInternal(fallbackReq, false).catch(() => {});
+            return;
+          }
+        }
         this.buffering = false;
         this.playing = false;
         this.stopProgressTimer();

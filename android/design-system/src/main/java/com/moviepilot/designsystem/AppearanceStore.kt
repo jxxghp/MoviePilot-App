@@ -741,6 +741,10 @@ class PlaybackPreferencesStore(context: Context?) {
     var strmDirectPlay by mutableStateOf(prefs?.getBoolean(KEY_STRM_DIRECT_PLAY, true) ?: true)
         private set
 
+    /** 已绑定个人账号的 Emby / Jellyfin / Plex 在直连可达时优先直连播放，不可达或失败时自动回退后台中转。 */
+    var directPlay by mutableStateOf(prefs?.getBoolean(KEY_DIRECT_PLAY, true) ?: true)
+        private set
+
     fun updateHwDecode(enabled: Boolean) {
         hwDecode = enabled
         prefs?.edit()?.putBoolean(KEY_HW_DECODE, enabled)?.apply()
@@ -790,6 +794,12 @@ class PlaybackPreferencesStore(context: Context?) {
         prefs?.edit()?.putBoolean(KEY_STRM_DIRECT_PLAY, enabled)?.apply()
     }
 
+    /** 更新媒体服务器直连优先开关。 */
+    fun updateDirectPlay(enabled: Boolean) {
+        directPlay = enabled
+        prefs?.edit()?.putBoolean(KEY_DIRECT_PLAY, enabled)?.apply()
+    }
+
     val summaryText: String
         get() {
             val spdText = if (defaultSpeed % 1f == 0f) String.format("%.1fx", defaultSpeed) else "${defaultSpeed}x"
@@ -807,6 +817,7 @@ class PlaybackPreferencesStore(context: Context?) {
         const val KEY_CELLULAR_WARN = "cellular_warn"
         const val KEY_KEEP_MUSIC_MINI_BAR = "keep_music_mini_bar"
         const val KEY_STRM_DIRECT_PLAY = "strm_direct_play"
+        const val KEY_DIRECT_PLAY = "server_direct_play"
     }
 }
 

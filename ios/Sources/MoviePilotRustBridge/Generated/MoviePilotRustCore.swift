@@ -1815,6 +1815,17 @@ public func filterAndGroupResources(resourcesJson: String, criteriaJson: String)
 })
 }
 /**
+ * 校验两条 HTTP(S) URL 是否严格同源（用于跨源 302 重定向时剥离直连令牌头）。
+ */
+public func isSameHttpOrigin(urlA: String, urlB: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_is_same_http_origin(
+        FfiConverterString.lower(urlA),
+        FfiConverterString.lower(urlB),$0
+    )
+})
+}
+/**
  * 规整离线待补报 `stopped` 队列（去重、清理 7 天过期项并裁剪至上限）。
  */
 public func normalizePendingPlaybackStopsJson(entriesJson: String, nowEpochMs: Int64)throws  -> String  {
@@ -1863,6 +1874,18 @@ public func parseStrmContent(rawText: String, fallbackFileName: String?)throws  
     uniffi_moviepilot_core_fn_func_parse_strm_content(
         FfiConverterString.lower(rawText),
         FfiConverterOptionString.lower(fallbackFileName),$0
+    )
+})
+}
+/**
+ * 根据用户直连偏好与轻量探测结果，规划主播放路由与降级队列，返回 `PlaybackRoutePlan` JSON（无可用路由返回 `None`）。
+ */
+public func planPlaybackRoutesJson(routesJson: String, prefsJson: String, probesJson: String)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_plan_playback_routes_json(
+        FfiConverterString.lower(routesJson),
+        FfiConverterString.lower(prefsJson),
+        FfiConverterString.lower(probesJson),$0
     )
 })
 }
@@ -1950,6 +1973,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_filter_and_group_resources() != 54382) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_is_same_http_origin() != 24565) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json() != 59689) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1963,6 +1989,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_parse_strm_content() != 31599) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_plan_playback_routes_json() != 36985) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_plan_playback_sync_step_json() != 57831) {

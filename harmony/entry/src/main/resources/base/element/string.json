@@ -369,6 +369,10 @@
       "value": "当前安装已解除绑定。"
     },
     {
+      "name": "mp_32bc332f",
+      "value": "局域网直连"
+    },
+    {
       "name": "mp_33246f6a",
       "value": "完成"
     },
@@ -929,6 +933,10 @@
       "value": "清理"
     },
     {
+      "name": "mp_90f9250e",
+      "value": "后台中转"
+    },
+    {
       "name": "mp_9203b76d",
       "value": "电影订阅"
     },
@@ -939,6 +947,10 @@
     {
       "name": "mp_922c94aa",
       "value": "当前账号"
+    },
+    {
+      "name": "mp_92de9b27",
+      "value": "外网直连"
     },
     {
       "name": "mp_936694b4",
@@ -1613,6 +1625,10 @@
       "value": "解除本机及配对网页绑定"
     },
     {
+      "name": "mp_eb4289d8",
+      "value": "媒体服务器直连优先"
+    },
+    {
       "name": "mp_eb88ff57",
       "value": "已安装"
     },
@@ -1655,6 +1671,10 @@
     {
       "name": "mp_emby_jellyfin_plex_377a4835",
       "value": "绑定个人媒体服务器账号后，在播放时可向 Emby / Jellyfin / Plex 仪表盘实时同步正在播放状态与精确进度。"
+    },
+    {
+      "name": "mp_emby_jellyfin_plex_e2951fb0",
+      "value": "已绑定个人账号的 Emby / Jellyfin / Plex 在直连可达时优先直连播放，不可达或失败时自动回退后台中转"
     },
     {
       "name": "mp_f0409080",
@@ -1915,6 +1935,10 @@
     {
       "name": "mp_safari_app_24c9c662",
       "value": "在 Safari 打开通知网页，添加到主屏幕，再从主屏幕打开并输入绑定码。通知由主屏幕网页接收，点击后可返回 App。"
+    },
+    {
+      "name": "mp_strm_895f2616",
+      "value": "STRM 直链"
     },
     {
       "name": "mp_web_7f1d362a",

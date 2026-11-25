@@ -288,4 +288,83 @@ class PlaybackParityTest {
         assertTrue(subStacks[com.moviepilot.designsystem.MainTab.Discover].orEmpty().isEmpty())
         assertEquals(com.moviepilot.designsystem.MainTab.Discover, currentTab())
     }
+
+    @Test
+    fun directPlayRoutePlannerPrioritizesLanWithinThresholdAndStripsCrossOriginDirectTokens() {
+        val store = PlaybackPreferencesStore(context = null)
+        assertTrue(store.directPlay)
+        store.updateDirectPlay(false)
+        assertFalse(store.directPlay)
+
+        val routes = listOf(
+            com.moviepilot.rustbridge.PlaybackRouteDto(
+                kind = "server_lan",
+                url = "http://192.168.1.10:8096/emby/Videos/1/stream?Static=true",
+                probeUrl = "http://192.168.1.10:8096/emby/System/Ping",
+                headers = mapOf("X-Emby-Token" to "user-tok-1"),
+                priority = 20,
+            ),
+            com.moviepilot.rustbridge.PlaybackRouteDto(
+                kind = "server_wan",
+                url = "https://emby.example.com/emby/Videos/1/stream?Static=true",
+                probeUrl = "https://emby.example.com/emby/System/Ping",
+                headers = mapOf("X-Emby-Token" to "user-tok-1"),
+                priority = 30,
+            ),
+            com.moviepilot.rustbridge.PlaybackRouteDto(
+                kind = "mp_proxy",
+                url = "https://mp.example.com/api/v1/mediaserver/stream?itemid=1",
+                priority = 100,
+                requiresSameOriginAuth = true,
+            ),
+        )
+        val probes = listOf(
+            com.moviepilot.rustbridge.RouteProbeOutcomeDto(
+                url = "http://192.168.1.10:8096/emby/System/Ping",
+                reachable = true,
+                latencyMs = 95,
+            ),
+            com.moviepilot.rustbridge.RouteProbeOutcomeDto(
+                url = "https://emby.example.com/emby/System/Ping",
+                reachable = true,
+                latencyMs = 42,
+            ),
+        )
+        val plan = com.moviepilot.rustbridge.RustCoreBridge.planPlaybackRoutes(routes, probes = probes)
+        assertNotNull(plan)
+        assertEquals("server_lan", plan?.active?.kind)
+        assertEquals("局域网直连", plan?.routeLabelZh)
+        assertEquals(listOf("server_wan", "mp_proxy"), plan?.fallbacks?.map { it.kind })
+
+        val disabledPlan = com.moviepilot.rustbridge.RustCoreBridge.planPlaybackRoutes(
+            routes = routes,
+            preferences = com.moviepilot.rustbridge.PlaybackRoutePreferenceDto(
+                preferStrmDirect = false,
+                preferServerDirect = false,
+            ),
+            probes = probes,
+        )
+        assertEquals("mp_proxy", disabledPlan?.active?.kind)
+        assertTrue(disabledPlan?.fallbacks.orEmpty().isEmpty())
+
+        val directHeaders = mapOf(
+            "X-Emby-Token" to "personal-emby-tok",
+            "X-Plex-Token" to "personal-plex-tok",
+            "User-Agent" to "MoviePilot/2.0",
+        )
+        val cdnHop = PlaybackHttpDataSource.filterHeadersForTarget(
+            originUrl = "https://emby.example.com/emby/Videos/1/stream",
+            targetUrl = "https://cdn.115.com/signed.mkv",
+            headers = directHeaders,
+        )
+        assertNull(cdnHop["X-Emby-Token"])
+        assertNull(cdnHop["X-Plex-Token"])
+        assertEquals("MoviePilot/2.0", cdnHop["User-Agent"])
+        assertFalse(
+            PlaybackHttpDataSource.isSameOriginHostPort(
+                "https://emby.example.com:8096/a",
+                "http://emby.example.com:8096/a",
+            ),
+        )
+    }
 }

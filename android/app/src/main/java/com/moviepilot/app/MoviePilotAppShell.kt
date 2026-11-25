@@ -519,7 +519,17 @@ fun MoviePilotRootShell(
             val resolvedSameOriginHeaders = rawReq.sameOriginHeaders.ifEmpty {
                 if (instanceUrl.isNotBlank()) repository.buildPlaybackHeaders(instanceUrl) else rawReq.headers
             }
-            val inferredFallback = rawReq.proxyFallbackUrl ?: run {
+            val cachedPlan = repository.playbackRouteResolver.lookupPlanForUrl(rawReq.url)
+            val resolvedStreamHeaders = rawReq.streamHeaders.ifEmpty {
+                cachedPlan?.active?.headers.orEmpty()
+            }
+            val resolvedRouteKind = rawReq.activeRouteKind.ifBlank {
+                cachedPlan?.active?.kind.orEmpty()
+            }
+            val resolvedFallbacks = rawReq.fallbackRoutes.ifEmpty {
+                cachedPlan?.fallbacks.orEmpty()
+            }
+            val inferredFallback = rawReq.proxyFallbackUrl ?: resolvedFallbacks.lastOrNull { it.kind == "mp_proxy" }?.url ?: run {
                 if (
                     rawReq.isSessionBound &&
                     rawReq.itemId.isNotBlank() &&
@@ -542,7 +552,10 @@ fun MoviePilotRootShell(
             return rawReq.copy(
                 originUrl = resolvedOrigin,
                 sameOriginHeaders = resolvedSameOriginHeaders,
+                streamHeaders = resolvedStreamHeaders,
                 proxyFallbackUrl = inferredFallback,
+                activeRouteKind = resolvedRouteKind,
+                fallbackRoutes = resolvedFallbacks,
                 allowSelfSignedTls = rawReq.allowSelfSignedTls || repository.secretStore.allowSelfSignedTls,
             )
         }
@@ -570,7 +583,10 @@ fun MoviePilotRootShell(
                     lyricsLrc = lrc,
                     headers = manifest.headers,
                     sameOriginHeaders = manifest.sameOriginHeaders,
+                    streamHeaders = manifest.streamHeaders,
                     proxyFallbackUrl = manifest.proxyFallbackUrl,
+                    activeRouteKind = manifest.activeRouteKind,
+                    fallbackRoutes = manifest.fallbackRoutes,
                     originUrl = manifest.originUrl.ifBlank { instanceUrl.ifBlank { manifest.contentUrl } },
                     allowSelfSignedTls = repository.secretStore.allowSelfSignedTls,
                     itemId = manifest.itemId,
@@ -596,7 +612,10 @@ fun MoviePilotRootShell(
                     lyricsLrc = lrc,
                     headers = manifest.headers,
                     sameOriginHeaders = manifest.sameOriginHeaders,
+                    streamHeaders = manifest.streamHeaders,
                     proxyFallbackUrl = manifest.proxyFallbackUrl,
+                    activeRouteKind = manifest.activeRouteKind,
+                    fallbackRoutes = manifest.fallbackRoutes,
                     originUrl = manifest.originUrl.ifBlank { instanceUrl.ifBlank { manifest.contentUrl } },
                     allowSelfSignedTls = repository.secretStore.allowSelfSignedTls,
                     itemId = manifest.itemId,
@@ -976,6 +995,11 @@ fun MoviePilotRootShell(
                                         isAudio = manifest.mediaType == "audio",
                                         lyricsLrc = lrc,
                                         headers = manifest.headers,
+                                        sameOriginHeaders = manifest.sameOriginHeaders,
+                                        streamHeaders = manifest.streamHeaders,
+                                        proxyFallbackUrl = manifest.proxyFallbackUrl,
+                                        activeRouteKind = manifest.activeRouteKind,
+                                        fallbackRoutes = manifest.fallbackRoutes,
                                         itemId = manifest.itemId,
                                         server = manifest.server.ifBlank { server.orEmpty() },
                                         mediaSourceId = manifest.mediaSourceId.orEmpty(),

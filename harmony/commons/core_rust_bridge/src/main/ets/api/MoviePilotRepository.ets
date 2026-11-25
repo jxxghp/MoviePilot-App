@@ -1,9 +1,10 @@
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
-import { RustCoreBridge } from '../bridge/RustCoreBridge';
+import { PlaybackRouteCandidate, RustCoreBridge } from '../bridge/RustCoreBridge';
 import { NativeRcpTransport, NativeHttpResponse, SseEventChunk } from '../network/NativeRcpTransport';
 import { NativeHuksStore } from '../security/NativeHuksStore';
 import { HarmonyPlaybackProgressReporter } from './HarmonyPlaybackProgressReporter';
+import { HarmonyPlaybackRouteResolver } from './HarmonyPlaybackRouteResolver';
 
 export interface MpLoginResult {
   success: boolean;
@@ -494,6 +495,8 @@ export interface MpVideoStreamInfo {
   strmUrl?: string;
   proxyFallbackUrl?: string;
   proxyFallbackHeaders?: Record<string, string>;
+  activeRouteKind?: string;
+  fallbackRoutes?: PlaybackRouteCandidate[];
   headers: Record<string, string>;
   mediaType: string;
   artist: string;
@@ -3349,12 +3352,12 @@ export class MoviePilotRepository {
     return 'srt';
   }
 
-  private parseStreamManifestResponse(
+  private async parseStreamManifestResponse(
     r: Record<string, Object>,
     fallbackItemId: string,
     fallbackServer: string,
     fallbackMediaSourceId: string
-  ): MpVideoStreamInfo | null {
+  ): Promise<MpVideoStreamInfo | null> {
     let rawUrl = strVal(r, 'content_url') || strVal(r, 'url') || strVal(r, 'stream_url') || strVal(r, 'direct_url');
     if (!rawUrl && this.baseUrl.length > 0) {
       const sq: Record<string, string> = {};
@@ -3372,10 +3375,102 @@ export class MoviePilotRepository {
     const parsedStrm = rawStrm.length > 0 ? RustCoreBridge.parseStrmContent(rawStrm) : null;
     const strmUrl = parsedStrm ? parsedStrm.url : '';
     const strmDirectEnabled = AppStorage.get<boolean>('mp_playback_strm_direct') ?? true;
-    const useStrmDirect = strmDirectEnabled && strmUrl.length > 0;
-    const activeUrl = useStrmDirect ? strmUrl : fullUrl;
+    const serverDirectEnabled = AppStorage.get<boolean>('mp_playback_direct_play') ?? true;
     const sameOriginHeaders = this.buildPlaybackHeaders(fullUrl);
-    const activeHeaders = useStrmDirect ? this.buildPlaybackHeaders(strmUrl) : sameOriginHeaders;
+    const resolvedServer = strVal(r, 'server', fallbackServer);
+
+    const candidates: PlaybackRouteCandidate[] = [];
+    const routesRaw = asArr(r['playback_routes']);
+    for (let i = 0; i < routesRaw.length; i++) {
+      const rr = asRec(routesRaw[i]);
+      if (!rr) { continue; }
+      const kind = strVal(rr, 'kind').trim();
+      const rawRouteUrl = strVal(rr, 'url').trim();
+      if (!kind || !rawRouteUrl) { continue; }
+      let resolvedRouteUrl = rawRouteUrl;
+      if (kind === 'mp_proxy') {
+        const trusted = this.resolveTrustedSameOriginUrl(rawRouteUrl);
+        if (!trusted) { continue; }
+        resolvedRouteUrl = trusted;
+      }
+      const routeHeaders: Record<string, string> = {};
+      const hdrRec = asRec(rr['headers']);
+      if (hdrRec) {
+        const hKeys = Object.keys(hdrRec);
+        for (let j = 0; j < hKeys.length; j++) {
+          const hk = hKeys[j];
+          const hv = strVal(hdrRec, hk).trim();
+          if (hk.trim().length > 0 && hv.length > 0) {
+            routeHeaders[hk] = hv;
+          }
+        }
+      }
+      const probeRaw = strVal(rr, 'probe_url').trim();
+      candidates.push({
+        kind: kind,
+        url: resolvedRouteUrl,
+        probe_url: probeRaw.length > 0 ? probeRaw : null,
+        headers: routeHeaders,
+        priority: Math.round(numVal(rr, 'priority', 100)),
+        requires_same_origin_auth: boolVal(rr, 'requires_same_origin_auth', kind === 'mp_proxy')
+      });
+    }
+    if (strmUrl.length > 0 && !candidates.some((c: PlaybackRouteCandidate) => c.kind === 'strm_direct')) {
+      candidates.push({
+        kind: 'strm_direct',
+        url: strmUrl,
+        probe_url: null,
+        headers: parsedStrm ? parsedStrm.headers : {},
+        priority: 10,
+        requires_same_origin_auth: false
+      });
+    }
+    if (!candidates.some((c: PlaybackRouteCandidate) => c.kind === 'mp_proxy')) {
+      candidates.push({
+        kind: 'mp_proxy',
+        url: fullUrl,
+        probe_url: null,
+        headers: {},
+        priority: 100,
+        requires_same_origin_auth: true
+      });
+    }
+
+    const plan = await HarmonyPlaybackRouteResolver.shared().resolve(
+      resolvedServer,
+      candidates,
+      strmDirectEnabled,
+      serverDirectEnabled
+    );
+
+    let activeUrl = fullUrl;
+    let activeHeaders: Record<string, string> = sameOriginHeaders;
+    let activeRouteKind = 'mp_proxy';
+    let fallbackRoutes: PlaybackRouteCandidate[] = [];
+    let proxyFallbackUrl: string | undefined = undefined;
+    let proxyFallbackHeaders: Record<string, string> | undefined = undefined;
+
+    if (plan) {
+      activeUrl = plan.active.url;
+      activeRouteKind = plan.active.kind;
+      fallbackRoutes = plan.fallbacks;
+      const isProxy = plan.active.kind === 'mp_proxy' ||
+        (this.baseUrl.length > 0 && RustCoreBridge.serverAddressContains(this.baseUrl, activeUrl));
+      activeHeaders = isProxy ? sameOriginHeaders : plan.active.headers;
+      if (activeUrl !== fullUrl) {
+        proxyFallbackUrl = fullUrl;
+        proxyFallbackHeaders = sameOriginHeaders;
+      }
+    } else {
+      const useStrmDirect = strmDirectEnabled && strmUrl.length > 0;
+      activeUrl = useStrmDirect ? strmUrl : fullUrl;
+      activeRouteKind = useStrmDirect ? 'strm_direct' : 'mp_proxy';
+      activeHeaders = useStrmDirect ? this.buildPlaybackHeaders(strmUrl) : sameOriginHeaders;
+      if (useStrmDirect && activeUrl !== fullUrl) {
+        proxyFallbackUrl = fullUrl;
+        proxyFallbackHeaders = sameOriginHeaders;
+      }
+    }
 
     const subtitles: MpExternalSubtitle[] = [];
     const subsRaw = asArr(r['subtitles']);
@@ -3408,13 +3503,15 @@ export class MoviePilotRepository {
 
     return {
       itemId: strVal(r, 'item_id', fallbackItemId),
-      server: strVal(r, 'server', fallbackServer),
+      server: resolvedServer,
       serverType: rawServerType.length > 0 ? rawServerType : undefined,
       title: strVal(r, 'title'),
       contentUrl: activeUrl,
       strmUrl: strmUrl.length > 0 ? strmUrl : undefined,
-      proxyFallbackUrl: (useStrmDirect && activeUrl !== fullUrl) ? fullUrl : undefined,
-      proxyFallbackHeaders: (useStrmDirect && activeUrl !== fullUrl) ? sameOriginHeaders : undefined,
+      proxyFallbackUrl: proxyFallbackUrl,
+      proxyFallbackHeaders: proxyFallbackHeaders,
+      activeRouteKind: activeRouteKind,
+      fallbackRoutes: fallbackRoutes,
       headers: activeHeaders,
       mediaType: strVal(r, 'media_type', 'video'),
       artist: strVal(r, 'artist'),
@@ -3448,7 +3545,7 @@ export class MoviePilotRepository {
     HarmonyPlaybackProgressReporter.shared().flushPendingStops(this);
     const r = unwrapObject(parseJsonSafe(resp.body));
     if (!r) { return null; }
-    return this.parseStreamManifestResponse(r, cleanId, server.trim(), mediaSourceId.trim());
+    return await this.parseStreamManifestResponse(r, cleanId, server.trim(), mediaSourceId.trim());
   }
 
   /**
@@ -3493,7 +3590,7 @@ export class MoviePilotRepository {
     HarmonyPlaybackProgressReporter.shared().flushPendingStops(this);
     const r = unwrapObject(parseJsonSafe(resp.body));
     if (!r) { return null; }
-    const parsed = this.parseStreamManifestResponse(r, '', '', '');
+    const parsed = await this.parseStreamManifestResponse(r, '', '', '');
     if (parsed) {
       parsed.mediaType = 'audio';
       if (!parsed.title) { parsed.title = cleanTitle; }

@@ -55,6 +55,7 @@ class MoviePilotRepository(context: Context) {
     val secretStore = NativeSecretStore(appContext)
     val transport = NativeHttpTransport(allowSelfSignedTls = { secretStore.allowSelfSignedTls })
     val playbackProgressReporter = PlaybackProgressReporter(appContext)
+    val playbackRouteResolver = PlaybackRouteResolver(appContext)
     val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
     private val _session = MutableStateFlow<SessionState>(SessionState.Unconnected)
@@ -3237,7 +3238,119 @@ class MoviePilotRepository(context: Context) {
                 .getBoolean("strm_direct_play", true)
         }.getOrDefault(true)
 
-    /** 拉取媒体服务器真实直放流与外挂字幕清单（`GET /api/v1/mediaserver/stream-info`）；当返回安全 `strm_url` 且开启直链播放时优先直连。 */
+    private fun isServerDirectPlayEnabled(): Boolean =
+        runCatching {
+            appContext.getSharedPreferences("mp_playback_prefs_v1", Context.MODE_PRIVATE)
+                .getBoolean("server_direct_play", true)
+        }.getOrDefault(true)
+
+    private data class ResolvedPlaybackRoutes(
+        val activeUrl: String,
+        val activeRouteKind: String,
+        val activeHeaders: Map<String, String>,
+        val streamHeaders: Map<String, String>,
+        val proxyFallbackUrl: String?,
+        val fallbackRoutes: List<PlaybackRouteDto>,
+        val candidates: List<PlaybackRouteDto>,
+    )
+
+    private suspend fun resolveManifestRoutes(
+        obj: JsonObject,
+        auth: SessionState.Authenticated,
+        sameOriginUrl: String,
+        parsedStrmUrl: String?,
+        sameOriginHeaders: Map<String, String>,
+        serverName: String,
+    ): ResolvedPlaybackRoutes {
+        val candidates = mutableListOf<PlaybackRouteDto>()
+        obj["playback_routes"].asArr().orEmpty().forEach { el ->
+            val ro = el.asObj() ?: return@forEach
+            val kind = ro.str("kind")?.trim().orEmpty()
+            val rawRouteUrl = ro.str("url")?.trim().orEmpty()
+            if (kind.isEmpty() || rawRouteUrl.isEmpty()) return@forEach
+            val resolvedUrl = if (kind == "mp_proxy") {
+                resolveSameOriginUrl(auth.serverUrl, rawRouteUrl)
+            } else {
+                rawRouteUrl
+            }
+            if (kind == "mp_proxy" && !RustCoreBridge.containsUrl(auth.serverUrl, resolvedUrl)) return@forEach
+            val hdrs = buildMap<String, String> {
+                ro["headers"].asObj()?.let { ho ->
+                    ho.keys.forEach { hk ->
+                        val s = ho.str(hk)?.trim().orEmpty()
+                        if (hk.isNotBlank() && s.isNotBlank()) put(hk, s)
+                    }
+                }
+            }
+            candidates += PlaybackRouteDto(
+                kind = kind,
+                url = resolvedUrl,
+                probeUrl = ro.str("probe_url")?.takeIf { it.isNotBlank() },
+                headers = hdrs,
+                priority = ro.int("priority") ?: 100,
+                requiresSameOriginAuth = ro.bool("requires_same_origin_auth") ?: (kind == "mp_proxy"),
+            )
+        }
+        if (!parsedStrmUrl.isNullOrBlank() && candidates.none { it.kind == "strm_direct" }) {
+            candidates += PlaybackRouteDto(
+                kind = "strm_direct",
+                url = parsedStrmUrl,
+                priority = 10,
+            )
+        }
+        if (candidates.none { it.kind == "mp_proxy" }) {
+            candidates += PlaybackRouteDto(
+                kind = "mp_proxy",
+                url = sameOriginUrl,
+                priority = 100,
+                requiresSameOriginAuth = true,
+            )
+        }
+
+        val plan = playbackRouteResolver.resolve(
+            server = serverName,
+            routes = candidates,
+            preferStrmDirect = isStrmDirectPlayEnabled(),
+            preferServerDirect = isServerDirectPlayEnabled(),
+            allowSelfSignedTls = secretStore.allowSelfSignedTls,
+        )
+        if (plan != null) {
+            val active = plan.active
+            val isProxy = active.kind == "mp_proxy" || RustCoreBridge.containsUrl(auth.serverUrl, active.url)
+            val activeHeaders = if (isProxy) sameOriginHeaders else active.headers
+            val streamHeaders = if (isProxy) emptyMap() else active.headers
+            val proxyFallback = plan.fallbacks.lastOrNull { it.kind == "mp_proxy" }?.url
+                ?: sameOriginUrl.takeIf { active.url != it }
+            return ResolvedPlaybackRoutes(
+                activeUrl = active.url,
+                activeRouteKind = active.kind,
+                activeHeaders = activeHeaders,
+                streamHeaders = streamHeaders,
+                proxyFallbackUrl = proxyFallback,
+                fallbackRoutes = plan.fallbacks,
+                candidates = candidates,
+            )
+        }
+
+        val useStrmDirect = parsedStrmUrl != null && isStrmDirectPlayEnabled()
+        val activeUrl = if (useStrmDirect) parsedStrmUrl!! else sameOriginUrl
+        val isSame = RustCoreBridge.containsUrl(auth.serverUrl, activeUrl)
+        return ResolvedPlaybackRoutes(
+            activeUrl = activeUrl,
+            activeRouteKind = if (useStrmDirect) "strm_direct" else "mp_proxy",
+            activeHeaders = if (isSame) sameOriginHeaders else emptyMap(),
+            streamHeaders = emptyMap(),
+            proxyFallbackUrl = if (useStrmDirect && activeUrl != sameOriginUrl) sameOriginUrl else null,
+            fallbackRoutes = if (useStrmDirect && activeUrl != sameOriginUrl) {
+                listOf(PlaybackRouteDto(kind = "mp_proxy", url = sameOriginUrl, priority = 100, requiresSameOriginAuth = true))
+            } else {
+                emptyList()
+            },
+            candidates = candidates,
+        )
+    }
+
+    /** 拉取媒体服务器真实直放流与外挂字幕清单（`GET /api/v1/mediaserver/stream-info`）；优先直连可达路由，失败自动回退后台中转。 */
     suspend fun fetchVideoStreamInfo(
         itemId: String,
         server: String? = null,
@@ -3262,14 +3375,16 @@ class MoviePilotRepository(context: Context) {
         val parsedStrmUrl = obj.str("strm_url")
             ?.takeIf { it.isNotBlank() }
             ?.let { RustCoreBridge.parseStrm(it)?.url }
-        val useStrmDirect = parsedStrmUrl != null && isStrmDirectPlayEnabled()
-        val activeUrl = if (useStrmDirect) parsedStrmUrl!! else sameOriginUrl
         val sameOriginHeaders = buildPlaybackHeaders(sameOriginUrl)
-        val activeHeaders = if (useStrmDirect && !RustCoreBridge.containsUrl(auth.serverUrl, activeUrl)) {
-            emptyMap()
-        } else {
-            sameOriginHeaders
-        }
+        val resolvedServer = obj.str("server") ?: server.orEmpty()
+        val resolvedRoutes = resolveManifestRoutes(
+            obj = obj,
+            auth = auth,
+            sameOriginUrl = sameOriginUrl,
+            parsedStrmUrl = parsedStrmUrl,
+            sameOriginHeaders = sameOriginHeaders,
+            serverName = resolvedServer,
+        )
         val subs = obj["subtitles"].asArr().orEmpty().mapNotNull { el ->
             val so = el.asObj() ?: return@mapNotNull null
             val su = so.str("url")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
@@ -3283,23 +3398,27 @@ class MoviePilotRepository(context: Context) {
         val lyricsUrl = obj.str("lyrics_url")?.takeIf { it.isNotBlank() }?.let { resolveSameOriginUrl(auth.serverUrl, it) }
         return MediaPlaybackManifestDto(
             itemId = obj.str("item_id") ?: itemId,
-            server = obj.str("server") ?: server.orEmpty(),
+            server = resolvedServer,
             serverType = obj.str("server_type").orEmpty(),
             mediaSourceId = obj.str("media_source_id") ?: mediaSourceId,
             playSessionId = obj.str("play_session_id")?.takeIf { it.isNotBlank() },
             progressSyncMode = obj.str("progress_sync_mode")?.takeIf { it.isNotBlank() },
             mediaType = obj.str("media_type") ?: "video",
             title = obj.str("title").orEmpty(),
-            contentUrl = activeUrl,
+            contentUrl = resolvedRoutes.activeUrl,
             strmUrl = parsedStrmUrl,
-            proxyFallbackUrl = if (useStrmDirect && activeUrl != sameOriginUrl) sameOriginUrl else null,
+            proxyFallbackUrl = resolvedRoutes.proxyFallbackUrl,
             originUrl = auth.serverUrl,
             subtitles = subs,
             lyricsUrl = lyricsUrl,
             durationMs = obj.lng("duration_ms") ?: ((obj.dbl("duration") ?: 0.0) * 1000.0).toLong(),
             resumePositionMs = obj.lng("position_ms") ?: obj.lng("resume_position_ms") ?: 0L,
-            headers = activeHeaders,
+            headers = resolvedRoutes.activeHeaders,
             sameOriginHeaders = sameOriginHeaders,
+            streamHeaders = resolvedRoutes.streamHeaders,
+            activeRouteKind = resolvedRoutes.activeRouteKind,
+            fallbackRoutes = resolvedRoutes.fallbackRoutes,
+            playbackRoutes = resolvedRoutes.candidates,
         )
     }
 
@@ -3327,32 +3446,38 @@ class MoviePilotRepository(context: Context) {
         val parsedStrmUrl = obj.str("strm_url")
             ?.takeIf { it.isNotBlank() }
             ?.let { RustCoreBridge.parseStrm(it)?.url }
-        val useStrmDirect = parsedStrmUrl != null && isStrmDirectPlayEnabled()
-        val activeUrl = if (useStrmDirect) parsedStrmUrl!! else sameOriginUrl
         val sameOriginHeaders = buildPlaybackHeaders(sameOriginUrl)
-        val activeHeaders = if (useStrmDirect && !RustCoreBridge.containsUrl(auth.serverUrl, activeUrl)) {
-            emptyMap()
-        } else {
-            sameOriginHeaders
-        }
+        val resolvedServer = obj.str("server").orEmpty()
+        val resolvedRoutes = resolveManifestRoutes(
+            obj = obj,
+            auth = auth,
+            sameOriginUrl = sameOriginUrl,
+            parsedStrmUrl = parsedStrmUrl,
+            sameOriginHeaders = sameOriginHeaders,
+            serverName = resolvedServer,
+        )
         val lyricsUrl = obj.str("lyrics_url")?.takeIf { it.isNotBlank() }?.let { resolveSameOriginUrl(auth.serverUrl, it) }
         return MediaPlaybackManifestDto(
             itemId = obj.str("item_id").orEmpty(),
-            server = obj.str("server").orEmpty(),
+            server = resolvedServer,
             serverType = obj.str("server_type").orEmpty(),
             mediaSourceId = obj.str("media_source_id"),
             playSessionId = obj.str("play_session_id")?.takeIf { it.isNotBlank() },
             progressSyncMode = obj.str("progress_sync_mode")?.takeIf { it.isNotBlank() },
             mediaType = "audio",
             title = obj.str("title") ?: title,
-            contentUrl = activeUrl,
+            contentUrl = resolvedRoutes.activeUrl,
             strmUrl = parsedStrmUrl,
-            proxyFallbackUrl = if (useStrmDirect && activeUrl != sameOriginUrl) sameOriginUrl else null,
+            proxyFallbackUrl = resolvedRoutes.proxyFallbackUrl,
             originUrl = auth.serverUrl,
             lyricsUrl = lyricsUrl,
             durationMs = obj.lng("duration_ms") ?: 0L,
-            headers = activeHeaders,
+            headers = resolvedRoutes.activeHeaders,
             sameOriginHeaders = sameOriginHeaders,
+            streamHeaders = resolvedRoutes.streamHeaders,
+            activeRouteKind = resolvedRoutes.activeRouteKind,
+            fallbackRoutes = resolvedRoutes.fallbackRoutes,
+            playbackRoutes = resolvedRoutes.candidates,
         )
     }
 

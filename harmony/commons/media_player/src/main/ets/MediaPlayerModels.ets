@@ -1,5 +1,5 @@
 import { media } from '@kit.MediaKit';
-import { MpExternalSubtitle, MpVideoStreamInfo } from '@moviepilot/core_rust_bridge';
+import { MpExternalSubtitle, MpVideoStreamInfo, PlaybackRouteCandidate } from '@moviepilot/core_rust_bridge';
 
 /** 字幕轨道选项（同时覆盖内封轨道与服务端 `/stream-subtitle` 外挂轨道）。 */
 export interface HarmonySubtitleOption {
@@ -53,6 +53,8 @@ export interface HarmonyPlaybackRequest {
   headers?: Record<string, string>;
   proxyFallbackUrl?: string;
   proxyFallbackHeaders?: Record<string, string>;
+  activeRouteKind?: string;
+  fallbackRoutes?: PlaybackRouteCandidate[];
   title: string;
   subtitle: string;
   artist?: string;
@@ -249,6 +251,8 @@ export function buildPlaybackRequestFromStreamInfo(
     headers: stream.headers,
     proxyFallbackUrl: stream.proxyFallbackUrl,
     proxyFallbackHeaders: stream.proxyFallbackHeaders,
+    activeRouteKind: stream.activeRouteKind,
+    fallbackRoutes: stream.fallbackRoutes,
     title: title,
     subtitle: subtitle,
     artist: artist,

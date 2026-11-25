@@ -28,6 +28,9 @@ struct MediaPlaybackManifest: Decodable, Sendable {
   let progressSyncMode: String?
   let resumePositionMs: Int?
   let durationMs: Int?
+  let playbackRoutes: [PlaybackRouteCandidate]
+  var resolvedTarget: PreparedPlaybackTarget?
+  var fallbackRoutes: [PlaybackRouteCandidate]
 
   private enum CodingKeys: String, CodingKey {
     case itemId
@@ -46,6 +49,7 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     case progressSyncMode
     case resumePositionMs
     case durationMs
+    case playbackRoutes
   }
 
   init(
@@ -65,7 +69,10 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     playSessionId: String? = nil,
     progressSyncMode: String? = nil,
     resumePositionMs: Int? = nil,
-    durationMs: Int? = nil
+    durationMs: Int? = nil,
+    playbackRoutes: [PlaybackRouteCandidate] = [],
+    resolvedTarget: PreparedPlaybackTarget? = nil,
+    fallbackRoutes: [PlaybackRouteCandidate] = []
   ) {
     self.itemId = itemId
     self.server = server
@@ -84,6 +91,9 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     self.progressSyncMode = progressSyncMode
     self.resumePositionMs = resumePositionMs
     self.durationMs = durationMs
+    self.playbackRoutes = playbackRoutes
+    self.resolvedTarget = resolvedTarget
+    self.fallbackRoutes = fallbackRoutes
   }
 
   init(from decoder: Decoder) throws {
@@ -107,6 +117,10 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     progressSyncMode = try container.decodeIfPresent(String.self, forKey: .progressSyncMode)
     resumePositionMs = try container.decodeIfPresent(Int.self, forKey: .resumePositionMs)
     durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+    playbackRoutes =
+      try container.decodeIfPresent([PlaybackRouteCandidate].self, forKey: .playbackRoutes) ?? []
+    resolvedTarget = nil
+    fallbackRoutes = []
   }
 
   /// 按用户「STRM 直链播放」开关返回优先起播地址。
@@ -252,7 +266,7 @@ final class MediaPlaybackClient {
     {
       throw MediaPlaybackError.unavailable
     }
-    return manifest
+    return await resolvePlaybackRoutes(for: manifest)
   }
 
   /// 将当前播放位置、会话生命周期及轨道上下文异步回传给媒体服务器，返回 HTTP 2xx 是否成功。
@@ -433,7 +447,82 @@ final class MediaPlaybackClient {
     else { throw MediaPlaybackError.unavailable }
     selectedServer = manifest.server
     resourceCookie = cookie
-    return manifest
+    return await resolvePlaybackRoutes(for: manifest)
+  }
+
+  /// 对后端下发的 `playback_routes` 做安全白名单过滤、并发探测与首跳预检，产出主路由和有序回退队列。
+  private func resolvePlaybackRoutes(for manifest: MediaPlaybackManifest) async
+    -> MediaPlaybackManifest
+  {
+    var candidates: [PlaybackRouteCandidate] = []
+    for route in manifest.playbackRoutes {
+      guard PlaybackRoutePlanner.isSafeHttpURL(route.url) else { continue }
+      if route.kind == .mpProxy {
+        if route.url == manifest.contentUrl.absoluteString {
+          candidates.append(route)
+        }
+        continue
+      }
+      candidates.append(route)
+    }
+    if let strmUrl = manifest.strmUrl,
+      !candidates.contains(where: { $0.kind == .strmDirect })
+    {
+      candidates.append(
+        PlaybackRouteCandidate(
+          kind: .strmDirect,
+          url: strmUrl.absoluteString,
+          headers: manifest.customHeaders,
+          priority: 10
+        ))
+    }
+    if !candidates.contains(where: { $0.kind == .mpProxy }) {
+      candidates.append(
+        PlaybackRouteCandidate(
+          kind: .mpProxy,
+          url: manifest.contentUrl.absoluteString,
+          priority: 100,
+          requiresSameOriginAuth: true
+        ))
+    }
+
+    let preferStrm =
+      (UserDefaults.standard.object(forKey: "nativeV2.playback.strmDirectPlay") as? Bool) ?? true
+    let preferDirect =
+      (UserDefaults.standard.object(forKey: "nativeV2.playback.directPlay") as? Bool) ?? true
+
+    guard
+      let plan = await PlaybackRouteResolver.shared.resolve(
+        server: manifest.server,
+        routes: candidates,
+        preferStrmDirect: preferStrm,
+        preferServerDirect: preferDirect
+      )
+    else {
+      return manifest
+    }
+
+    let ordered = [plan.active] + plan.fallbacks
+    var resolved = manifest
+    for (idx, candidate) in ordered.enumerated() {
+      if let prepared = await PlaybackRouteResolver.shared.preparePlayableTarget(
+        for: candidate, server: manifest.server)
+      {
+        resolved.resolvedTarget = prepared
+        resolved.fallbackRoutes = Array(ordered.dropFirst(idx + 1))
+        return resolved
+      }
+    }
+    let proxyCandidate = PlaybackRouteCandidate(
+      kind: .mpProxy,
+      url: manifest.contentUrl.absoluteString,
+      priority: 100,
+      requiresSameOriginAuth: true
+    )
+    resolved.resolvedTarget = PreparedPlaybackTarget(
+      route: proxyCandidate, url: manifest.contentUrl, headers: [:])
+    resolved.fallbackRoutes = []
+    return resolved
   }
 
   /// 通过当前实例已鉴权的存储下载接口拉取本地或云盘音视频文件至受管临时缓存并构造本地播放清单。
@@ -749,6 +838,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private let durationLabel = UILabel()
   private let loading = UIActivityIndicatorView(style: .large)
   private let titleLabel = UILabel()
+  private let routeBadgeLabel = UILabel()
   private let playButton = UIButton(type: .system)
   private let skipBackButton = UIButton(type: .system)
   private let skipForwardButton = UIButton(type: .system)
@@ -783,6 +873,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private var lastObservedDurationMs = 0
   private var hasPlayedCurrentItem = false
   private var didFallbackFromStrmDirect = false
+  private var activeRoute: PlaybackRouteCandidate?
+  private var remainingFallbackRoutes: [PlaybackRouteCandidate] = []
+  private var routeFallbackTask: Task<Void, Never>?
   private var syncState = PlaybackSyncState()
 
   // Music utility bar buttons
@@ -1185,6 +1278,22 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
     topBar.addArrangedSubview(titleLabel)
+
+    routeBadgeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+    routeBadgeLabel.textColor = .white
+    routeBadgeLabel.textAlignment = .center
+    routeBadgeLabel.layer.cornerRadius = 11
+    routeBadgeLabel.layer.cornerCurve = .continuous
+    routeBadgeLabel.layer.borderWidth = 0.7
+    routeBadgeLabel.clipsToBounds = true
+    routeBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
+    routeBadgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+    routeBadgeLabel.accessibilityIdentifier = "playback-route-badge"
+    routeBadgeLabel.isHidden = true
+    topBar.addArrangedSubview(routeBadgeLabel)
+    NSLayoutConstraint.activate([
+      routeBadgeLabel.heightAnchor.constraint(equalToConstant: 22),
+    ])
 
     if isAudioPlayback {
       let moreButton = UIButton(type: .system)
@@ -2365,9 +2474,20 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     player.delegate = self
     player.drawable = isAudioPlayback ? nil : videoView
     didFallbackFromStrmDirect = false
+    routeFallbackTask?.cancel()
+    routeFallbackTask = nil
     do {
-      let targetURL = manifest.preferredPlaybackURL(strmDirectEnabled: isStrmDirectEnabled)
-      player.media = try makePlaybackMedia(url: targetURL, customHeaders: manifest.customHeaders)
+      if let target = manifest.resolvedTarget {
+        activeRoute = target.route
+        remainingFallbackRoutes = manifest.fallbackRoutes
+        player.media = try makePlaybackMedia(url: target.url, customHeaders: target.headers)
+      } else {
+        let targetURL = manifest.preferredPlaybackURL(strmDirectEnabled: isStrmDirectEnabled)
+        activeRoute = nil
+        remainingFallbackRoutes = []
+        player.media = try makePlaybackMedia(url: targetURL, customHeaders: manifest.customHeaders)
+      }
+      updateRouteBadge()
     } catch {
       showError(error.localizedDescription)
       return false
@@ -2377,6 +2497,27 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     let bestSaved = max(localSaved, serverSaved)
     savedProgress = bestSaved > 30_000 ? bestSaved : nil
     return true
+  }
+
+  /// 刷新顶部控制栏中的轻量路由角标（`局域网直连` / `外网直连` / `STRM 直链` / `后台中转`）。
+  private func updateRouteBadge() {
+    guard manifest.server != nil, let kind = activeRoute?.kind else {
+      routeBadgeLabel.isHidden = true
+      return
+    }
+    routeBadgeLabel.text = "  \(L10n.text(kind.labelKey))  "
+    switch kind {
+    case .serverLan:
+      routeBadgeLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.28)
+      routeBadgeLabel.layer.borderColor = UIColor.systemGreen.withAlphaComponent(0.55).cgColor
+    case .serverWan, .strmDirect:
+      routeBadgeLabel.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.28)
+      routeBadgeLabel.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.55).cgColor
+    case .mpProxy:
+      routeBadgeLabel.backgroundColor = UIColor.white.withAlphaComponent(0.16)
+      routeBadgeLabel.layer.borderColor = UIColor.white.withAlphaComponent(0.28).cgColor
+    }
+    routeBadgeLabel.isHidden = false
   }
 
   /// 创建片尾自动播放下一集悬浮玻璃倒计时浮层（仅视频剧集队列使用）。
@@ -2745,14 +2886,52 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     )
   }
 
-  /// 当客户端直连容器内网 STRM 地址不可达时，自动回退一次服务端受控代理流重试。
+  /// 当客户端直连（STRM / 局域网直连 / 外网直连）起播失败时，沿有序降级队列逐跳回退直至 `mp_proxy`。
   private func tryFallbackFromStrmDirectToProxyIfNeeded() {
-    guard !hasPlayedCurrentItem,
-      !didFallbackFromStrmDirect,
+    guard !hasPlayedCurrentItem else { return }
+    if !remainingFallbackRoutes.isEmpty {
+      guard routeFallbackTask == nil else { return }
+      let failedRoute = activeRoute
+      let serverName = manifest.server
+      routeFallbackTask = Task { [weak self] in
+        guard let self else { return }
+        defer { self.routeFallbackTask = nil }
+        if let failedRoute, failedRoute.kind == .serverLan || failedRoute.kind == .serverWan {
+          await PlaybackRouteResolver.shared.markRouteFailed(
+            server: serverName, url: failedRoute.url)
+        }
+        while !self.remainingFallbackRoutes.isEmpty {
+          guard !Task.isCancelled, !self.closed, !self.hasPlayedCurrentItem else { return }
+          let nextCandidate = self.remainingFallbackRoutes.removeFirst()
+          guard
+            let prepared = await PlaybackRouteResolver.shared.preparePlayableTarget(
+              for: nextCandidate, server: serverName),
+            let fallbackMedia = try? self.makePlaybackMedia(
+              url: prepared.url, customHeaders: prepared.headers)
+          else {
+            continue
+          }
+          self.activeRoute = prepared.route
+          self.updateRouteBadge()
+          self.player.media = fallbackMedia
+          self.player.play()
+          return
+        }
+      }
+      return
+    }
+    guard !didFallbackFromStrmDirect,
       manifest.canFallbackToProxy(strmDirectEnabled: isStrmDirectEnabled),
       let fallbackMedia = try? makePlaybackMedia(url: manifest.contentUrl, customHeaders: [:])
     else { return }
     didFallbackFromStrmDirect = true
+    activeRoute = PlaybackRouteCandidate(
+      kind: .mpProxy,
+      url: manifest.contentUrl.absoluteString,
+      priority: 100,
+      requiresSameOriginAuth: true
+    )
+    updateRouteBadge()
     player.media = fallbackMedia
     player.play()
   }
@@ -3470,13 +3649,25 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
             title: item.title, artist: item.artist, album: item.album)
         }
         guard !Task.isCancelled, !self.closed else { return }
-        let nextURL = nextManifest.preferredPlaybackURL(strmDirectEnabled: self.isStrmDirectEnabled)
-        let media = try client.makeMedia(url: nextURL, customHeaders: nextManifest.customHeaders)
+        let media: VLCMedia
+        if let target = nextManifest.resolvedTarget {
+          media = try client.makeMedia(url: target.url, customHeaders: target.headers)
+          self.activeRoute = target.route
+          self.remainingFallbackRoutes = nextManifest.fallbackRoutes
+        } else {
+          let nextURL = nextManifest.preferredPlaybackURL(strmDirectEnabled: self.isStrmDirectEnabled)
+          media = try client.makeMedia(url: nextURL, customHeaders: nextManifest.customHeaders)
+          self.activeRoute = nil
+          self.remainingFallbackRoutes = []
+        }
+        self.routeFallbackTask?.cancel()
+        self.routeFallbackTask = nil
         self.didFallbackFromStrmDirect = false
         self.player.pause()
         self.cleanupTemporarySubtitles()
         self.player.media = media
         self.manifest = nextManifest
+        self.updateRouteBadge()
         self.itemId = nextManifest.itemId
         self.displayTitle =
           (!wasAudio && item.subtitle != nil)

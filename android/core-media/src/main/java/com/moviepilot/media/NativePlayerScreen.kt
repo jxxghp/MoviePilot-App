@@ -160,10 +160,12 @@ import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.PlaybackPreferencesStore
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.NativeSecretStore
+import com.moviepilot.rustbridge.PlaybackRouteDto
 import com.moviepilot.rustbridge.PlaybackSyncSessionTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 
 /** 播放器外挂字幕描述项。 */
@@ -208,6 +210,8 @@ data class MediaPlaybackRequest(
     val sameOriginHeaders: Map<String, String> = emptyMap(),
     val streamHeaders: Map<String, String> = emptyMap(),
     val proxyFallbackUrl: String? = null,
+    val activeRouteKind: String = "",
+    val fallbackRoutes: List<PlaybackRouteDto> = emptyList(),
     val originUrl: String = "",
     val allowSelfSignedTls: Boolean = false,
     val itemId: String = "",
@@ -294,6 +298,32 @@ fun formatDurationMs(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
 }
 
+/** 播放控制栏轻量路由角标胶囊（区分局域网直连、外网直连、STRM 直链与后台中转）。 */
+@Composable
+private fun PlaybackRouteBadgePill(routeKind: String) {
+    val (label, bgColor, borderColor) = when (routeKind) {
+        "server_lan" -> Triple("局域网直连", Color(0xFF16A34A).copy(alpha = 0.28f), Color(0xFF4ADE80).copy(alpha = 0.52f))
+        "server_wan" -> Triple("外网直连", Color(0xFF0284C7).copy(alpha = 0.28f), Color(0xFF38BDF8).copy(alpha = 0.52f))
+        "strm_direct" -> Triple("STRM 直链", Color(0xFF0284C7).copy(alpha = 0.28f), Color(0xFF38BDF8).copy(alpha = 0.52f))
+        "mp_proxy" -> Triple("后台中转", Color.White.copy(alpha = 0.16f), Color.White.copy(alpha = 0.28f))
+        else -> return
+    }
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = bgColor,
+        modifier = Modifier.border(0.75.dp, borderColor, RoundedCornerShape(999.dp)),
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+        )
+    }
+}
+
 private fun subtitleMimeTypeForUrl(url: String): String {
     val lower = url.substringBefore('?').lowercase()
     return when {
@@ -315,6 +345,7 @@ fun buildConfiguredExoPlayer(
     context: Context,
     request: MediaPlaybackRequest,
     resumePositionOverrideMs: Long? = null,
+    activeStreamProvider: (() -> Pair<String, Map<String, String>>)? = null,
 ): ExoPlayer {
     val prefs = PlaybackPreferencesStore(context)
     val allowInsecureTls = request.allowSelfSignedTls ||
@@ -327,6 +358,7 @@ fun buildConfiguredExoPlayer(
         allowSelfSignedTls = allowInsecureTls,
         streamUrl = request.url,
         streamHeaders = request.streamHeaders,
+        activeStreamProvider = activeStreamProvider,
     )
     val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
     val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
@@ -567,11 +599,16 @@ fun NativeMediaPlayerOverlay(
     }
 
     val ownsPlayer = sharedPlayer == null
+    val activeStreamRouteRef = remember(request.url) {
+        AtomicReference(request.url to request.streamHeaders)
+    }
+    var currentRouteKind by remember(request.url) { mutableStateOf(request.activeRouteKind) }
     val exoPlayer = remember(request.url, sharedPlayer) {
         sharedPlayer ?: buildConfiguredExoPlayer(
             context = context,
             request = request,
             resumePositionOverrideMs = bestInitialResumeMs,
+            activeStreamProvider = { activeStreamRouteRef.get() },
         )
     }
 
@@ -1017,28 +1054,44 @@ fun NativeMediaPlayerOverlay(
     }
 
     DisposableEffect(exoPlayer, ownsPlayer, request.url) {
-        var didFallbackToProxy = false
+        val fallbackQueue = ArrayDeque<PlaybackRouteDto>().apply {
+            request.fallbackRoutes.forEach { addLast(it) }
+            val legacyFallback = request.proxyFallbackUrl
+            if (!legacyFallback.isNullOrBlank() && legacyFallback != request.url && none { it.url == legacyFallback }) {
+                addLast(
+                    PlaybackRouteDto(
+                        kind = "mp_proxy",
+                        url = legacyFallback,
+                        priority = 100,
+                        requiresSameOriginAuth = true,
+                    ),
+                )
+            }
+        }
         val listener = object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                val fallbackUrl = request.proxyFallbackUrl
-                if (
-                    ownsPlayer &&
-                    !didFallbackToProxy &&
-                    !fallbackUrl.isNullOrBlank() &&
-                    fallbackUrl != request.url &&
-                    exoPlayer.currentPosition <= 1_000L
-                ) {
-                    didFallbackToProxy = true
+                if (!ownsPlayer || exoPlayer.currentPosition > 1_000L) return
+                val failedKind = currentRouteKind
+                val failedUrl = activeStreamRouteRef.get().first
+                if (failedKind == "server_lan" || failedKind == "server_wan") {
+                    repository?.playbackRouteResolver?.markRouteFailed(request.server, failedUrl)
+                }
+                while (fallbackQueue.isNotEmpty()) {
+                    val nextRoute = fallbackQueue.removeFirst()
+                    if (nextRoute.url.isBlank() || nextRoute.url == failedUrl) continue
+                    activeStreamRouteRef.set(nextRoute.url to nextRoute.headers)
+                    currentRouteKind = nextRoute.kind
                     val curMeta = exoPlayer.currentMediaItem?.mediaMetadata ?: MediaMetadata.EMPTY
                     val curSubs = exoPlayer.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
                     val fallbackItem = MediaItem.Builder()
-                        .setUri(Uri.parse(fallbackUrl))
+                        .setUri(Uri.parse(nextRoute.url))
                         .setMediaMetadata(curMeta)
                         .setSubtitleConfigurations(curSubs)
                         .build()
                     exoPlayer.setMediaItem(fallbackItem)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
+                    return
                 }
             }
 
@@ -1759,6 +1812,10 @@ fun NativeMediaPlayerOverlay(
                                         textAlign = TextAlign.Center,
                                     )
                                 }
+                                if (request.server.isNotBlank() && currentRouteKind.isNotBlank()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    PlaybackRouteBadgePill(routeKind = currentRouteKind)
+                                }
                             }
                         } else {
                             Column(
@@ -2232,6 +2289,9 @@ fun NativeMediaPlayerOverlay(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+                if (request.server.isNotBlank() && currentRouteKind.isNotBlank()) {
+                    PlaybackRouteBadgePill(routeKind = currentRouteKind)
                 }
                 Surface(
                     onClick = {

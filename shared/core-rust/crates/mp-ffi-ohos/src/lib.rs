@@ -4,7 +4,8 @@
 use mp_core_api::{ApiEndpoint, ResourceFilterCriteria, ResourceFilterEngine, ResourceItem};
 use mp_core_model::{
     AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, PendingPlaybackStop,
-    PlayableMediaFormat, PlaybackProgressPlanner, PlaybackSyncInput, PlaybackSyncState,
+    PlayableMediaFormat, PlaybackProgressPlanner, PlaybackRouteCandidate, PlaybackRoutePlanner,
+    PlaybackRoutePreference, PlaybackSyncInput, PlaybackSyncState, RouteProbeOutcome,
     ServerAddress, SubscribeProgressModel,
 };
 use mp_core_plugin::{NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder};
@@ -175,6 +176,36 @@ pub mod bridge {
         let normalized = PlaybackProgressPlanner::normalize_pending_stops(entries, now_epoch_ms);
         serde_json::to_string(&normalized).map_err(|e| e.to_string())
     }
+
+    pub fn plan_playback_routes_json(
+        routes_json: &str,
+        prefs_json: &str,
+        probes_json: &str,
+    ) -> Result<String, String> {
+        let routes: Vec<PlaybackRouteCandidate> = if routes_json.trim().is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(routes_json).map_err(|e| e.to_string())?
+        };
+        let prefs: PlaybackRoutePreference = if prefs_json.trim().is_empty() {
+            PlaybackRoutePreference::default()
+        } else {
+            serde_json::from_str(prefs_json).map_err(|e| e.to_string())?
+        };
+        let probes: Vec<RouteProbeOutcome> = if probes_json.trim().is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(probes_json).map_err(|e| e.to_string())?
+        };
+        match PlaybackRoutePlanner::plan(&routes, &prefs, &probes) {
+            Some(plan) => serde_json::to_string(&plan).map_err(|e| e.to_string()),
+            None => Ok(String::new()),
+        }
+    }
+
+    pub fn is_same_http_origin(url_a: &str, url_b: &str) -> bool {
+        PlaybackRoutePlanner::is_same_http_origin(url_a, url_b)
+    }
 }
 
 #[cfg(target_env = "ohos")]
@@ -301,6 +332,21 @@ mod napi_exports {
     ) -> Result<String> {
         bridge::normalize_pending_playback_stops_json(&entries_json, now_epoch_ms)
             .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn plan_playback_routes_json(
+        routes_json: String,
+        prefs_json: String,
+        probes_json: String,
+    ) -> Result<String> {
+        bridge::plan_playback_routes_json(&routes_json, &prefs_json, &probes_json)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn is_same_http_origin(url_a: String, url_b: String) -> bool {
+        bridge::is_same_http_origin(&url_a, &url_b)
     }
 }
 

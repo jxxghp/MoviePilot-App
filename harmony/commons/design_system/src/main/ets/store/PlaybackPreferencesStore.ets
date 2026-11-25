@@ -36,6 +36,7 @@ export class PlaybackPreferencesStore {
   static readonly KEY_CELLULAR_WARN: string = 'mp_playback_cellular_warn';
   static readonly KEY_KEEP_MINI_BAR: string = 'mp_playback_keep_mini_bar';
   static readonly KEY_STRM_DIRECT: string = 'mp_playback_strm_direct';
+  static readonly KEY_DIRECT_PLAY: string = 'mp_playback_direct_play';
 
   private static readonly PREF_FILE_NAME: string = 'mp_harmony_playback_prefs_v1';
   private static readonly KEY_RESUME_RECORDS: string = 'mp_playback_resume_records_v1';
@@ -58,6 +59,7 @@ export class PlaybackPreferencesStore {
     ensure<boolean>(PlaybackPreferencesStore.KEY_CELLULAR_WARN, false);
     ensure<boolean>(PlaybackPreferencesStore.KEY_KEEP_MINI_BAR, true);
     ensure<boolean>(PlaybackPreferencesStore.KEY_STRM_DIRECT, true);
+    ensure<boolean>(PlaybackPreferencesStore.KEY_DIRECT_PLAY, true);
   }
 
   /** 初始化沙盒 `Preferences` 句柄并将已保存的播放偏好与本地续播记录同步至内存与 `AppStorage`。 */
@@ -98,6 +100,9 @@ export class PlaybackPreferencesStore {
 
       const rawStrm = await p.get(PlaybackPreferencesStore.KEY_STRM_DIRECT, true);
       AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_STRM_DIRECT, Boolean(rawStrm));
+
+      const rawDirect = await p.get(PlaybackPreferencesStore.KEY_DIRECT_PLAY, true);
+      AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_DIRECT_PLAY, Boolean(rawDirect));
 
       const rawResume = await p.get(PlaybackPreferencesStore.KEY_RESUME_RECORDS, '');
       if (typeof rawResume === 'string' && rawResume.length > 2) {
@@ -209,6 +214,11 @@ export class PlaybackPreferencesStore {
     PlaybackPreferencesStore.putPrefBool(PlaybackPreferencesStore.KEY_STRM_DIRECT, enabled);
   }
 
+  static setDirectPlay(enabled: boolean): void {
+    AppStorage.setOrCreate(PlaybackPreferencesStore.KEY_DIRECT_PLAY, enabled);
+    PlaybackPreferencesStore.putPrefBool(PlaybackPreferencesStore.KEY_DIRECT_PLAY, enabled);
+  }
+
   static getScaleMode(): PlaybackScaleMode {
     const raw = AppStorage.get<string>(PlaybackPreferencesStore.KEY_SCALE_MODE) ?? 'fit';
     return PlaybackPreferencesStore.normalizeScaleMode(raw);
@@ -237,6 +247,10 @@ export class PlaybackPreferencesStore {
 
   static getStrmDirect(): boolean {
     return AppStorage.get<boolean>(PlaybackPreferencesStore.KEY_STRM_DIRECT) ?? true;
+  }
+
+  static getDirectPlay(): boolean {
+    return AppStorage.get<boolean>(PlaybackPreferencesStore.KEY_DIRECT_PLAY) ?? true;
   }
 
   /**

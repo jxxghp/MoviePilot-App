@@ -5,7 +5,8 @@ use mp_core_api::{
 };
 use mp_core_model::{
     AgentMarkdownParser, AppDeepLink, CommunityMedalsModel, PendingPlaybackStop,
-    PlayableMediaFormat, PlaybackProgressPlanner, PlaybackSyncInput, PlaybackSyncState,
+    PlayableMediaFormat, PlaybackProgressPlanner, PlaybackRouteCandidate, PlaybackRoutePlanner,
+    PlaybackRoutePreference, PlaybackSyncInput, PlaybackSyncState, RouteProbeOutcome,
     ServerAddress, SubscribeProgressModel,
 };
 use mp_core_plugin::{NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder};
@@ -429,6 +430,45 @@ pub fn normalize_pending_playback_stops_json(
     };
     let normalized = PlaybackProgressPlanner::normalize_pending_stops(entries, now_epoch_ms);
     serde_json::to_string(&normalized).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 根据用户直连偏好与轻量探测结果，规划主播放路由与降级队列，返回 `PlaybackRoutePlan` JSON（无可用路由返回 `None`）。
+#[uniffi::export]
+pub fn plan_playback_routes_json(
+    routes_json: String,
+    prefs_json: String,
+    probes_json: String,
+) -> Result<Option<String>, CoreFfiError> {
+    let routes: Vec<PlaybackRouteCandidate> = if routes_json.trim().is_empty() {
+        Vec::new()
+    } else {
+        serde_json::from_str(&routes_json)
+            .map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })?
+    };
+    let prefs: PlaybackRoutePreference = if prefs_json.trim().is_empty() {
+        PlaybackRoutePreference::default()
+    } else {
+        serde_json::from_str(&prefs_json)
+            .map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })?
+    };
+    let probes: Vec<RouteProbeOutcome> = if probes_json.trim().is_empty() {
+        Vec::new()
+    } else {
+        serde_json::from_str(&probes_json)
+            .map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })?
+    };
+    match PlaybackRoutePlanner::plan(&routes, &prefs, &probes) {
+        Some(plan) => serde_json::to_string(&plan)
+            .map(Some)
+            .map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() }),
+        None => Ok(None),
+    }
+}
+
+/// 校验两条 HTTP(S) URL 是否严格同源（用于跨源 302 重定向时剥离直连令牌头）。
+#[uniffi::export]
+pub fn is_same_http_origin(url_a: String, url_b: String) -> bool {
+    PlaybackRoutePlanner::is_same_http_origin(&url_a, &url_b)
 }
 
 /// 返回 Rust 共享内核版本号，用于三端 FFI 冒烟健康检查。

@@ -726,6 +726,41 @@ data class MediaStreamSubtitleDto(
     val url: String = "",
 )
 
+/** 后端协商下发的单条候选播放路由（与 Rust `PlaybackRouteCandidate` 1:1 对齐）。 */
+@Serializable
+data class PlaybackRouteDto(
+    val kind: String = "mp_proxy",
+    val url: String = "",
+    @SerialName("probe_url") val probeUrl: String? = null,
+    val headers: Map<String, String> = emptyMap(),
+    val priority: Int = 100,
+    @SerialName("requires_same_origin_auth") val requiresSameOriginAuth: Boolean = false,
+)
+
+/** 客户端播放路由偏好设置（与 Rust `PlaybackRoutePreference` 1:1 对齐）。 */
+@Serializable
+data class PlaybackRoutePreferenceDto(
+    @SerialName("prefer_strm_direct") val preferStrmDirect: Boolean = true,
+    @SerialName("prefer_server_direct") val preferServerDirect: Boolean = true,
+    @SerialName("lan_preferred_max_latency_ms") val lanPreferredMaxLatencyMs: Int = 350,
+)
+
+/** 单条直连候选的轻量探测结果（与 Rust `RouteProbeOutcome` 1:1 对齐）。 */
+@Serializable
+data class RouteProbeOutcomeDto(
+    val url: String = "",
+    val reachable: Boolean = false,
+    @SerialName("latency_ms") val latencyMs: Int? = null,
+)
+
+/** 路由规划输出：主播放路由与有序降级队列（与 Rust `PlaybackRoutePlan` 1:1 对齐）。 */
+@Serializable
+data class PlaybackRoutePlanDto(
+    val active: PlaybackRouteDto,
+    val fallbacks: List<PlaybackRouteDto> = emptyList(),
+    @SerialName("route_label_zh") val routeLabelZh: String = "",
+)
+
 /** 媒体服务器/音乐播放流清单（对应 `GET /api/v1/mediaserver/stream-info` 与 `/stream-info/music`）。 */
 @Serializable
 data class MediaPlaybackManifestDto(
@@ -747,6 +782,10 @@ data class MediaPlaybackManifestDto(
     val resumePositionMs: Long = 0L,
     val headers: Map<String, String> = emptyMap(),
     val sameOriginHeaders: Map<String, String> = emptyMap(),
+    val streamHeaders: Map<String, String> = emptyMap(),
+    val activeRouteKind: String = "",
+    val fallbackRoutes: List<PlaybackRouteDto> = emptyList(),
+    @SerialName("playback_routes") val playbackRoutes: List<PlaybackRouteDto> = emptyList(),
 )
 
 /** 当前用户在单个媒体服务器上的脱敏账号绑定与同步模式状态。 */

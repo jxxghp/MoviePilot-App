@@ -20,16 +20,25 @@ import javax.net.ssl.X509TrustManager
  *    仅在同源请求上注入 `Authorization` / `Cookie` 等鉴权头，跨源 302 重定向至外部 CDN 时自动剥离敏感凭据。
  */
 object PlaybackHttpDataSource {
-    private val SENSITIVE_HEADER_NAMES = setOf("authorization", "cookie")
+    private val SENSITIVE_HEADER_NAMES = setOf(
+        "authorization",
+        "cookie",
+        "x-emby-token",
+        "x-emby-authorization",
+        "x-mediabrowser-token",
+        "x-plex-token",
+    )
 
-    /** 判断候选请求地址是否与初始流源地址保持相同的 `host` 与有效端口。 */
+    /** 判断候选请求地址是否与初始流源地址保持相同的 `scheme`、`host` 与有效端口。 */
     fun isSameOriginHostPort(originUrl: String, candidateUrl: String): Boolean {
         val origin = originUrl.toHttpUrlOrNull() ?: return false
         val candidate = candidateUrl.toHttpUrlOrNull() ?: return false
-        return origin.host.equals(candidate.host, ignoreCase = true) && origin.port == candidate.port
+        return origin.scheme.equals(candidate.scheme, ignoreCase = true) &&
+            origin.host.equals(candidate.host, ignoreCase = true) &&
+            origin.port == candidate.port
     }
 
-    /** 根据目标跳地址过滤请求头：跨源时彻底移除 `Authorization` 与 `Cookie`。 */
+    /** 根据目标跳地址过滤请求头：跨源时彻底移除实例凭据及媒体服务器直连令牌头。 */
     fun filterHeadersForTarget(
         originUrl: String,
         targetUrl: String,
@@ -43,7 +52,7 @@ object PlaybackHttpDataSource {
         }
     }
 
-    /** 构建用于 Media3 播放器的 TLS 感知、同源凭据隔离与外部 STRM 自定义请求头支持 `OkHttpDataSource.Factory`。 */
+    /** 构建用于 Media3 播放器的 TLS 感知、同源凭据隔离与多级直连/降级请求头支持 `OkHttpDataSource.Factory`。 */
     @OptIn(UnstableApi::class)
     fun createFactory(
         originUrl: String,
@@ -51,9 +60,9 @@ object PlaybackHttpDataSource {
         allowSelfSignedTls: Boolean,
         streamUrl: String = "",
         streamHeaders: Map<String, String> = emptyMap(),
+        activeStreamProvider: (() -> Pair<String, Map<String, String>>)? = null,
     ): OkHttpDataSource.Factory {
         val originHttpUrl = originUrl.toHttpUrlOrNull()
-        val streamHttpUrl = streamUrl.toHttpUrlOrNull()
         val clientBuilder = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -62,30 +71,40 @@ object PlaybackHttpDataSource {
             .addNetworkInterceptor { chain ->
                 val hopRequest = chain.request()
                 val hopUrl = hopRequest.url
-                val sameHostPort = originHttpUrl != null &&
+                val (currentStreamUrl, currentStreamHeaders) =
+                    activeStreamProvider?.invoke() ?: (streamUrl to streamHeaders)
+                val streamHttpUrl = currentStreamUrl.toHttpUrlOrNull()
+                val sameOrigin = originHttpUrl != null &&
+                    hopUrl.scheme.equals(originHttpUrl.scheme, ignoreCase = true) &&
                     hopUrl.host.equals(originHttpUrl.host, ignoreCase = true) &&
                     hopUrl.port == originHttpUrl.port
-                val sameStreamHostPort = streamHttpUrl != null &&
+                val sameStreamOrigin = streamHttpUrl != null &&
+                    hopUrl.scheme.equals(streamHttpUrl.scheme, ignoreCase = true) &&
                     hopUrl.host.equals(streamHttpUrl.host, ignoreCase = true) &&
                     hopUrl.port == streamHttpUrl.port
                 val reqBuilder = hopRequest.newBuilder()
-                if (sameHostPort) {
+                // 先清理所有敏感凭据头，再按当前跳的严格同源关系重新注入，杜绝跨源 302 泄露直连令牌
+                reqBuilder.removeHeader("Authorization")
+                reqBuilder.removeHeader("Cookie")
+                reqBuilder.removeHeader("X-Emby-Token")
+                reqBuilder.removeHeader("X-Emby-Authorization")
+                reqBuilder.removeHeader("X-MediaBrowser-Token")
+                reqBuilder.removeHeader("X-Plex-Token")
+                if (sameOrigin) {
                     headers.forEach { (k, v) ->
                         if (k.isNotBlank() && v.isNotBlank()) {
                             reqBuilder.header(k, v)
                         }
                     }
                 } else {
-                    reqBuilder.removeHeader("Authorization")
-                    reqBuilder.removeHeader("Cookie")
                     headers.forEach { (k, v) ->
                         if (k.lowercase() !in SENSITIVE_HEADER_NAMES && k.isNotBlank() && v.isNotBlank()) {
                             reqBuilder.header(k, v)
                         }
                     }
-                    streamHeaders.forEach { (k, v) ->
+                    currentStreamHeaders.forEach { (k, v) ->
                         val isSensitive = k.lowercase() in SENSITIVE_HEADER_NAMES
-                        if (k.isNotBlank() && v.isNotBlank() && (!isSensitive || sameStreamHostPort)) {
+                        if (k.isNotBlank() && v.isNotBlank() && (!isSensitive || sameStreamOrigin)) {
                             reqBuilder.header(k, v)
                         }
                     }

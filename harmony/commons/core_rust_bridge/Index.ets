@@ -8,8 +8,16 @@ export {
   PlaybackSyncState,
   PlaybackSyncInput,
   PlaybackSyncDecision,
-  PendingPlaybackStop
+  PendingPlaybackStop,
+  PlaybackRouteCandidate,
+  PlaybackRoutePreference,
+  RouteProbeOutcome,
+  PlaybackRoutePlan
 } from './src/main/ets/bridge/RustCoreBridge';
+
+export {
+  HarmonyPlaybackRouteResolver
+} from './src/main/ets/api/HarmonyPlaybackRouteResolver';
 
 export {
   NativeRcpTransport,

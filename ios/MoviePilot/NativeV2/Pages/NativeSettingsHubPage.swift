@@ -2736,6 +2736,7 @@ struct NativePlaybackPreferencesPage: View {
   @AppStorage("nativeV2.playback.defaultRate") private var defaultRate = 1.0
   @AppStorage("nativeV2.playback.preferChineseSub") private var preferChineseSub = true
   @AppStorage("nativeV2.playback.strmDirectPlay") private var strmDirectPlay = true
+  @AppStorage("nativeV2.playback.directPlay") private var directPlay = true
   @AppStorage("nativeV2.playback.cellularWarn") private var cellularWarn = false
   @AppStorage("nativeV2.playback.keepMusicMiniBar") private var keepMusicMiniBar = true
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -2790,6 +2791,17 @@ struct NativePlaybackPreferencesPage: View {
                   .padding(.horizontal, 16).padding(.vertical, 12)
                   .frame(minHeight: 54)
                   .accessibilityIdentifier("native-playback-strm-direct")
+                CinematicFormDivider()
+                VStack(alignment: .leading, spacing: 4) {
+                  Toggle("媒体服务器直连优先", isOn: $directPlay)
+                    .font(.body).tint(appearance.accentColor)
+                    .accessibilityIdentifier("native-playback-server-direct")
+                  Text("已绑定个人账号的 Emby / Jellyfin / Plex 在直连可达时优先直连播放，不可达或失败时自动回退后台中转")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
                 CinematicFormDivider()
                 Toggle("优先选择中文字幕", isOn: $preferChineseSub)
                   .font(.body).tint(appearance.accentColor)

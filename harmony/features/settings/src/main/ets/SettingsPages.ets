@@ -670,6 +670,7 @@ export struct HarmonySettingsHubPage {
   @StorageLink(PlaybackPreferencesStore.KEY_CELLULAR_WARN) playbackCellularWarn: boolean = false;
   @StorageLink(PlaybackPreferencesStore.KEY_KEEP_MINI_BAR) playbackKeepMiniBar: boolean = true;
   @StorageLink(PlaybackPreferencesStore.KEY_STRM_DIRECT) playbackStrmDirect: boolean = true;
+  @StorageLink(PlaybackPreferencesStore.KEY_DIRECT_PLAY) playbackDirectPlay: boolean = true;
   @StorageProp('mp_open_settings_sheet') @Watch('onPendingSettingsSheetChanged') pendingSettingsSheet: string = '';
   @Prop serverUrl: string = '';
   @Prop userName: string = 'admin';
@@ -2181,6 +2182,17 @@ export struct HarmonySettingsHubPage {
                 }.alignItems(HorizontalAlign.Start).layoutWeight(1)
                 Toggle({ type: ToggleType.Switch, isOn: this.playbackStrmDirect }).selectedColor(this.accentHex)
                   .onChange((v: boolean) => { PlaybackPreferencesStore.setStrmDirect(v); })
+              }.width('100%')
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+              Row() {
+                Column({ space: 2 }) {
+                  Text('媒体服务器直连优先').fontSize(14.5).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                  Text('已绑定个人账号的 Emby / Jellyfin / Plex 在直连可达时优先直连播放，不可达或失败时自动回退后台中转').fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.playbackDirectPlay }).selectedColor(this.accentHex)
+                  .onChange((v: boolean) => { PlaybackPreferencesStore.setDirectPlay(v); })
               }.width('100%')
 
               Divider().color(HarmonyThemeColors.divider(this.isDark))

@@ -20,11 +20,13 @@ import com.moviepilot.rustcore.detectPlayableMediaKind
 import com.moviepilot.rustcore.evaluatePluginExpression
 import com.moviepilot.rustcore.evaluateUserPermissions
 import com.moviepilot.rustcore.filterAndGroupResources
+import com.moviepilot.rustcore.isSameHttpOrigin
 import com.moviepilot.rustcore.normalizePendingPlaybackStopsJson
 import com.moviepilot.rustcore.normalizeServerAddress
 import com.moviepilot.rustcore.parseAgentMarkdown
 import com.moviepilot.rustcore.parseDeepLinkJson
 import com.moviepilot.rustcore.parseStrmContent
+import com.moviepilot.rustcore.planPlaybackRoutesJson
 import com.moviepilot.rustcore.planPlaybackSyncStepJson
 import com.moviepilot.rustcore.planPluginFormJson
 import com.moviepilot.rustcore.serverAddressContains
@@ -184,6 +186,123 @@ object RustCoreBridge {
                 ?.let { return it }
         }
         return fallbackNormalizePendingPlaybackStops(entries, nowEpochMs)
+    }
+
+    /** 规划最优主播放路由及降级回退队列（优先调用 Rust UniFFI，JVM 单测未加载 `.so` 时使用同构 Kotlin 回退）。 */
+    fun planPlaybackRoutes(
+        routes: List<PlaybackRouteDto>,
+        preferences: PlaybackRoutePreferenceDto = PlaybackRoutePreferenceDto(),
+        probes: List<RouteProbeOutcomeDto> = emptyList(),
+    ): PlaybackRoutePlanDto? {
+        if (routes.isEmpty()) return null
+        val routesJson = syncJson.encodeToString(routes)
+        val prefsJson = syncJson.encodeToString(preferences)
+        val probesJson = syncJson.encodeToString(probes)
+        val raw = runCatching { planPlaybackRoutesJson(routesJson, prefsJson, probesJson) }.getOrNull()
+        if (!raw.isNullOrBlank()) {
+            runCatching { syncJson.decodeFromString<PlaybackRoutePlanDto>(raw) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        return fallbackPlanPlaybackRoutes(routes, preferences, probes)
+    }
+
+    /** 严格校验两条 HTTP(S) URL 是否同源（scheme + 大小写无关 host + 默认/显式端口）。 */
+    fun isSameHttpOriginUrl(urlA: String, urlB: String): Boolean {
+        runCatching { isSameHttpOrigin(urlA, urlB) }.getOrNull()?.let { return it }
+        return fallbackIsSameHttpOrigin(urlA, urlB)
+    }
+
+    private fun fallbackIsSameHttpOrigin(urlA: String, urlB: String): Boolean {
+        val a = runCatching { java.net.URI(urlA.trim()) }.getOrNull() ?: return false
+        val b = runCatching { java.net.URI(urlB.trim()) }.getOrNull() ?: return false
+        val schemeA = a.scheme?.lowercase() ?: return false
+        val schemeB = b.scheme?.lowercase() ?: return false
+        if (schemeA !in setOf("http", "https") || schemeA != schemeB) return false
+        val hostA = a.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return false
+        val hostB = b.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return false
+        if (hostA != hostB) return false
+        val portA = if (a.port > 0) a.port else if (schemeA == "https") 443 else 80
+        val portB = if (b.port > 0) b.port else if (schemeB == "https") 443 else 80
+        return portA == portB
+    }
+
+    private fun fallbackPlanPlaybackRoutes(
+        routes: List<PlaybackRouteDto>,
+        prefs: PlaybackRoutePreferenceDto,
+        probes: List<RouteProbeOutcomeDto>,
+    ): PlaybackRoutePlanDto? {
+        fun isValidHttp(raw: String): Boolean {
+            val u = runCatching { java.net.URI(raw) }.getOrNull() ?: return false
+            val sch = u.scheme?.lowercase() ?: return false
+            return sch in setOf("http", "https") && !u.host.isNullOrBlank() && u.userInfo == null
+        }
+
+        fun reachableLatency(route: PlaybackRouteDto): Int? {
+            val probeKey = route.probeUrl?.trim()?.takeIf { it.isNotBlank() }
+            val outcome = probes.firstOrNull { item ->
+                val target = item.url.trim()
+                (probeKey != null && target == probeKey) || target == route.url
+            } ?: return null
+            if (!outcome.reachable) return null
+            return outcome.latencyMs ?: (Int.MAX_VALUE / 2)
+        }
+
+        val strm = mutableListOf<PlaybackRouteDto>()
+        val lan = mutableListOf<Pair<Int, PlaybackRouteDto>>()
+        val wan = mutableListOf<Pair<Int, PlaybackRouteDto>>()
+        val proxy = mutableListOf<PlaybackRouteDto>()
+        val seen = mutableSetOf<String>()
+
+        for (route in routes) {
+            val trimmed = route.url.trim()
+            if (trimmed.isEmpty() || !isValidHttp(trimmed)) continue
+            if (!seen.add("${route.kind}|$trimmed")) continue
+            val normalized = route.copy(url = trimmed, probeUrl = route.probeUrl?.trim())
+            when (normalized.kind) {
+                "strm_direct" -> if (prefs.preferStrmDirect) strm += normalized
+                "server_lan" -> if (prefs.preferServerDirect) {
+                    reachableLatency(normalized)?.let { lan += it to normalized }
+                }
+                "server_wan" -> if (prefs.preferServerDirect) {
+                    reachableLatency(normalized)?.let { wan += it to normalized }
+                }
+                "mp_proxy" -> proxy += normalized
+            }
+        }
+
+        strm.sortBy { it.priority }
+        lan.sortWith(compareBy<Pair<Int, PlaybackRouteDto>> { it.first }.thenBy { it.second.priority })
+        wan.sortWith(compareBy<Pair<Int, PlaybackRouteDto>> { it.first }.thenBy { it.second.priority })
+        proxy.sortBy { it.priority }
+
+        val ordered = mutableListOf<PlaybackRouteDto>()
+        ordered += strm
+        val bestLan = lan.firstOrNull()?.first
+        val bestWan = wan.firstOrNull()?.first
+        val preferWan = bestLan != null && bestWan != null &&
+            bestLan > prefs.lanPreferredMaxLatencyMs && bestWan < bestLan
+        if (preferWan) {
+            ordered += wan.map { it.second }
+            ordered += lan.map { it.second }
+        } else {
+            ordered += lan.map { it.second }
+            ordered += wan.map { it.second }
+        }
+        ordered += proxy
+
+        val active = ordered.firstOrNull() ?: return null
+        val label = when (active.kind) {
+            "strm_direct" -> "STRM 直链"
+            "server_lan" -> "局域网直连"
+            "server_wan" -> "外网直连"
+            else -> "后台中转"
+        }
+        return PlaybackRoutePlanDto(
+            active = active,
+            fallbacks = ordered.drop(1),
+            routeLabelZh = label,
+        )
     }
 
     private fun fallbackPlanPlaybackSyncStep(

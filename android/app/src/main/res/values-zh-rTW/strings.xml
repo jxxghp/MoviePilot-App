@@ -93,6 +93,7 @@
     <string name="mp_30a71d31" formatted="false">在鎖屏查看下載、上傳速度及只讀狀態。</string>
     <string name="mp_31666400" formatted="false">地址中不要包含帳號或密碼。連接後再安全登錄。</string>
     <string name="mp_31961ac9" formatted="false">當前安裝已解除綁定。</string>
+    <string name="mp_32bc332f" formatted="false">區域網直連</string>
     <string name="mp_33246f6a" formatted="false">完成</string>
     <string name="mp_33b6a458" formatted="false">服務暫時不可用，正在自動重試…</string>
     <string name="mp_344d0525" formatted="false">無法連線至服務，請重試或變更位址。</string>
@@ -233,9 +234,11 @@
     <string name="mp_8f085bab" formatted="false">已保存的服務</string>
     <string name="mp_901ea0e2" formatted="false">使用預設服務中心</string>
     <string name="mp_907c3945" formatted="false">清除</string>
+    <string name="mp_90f9250e" formatted="false">背景中轉</string>
     <string name="mp_9203b76d" formatted="false">電影訂閱</string>
     <string name="mp_922c1189" formatted="false">管道授權與綁定</string>
     <string name="mp_922c94aa" formatted="false">目前帳號</string>
+    <string name="mp_92de9b27" formatted="false">外網直連</string>
     <string name="mp_936694b4" formatted="false">更多播放選項</string>
     <string name="mp_93bbc0cb" formatted="false">此帳號需要尚未接入的驗證方式。</string>
     <string name="mp_940c8865" formatted="false">間隔</string>
@@ -404,6 +407,7 @@
     <string name="mp_ea09a58c" formatted="false">移除本機資料</string>
     <string name="mp_ea3281a4" formatted="false">頁面尚未恢復繪制，請重新打開。未確認的操作不會自動重試。</string>
     <string name="mp_ea8443d8" formatted="false">解除本機及配對網頁綁定</string>
+    <string name="mp_eb4289d8" formatted="false">媒體伺服器直連優先</string>
     <string name="mp_eb88ff57" formatted="false">已安裝</string>
     <string name="mp_ecdf2bcf" formatted="false">系統阻止了此連接，請檢查服務地址及設備的網路訪問限制。</string>
     <string name="mp_ed340e9b" formatted="false">帳號未啟用，請聯絡管理員。</string>
@@ -415,6 +419,7 @@
     <string name="mp_ef84e765" formatted="false">管理員</string>
     <string name="mp_efd9aa2e" formatted="false">下載狀態</string>
     <string name="mp_emby_jellyfin_plex_377a4835" formatted="false">綁定個人媒體伺服器賬號後，在播放時可向 Emby / Jellyfin / Plex 儀表板即時同步正在播放狀態與精準進度。</string>
+    <string name="mp_emby_jellyfin_plex_e2951fb0" formatted="false">已綁定個人帳號的 Emby / Jellyfin / Plex 在直連可達時優先直連播放，不可達或失敗時自動回退背景中轉</string>
     <string name="mp_f0409080" formatted="false">搜尋</string>
     <string name="mp_f0739f4f" formatted="false">此實例要求客戶端證書，請使用網頁登錄。</string>
     <string name="mp_f12849f1" formatted="false">切換服務</string>
@@ -480,6 +485,7 @@
     <string name="mp_plex_x_plex_token_4678f466" formatted="false">Plex 存取權杖 (X-Plex-Token)</string>
     <string name="mp_push_notifications_serve_8bf6a5ef" formatted="false">使用帶 Push Notifications 能力的簽名和已配置的 Server 後開啓。</string>
     <string name="mp_safari_app_24c9c662" formatted="false">在 Safari 開啟通知網頁，加入主畫面，再從主畫面開啟並輸入綁定碼。通知由主畫面網頁接收，點擊後可返回 App。</string>
+    <string name="mp_strm_895f2616" formatted="false">STRM 直連</string>
     <string name="mp_web_7f1d362a" formatted="false">此外掛使用 Web 介面，相容入口正在遷移。</string>
     <string name="mp_web_aaedd1fc" formatted="false">底層代理、並行與進階系統參數請在 Web 管理台設定。</string>
     <string name="mp_widget_163aec91" formatted="false">內容</string>

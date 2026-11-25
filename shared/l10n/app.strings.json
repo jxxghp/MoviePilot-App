@@ -2386,6 +2386,36 @@
       "zh-Hant": "驗證並綁定",
       "en": "Verify & Bind"
     },
+    "媒体服务器直连优先": {
+      "zh-Hans": "媒体服务器直连优先",
+      "zh-Hant": "媒體伺服器直連優先",
+      "en": "Prefer Direct Media Server Streaming"
+    },
+    "已绑定个人账号的 Emby / Jellyfin / Plex 在直连可达时优先直连播放，不可达或失败时自动回退后台中转": {
+      "zh-Hans": "已绑定个人账号的 Emby / Jellyfin / Plex 在直连可达时优先直连播放，不可达或失败时自动回退后台中转",
+      "zh-Hant": "已綁定個人帳號的 Emby / Jellyfin / Plex 在直連可達時優先直連播放，不可達或失敗時自動回退背景中轉",
+      "en": "Stream directly from bound Emby / Jellyfin / Plex servers when reachable, falling back to MoviePilot proxy automatically"
+    },
+    "STRM 直链": {
+      "zh-Hans": "STRM 直链",
+      "zh-Hant": "STRM 直連",
+      "en": "STRM Direct"
+    },
+    "局域网直连": {
+      "zh-Hans": "局域网直连",
+      "zh-Hant": "區域網直連",
+      "en": "LAN Direct"
+    },
+    "外网直连": {
+      "zh-Hans": "外网直连",
+      "zh-Hant": "外網直連",
+      "en": "WAN Direct"
+    },
+    "后台中转": {
+      "zh-Hans": "后台中转",
+      "zh-Hant": "背景中轉",
+      "en": "Proxy"
+    },
     "默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。": {
       "zh-Hans": "默认使用 https://movie-pilot.org。更换服务中心时，实例的 AppPush 渠道也须使用相同地址。",
       "zh-Hant": "預設使用 https://movie-pilot.org。更換服務中心時，實例的 AppPush 渠道也須使用相同地址。",

@@ -2465,6 +2465,22 @@ fun PlaybackPreferencesScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("媒体服务器直连优先", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                Text("已绑定个人账号的 Emby / Jellyfin / Plex 在直连可达时优先直连播放，不可达或失败时自动回退后台中转", color = colors.textMuted, fontSize = 12.sp)
+                            }
+                            Switch(
+                                checked = store.directPlay,
+                                onCheckedChange = { store.updateDirectPlay(it) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                            )
+                        }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text("优先匹配中文字幕", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                                 Text("自动检测并启用简体/繁体中文内嵌与外挂字幕轨道", color = colors.textMuted, fontSize = 12.sp)
                             }

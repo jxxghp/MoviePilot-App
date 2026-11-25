@@ -369,6 +369,10 @@
       "value": "This installation is unpaired."
     },
     {
+      "name": "mp_32bc332f",
+      "value": "LAN Direct"
+    },
+    {
       "name": "mp_33246f6a",
       "value": "Done"
     },
@@ -929,6 +933,10 @@
       "value": "Clear"
     },
     {
+      "name": "mp_90f9250e",
+      "value": "Proxy"
+    },
+    {
       "name": "mp_9203b76d",
       "value": "Movie subscriptions"
     },
@@ -939,6 +947,10 @@
     {
       "name": "mp_922c94aa",
       "value": "Current Account"
+    },
+    {
+      "name": "mp_92de9b27",
+      "value": "WAN Direct"
     },
     {
       "name": "mp_936694b4",
@@ -1613,6 +1625,10 @@
       "value": "Unpair this installation and paired web pages"
     },
     {
+      "name": "mp_eb4289d8",
+      "value": "Prefer Direct Media Server Streaming"
+    },
+    {
       "name": "mp_eb88ff57",
       "value": "Installed"
     },
@@ -1655,6 +1671,10 @@
     {
       "name": "mp_emby_jellyfin_plex_377a4835",
       "value": "Bind your media server account to sync live Now Playing status and accurate progress to Emby, Jellyfin, and Plex."
+    },
+    {
+      "name": "mp_emby_jellyfin_plex_e2951fb0",
+      "value": "Stream directly from bound Emby / Jellyfin / Plex servers when reachable, falling back to MoviePilot proxy automatically"
     },
     {
       "name": "mp_f0409080",
@@ -1915,6 +1935,10 @@
     {
       "name": "mp_safari_app_24c9c662",
       "value": "Open the notification page in Safari and add it to the Home Screen. Open it there and enter the pairing code. Tap a notification to return to the App."
+    },
+    {
+      "name": "mp_strm_895f2616",
+      "value": "STRM Direct"
     },
     {
       "name": "mp_web_7f1d362a",

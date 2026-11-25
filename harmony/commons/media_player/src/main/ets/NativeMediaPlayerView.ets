@@ -10,8 +10,10 @@ import {
 import {
   MoviePilotRepository,
   MpRemoteImage,
+  PlaybackRouteCandidate,
   HarmonyPlaybackSyncTracker,
-  HarmonyPlaybackProgressReporter
+  HarmonyPlaybackProgressReporter,
+  HarmonyPlaybackRouteResolver
 } from '@moviepilot/core_rust_bridge';
 import {
   HarmonySubtitleOption,
@@ -77,6 +79,8 @@ export struct NativeMediaPlayerView {
 
   @State private activeVideoReq: HarmonyPlaybackRequest = { url: '', title: '', subtitle: '', isAudio: false };
   private didFallbackToProxy: boolean = false;
+  @State private activeRouteKind: string = '';
+  @State private activeRouteServer: string = '';
   @State private displayTitle: string = '';
   @State private displaySubtitle: string = '';
   @State private displayArtworkUrl: string = '';
@@ -476,6 +480,8 @@ export struct NativeMediaPlayerView {
       this.displayTitle = curReq.title;
       this.displaySubtitle = curReq.subtitle;
       this.displayArtworkUrl = curReq.artworkUrl ?? '';
+      this.activeRouteKind = curReq.activeRouteKind ?? '';
+      this.activeRouteServer = curReq.server ?? '';
     }
     this.localCoverPixelMap = sess.coverPixelMap();
     this.isPlaying = sess.isPlaying();
@@ -667,6 +673,39 @@ export struct NativeMediaPlayerView {
     this.clearUpNextTimer();
   }
 
+  private routeBadgeLabel(): string {
+    if (this.activeRouteKind === 'server_lan') { return '局域网直连'; }
+    if (this.activeRouteKind === 'server_wan') { return '外网直连'; }
+    if (this.activeRouteKind === 'strm_direct') { return 'STRM 直链'; }
+    if (this.activeRouteKind === 'mp_proxy') { return '后台中转'; }
+    return '';
+  }
+
+  private routeBadgeBgColor(): string {
+    if (this.activeRouteKind === 'server_lan') { return '#4716A34A'; }
+    if (this.activeRouteKind === 'server_wan' || this.activeRouteKind === 'strm_direct') { return '#470284C7'; }
+    return '#29FFFFFF';
+  }
+
+  private routeBadgeBorderColor(): string {
+    if (this.activeRouteKind === 'server_lan') { return '#8A4ADE80'; }
+    if (this.activeRouteKind === 'server_wan' || this.activeRouteKind === 'strm_direct') { return '#8A38BDF8'; }
+    return '#47FFFFFF';
+  }
+
+  @Builder
+  private routeBadgePill() {
+    Text(this.routeBadgeLabel())
+      .fontSize(11)
+      .fontWeight(FontWeight.Medium)
+      .fontColor(Color.White)
+      .maxLines(1)
+      .padding({ left: 9, right: 9, top: 3, bottom: 3 })
+      .borderRadius(999)
+      .backgroundColor(this.routeBadgeBgColor())
+      .border({ width: 0.75, color: this.routeBadgeBorderColor() })
+  }
+
   private async initVideoPlayer(req: HarmonyPlaybackRequest): Promise<void> {
     const gen = ++this.videoLoadGeneration;
     this.releaseVideoPlayerResources();
@@ -675,6 +714,8 @@ export struct NativeMediaPlayerView {
     this.videoProgressTickCount = 0;
 
     this.activeVideoReq = req;
+    this.activeRouteKind = req.activeRouteKind ?? '';
+    this.activeRouteServer = req.server ?? '';
     this.displayTitle = req.title;
     this.displaySubtitle = req.subtitle;
     this.displayArtworkUrl = req.artworkUrl ?? '';
@@ -774,44 +815,66 @@ export struct NativeMediaPlayerView {
 
       player.on('error', () => {
         if (gen !== this.videoLoadGeneration) { return; }
-        const fallbackUrl = (req.proxyFallbackUrl ?? '').trim();
-        if (
-          !this.didFallbackToProxy &&
-          this.positionMs <= 1000 &&
-          fallbackUrl.length > 0 &&
-          fallbackUrl !== req.url
-        ) {
-          this.didFallbackToProxy = true;
-          const fallbackReq: HarmonyPlaybackRequest = {
-            url: fallbackUrl,
-            headers: req.proxyFallbackHeaders,
-            title: req.title,
-            subtitle: req.subtitle,
-            artist: req.artist,
-            album: req.album,
-            artworkUrl: req.artworkUrl,
-            isAudio: req.isAudio,
-            lyricsLrc: req.lyricsLrc,
-            lyricsUrl: req.lyricsUrl,
-            itemId: req.itemId,
-            server: req.server,
-            serverType: req.serverType,
-            mediaSourceId: req.mediaSourceId,
-            playSessionId: req.playSessionId,
-            progressSyncMode: req.progressSyncMode,
-            resumePositionMs: req.resumePositionMs,
-            subtitles: req.subtitles,
-            preferredAudioLang: req.preferredAudioLang,
-            preferredAudioIndex: req.preferredAudioIndex,
-            preferredSubLang: req.preferredSubLang,
-            preferredExternalSubUrl: req.preferredExternalSubUrl,
-            disableSubtitles: req.disableSubtitles,
-            isSessionBound: req.isSessionBound,
-            queue: req.queue,
-            queueIndex: req.queueIndex
-          };
-          this.initVideoPlayer(fallbackReq).catch(() => {});
-          return;
+        if (this.positionMs <= 1000) {
+          const curKind = (req.activeRouteKind ?? '').trim();
+          const serverName = (req.server ?? '').trim();
+          if ((curKind === 'server_lan' || curKind === 'server_wan') && req.url.length > 0) {
+            HarmonyPlaybackRouteResolver.shared().markRouteFailed(serverName, req.url);
+          }
+          const fallbacks: PlaybackRouteCandidate[] = req.fallbackRoutes ? req.fallbackRoutes.slice() : [];
+          const legacyUrl = (req.proxyFallbackUrl ?? '').trim();
+          if (legacyUrl.length > 0 && legacyUrl !== req.url && !fallbacks.some((f: PlaybackRouteCandidate) => f.url === legacyUrl)) {
+            fallbacks.push({
+              kind: 'mp_proxy',
+              url: legacyUrl,
+              probe_url: null,
+              headers: req.proxyFallbackHeaders ?? {},
+              priority: 100,
+              requires_same_origin_auth: true
+            });
+          }
+          while (fallbacks.length > 0) {
+            const nextRoute = fallbacks.shift();
+            if (!nextRoute || !nextRoute.url || nextRoute.url === req.url) { continue; }
+            const nextHeaders = nextRoute.kind === 'mp_proxy'
+              ? (req.proxyFallbackHeaders ?? nextRoute.headers)
+              : nextRoute.headers;
+            this.didFallbackToProxy = nextRoute.kind === 'mp_proxy';
+            const fallbackReq: HarmonyPlaybackRequest = {
+              url: nextRoute.url,
+              headers: nextHeaders,
+              proxyFallbackUrl: req.proxyFallbackUrl,
+              proxyFallbackHeaders: req.proxyFallbackHeaders,
+              activeRouteKind: nextRoute.kind,
+              fallbackRoutes: fallbacks,
+              title: req.title,
+              subtitle: req.subtitle,
+              artist: req.artist,
+              album: req.album,
+              artworkUrl: req.artworkUrl,
+              isAudio: req.isAudio,
+              lyricsLrc: req.lyricsLrc,
+              lyricsUrl: req.lyricsUrl,
+              itemId: req.itemId,
+              server: req.server,
+              serverType: req.serverType,
+              mediaSourceId: req.mediaSourceId,
+              playSessionId: req.playSessionId,
+              progressSyncMode: req.progressSyncMode,
+              resumePositionMs: req.resumePositionMs,
+              subtitles: req.subtitles,
+              preferredAudioLang: req.preferredAudioLang,
+              preferredAudioIndex: req.preferredAudioIndex,
+              preferredSubLang: req.preferredSubLang,
+              preferredExternalSubUrl: req.preferredExternalSubUrl,
+              disableSubtitles: req.disableSubtitles,
+              isSessionBound: req.isSessionBound,
+              queue: req.queue,
+              queueIndex: req.queueIndex
+            };
+            this.initVideoPlayer(fallbackReq).catch(() => {});
+            return;
+          }
         }
         this.isBuffering = false;
         this.isPlaying = false;
@@ -1761,6 +1824,9 @@ export struct NativeMediaPlayerView {
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .padding({ left: 28, right: 28 })
               }
+              if (this.activeRouteServer.length > 0 && this.routeBadgeLabel().length > 0) {
+                this.routeBadgePill()
+              }
             }
 
             if (this.activeLyricIdx >= 0 && this.activeLyricIdx < this.lyricCues.length) {
@@ -2430,6 +2496,10 @@ export struct NativeMediaPlayerView {
               }
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
+
+              if (this.activeRouteServer.length > 0 && this.routeBadgeLabel().length > 0) {
+                this.routeBadgePill()
+              }
 
               if (this.pipSupported) {
                 Stack() {
