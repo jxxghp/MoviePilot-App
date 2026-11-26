@@ -1586,6 +1586,10 @@ final class NativeV2EntryTests: XCTestCase {
 
     let mascotBtn = app.buttons["native-agent-floating-mascot"]
     XCTAssertTrue(mascotBtn.waitForExistence(timeout: 8))
+    // 登录转场期间可访问性节点先出现，等浮动入口真正可点击后再打开对话。
+    let mascotReady = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hittable == true"), object: mascotBtn)
+    XCTAssertEqual(XCTWaiter.wait(for: [mascotReady], timeout: 15), .completed)
     mascotBtn.tap()
     XCTAssertTrue(app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 10))
 
@@ -2267,6 +2271,7 @@ final class NativeV2EntryTests: XCTestCase {
     enterCredentials(profile, app: app)
     tap(app.buttons["native-v2-login"], app: app)
     XCTAssertTrue(tabButton("我的", app: app).waitForExistence(timeout: 15))
+    dismissSystemPasswordSavePrompt(app)
     return app
   }
 
@@ -3498,20 +3503,44 @@ final class NativeV2EntryTests: XCTestCase {
     tap(app.buttons["native-v2-saved-\(base)\(name)/"], app: app)
   }
 
-  /// 合成输入经真正的安全密码框提交；截图不显示明文密码或令牌。
+  /// 合成密码只填写，不用回车提前移除键盘工具栏；由「完成」按钮统一收起键盘。
   private func enterCredentials(_ name: String, app: XCUIApplication) {
     let username = app.textFields["native-v2-username"]
     tap(username, app: app)
     username.typeText("native-" + name + "\n")
     let password = app.secureTextFields["native-v2-password"]
-    password.typeText("fixture-" + name + "123\n")
+    password.typeText("fixture-" + name + "123")
     dismissKeyboard(app)
   }
 
-  /// 通过系统键盘工具栏收键盘，后续按钮必须仍可由用户滚动到达。
+  /// 先等待回车触发的收起动画，再按需使用工具栏，避免点击已经消失的按钮。
   private func dismissKeyboard(_ app: XCUIApplication) {
-    let done = app.toolbars.buttons["完成"]
-    if done.exists { done.tap() }
+    let keyboard = app.keyboards.firstMatch
+    let hidden = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: keyboard)
+    if XCTWaiter.wait(for: [hidden], timeout: 2) == .completed { return }
+    let done = app.toolbars.buttons["完成"].firstMatch
+    guard done.exists && done.isHittable else { return }
+    done.tap()
+    let dismissed = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: keyboard)
+    XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+  }
+
+  /// 新版系统会在登录转场后弹出密码保存 sheet；只拒绝该系统提示，避免遮挡业务控件或保存夹具凭据。
+  private func dismissSystemPasswordSavePrompt(_ app: XCUIApplication) {
+    let titles = ["Save Password?", "存储密码？", "存储密码?", "保存密码？", "儲存密碼？"]
+    let prompt = app.sheets.matching(NSPredicate(format: "label IN %@", titles)).firstMatch
+    guard prompt.waitForExistence(timeout: 3) else { return }
+    let decline = prompt.buttons.matching(
+      NSPredicate(format: "label IN %@", ["Not Now", "以后", "暂不", "稍后", "稍後", "現在不要"])
+    )
+    .firstMatch
+    XCTAssertTrue(decline.waitForExistence(timeout: 5))
+    decline.tap()
+    let dismissed = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == false"), object: prompt)
+    XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
   }
 
   /// 大字/横屏通过滚动查找可触控控件，不使用坐标绕过被遮挡的按钮。
@@ -3688,6 +3717,7 @@ final class NativeV2EntryTests: XCTestCase {
 
   /// 已认证账号标签必须属于本次服务（「我的」顶部身份卡），同时检查运行中的可访问性树没有 WebView。
   private func assertAccount(_ name: String, app: XCUIApplication) {
+    dismissSystemPasswordSavePrompt(app)
     let mineTab = tabButton("我的", app: app)
     if !app.descendants(matching: .any)["native-v2-account"].firstMatch.exists,
       mineTab.exists
