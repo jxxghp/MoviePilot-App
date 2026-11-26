@@ -1,13 +1,17 @@
 package com.moviepilot.app
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -62,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.app.PictureInPictureModeChangedInfo
+import androidx.core.content.ContextCompat
 import androidx.core.util.Consumer
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -77,6 +82,7 @@ import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.MainTab
 import com.moviepilot.designsystem.MoviePilotBottomNavigationBar
 import com.moviepilot.designsystem.PlaybackPreferencesStore
+import com.moviepilot.designsystem.SystemNotificationPreferencesStore
 import com.moviepilot.feature.agent.AgentChatScreen
 import com.moviepilot.feature.auth.LoginScreen
 import com.moviepilot.feature.auth.ServerConnectionScreen
@@ -969,6 +975,53 @@ fun MoviePilotRootShell(
 
     // 鉴权就绪后拉取权威用户信息（真实头像）、预热图片代理 Cookie，并在管理员实例允许时执行匿名版本统计上报
     val authKey = (session as? SessionState.Authenticated)?.let { "${it.serverUrl}|${it.token.takeLast(8)}" }
+    val systemNotifPrefs = remember(context) { SystemNotificationPreferencesStore(context) }
+    var notifPermissionGrantVersion by remember { mutableIntStateOf(0) }
+    val postNotificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        systemNotifPrefs.markPermissionPrompted()
+        if (granted) {
+            notifPermissionGrantVersion++
+        }
+    }
+
+    LaunchedEffect(authKey, systemNotifPrefs.systemBarNotificationsEnabled) {
+        if (
+            authKey != null &&
+            systemNotifPrefs.systemBarNotificationsEnabled &&
+            !systemNotifPrefs.hasPromptedPermission
+        ) {
+            systemNotifPrefs.markPermissionPrompted()
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                postNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    LaunchedEffect(
+        authKey,
+        systemNotifPrefs.systemBarNotificationsEnabled,
+        systemNotifPrefs.includePluginNotifications,
+        systemNotifPrefs.includeSystemNotifications,
+        notifPermissionGrantVersion,
+    ) {
+        val shouldSync = authKey != null &&
+            systemNotifPrefs.systemBarNotificationsEnabled &&
+            (systemNotifPrefs.includePluginNotifications || systemNotifPrefs.includeSystemNotifications)
+        AndroidNotificationSyncManager.syncBackgroundWork(context, enabled = shouldSync)
+        if (!shouldSync) return@LaunchedEffect
+        while (true) {
+            runCatching {
+                AndroidNotificationSyncManager.pollAndPostOnce(context, repository)
+            }
+            delay(30_000L)
+        }
+    }
+
     LaunchedEffect(authKey) {
         if (authKey != null) {
             repository.hydrateAuthenticatedSession()
@@ -1438,6 +1491,9 @@ fun MoviePilotRootShell(
                                                     onOpenAppearance = { pushRoute(AppRoute.Appearance) },
                                                     onOpenPlugins = { pushRoute(AppRoute.Plugins(installedOnly = true)) },
                                                     onOpenChannelAuth = { pushRoute(AppRoute.ChannelAuthorization) },
+                                                    onSendTestNotification = {
+                                                        AndroidNotificationSyncManager.sendTestNotification(context, s.serverUrl)
+                                                    },
                                                     permissions = s.permissions,
                                                     onSwitchServer = { isSwitchingServer = true },
                                                     onLogout = {

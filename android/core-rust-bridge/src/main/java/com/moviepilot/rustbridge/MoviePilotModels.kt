@@ -357,6 +357,22 @@ data class SystemMessageDto(
     val image: String? = null,
 )
 
+/** 服务端已发送的系统与插件通知增量同步条目（`GET /api/v1/message/notification`）。 */
+@Serializable
+data class SentNotificationItemDto(
+    val numericId: Long? = null,
+    val stableKey: String = "",
+    val title: String = "",
+    val text: String = "",
+    val category: String = "系统",
+    val source: String = "",
+    val channel: String = "",
+    val userid: String = "",
+    val regTime: String = "",
+    val route: String = "/?shotcut=message",
+    val image: String? = null,
+)
+
 /** 定时服务条目。 */
 @Serializable
 data class ScheduledServiceDto(

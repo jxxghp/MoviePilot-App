@@ -1,7 +1,14 @@
 package com.moviepilot.feature.settings
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -99,6 +106,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicPanel
 import com.moviepilot.designsystem.ExpressiveCornerStyle
@@ -124,6 +133,7 @@ import com.moviepilot.designsystem.PlaybackPreferencesStore
 import com.moviepilot.designsystem.ProvideSkeletonShimmer
 import com.moviepilot.designsystem.SkeletonCardStyle
 import com.moviepilot.designsystem.SkeletonSurfaceRole
+import com.moviepilot.designsystem.SystemNotificationPreferencesStore
 import com.moviepilot.designsystem.contrastingForeground
 import com.moviepilot.pluginhost.IsolatedVuePluginWebView
 import com.moviepilot.pluginhost.NativePluginDataPageView
@@ -169,13 +179,39 @@ fun SettingsHubScreen(
     onLogout: () -> Unit,
     onSwitchServer: (() -> Unit)? = null,
     onOpenChannelAuth: () -> Unit = {},
+    onSendTestNotification: (() -> Boolean)? = null,
     permissions: PermissionsFfi? = null,
 ) {
     val colors = LocalMoviePilotColors.current
     val appearance = LocalAppearanceStore.current
     val snackbar = LocalSnackbarHostState.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val playbackPrefs = remember(context) { PlaybackPreferencesStore(context) }
+    val systemNotifPrefs = remember(context) { SystemNotificationPreferencesStore(context) }
+    var osNotifGranted by remember { mutableStateOf(hasAndroidSystemNotificationPermission(context)) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, context) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                osNotifGranted = hasAndroidSystemNotificationPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        systemNotifPrefs.markPermissionPrompted()
+        osNotifGranted = granted && hasAndroidSystemNotificationPermission(context)
+        if (osNotifGranted) {
+            systemNotifPrefs.updateEnabled(true)
+            scope.launch { snackbar?.showSnackbar("已开启安卓手机通知栏提醒") }
+        } else {
+            scope.launch { snackbar?.showSnackbar("系统通知权限未开启，可在系统设置中允许通知") }
+        }
+    }
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val host = serverUrl.substringAfter("://").substringBefore("/")
@@ -184,7 +220,6 @@ fun SettingsHubScreen(
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull()?.takeIf { it.isNotBlank() } ?: "2.0.3"
     }
-    val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val isAdmin = permissions?.admin != false
 
@@ -371,8 +406,107 @@ fun SettingsHubScreen(
                         Text("通知与个性化", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
                         CinematicPanel(padding = 0.dp, showsShadow = false) {
                             Column {
+                                val notifActive = systemNotifPrefs.systemBarNotificationsEnabled && osNotifGranted
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.Notifications,
+                                            contentDescription = null,
+                                            tint = colors.accent,
+                                            modifier = Modifier.size(22.dp),
+                                        )
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text("手机通知栏提醒", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                            Text(
+                                                text = when {
+                                                    notifActive -> "插件通知与 MP 系统消息自动发送到安卓手机通知栏"
+                                                    systemNotifPrefs.systemBarNotificationsEnabled -> "需授予系统通知权限以在手机通知栏接收消息"
+                                                    else -> "已关闭本机状态栏消息提醒"
+                                                },
+                                                color = colors.textMuted,
+                                                fontSize = 12.sp,
+                                            )
+                                        }
+                                        Switch(
+                                            checked = notifActive,
+                                            onCheckedChange = { wantEnable ->
+                                                if (!wantEnable) {
+                                                    systemNotifPrefs.updateEnabled(false)
+                                                } else {
+                                                    osNotifGranted = hasAndroidSystemNotificationPermission(context)
+                                                    if (osNotifGranted) {
+                                                        systemNotifPrefs.updateEnabled(true)
+                                                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !systemNotifPrefs.hasPromptedPermission) {
+                                                        systemNotifPrefs.updateEnabled(true)
+                                                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                                    ) {
+                                                        systemNotifPrefs.updateEnabled(true)
+                                                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                                    } else {
+                                                        openSystemAppNotificationSettings(context)
+                                                    }
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = colors.primaryButtonFg,
+                                                checkedTrackColor = colors.accent,
+                                            ),
+                                        )
+                                    }
+
+                                    if (notifActive) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(start = 34.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            NativeAdaptivePill(
+                                                title = "插件通知",
+                                                selected = systemNotifPrefs.includePluginNotifications,
+                                                onClick = {
+                                                    systemNotifPrefs.updateIncludePlugin(!systemNotifPrefs.includePluginNotifications)
+                                                },
+                                            )
+                                            NativeAdaptivePill(
+                                                title = "MP 系统通知",
+                                                selected = systemNotifPrefs.includeSystemNotifications,
+                                                onClick = {
+                                                    systemNotifPrefs.updateIncludeSystem(!systemNotifPrefs.includeSystemNotifications)
+                                                },
+                                            )
+                                            if (onSendTestNotification != null) {
+                                                Spacer(Modifier.weight(1f))
+                                                TextButton(
+                                                    onClick = {
+                                                        val ok = onSendTestNotification()
+                                                        scope.launch {
+                                                            snackbar?.showSnackbar(
+                                                                if (ok) "测试通知已发送到手机通知栏" else "请先在系统设置中开启通知权限",
+                                                            )
+                                                        }
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                ) {
+                                                    Text("测试通知", color = colors.accent, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                 if (isAdmin) {
-                                    SettingsRow(Icons.Outlined.Notifications, "通知渠道", "$notificationsCount 个已启用", onOpenNotifications, isLoadingValue = showInlineShimmer)
+                                    SettingsRow(Icons.Outlined.Notifications, "服务端通知渠道", "$notificationsCount 个已启用", onOpenNotifications, isLoadingValue = showInlineShimmer)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                 } else {
                                     SettingsRow(Icons.Outlined.Key, "渠道授权", "生成 5 分钟机器人绑定码", onOpenChannelAuth)
@@ -1671,4 +1805,21 @@ private fun fmtStorage(bytes: Double): String {
     if (tb >= 1.0) return String.format("%.2f TB", tb)
     val gb = bytes / (1024.0 * 1024.0 * 1024.0)
     return String.format("%.1f GB", gb)
+}
+
+private fun hasAndroidSystemNotificationPermission(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+        return false
+    }
+    return NotificationManagerCompat.from(context).areNotificationsEnabled()
+}
+
+private fun openSystemAppNotificationSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
 }

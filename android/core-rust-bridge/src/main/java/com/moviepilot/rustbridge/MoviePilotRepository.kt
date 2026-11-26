@@ -2807,6 +2807,60 @@ class MoviePilotRepository(context: Context) {
         }
     }
 
+    /**
+     * 拉取服务端已发送的 MoviePilot 系统通知与插件通知（优先 V3 `GET /api/v1/message/notification`，
+     * 若旧版后端返回 404 则回退 `GET /api/v1/message/web` 并仅保留 `action == 1` 发送记录）。
+     * 网络异常或非 2xx 时返回 `null`，避免误改本地通知增量水位。
+     */
+    suspend fun fetchSentNotifications(count: Int = 20): List<SentNotificationItemDto>? {
+        val primaryResp = authedRequest(
+            listOf("message", "notification"),
+            query = listOf("page" to "1", "count" to count.toString()),
+        ).getOrNull()
+        val effectiveResp = if (primaryResp != null && primaryResp.status == 404) {
+            authedRequest(
+                listOf("message", "web"),
+                query = listOf("page" to "1", "size" to count.toString()),
+            ).getOrNull()
+        } else {
+            primaryResp
+        }
+        if (effectiveResp == null || effectiveResp.status !in 200..299) return null
+        val fromFallback = primaryResp?.status == 404
+        return extractArray(effectiveResp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val action = obj.int("action")
+            if (fromFallback && action != null && action != 1) return@mapNotNull null
+            val numId = obj.lng("id")
+            val regTime = obj.str("reg_time") ?: obj.str("date") ?: ""
+            val title = obj.str("title") ?: ""
+            val text = obj.str("text") ?: obj.str("content") ?: ""
+            if (title.isBlank() && text.isBlank()) return@mapNotNull null
+            val rawLink = obj.str("link")?.trim().orEmpty()
+            val safeRoute = if (rawLink.startsWith("/") && !rawLink.startsWith("//") && !rawLink.contains('\\')) {
+                rawLink
+            } else {
+                "/?shotcut=message"
+            }
+            val rawImg = obj.str("poster")?.takeIf { it.isNotBlank() }
+                ?: obj.str("image")?.takeIf { it.isNotBlank() }
+            val stableKey = "${numId ?: ""}|$regTime|${title.take(64)}|${text.take(64)}"
+            SentNotificationItemDto(
+                numericId = numId,
+                stableKey = stableKey,
+                title = title.ifBlank { "MoviePilot 通知" },
+                text = text,
+                category = obj.str("mtype")?.takeIf { it.isNotBlank() } ?: "系统",
+                source = obj.str("source").orEmpty(),
+                channel = obj.str("channel").orEmpty(),
+                userid = obj.str("userid").orEmpty(),
+                regTime = regTime,
+                route = safeRoute,
+                image = resolveImageUrl(rawImg),
+            )
+        }
+    }
+
     /** 媒体服务器客户端列表（`GET /api/v1/mediaserver/clients`）。 */
     suspend fun fetchMediaServerClients(): List<MediaServerClientDto> {
         val resp = authedRequest(listOf("mediaserver", "clients")).getOrNull()
