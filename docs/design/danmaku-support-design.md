@@ -9,7 +9,7 @@
 
 ## 一、背景与设计目标
 
-在 `MoviePilot-App` 已完成多内核播放架构（见 `docs/multi-engine-playback-design.md`）、媒体服务器直连优先（见 `docs/media-server-direct-play-design.md`）与播放进度同步（见 `docs/playback-progress-sync-design.md`）的基础上，为三端原生视频播放器引入完整的弹幕能力。
+在 `MoviePilot-App` 已完成[多内核播放架构](multi-engine-playback-design.md)、[媒体服务器直连优先](media-server-direct-play-design.md)与[播放进度同步](playback-progress-sync-design.md)的基础上，为三端原生视频播放器引入完整的弹幕能力。
 
 ### 核心目标
 

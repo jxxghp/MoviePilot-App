@@ -1,7 +1,7 @@
 # MoviePilot 客户端优先直连媒体服务器、不可达自动回退后台中转方案
 
 > 适用范围：`MoviePilot`（后端 `v3`）、`MoviePilot-App`（Rust 共享核心、iOS / Android / HarmonyOS NEXT 原生端 `v2`）
-> 前置能力：已落地的统一实时播放会话同步与每用户媒体服务器账号绑定（见 `docs/playback-progress-sync-design.md`）
+> 前置能力：已落地的[统一实时播放会话同步与每用户媒体服务器账号绑定](playback-progress-sync-design.md)
 
 ---
 

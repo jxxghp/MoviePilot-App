@@ -4,6 +4,12 @@ MoviePilot 官方单仓三端全原生移动与大屏客户端，基于单一事
 
 👉 **[查看三端实测界面图册（iOS 61 张 · Android 28 张 · HarmonyOS 41 张）](screenshots/README.md)**
 
+## 插件开发文档
+
+- **[App 插件开发者接入指南](docs/plugin-development-guide.md)**：JSON 表单与 Vue 联邦插件接入、宿主 SDK、鉴权请求、原生交互、返回键、最小化胶囊、录音、设备能力、原生播放及三端差异。
+- **[插件音频与系统播控接入指南](docs/plugin-audio-and-status-bar-guide.md)**：音频源选择、后台播放、锁屏与通知播控、歌词、收藏和自定义动作。
+- [内部设计与实现记录](docs/design/README.md)：运行时架构、播放器方案与 API 对接回归，供维护者追溯实现。
+
 ## 仓库目录结构
 
 ```text
@@ -19,6 +25,8 @@ MoviePilot-App/
 ├── ios/                               # iOS 16+ / iPadOS / iOS 26+ 全原生 SwiftUI 客户端与 WidgetKit
 ├── android/                           # Android 10+（API 29~35）17 模块 Jetpack Compose 客户端与 Glance 微件
 ├── harmony/                           # HarmonyOS NEXT（API 12~26）16 模块纯血 ArkTS/ArkUI 客户端与服务卡片
+├── docs/                              # 面向插件开发者的接入文档
+│   └── design/                        # 内部设计方案与实现、回归记录
 ├── tools/                             # SSOT 同步器、Rust 跨端交叉编译、IPA/APK/HAP 打包校验工具链
 └── screenshots/                       # iOS / Android / HarmonyOS 真机与模拟器实测截图图册
 ```

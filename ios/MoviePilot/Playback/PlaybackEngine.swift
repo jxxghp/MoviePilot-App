@@ -124,7 +124,7 @@ protocol PlaybackEngine: AnyObject {
   func stopAndReleaseAsync(on queue: DispatchQueue, completion: (@Sendable () -> Void)?)
 }
 
-/// iOS 播放偏好统一读写入口（键名严格对齐 `docs/multi-engine-playback-design.md`）。
+/// iOS 播放偏好统一读写入口（键名严格对齐 `docs/design/multi-engine-playback-design.md`）。
 enum PlaybackEnginePreferences {
   static let videoEngineKey = "nativeV2.playback.videoEngine"
   static let decodeModeKey = "nativeV2.playback.decodeMode"
