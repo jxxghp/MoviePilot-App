@@ -87,7 +87,6 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
 
   /// 登录后空闲 1.5 秒预热 1 个 `WKWebView` 壳，做到点开插件零冷启动延迟。
   func scheduleIdlePrewarm(delaySeconds: Double = 1.5) {
-    guard !PluginRuntimePreferences.useLegacyWebContainer else { return }
     guard idleSlot == nil else { return }
     prewarmTask?.cancel()
     prewarmTask = Task { [weak self] in
@@ -95,7 +94,6 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
         try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
       }
       guard !Task.isCancelled, let self else { return }
-      guard !PluginRuntimePreferences.useLegacyWebContainer else { return }
       if self.idleSlot == nil {
         let slot = self.createWarmingSlot()
         self.idleSlot = slot
@@ -141,7 +139,6 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
       && slot.isShellReady
       && slot.reuseCount < maxReusesPerSlot
       && idleSlot == nil
-      && !PluginRuntimePreferences.useLegacyWebContainer
 
     if canRecycle {
       slot.state = .warmIdle

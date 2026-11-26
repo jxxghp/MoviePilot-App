@@ -527,12 +527,6 @@ class NativeAppearanceStore(context: Context? = null) {
     var showAgentMascot by mutableStateOf(prefs?.getBoolean("show_agent_mascot", true) ?: true)
         private set
 
-    /** Vue 插件是否回退完整网页前端容器（默认关闭，使用本地预热极简联邦运行时）。 */
-    var useLegacyVuePluginContainer by mutableStateOf(
-        prefs?.getBoolean("use_legacy_vue_plugin_container", false) ?: false,
-    )
-        private set
-
     // 兼容旧属性读取
     val backgroundPresetId: String get() = paletteId
     val accentPresetId: String get() = paletteId
@@ -609,11 +603,6 @@ class NativeAppearanceStore(context: Context? = null) {
     fun updateShowAgentMascot(enabled: Boolean) {
         showAgentMascot = enabled
         prefs?.edit()?.putBoolean("show_agent_mascot", enabled)?.apply()
-    }
-
-    fun updateUseLegacyVuePluginContainer(enabled: Boolean) {
-        useLegacyVuePluginContainer = enabled
-        prefs?.edit()?.putBoolean("use_legacy_vue_plugin_container", enabled)?.apply()
     }
 
     fun updateBackgroundPreset(id: String) = updatePalette(id)

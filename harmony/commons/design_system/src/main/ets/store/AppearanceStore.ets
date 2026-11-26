@@ -145,7 +145,6 @@ export class HarmonyAppearanceStore {
   static readonly KEY_DYNAMIC_LIGHT = 'mp_dynamic_light';
   static readonly KEY_PURE_BLACK = 'mp_pure_black';
   static readonly KEY_SHOW_AI_MASCOT = 'mp_show_ai_mascot';
-  static readonly KEY_USE_LEGACY_VUE_PLUGIN = 'mp_use_legacy_vue_plugin';
   static readonly KEY_LOCALE = 'mp_locale';
   static readonly KEY_ALLOW_SELF_SIGNED = 'mp_allow_self_signed';
   static readonly KEY_WINDOW_WIDTH_VP = 'mp_window_width_vp';
@@ -174,7 +173,6 @@ export class HarmonyAppearanceStore {
     ensure<boolean>(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT, true);
     ensure<boolean>(HarmonyAppearanceStore.KEY_PURE_BLACK, false);
     ensure<boolean>(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT, true);
-    ensure<boolean>(HarmonyAppearanceStore.KEY_USE_LEGACY_VUE_PLUGIN, false);
     ensure<string>(HarmonyAppearanceStore.KEY_LOCALE, 'zh-CN');
     ensure<boolean>(HarmonyAppearanceStore.KEY_ALLOW_SELF_SIGNED, false);
     ensure<number>(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP, 412);
@@ -198,7 +196,6 @@ export class HarmonyAppearanceStore {
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT, true);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_PURE_BLACK, false);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT, true);
-    AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_USE_LEGACY_VUE_PLUGIN, false);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_LOCALE, 'zh-CN');
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_ALLOW_SELF_SIGNED, false);
     AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP, 412);
@@ -248,7 +245,6 @@ export class HarmonyAppearanceStore {
     snap['dynamicLight'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) ?? true;
     snap['animateBg'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_ANIMATE_BG) ?? true;
     snap['showAiMascot'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT) ?? true;
-    snap['useLegacyVuePlugin'] = AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_USE_LEGACY_VUE_PLUGIN) ?? false;
     snap['locale'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_LOCALE) ?? 'zh-CN';
     snap['discoverModules'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_DISCOVER_MODULES) ?? '';
     snap['dashboardModulesV3'] = AppStorage.get<string>(HarmonyAppearanceStore.KEY_DASHBOARD_MODULES) ?? '';
@@ -280,9 +276,6 @@ export class HarmonyAppearanceStore {
       }
       if (typeof rec['showAiMascot'] === 'boolean') {
         AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_SHOW_AI_MASCOT, rec['showAiMascot'] as boolean);
-      }
-      if (typeof rec['useLegacyVuePlugin'] === 'boolean') {
-        AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_USE_LEGACY_VUE_PLUGIN, rec['useLegacyVuePlugin'] as boolean);
       }
       if (typeof rec['locale'] === 'string' && (rec['locale'] as string).length > 0) {
         AppStorage.setOrCreate(HarmonyAppearanceStore.KEY_LOCALE, rec['locale'] as string);

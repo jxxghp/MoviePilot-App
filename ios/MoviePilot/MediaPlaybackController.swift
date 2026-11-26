@@ -1006,6 +1006,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private var currentLoadedSource: EngineMediaSource?
   private var didAutoFallbackEngine = false
   private var isSwitchingEngine = false
+  private var currentEngineFailed = false
 
   // MARK: - Video Surfaces & Overlays
   private let videoView = UIView()
@@ -1061,8 +1062,6 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   private let durationLabel = UILabel()
   private let loading = UIActivityIndicatorView(style: .large)
   private let titleLabel = UILabel()
-  private let engineBadgeLabel = UILabel()
-  private let routeBadgeLabel = UILabel()
   private let playButton = UIButton(type: .system)
   private let skipBackButton = UIButton(type: .system)
   private let skipForwardButton = UIButton(type: .system)
@@ -1521,50 +1520,19 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
     topBar.addArrangedSubview(titleLabel)
 
-    engineBadgeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-    engineBadgeLabel.textColor = .white
-    engineBadgeLabel.textAlignment = .center
-    engineBadgeLabel.backgroundColor = UIColor.white.withAlphaComponent(0.16)
-    engineBadgeLabel.layer.cornerRadius = 11
-    engineBadgeLabel.layer.cornerCurve = .continuous
-    engineBadgeLabel.layer.borderWidth = 0.7
-    engineBadgeLabel.layer.borderColor = UIColor.white.withAlphaComponent(0.28).cgColor
-    engineBadgeLabel.clipsToBounds = true
-    engineBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
-    engineBadgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-    engineBadgeLabel.accessibilityIdentifier = "playback-engine-badge"
-    engineBadgeLabel.isHidden = true
-    topBar.addArrangedSubview(engineBadgeLabel)
-
-    routeBadgeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-    routeBadgeLabel.textColor = .white
-    routeBadgeLabel.textAlignment = .center
-    routeBadgeLabel.layer.cornerRadius = 11
-    routeBadgeLabel.layer.cornerCurve = .continuous
-    routeBadgeLabel.layer.borderWidth = 0.7
-    routeBadgeLabel.clipsToBounds = true
-    routeBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
-    routeBadgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-    routeBadgeLabel.accessibilityIdentifier = "playback-route-badge"
-    routeBadgeLabel.isHidden = true
-    topBar.addArrangedSubview(routeBadgeLabel)
-    NSLayoutConstraint.activate([
-      engineBadgeLabel.heightAnchor.constraint(equalToConstant: 22),
-      routeBadgeLabel.heightAnchor.constraint(equalToConstant: 22),
-    ])
-
     if isAudioPlayback {
       let moreButton = UIButton(type: .system)
       configureMusicCircleButton(
         moreButton, symbol: "ellipsis", accessibility: L10n.text("更多播放选项"), diameter: 40,
         pointSize: 16, primary: false)
       moreButton.accessibilityIdentifier = "music-playback-more"
+      moreButton.accessibilityValue = activeEngineKind.rawValue
       moreButton.showsMenuAsPrimaryAction = true
       playbackMenuButton = moreButton
       moreButton.menu = makeMusicMenu()
       topBar.addArrangedSubview(fixedSquareControl(moreButton, diameter: 40))
     } else {
-      // 视频模式右上角精简为两个玻璃按钮：小屏播放（画中画）与更多菜单（折叠字幕、音轨、画面比例、倍速等所有剩余项）。
+      // 视频模式右上角精简为玻璃按钮组（内核名称与是否直流播放统一收折进「…」弹出菜单，完整保留标题展示空间）。
       let topButtonDiameter: CGFloat = 40
       let topButtonPointSize: CGFloat = 16
 
@@ -1590,6 +1558,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         videoMoreButton, symbol: "ellipsis", accessibility: L10n.text("更多播放选项"),
         diameter: topButtonDiameter, pointSize: topButtonPointSize)
       videoMoreButton.accessibilityIdentifier = "video-playback-more"
+      videoMoreButton.accessibilityValue = activeEngineKind.rawValue
       videoMoreButton.showsMenuAsPrimaryAction = true
       playbackMenuButton = videoMoreButton
       videoMoreButton.menu = makePlaybackMenu()
@@ -1827,8 +1796,26 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       )
       elements.append(danmakuMenu)
     }
-    elements.append(contentsOf: [aspectAction, speedMenu, engineMenu, externalAction])
+    elements.append(contentsOf: [aspectAction, speedMenu, engineMenu])
+    if let routeInfo = makePlaybackRouteMenuElement() {
+      elements.append(routeInfo)
+    }
+    elements.append(externalAction)
     return elements
+  }
+
+  /// 构造右上角弹出菜单中的当前播放方式说明（直流播放 / 非直流播放与具体链路），不占用顶部标题栏空间。
+  private func makePlaybackRouteMenuElement() -> UIMenuElement? {
+    guard manifest.server != nil, let kind = activeRoute?.kind else { return nil }
+    let isDirect = kind != .mpProxy
+    let modeText = isDirect ? L10n.text("直流播放") : L10n.text("非直流播放")
+    let routeText = L10n.text(kind.labelKey)
+    return UIAction(
+      title: L10n.text("播放方式"),
+      subtitle: "\(modeText) · \(routeText)",
+      image: UIImage(systemName: isDirect ? "bolt.horizontal.circle" : "arrow.triangle.branch"),
+      attributes: .disabled
+    ) { _ in }
   }
 
   /// 构造播放内核一键热切换二级菜单，保留当前进度且不向媒体服务器发送 `stopped`。
@@ -1883,7 +1870,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   /// 统一构造视频与音频共享的播放速度二级下拉菜单。
   private func makeSpeedSubmenu() -> UIMenu {
     let maxRate = engine?.capabilities.maxRate ?? 2.0
-    let rates: [Float] = maxRate >= 3.0 ? [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0] : [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    let rates: [Float] =
+      maxRate >= 3.0
+      ? [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0] : [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
     let items = rates.map { rate in
       let label = rate == 1.0 ? L10n.text("正常速度 (1.0x)") : "\(rate.formatted())x"
       return UIAction(
@@ -1927,8 +1916,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
         attributes: .destructive
       ) { [weak self] _ in self?.dismissPlayback() }
       var children: [UIMenuElement] = [
-        lyricsAction, self.makeSpeedSubmenu(), self.makeEngineSubmenu(), stopAction,
+        lyricsAction, self.makeSpeedSubmenu(), self.makeEngineSubmenu(),
       ]
+      if let routeInfo = self.makePlaybackRouteMenuElement() {
+        children.append(routeInfo)
+      }
+      children.append(stopAction)
       if self.queue.count > 1 {
         let queueAction = UIAction(
           title: L10n.text("播放队列"), image: UIImage(systemName: "list.bullet")
@@ -2881,6 +2874,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     self.engine = newEngine
     self.activeEngineKind = kind
     self.currentLoadedSource = source
+    self.currentEngineFailed = false
     self.updateEngineBadge()
 
     if !isAudioPlayback {
@@ -2929,8 +2923,13 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     guard !closed, let source = currentLoadedSource else { return }
     guard targetKind != activeEngineKind || pendingSubtitleFile != nil else { return }
     let capturedPosition = max(lastObservedPositionMs, engine?.currentTimeMs ?? 0)
-    let shouldPlay = (engine?.isPlaying ?? true) || !hasPlayedCurrentItem || isSwitchingEngine
+    let shouldPlay =
+      (engine?.isPlaying ?? true) || !hasPlayedCurrentItem || isSwitchingEngine
+      || currentEngineFailed
+    routeFallbackTask?.cancel()
+    routeFallbackTask = nil
     isSwitchingEngine = true
+    currentEngineFailed = false
     appliedDefaultRate = false
     loading.startAnimating()
     do {
@@ -2967,54 +2966,19 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 返回顶栏紧凑胶囊展示的内核短名。
-  private func engineShortLabel(_ kind: ResolvedPlaybackEngine) -> String {
-    switch kind {
-    case .native: return "AVPlayer"
-    case .enhanced: return "MPV"
-    case .legacy: return "VLC"
-    }
-  }
-
-  /// 刷新顶栏内核徽标。
+  /// 同步右上角更多菜单的当前播放内核无障碍状态与动态菜单项。
   private func updateEngineBadge() {
-    engineBadgeLabel.text = "  \(engineShortLabel(activeEngineKind))  "
-    engineBadgeLabel.accessibilityLabel = L10n.format(
-      "内核：%@", engineDisplayName(activeEngineKind))
-    engineBadgeLabel.accessibilityValue = activeEngineKind.rawValue
-    switch activeEngineKind {
-    case .native:
-      engineBadgeLabel.backgroundColor = UIColor.systemTeal.withAlphaComponent(0.28)
-      engineBadgeLabel.layer.borderColor = UIColor.systemTeal.withAlphaComponent(0.55).cgColor
-    case .enhanced:
-      engineBadgeLabel.backgroundColor = UIColor.systemIndigo.withAlphaComponent(0.32)
-      engineBadgeLabel.layer.borderColor = UIColor.systemIndigo.withAlphaComponent(0.60).cgColor
-    case .legacy:
-      engineBadgeLabel.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.26)
-      engineBadgeLabel.layer.borderColor = UIColor.systemOrange.withAlphaComponent(0.52).cgColor
-    }
-    engineBadgeLabel.isHidden = false
+    videoMoreButton.accessibilityValue = activeEngineKind.rawValue
+    playbackMenuButton?.accessibilityValue = activeEngineKind.rawValue
   }
 
-  /// 刷新顶部控制栏中的轻量路由角标（`局域网直连` / `外网直连` / `STRM 直链` / `后台中转`）。
+  /// 同步右上角更多菜单中的当前播放方式状态。
   private func updateRouteBadge() {
-    guard manifest.server != nil, let kind = activeRoute?.kind else {
-      routeBadgeLabel.isHidden = true
-      return
+    if isAudioPlayback {
+      playbackMenuButton?.menu = makeMusicMenu()
+    } else {
+      videoMoreButton.menu = makePlaybackMenu()
     }
-    routeBadgeLabel.text = "  \(L10n.text(kind.labelKey))  "
-    switch kind {
-    case .serverLan:
-      routeBadgeLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.28)
-      routeBadgeLabel.layer.borderColor = UIColor.systemGreen.withAlphaComponent(0.55).cgColor
-    case .serverWan, .strmDirect:
-      routeBadgeLabel.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.28)
-      routeBadgeLabel.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.55).cgColor
-    case .mpProxy:
-      routeBadgeLabel.backgroundColor = UIColor.white.withAlphaComponent(0.16)
-      routeBadgeLabel.layer.borderColor = UIColor.white.withAlphaComponent(0.28).cgColor
-    }
-    routeBadgeLabel.isHidden = false
   }
 
   /// 创建片尾自动播放下一集悬浮玻璃倒计时浮层（仅视频剧集队列使用）。
@@ -3160,6 +3124,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     case .playing:
       hasPlayedCurrentItem = true
       isSwitchingEngine = false
+      currentEngineFailed = false
       loading.stopAnimating()
       applyDefaultRateIfNeeded()
       applyTrackPreferencesIfReady()
@@ -3176,24 +3141,29 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 两级错误自愈：格式/解码不兼容优先自动切至回退内核，网络/鉴权失败优先沿直连->代理回退。
+  /// 两级错误自愈：格式/解码不兼容优先自动切至回退内核，网络/鉴权失败优先沿直连->代理回退；全部耗尽时明确提示并允许点击播放键重新拉流。
   private func handleEngineError(_ errorKind: PlaybackEngineErrorKind) {
     let currentPos = max(lastObservedPositionMs, engine?.currentTimeMs ?? 0)
+    let fallbackCandidate: ResolvedPlaybackEngine? =
+      enginePlan?.fallback ?? (activeEngineKind == .native ? .enhanced : nil)
+    let isFormatOrDecoderFailure =
+      errorKind == .unsupportedFormat || errorKind == .decoderFailure
     let canAutoFallbackEngine =
-      PlaybackEnginePreferences.videoEngine == .auto
-      && !didAutoFallbackEngine
+      !didAutoFallbackEngine
       && currentPos <= 3_000
-      && enginePlan?.fallback != nil
-      && enginePlan?.fallback != activeEngineKind
+      && fallbackCandidate != nil
+      && fallbackCandidate != activeEngineKind
+      && (PlaybackEnginePreferences.videoEngine == .auto
+        || (activeEngineKind == .native && isFormatOrDecoderFailure))
 
-    if (errorKind == .unsupportedFormat || errorKind == .decoderFailure),
+    if isFormatOrDecoderFailure,
       canAutoFallbackEngine,
-      let fallbackKind = enginePlan?.fallback
+      let fallbackKind = fallbackCandidate
     {
       didAutoFallbackEngine = true
       switchEngine(
         to: fallbackKind,
-        reasonMessage: L10n.text("当前格式不兼容，已自动切换全能内核")
+        reasonMessage: L10n.format("当前格式不兼容，已自动切换至 %@", engineDisplayName(fallbackKind))
       )
       return
     }
@@ -3202,12 +3172,30 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       return
     }
 
-    if canAutoFallbackEngine, let fallbackKind = enginePlan?.fallback {
+    if canAutoFallbackEngine, let fallbackKind = fallbackCandidate {
       didAutoFallbackEngine = true
       switchEngine(
         to: fallbackKind,
-        reasonMessage: L10n.text("当前格式不兼容，已自动切换全能内核")
+        reasonMessage: L10n.format("当前格式不兼容，已自动切换至 %@", engineDisplayName(fallbackKind))
       )
+      return
+    }
+
+    finalizePlaybackLoadFailure()
+  }
+
+  /// 所有路由与内核自动回退均失败后结束缓冲态，展示可读错误提示并标记下次点按播放键重新加载流。
+  private func finalizePlaybackLoadFailure() {
+    guard !closed else { return }
+    currentEngineFailed = true
+    isSwitchingEngine = false
+    loading.stopAnimating()
+    refreshPlaybackState()
+    if !isAudioPlayback {
+      showControls()
+    }
+    if presentedViewController == nil {
+      showError(L10n.text("无法加载当前媒体流，请检查网络连接或在右上角菜单中切换播放内核重试。"))
     }
   }
 
@@ -3405,7 +3393,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       server: server,
       mediaSourceId: manifest.mediaSourceId,
       decision: decision,
-      playSessionId: syncState.playSessionId.isEmpty ? manifest.playSessionId : syncState.playSessionId,
+      playSessionId: syncState.playSessionId.isEmpty
+        ? manifest.playSessionId : syncState.playSessionId,
       durationMs: duration > 0 ? duration : nil,
       playMethod: "DirectPlay",
       audioStreamIndex: audioIdx,
@@ -3453,6 +3442,21 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
             continue
           }
         }
+        guard !Task.isCancelled, !self.closed, !self.hasPlayedCurrentItem else { return }
+        if !self.didAutoFallbackEngine,
+          let fallbackKind = self.enginePlan?.fallback
+            ?? (self.activeEngineKind == .native ? .enhanced : nil),
+          fallbackKind != self.activeEngineKind,
+          PlaybackEnginePreferences.videoEngine == .auto
+        {
+          self.didAutoFallbackEngine = true
+          self.switchEngine(
+            to: fallbackKind,
+            reasonMessage: L10n.format("当前格式不兼容，已自动切换至 %@", self.engineDisplayName(fallbackKind))
+          )
+          return
+        }
+        self.finalizePlaybackLoadFailure()
       }
       return true
     }
@@ -3498,9 +3502,10 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
       throw MediaPlaybackError.unavailable
     }
-    let safeExternal = manifest.flatMap {
-      ExternalPlayerLauncher.safeExternalURL(for: $0, activeURL: url)
-    } ?? (PlaybackRoutePlanner.isSafeHttpURL(url.absoluteString) ? url : nil)
+    let safeExternal =
+      manifest.flatMap {
+        ExternalPlayerLauncher.safeExternalURL(for: $0, activeURL: url)
+      } ?? (PlaybackRoutePlanner.isSafeHttpURL(url.absoluteString) ? url : nil)
     return EngineMediaSource(
       url: url,
       headers: customHeaders,
@@ -3543,7 +3548,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     guard needsArt || needsLyrics || looksLikeRawFilename else { return }
 
     let targetURL = activeRoute.flatMap { URL(string: $0.url) } ?? manifest.contentUrl
-    let customHeaders = (activeRoute?.headers.isEmpty == false ? activeRoute?.headers : nil) ?? manifest.customHeaders
+    let customHeaders =
+      (activeRoute?.headers.isEmpty == false ? activeRoute?.headers : nil) ?? manifest.customHeaders
     let currentClient = client
 
     embeddedMetadataTask?.cancel()
@@ -3572,13 +3578,15 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
       // 3. 若曲名为原始文件名或缺少艺人/专辑，使用内嵌标签补齐展示与锁屏信息
       var metadataChanged = false
-      if Self.isRawAudioFilename(self.displayTitle), let tagTitle = parsed.title, !tagTitle.isEmpty {
+      if Self.isRawAudioFilename(self.displayTitle), let tagTitle = parsed.title, !tagTitle.isEmpty
+      {
         self.displayTitle = tagTitle
         self.musicTitleLabel.text = tagTitle
         self.musicMiniTitleLabel.text = tagTitle
         metadataChanged = true
       }
-      let existingArtist = self.manifest.artist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      let existingArtist =
+        self.manifest.artist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       let existingAlbum = self.manifest.album?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       if existingArtist.isEmpty || existingAlbum.isEmpty {
         let resolvedArtist = existingArtist.isEmpty ? (parsed.artist ?? "") : existingArtist
@@ -3602,7 +3610,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
   }
 
   private static func isRawAudioFilename(_ title: String) -> Bool {
-    let ext = (title.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).pathExtension.lowercased()
+    let ext = (title.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).pathExtension
+      .lowercased()
     guard !ext.isEmpty else { return false }
     return PlayableMediaFormat.isAudioExtension(ext)
   }
@@ -3645,7 +3654,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
           !head.isEmpty
         else { return nil }
         var parsed = AudioEmbeddedMetadataParser.parse(head: head)
-        if let needed = parsed.neededHeadBytes, needed > UInt64(head.count), fileSize > UInt64(head.count) {
+        if let needed = parsed.neededHeadBytes, needed > UInt64(head.count),
+          fileSize > UInt64(head.count)
+        {
           let target = min(Int(fileSize), min(Int(needed), maxHead))
           if target > head.count {
             try? handle.seek(toOffset: UInt64(head.count))
@@ -3659,7 +3670,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
           let tailLen = min(fileSize, max(neededTail, UInt64(tailWindow)))
           let startOff = fileSize - tailLen
           try? handle.seek(toOffset: startOff)
-          if let tail = try? handle.read(upToCount: Int(min(tailLen, 2 * 1024 * 1024))), !tail.isEmpty {
+          if let tail = try? handle.read(upToCount: Int(min(tailLen, 2 * 1024 * 1024))),
+            !tail.isEmpty
+          {
             parsed = AudioEmbeddedMetadataParser.parse(head: head, tail: tail)
           }
         }
@@ -3671,9 +3684,12 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       return nil
     }
 
-    func fetchRange(_ start: Int64, _ end: Int64) async -> (data: Data, totalSize: Int64?, isPartial: Bool)? {
+    func fetchRange(_ start: Int64, _ end: Int64) async -> (
+      data: Data, totalSize: Int64?, isPartial: Bool
+    )? {
       if let client {
-        return await client.fetchByteRange(url, start: start, endInclusive: end, customHeaders: customHeaders)
+        return await client.fetchByteRange(
+          url, start: start, endInclusive: end, customHeaders: customHeaders)
       }
       var req = URLRequest(url: url)
       req.httpMethod = "GET"
@@ -3689,7 +3705,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       else { return nil }
       let isPartial = http.statusCode == 206
       var total: Int64?
-      if let cr = http.value(forHTTPHeaderField: "Content-Range"), let slash = cr.lastIndex(of: "/") {
+      if let cr = http.value(forHTTPHeaderField: "Content-Range"), let slash = cr.lastIndex(of: "/")
+      {
         total = Int64(cr[cr.index(after: slash)...].trimmingCharacters(in: .whitespacesAndNewlines))
       }
       return (data, total, isPartial)
@@ -4134,7 +4151,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       reportPlaybackEvent(.tick, positionOverrideMs: current, isPausedOverride: false)
     } else if hasPlayedCurrentItem && !resumeDecisionPending {
       // 暂停态也持续由状态机驱动 12s 保活心跳及 15 分钟自动释放会话
-      reportPlaybackEvent(.tick, positionOverrideMs: current > 0 ? current : lastObservedPositionMs, isPausedOverride: true)
+      reportPlaybackEvent(
+        .tick, positionOverrideMs: current > 0 ? current : lastObservedPositionMs,
+        isPausedOverride: true)
     }
 
     if !isAudioPlayback {
@@ -4259,7 +4278,22 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       reportPlaybackEvent(.pause, isPausedOverride: true)
     } else {
       cancelUpNextCountdown(markDismissed: false)
-      engine?.play()
+      if currentEngineFailed, let source = currentLoadedSource {
+        loading.startAnimating()
+        do {
+          try activateEngine(
+            kind: activeEngineKind,
+            source: source,
+            startPositionMs: lastObservedPositionMs,
+            autoPlay: true
+          )
+        } catch {
+          finalizePlaybackLoadFailure()
+          return
+        }
+      } else {
+        engine?.play()
+      }
       reportPlaybackEvent(.resume, isPausedOverride: false)
     }
     refreshPlaybackState()
@@ -4271,7 +4305,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     guard engine?.isSeekable == true else { return }
     let current = engine?.currentTimeMs ?? 0
     let duration = max(0, engine?.durationMs ?? 0)
-    let target = duration > 0 ? min(duration, max(0, current + seconds * 1000)) : max(0, current + seconds * 1000)
+    let target =
+      duration > 0
+      ? min(duration, max(0, current + seconds * 1000)) : max(0, current + seconds * 1000)
     engine?.seek(toMs: target)
     lastObservedPositionMs = target
     reportPlaybackEvent(.seek, positionOverrideMs: target)
@@ -4476,7 +4512,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
           self.activeRoute = target.route
           self.remainingFallbackRoutes = nextManifest.fallbackRoutes
         } else {
-          let nextURL = nextManifest.preferredPlaybackURL(strmDirectEnabled: self.isStrmDirectEnabled)
+          let nextURL = nextManifest.preferredPlaybackURL(
+            strmDirectEnabled: self.isStrmDirectEnabled)
           nextSource = try client.makeEngineSource(
             url: nextURL, customHeaders: nextManifest.customHeaders, manifest: nextManifest)
           self.activeRoute = nil
@@ -4972,7 +5009,9 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     let alert = UIAlertController(
       title: L10n.text("播放速度"), message: nil, preferredStyle: .actionSheet)
     let maxRate = engine?.capabilities.maxRate ?? 2.0
-    let rates: [Float] = maxRate >= 3.0 ? [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0] : [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    let rates: [Float] =
+      maxRate >= 3.0
+      ? [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0] : [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
     for rate in rates {
       let label = rate == 1.0 ? L10n.text("正常速度 (1.0x)") : "\(rate.formatted())x"
       let prefix = abs(rate - currentPlaybackRate) < 0.01 ? "✓ " : ""
@@ -5164,7 +5203,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     let symbol = danmakuPrefs.enabled ? "text.bubble.fill" : "text.bubble"
     if var cfg = danmakuToggleButton.configuration {
       cfg.image = UIImage(systemName: symbol)
-      cfg.baseForegroundColor = danmakuPrefs.enabled ? .white : UIColor.white.withAlphaComponent(0.55)
+      cfg.baseForegroundColor =
+        danmakuPrefs.enabled ? .white : UIColor.white.withAlphaComponent(0.55)
       danmakuToggleButton.configuration = cfg
     } else {
       danmakuToggleButton.setImage(

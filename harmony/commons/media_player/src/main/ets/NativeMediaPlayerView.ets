@@ -229,6 +229,7 @@ export struct NativeMediaPlayerView {
   private videoPlayer: media.AVPlayer | null = null;
   private openedVideoFd: OpenedLocalMediaFd | null = null;
   private videoLoadGeneration: number = 0;
+  private videoLoadFailed: boolean = false;
   private controlsHideTimer: number = -1;
   private videoProgressTimer: number = -1;
   private interruptedVideoWhilePlaying: boolean = false;
@@ -737,59 +738,12 @@ export struct NativeMediaPlayerView {
     this.clearUpNextTimer();
   }
 
-  private routeBadgeLabel(): string {
-    if (this.activeRouteKind === 'server_lan') { return '局域网直连'; }
-    if (this.activeRouteKind === 'server_wan') { return '外网直连'; }
-    if (this.activeRouteKind === 'strm_direct') { return 'STRM 直链'; }
-    if (this.activeRouteKind === 'mp_proxy') { return '后台中转'; }
+  private routeSummaryLabel(): string {
+    if (this.activeRouteKind === 'server_lan') { return '直流播放 · 局域网直连'; }
+    if (this.activeRouteKind === 'server_wan') { return '直流播放 · 外网直连'; }
+    if (this.activeRouteKind === 'strm_direct') { return '直流播放 · STRM 直链'; }
+    if (this.activeRouteKind === 'mp_proxy') { return '非直流播放 · 后台中转'; }
     return '';
-  }
-
-  private routeBadgeBgColor(): string {
-    if (this.activeRouteKind === 'server_lan') { return '#4716A34A'; }
-    if (this.activeRouteKind === 'server_wan' || this.activeRouteKind === 'strm_direct') { return '#470284C7'; }
-    return '#29FFFFFF';
-  }
-
-  private routeBadgeBorderColor(): string {
-    if (this.activeRouteKind === 'server_lan') { return '#8A4ADE80'; }
-    if (this.activeRouteKind === 'server_wan' || this.activeRouteKind === 'strm_direct') { return '#8A38BDF8'; }
-    return '#47FFFFFF';
-  }
-
-  @Builder
-  private routeBadgePill() {
-    Text(this.routeBadgeLabel())
-      .fontSize(11)
-      .fontWeight(FontWeight.Medium)
-      .fontColor(Color.White)
-      .maxLines(1)
-      .padding({ left: 9, right: 9, top: 3, bottom: 3 })
-      .borderRadius(999)
-      .backgroundColor(this.routeBadgeBgColor())
-      .border({ width: 0.75, color: this.routeBadgeBorderColor() })
-  }
-
-  private engineShortLabel(): string {
-    return this.activeEngineKind === 'enhanced' ? 'IJK 增强' : 'AVPlayer';
-  }
-
-  @Builder
-  private engineBadgePill() {
-    Text(this.engineShortLabel())
-      .fontSize(11)
-      .fontWeight(FontWeight.Medium)
-      .fontColor(Color.White)
-      .maxLines(1)
-      .padding({ left: 9, right: 9, top: 3, bottom: 3 })
-      .borderRadius(999)
-      .backgroundColor(this.activeEngineKind === 'enhanced' ? '#526366F1' : '#470D9488')
-      .border({
-        width: 0.75,
-        color: this.activeEngineKind === 'enhanced' ? '#8FA5B4FC' : '#8A2DD4BF'
-      })
-      .accessibilityText(`当前内核${this.engineShortLabel()}，点击切换`)
-      .onClick(() => this.openSheet('engine'))
   }
 
   /** 播放器内一键热切换内核：保留当前进度与 `play_session_id`，绝不向媒体服务器发送 `stopped`。 */
@@ -897,6 +851,7 @@ export struct NativeMediaPlayerView {
     const gen = ++this.videoLoadGeneration;
     const isHotSwitch = this.suppressStopForEngineSwitch;
     this.suppressStopForEngineSwitch = false;
+    this.videoLoadFailed = false;
     this.releaseVideoPlayerResources();
     if (!isHotSwitch) {
       this.didAutoFallbackEngine = false;
@@ -1042,9 +997,11 @@ export struct NativeMediaPlayerView {
             this.switchVideoEngine('native', '已自动切换至 AVPlayer 原生内核');
             return;
           }
+          this.videoLoadFailed = true;
           this.isBuffering = false;
           this.isPlaying = false;
           this.stopVideoProgressTimer();
+          this.showTransientHud('xmark', '无法加载当前媒体流，请在右上角菜单切换内核重试');
         }
       });
       return;
@@ -1132,15 +1089,17 @@ export struct NativeMediaPlayerView {
           if (this.tryFallbackVideoRoute(req)) {
             return;
           }
-          if (PlaybackPreferencesStore.getVideoEngine() === 'auto' && !this.didAutoFallbackEngine) {
+          if (!this.didAutoFallbackEngine) {
             this.didAutoFallbackEngine = true;
-            this.switchVideoEngine('enhanced', '当前格式不兼容，已自动切换全能内核');
+            this.switchVideoEngine('enhanced', '当前格式不兼容，已自动切换至 IJK 增强内核');
             return;
           }
         }
+        this.videoLoadFailed = true;
         this.isBuffering = false;
         this.isPlaying = false;
         this.stopVideoProgressTimer();
+        this.showTransientHud('xmark', '无法加载当前媒体流，请在右上角菜单切换内核重试');
       });
 
       player.on('stateChange', (state: string) => {
@@ -1625,6 +1584,10 @@ export struct NativeMediaPlayerView {
   private handleTogglePlay(): void {
     if (this.request.isAudio) {
       HarmonyAudioSession.shared().togglePlayPause();
+      return;
+    }
+    if (!this.isPlaying && this.videoLoadFailed) {
+      this.initVideoPlayer(this.activeVideoReq, this.positionMs, this.activeEngineKind).catch(() => {});
       return;
     }
     this.setVideoPlaying(!this.isPlaying);
@@ -2330,9 +2293,6 @@ export struct NativeMediaPlayerView {
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .padding({ left: 28, right: 28 })
               }
-              if (this.activeRouteServer.length > 0 && this.routeBadgeLabel().length > 0) {
-                this.routeBadgePill()
-              }
             }
 
             if (this.activeLyricIdx >= 0 && this.activeLyricIdx < this.lyricCues.length) {
@@ -2504,7 +2464,7 @@ export struct NativeMediaPlayerView {
               : (this.activeSheetKind === 'speed'
                 ? '播放倍速'
                 : (this.activeSheetKind === 'engine'
-                  ? '切换播放内核'
+                  ? '更多播放选项'
                   : (this.activeSheetKind === 'danmakuSettings'
                     ? '弹幕设置'
                     : (this.activeSheetKind === 'danmakuMatch'
@@ -2748,6 +2708,23 @@ export struct NativeMediaPlayerView {
         .padding({ left: 16, right: 16, bottom: 20 })
       } else if (this.activeSheetKind === 'engine') {
         Column({ space: 10 }) {
+          if (this.activeRouteServer.length > 0 && this.routeSummaryLabel().length > 0) {
+            Row() {
+              Text('播放方式')
+                .fontSize(13.5)
+                .fontColor('#99FFFFFF')
+                .layoutWeight(1)
+              Text(this.routeSummaryLabel())
+                .fontSize(13.5)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Color.White)
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+            .borderRadius(14)
+            .backgroundColor('#18FFFFFF')
+          }
+
           Text('切换内核时自动保留当前进度且不中断媒体服务器正在播放状态')
             .fontSize(12)
             .fontColor('#99FFFFFF')
@@ -3536,12 +3513,6 @@ export struct NativeMediaPlayerView {
               .layoutWeight(1)
               .alignItems(HorizontalAlign.Start)
 
-              this.engineBadgePill()
-
-              if (this.activeRouteServer.length > 0 && this.routeBadgeLabel().length > 0) {
-                this.routeBadgePill()
-              }
-
               if (this.pipSupported && this.activeEngineKind === 'native') {
                 Stack() {
                   SymbolGlyph($r('sys.symbol.dual_view_PIP'))
@@ -3569,6 +3540,18 @@ export struct NativeMediaPlayerView {
               .backgroundColor('#55000000')
               .accessibilityText(this.effectiveLandscape() ? '切换竖屏播放' : '切换横屏全屏播放')
               .onClick(() => this.handleToggleFullscreenOrientation())
+
+              Stack() {
+                SymbolGlyph($r('sys.symbol.dot_grid_2x2'))
+                  .fontSize(19)
+                  .fontColor([Color.White])
+              }
+              .width(38)
+              .height(38)
+              .borderRadius(19)
+              .backgroundColor('#55000000')
+              .accessibilityText('更多播放选项')
+              .onClick(() => this.openSheet('engine'))
             }
             .width('100%')
             .padding({

@@ -51,6 +51,7 @@
     <string name="mp_1883b092" formatted="false">%1$s，页内分类</string>
     <string name="mp_18b1353a" formatted="false">请输入服务根地址，不要包含查询参数或 # 后的页面路径。</string>
     <string name="mp_1911c530" formatted="false">媒体数据源</string>
+    <string name="mp_1928ecc1" formatted="false">非直流播放</string>
     <string name="mp_195212d5" formatted="false">删除服务</string>
     <string name="mp_1955f6f3" formatted="false">清除选择</string>
     <string name="mp_199d45f0" formatted="false">续期</string>
@@ -212,6 +213,7 @@
     <string name="mp_6_e478600e" formatted="false">请输入身份验证器中的 6 位验证码。</string>
     <string name="mp_6ab2e222" formatted="false">鉴权方式</string>
     <string name="mp_6b576e0f" formatted="false">请输入用户名和密码。</string>
+    <string name="mp_6b7f2134" formatted="false">当前格式不兼容，已自动切换至 %1$s</string>
     <string name="mp_6ba4b7be" formatted="false">继续观看？</string>
     <string name="mp_6c14bd7f" formatted="false">关闭</string>
     <string name="mp_6c85e1de" formatted="false">解码模式</string>
@@ -413,6 +415,7 @@
     <string name="mp_d171944c" formatted="false">发送测试通知</string>
     <string name="mp_d19e8611" formatted="false">音轨</string>
     <string name="mp_d1edda3e" formatted="false">启用当前账号</string>
+    <string name="mp_d1ef28a0" formatted="false">无法加载当前媒体流，请检查网络连接或在右上角菜单中切换播放内核重试。</string>
     <string name="mp_d2052a57" formatted="false">当前账号没有此操作权限。</string>
     <string name="mp_d2ee63ce" formatted="false">两次输入的密码不一致。</string>
     <string name="mp_d30fc804" formatted="false">长按可查看操作</string>
@@ -447,6 +450,7 @@
     <string name="mp_e10994d9" formatted="false">未能完成通行密钥验证，请重新尝试。</string>
     <string name="mp_e1119ef7" formatted="false">资源与媒体流转</string>
     <string name="mp_e188ebca" formatted="false">起点</string>
+    <string name="mp_e2a97512" formatted="false">直流播放</string>
     <string name="mp_e3526937" formatted="false">星期</string>
     <string name="mp_e39b02ad" formatted="false">目录映射与刮削</string>
     <string name="mp_e3a58614" formatted="false">关键词屏蔽</string>
@@ -514,6 +518,7 @@
     <string name="mp_fd60ff58" formatted="false">消息推送配置</string>
     <string name="mp_fd900500" formatted="false">简繁转换</string>
     <string name="mp_fdad07e6" formatted="false">下载速度 %1$s，上传速度 %2$s</string>
+    <string name="mp_fdc1bfa5" formatted="false">播放方式</string>
     <string name="mp_fe33307a" formatted="false">媒体</string>
     <string name="mp_fe84e2eb" formatted="false">视频画面</string>
     <string name="mp_fea82dd2" formatted="false">清空表达式</string>

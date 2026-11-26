@@ -2,16 +2,6 @@ import Foundation
 import SwiftUI
 import UIKit
 
-/// Vue 联邦插件本地预热运行时偏好配置。
-enum PluginRuntimePreferences {
-  static let useLegacyWebContainerKey = "nativeV2.plugin.useLegacyWebContainer"
-
-  static var useLegacyWebContainer: Bool {
-    get { UserDefaults.standard.bool(forKey: useLegacyWebContainerKey) }
-    set { UserDefaults.standard.set(newValue, forKey: useLegacyWebContainerKey) }
-  }
-}
-
 /// 后端 `/api/v1/plugin/remotes` 返回的单个联邦远程入口描述。
 struct PluginRemoteDescriptor: Decodable, Equatable, Sendable {
   let id: String

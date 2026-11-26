@@ -31,7 +31,6 @@ struct NativePluginDataPageView: View {
   @State private var reloadToken = 0
   @State private var actionFeedback: String?
   @State private var actionIsError = false
-  @State private var showsVueSheet = false
   @State private var showsWebStyleSheet = false
   @State private var settingsPlugin: NativeInstalledPlugin?
   @State private var isSettingsPresented = false
@@ -40,24 +39,14 @@ struct NativePluginDataPageView: View {
   var body: some View {
     ZStack {
       CinematicBackground()
-      if renderMode.lowercased() == "vue", let navKey {
+      if renderMode.lowercased() == "vue" {
         NativeVuePluginWebContainer(
           session: session,
           pluginID: pluginID,
           pluginName: pluginName,
-          surface: .appPage(navKey: navKey)
+          surface: navKey.map { .appPage(navKey: $0) } ?? .dataPage
         )
         .ignoresSafeArea(edges: .bottom)
-      } else if renderMode.lowercased() == "vue" {
-        VStack(spacing: 14) {
-          ProgressView("正在打开插件弹窗…")
-            .tint(.primary)
-          Button("重新打开插件界面") {
-            showsVueSheet = true
-          }
-          .buttonStyle(.borderedProminent)
-          .tint(NativeTheme.brand)
-        }
       } else {
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
@@ -182,14 +171,6 @@ struct NativePluginDataPageView: View {
         reloadToken += 1
       }
     }
-    .sheet(isPresented: $showsVueSheet, onDismiss: { dismiss() }) {
-      NativeVuePluginSheet(
-        session: session,
-        pluginID: pluginID,
-        pluginName: pluginName,
-        surface: .dataPage
-      )
-    }
     .sheet(isPresented: $showsWebStyleSheet, onDismiss: { reloadToken += 1 }) {
       // 原生无法完整还原插件自定义样式（CSS 网格、状态矩阵等）时，以前端真实渲染的数据弹窗查看。
       NativeVuePluginSheet(
@@ -198,11 +179,6 @@ struct NativePluginDataPageView: View {
         pluginName: pluginName,
         surface: .dataPage
       )
-    }
-    .onChange(of: renderMode) { mode in
-      if mode.lowercased() == "vue", navKey == nil {
-        showsVueSheet = true
-      }
     }
     .task(id: reloadToken) {
       if navKey != nil {
@@ -1420,15 +1396,13 @@ struct NativeVuePluginWebContainer: View {
 
   @Environment(\.colorScheme) private var colorScheme
   @ObservedObject private var appearance = NativeAppearanceStore.shared
-  @AppStorage(PluginRuntimePreferences.useLegacyWebContainerKey)
-  private var useLegacyWebContainer = false
   @State private var fallbackToLegacy = false
   @State private var launchConfig: VuePluginLaunchConfig?
   @State private var isWebLoading = true
   @State private var loadError: String?
 
   private var prefersLocalRuntime: Bool {
-    !useLegacyWebContainer && !fallbackToLegacy
+    !fallbackToLegacy
   }
 
   private var showsLoader: Bool {

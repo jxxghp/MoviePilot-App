@@ -51,6 +51,7 @@
     <string name="mp_1883b092" formatted="false">%1$s, page categories</string>
     <string name="mp_18b1353a" formatted="false">Enter the server root address without query parameters or a page path after #.</string>
     <string name="mp_1911c530" formatted="false">Media Data Sources</string>
+    <string name="mp_1928ecc1" formatted="false">Proxied Stream</string>
     <string name="mp_195212d5" formatted="false">Delete server</string>
     <string name="mp_1955f6f3" formatted="false">Clear selection</string>
     <string name="mp_199d45f0" formatted="false">Renew</string>
@@ -212,6 +213,7 @@
     <string name="mp_6_e478600e" formatted="false">Enter the 6-digit code from your authenticator.</string>
     <string name="mp_6ab2e222" formatted="false">Authentication Mode</string>
     <string name="mp_6b576e0f" formatted="false">Enter your username and password.</string>
+    <string name="mp_6b7f2134" formatted="false">Incompatible format, automatically switched to %1$s</string>
     <string name="mp_6ba4b7be" formatted="false">Resume watching?</string>
     <string name="mp_6c14bd7f" formatted="false">Close</string>
     <string name="mp_6c85e1de" formatted="false">Decode Mode</string>
@@ -413,6 +415,7 @@
     <string name="mp_d171944c" formatted="false">Send test notification</string>
     <string name="mp_d19e8611" formatted="false">Audio tracks</string>
     <string name="mp_d1edda3e" formatted="false">Enable current account</string>
+    <string name="mp_d1ef28a0" formatted="false">Unable to load media stream. Check your network connection or switch the playback engine in the top-right menu.</string>
     <string name="mp_d2052a57" formatted="false">This account does not have permission for this action.</string>
     <string name="mp_d2ee63ce" formatted="false">The passwords do not match.</string>
     <string name="mp_d30fc804" formatted="false">Touch and hold for actions</string>
@@ -447,6 +450,7 @@
     <string name="mp_e10994d9" formatted="false">Unable to verify the passkey. Try again.</string>
     <string name="mp_e1119ef7" formatted="false">Resources &amp; Media Flow</string>
     <string name="mp_e188ebca" formatted="false">Starting value</string>
+    <string name="mp_e2a97512" formatted="false">Direct Stream</string>
     <string name="mp_e3526937" formatted="false">Weekday</string>
     <string name="mp_e39b02ad" formatted="false">Directories &amp; Scraping</string>
     <string name="mp_e3a58614" formatted="false">Blocked Keywords</string>
@@ -514,6 +518,7 @@
     <string name="mp_fd60ff58" formatted="false">Notification Channels</string>
     <string name="mp_fd900500" formatted="false">Chinese Script Conversion</string>
     <string name="mp_fdad07e6" formatted="false">Download %1$s, upload %2$s</string>
+    <string name="mp_fdc1bfa5" formatted="false">Playback Mode</string>
     <string name="mp_fe33307a" formatted="false">Media</string>
     <string name="mp_fe84e2eb" formatted="false">Video</string>
     <string name="mp_fea82dd2" formatted="false">Clear expression</string>

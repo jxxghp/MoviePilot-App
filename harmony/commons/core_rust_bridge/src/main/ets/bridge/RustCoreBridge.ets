@@ -1511,16 +1511,8 @@ export class RustCoreBridge {
     if (input.decode_force_software && hasEnh) {
       return { primary: 'enhanced', fallback: 'native', reason: 'auto_force_software_enhanced' };
     }
-    if (input.has_ass_or_pgs_subtitle && !input.ignore_ass_style && hasEnh) {
-      return { primary: 'enhanced', fallback: 'native', reason: 'auto_ass_or_pgs_enhanced' };
-    }
-    const preferEnh = container === 'mkv' || container === 'avi' || container === 'rmvb' ||
-      container === 'rm' || container === 'wmv' || container === 'ts' || container === 'm2ts' ||
-      container === 'mts' || container === 'flv' || container === 'webm' || container === 'vob' ||
-      container === 'iso' || audioCodec === 'dts' || audioCodec === 'dca' || audioCodec === 'truehd' ||
-      audioCodec === 'mlp' || audioCodec === 'ac3' || audioCodec === 'eac3';
-    if (preferEnh && hasEnh) {
-      return { primary: 'enhanced', fallback: 'native', reason: 'auto_container_or_audio_enhanced' };
+    if (input.allow_self_signed_tls && hasEnh) {
+      return { primary: 'enhanced', fallback: 'native', reason: 'harmony_self_signed_tls' };
     }
     return { primary: 'native', fallback: hasEnh ? 'enhanced' : null, reason: 'auto_native_default' };
   }

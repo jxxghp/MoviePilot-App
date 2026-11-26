@@ -380,36 +380,6 @@ fun SettingsHubScreen(
                                 }
                                 SettingsRow(Icons.Outlined.Palette, "外观与主题", appearance.summaryText, onOpenAppearance)
                                 HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    Icon(Icons.Outlined.Extension, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text("Vue 插件兼容网页模式", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                        Text(
-                                            "默认使用本地预热运行时，原生背景融合、秒开且无需前端端口；若个别插件不兼容可开启回退完整网页前端。",
-                                            color = colors.textMuted,
-                                            fontSize = 12.sp,
-                                            lineHeight = 16.sp,
-                                        )
-                                    }
-                                    Switch(
-                                        checked = appearance.useLegacyVuePluginContainer,
-                                        onCheckedChange = { legacy ->
-                                            appearance.updateUseLegacyVuePluginContainer(legacy)
-                                            if (legacy) {
-                                                AndroidPluginWebViewPool.resetForSessionChange()
-                                            } else {
-                                                AndroidPluginWebViewPool.scheduleIdlePrewarm(context, 500L)
-                                            }
-                                        },
-                                    )
-                                }
-                                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                 SettingsRow(
                                     icon = Icons.Outlined.CleaningServices,
                                     title = "清理 Vue 插件本地缓存",

@@ -68,15 +68,14 @@ struct NativePluginFormView: View {
     return ZStack {
       CinematicBackground()
       if isVuePlugin {
-        VStack(spacing: 14) {
-          ProgressView("正在打开插件配置弹窗…")
-            .tint(.primary)
-          Button("打开插件配置") {
-            showsVueSheet = true
-          }
-          .buttonStyle(.borderedProminent)
-          .tint(NativeTheme.brand)
-        }
+        NativeVuePluginWebContainer(
+          session: form.activeSession,
+          pluginID: plugin.id,
+          pluginName: plugin.name,
+          surface: .config,
+          pluginHasPage: plugin.hasPage
+        )
+        .ignoresSafeArea(edges: .bottom)
       } else {
         Form {
           let showsInitialSkeleton =
@@ -268,12 +267,6 @@ struct NativePluginFormView: View {
         surface: .config,
         pluginHasPage: plugin.hasPage
       )
-    }
-    .onChange(of: form.document?.renderMode) { mode in
-      if mode == .vue {
-        dismissAfterVueSheet = true
-        showsVueSheet = true
-      }
     }
     .task { do { try await form.load() } catch {} }
     .onAppear {

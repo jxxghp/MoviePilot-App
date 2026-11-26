@@ -34,6 +34,7 @@ struct NativePluginMarketPage: View {
   @State private var installedFilter: InstalledFilter = .all
   @State private var sortMode: SortMode = .defaultOrder
   @State private var installedPlugins: [NativeMarketPluginRecord] = []
+  @State private var vueRemoteIDs: Set<String> = []
   @State private var installStats: [String: Int] = [:]
   @State private var ratings: [String: NativePluginRatingSummary] = [:]
   @State private var searchText = ""
@@ -366,6 +367,15 @@ struct NativePluginMarketPage: View {
     return ratings[key] ?? ratings[key.lowercased()]
   }
 
+  private func isVuePlugin(_ plugin: NativeMarketPluginRecord) -> Bool {
+    if plugin.isVuePlugin { return true }
+    if vueRemoteIDs.contains(plugin.id.lowercased()) { return true }
+    if let src = plugin.sourcePluginID?.lowercased(), !src.isEmpty, vueRemoteIDs.contains(src) {
+      return true
+    }
+    return false
+  }
+
   /// 已安装插件卡片 + 完整长按运维菜单（含分身、关于与源绑定、日志、重载、运行能力、数据摘要、实例管理）。
   private func installedPluginCard(_ plugin: NativeMarketPluginRecord) -> some View {
     let isMutating = mutatingID == plugin.id
@@ -382,7 +392,7 @@ struct NativePluginMarketPage: View {
     )
     .onTapGesture {
       guard mutatingID == nil else { return }
-      if plugin.isVuePlugin {
+      if isVuePlugin(plugin) {
         vueSheetTarget = VueSheetTarget(
           plugin: plugin, surface: plugin.hasPage ? .dataPage : .config)
       } else if plugin.hasPage {
@@ -395,7 +405,7 @@ struct NativePluginMarketPage: View {
       if plugin.hasPage {
         Button {
           DispatchQueue.main.async {
-            if plugin.isVuePlugin {
+            if isVuePlugin(plugin) {
               vueSheetTarget = VueSheetTarget(plugin: plugin, surface: .dataPage)
             } else {
               navigate(to: .dataPage(plugin))
@@ -407,7 +417,7 @@ struct NativePluginMarketPage: View {
       }
       Button {
         DispatchQueue.main.async {
-          if plugin.isVuePlugin {
+          if isVuePlugin(plugin) {
             vueSheetTarget = VueSheetTarget(plugin: plugin, surface: .config)
           } else {
             openForm(for: plugin)
@@ -552,11 +562,19 @@ struct NativePluginMarketPage: View {
 
   private func loadInstalled(forceRefresh: Bool = false) async {
     let cacheKey = "plugins|installed"
+    let remotesCacheKey = "plugins|remotes"
     if !forceRefresh,
       let cached: [NativeMarketPluginRecord] = NativePageDataCache.shared.get(
         cacheKey, session: session)
     {
       installedPlugins = cached
+      if let cachedRemotes: [String] = NativePageDataCache.shared.get(
+        remotesCacheKey, session: session)
+      {
+        vueRemoteIDs = Set(cachedRemotes)
+      } else {
+        Task { await loadVueRemoteIDs() }
+      }
       isLoading = false
       loadFailed = false
       return
@@ -564,6 +582,7 @@ struct NativePluginMarketPage: View {
     if installedPlugins.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
+    async let remotesTask: Set<String>? = fetchVueRemoteIDs()
     do {
       let endpoint = try APIEndpoint(
         path: ["plugin"],
@@ -574,9 +593,15 @@ struct NativePluginMarketPage: View {
         endpoint, as: [NativeMarketPluginRecord].self,
         requiring: PermissionRequirement(category: .admin)
       ).value
+      let loadedRemotes = await remotesTask
       try Task.checkCancellation()
       let valid = loaded.filter { !$0.id.isEmpty }
       installedPlugins = valid
+      if let loadedRemotes {
+        vueRemoteIDs = loadedRemotes
+        NativePageDataCache.shared.set(
+          Array(loadedRemotes), for: remotesCacheKey, session: session)
+      }
       NativePageDataCache.shared.set(valid, for: cacheKey, session: session)
       Task { await loadPluginStatsAndRatings(pluginIDs: valid.map { $0.sourcePluginID ?? $0.id }) }
     } catch is CancellationError {
@@ -584,6 +609,44 @@ struct NativePluginMarketPage: View {
     } catch {
       if installedPlugins.isEmpty { loadFailed = true }
     }
+  }
+
+  private func loadVueRemoteIDs() async {
+    guard let ids = await fetchVueRemoteIDs(), !Task.isCancelled else { return }
+    vueRemoteIDs = ids
+    NativePageDataCache.shared.set(Array(ids), for: "plugins|remotes", session: session)
+  }
+
+  private func fetchVueRemoteIDs() async -> Set<String>? {
+    guard
+      let endpoint = try? APIEndpoint(
+        path: ["plugin", "remotes"],
+        query: [URLQueryItem(name: "token", value: "moviepilot")],
+        responseContract: .payload
+      ),
+      let data = try? await session.requestPayload(endpoint).value
+    else { return nil }
+    let decoder = JSONDecoder()
+    let list: [PluginRemoteDescriptor]
+    if let direct = try? decoder.decode([PluginRemoteDescriptor].self, from: data) {
+      list = direct
+    } else if let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+      let inner = obj["data"],
+      let innerData = try? JSONSerialization.data(withJSONObject: inner),
+      let decoded = try? decoder.decode([PluginRemoteDescriptor].self, from: innerData)
+    {
+      list = decoded
+    } else {
+      return nil
+    }
+    var ids: Set<String> = []
+    for item in list {
+      ids.insert(item.id.lowercased())
+      if let src = item.sourcePluginId?.lowercased(), !src.isEmpty {
+        ids.insert(src)
+      }
+    }
+    return ids
   }
 
   private func loadPluginStatsAndRatings(pluginIDs: [String]) async {

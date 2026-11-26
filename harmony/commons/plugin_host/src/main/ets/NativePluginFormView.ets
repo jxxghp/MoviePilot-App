@@ -814,7 +814,6 @@ export struct NativePluginDataPageView {
 export struct IsolatedVuePluginWebView {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
-  @StorageLink(HarmonyAppearanceStore.KEY_USE_LEGACY_VUE_PLUGIN) useLegacyVuePlugin: boolean = false;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) @Watch('onHostWindowResize') windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) @Watch('onHostWindowResize') windowHeightVp: number = 892;
   @Prop pluginId: string = '';
@@ -1302,7 +1301,7 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
   }
 
   build() {
-    if (!this.useLegacyVuePlugin && !this.fallbackToLegacy) {
+    if (!this.fallbackToLegacy) {
       HarmonyLocalPluginShellView({
         pluginId: this.pluginId,
         pluginName: this.pluginId,

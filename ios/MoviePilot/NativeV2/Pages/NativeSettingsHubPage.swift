@@ -33,8 +33,6 @@ struct NativeSettingsHubPage: View {
   @State private var showsLogoutConfirm = false
   @State private var cacheClearedNotice = false
   @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
-  @AppStorage(PluginRuntimePreferences.useLegacyWebContainerKey)
-  private var useLegacyVuePluginContainer = false
   @AppStorage("nativeV2.playback.aspectFill") private var playbackAspectFill = false
   @AppStorage("nativeV2.playback.defaultRate") private var playbackDefaultRate = 1.0
   @ObservedObject private var appearance = NativeAppearanceStore.shared
@@ -471,36 +469,6 @@ struct NativeSettingsHubPage: View {
       }
       .buttonStyle(.plain)
       .accessibilityIdentifier("native-v2-language")
-      settingsRowDivider
-      HStack(spacing: 14) {
-        iconBadge("puzzlepiece.extension")
-        VStack(alignment: .leading, spacing: 2) {
-          Text(t("Vue 插件兼容网页模式"))
-            .font(.body)
-            .foregroundStyle(.primary)
-          Text(t("默认使用本地预热运行时，原生背景融合、秒开且无需前端端口；若个别插件不兼容可开启此项回退完整网页前端。"))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        Spacer(minLength: 8)
-        Toggle("", isOn: $useLegacyVuePluginContainer)
-          .labelsHidden()
-          .tint(appearance.accentColor)
-          .frame(minHeight: 44)
-          .accessibilityLabel(t("Vue 插件兼容网页模式"))
-      }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
-      .frame(minHeight: 56)
-      .accessibilityIdentifier("native-settings-vue-legacy-mode")
-      .onChange(of: useLegacyVuePluginContainer) { legacy in
-        if legacy {
-          PluginWebViewPool.shared.resetForSessionChange()
-        } else {
-          PluginWebViewPool.shared.scheduleIdlePrewarm(delaySeconds: 0.5)
-        }
-      }
       settingsRowDivider
       navRow(
         title: t("本地缓存清理"),

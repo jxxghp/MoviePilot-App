@@ -666,16 +666,7 @@ object RustCoreBridge {
         if (input.decodeForceSoftware && enhanced) {
             return EngineResolutionPlanDto("enhanced", "native", "auto_force_software_enhanced")
         }
-        if (input.hasAssOrPgsSubtitle && !input.ignoreAssStyle && enhanced) {
-            return EngineResolutionPlanDto("enhanced", "native", "auto_ass_or_pgs_enhanced")
-        }
-        val preferEnhanced = container in setOf("mkv", "avi", "rmvb", "rm", "wmv", "ts", "m2ts", "mts", "flv", "webm", "vob", "iso") ||
-            audioCodec in setOf("dts", "dca", "truehd", "mlp", "ac3", "eac3", "ac-3", "ec-3")
-        return if (preferEnhanced && enhanced) {
-            EngineResolutionPlanDto("enhanced", "native", "auto_container_or_audio_enhanced")
-        } else {
-            EngineResolutionPlanDto("native", if (enhanced) "enhanced" else null, "auto_native_default")
-        }
+        return EngineResolutionPlanDto("native", if (enhanced) "enhanced" else null, "auto_native_default")
     }
 
     private fun fallbackBuildExternalPlayerUrl(template: String, mediaUrl: String, title: String): String? {

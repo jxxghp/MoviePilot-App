@@ -555,18 +555,24 @@ class MpvPlaybackEngine(
     fun release() {
         if (!released.compareAndSet(false, true)) return
         runCatching { MPVLib.removeObserver(observer) }
-        if (attachedSurface != null) {
-            attachedSurface = null
-            runCatching {
-                MPVLib.setPropertyString("vid", "no")
-                MPVLib.setPropertyString("vo", "null")
-                MPVLib.detachSurface()
-            }
-        }
         val proxyToClose = loopbackProxy
         loopbackProxy = null
         val pfdToClose = openContentPfd
         openContentPfd = null
+        // 先关闭本地环回代理以立即中断起播期挂起的网络读阻塞，确保后续 MPVLib.destroy() 毫秒级返回不死锁
+        runCatching { proxyToClose?.close() }
+        synchronized(mpvLifecycleLock) {
+            if (mpvInitialized && attachedSurface != null) {
+                attachedSurface = null
+                runCatching {
+                    MPVLib.setPropertyString("vid", "no")
+                    MPVLib.setPropertyString("vo", "null")
+                    MPVLib.detachSurface()
+                }
+            } else {
+                attachedSurface = null
+            }
+        }
         teardownExecutor.execute {
             synchronized(mpvLifecycleLock) {
                 if (mpvInitialized) {
@@ -575,7 +581,6 @@ class MpvPlaybackEngine(
                     mpvInitialized = false
                 }
             }
-            runCatching { proxyToClose?.close() }
             runCatching { pfdToClose?.close() }
         }
     }

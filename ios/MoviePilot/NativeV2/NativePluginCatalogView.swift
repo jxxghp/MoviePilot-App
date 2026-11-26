@@ -9,11 +9,13 @@ import SwiftUI
 struct NativePluginCatalogView: View {
   let session: NativeSession
   @State private var plugins: [NativeInstalledPlugin]?
+  @State private var vueRemoteIDs: Set<String> = []
   @State private var loading = false
   @State private var failed = false
   @State private var reload = 0
   @State private var selectedPlugin: NativeInstalledPlugin?
   @State private var isFormPresented = false
+  @State private var vueSheetPlugin: NativeInstalledPlugin?
 
   /// 统一渐变/玻璃列表，没有网页请求或插件脚本加载。
   var body: some View {
@@ -154,6 +156,15 @@ struct NativePluginCatalogView: View {
         selectedPlugin = nil
       }
     }
+    .sheet(item: $vueSheetPlugin) { plugin in
+      NativeVuePluginSheet(
+        session: session,
+        pluginID: plugin.id,
+        pluginName: plugin.name,
+        surface: plugin.hasPage ? .dataPage : .config,
+        pluginHasPage: plugin.hasPage
+      )
+    }
     .task(id: reload) { await load() }
   }
 
@@ -162,6 +173,7 @@ struct NativePluginCatalogView: View {
     loading = true
     failed = false
     defer { loading = false }
+    async let remotesTask: Set<String>? = Self.fetchVueRemoteIDs(session: session)
     do {
       let endpoint = try APIEndpoint(
         path: ["plugin"],
@@ -172,17 +184,59 @@ struct NativePluginCatalogView: View {
       let result: APIResult<[LossyInstalledPluginRow]> = try await session.request(
         endpoint,
         requiring: PermissionRequirement(category: .admin))
+      let loadedRemotes = await remotesTask
       try Task.checkCancellation()
       var seen: Set<String> = []
       let resolved = result.value.compactMap(\.plugin).filter { seen.insert($0.id).inserted }
+      if let loadedRemotes {
+        vueRemoteIDs = loadedRemotes
+      }
       plugins = resolved
     } catch is CancellationError {} catch { failed = true }
   }
 
+  private static func fetchVueRemoteIDs(session: NativeSession) async -> Set<String>? {
+    guard
+      let endpoint = try? APIEndpoint(
+        path: ["plugin", "remotes"],
+        query: [URLQueryItem(name: "token", value: "moviepilot")],
+        responseContract: .payload
+      ),
+      let data = try? await session.requestPayload(endpoint).value
+    else { return nil }
+    let decoder = JSONDecoder()
+    let list: [PluginRemoteDescriptor]
+    if let direct = try? decoder.decode([PluginRemoteDescriptor].self, from: data) {
+      list = direct
+    } else if let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+      let inner = obj["data"],
+      let innerData = try? JSONSerialization.data(withJSONObject: inner),
+      let decoded = try? decoder.decode([PluginRemoteDescriptor].self, from: innerData)
+    {
+      list = decoded
+    } else {
+      return nil
+    }
+    var ids: Set<String> = []
+    for item in list {
+      ids.insert(item.id.lowercased())
+      if let src = item.sourcePluginId?.lowercased(), !src.isEmpty {
+        ids.insert(src)
+      }
+    }
+    return ids
+  }
+
   /// 会话再次验证后才创建编辑所有者，不能用缓存列表绕过已撤销的管理员权限。
   private func open(_ plugin: NativeInstalledPlugin) {
-    selectedPlugin = plugin
-    isFormPresented = true
+    if vueRemoteIDs.contains(plugin.id.lowercased())
+      || vueRemoteIDs.contains(plugin.target.sourceID.lowercased())
+    {
+      vueSheetPlugin = plugin
+    } else {
+      selectedPlugin = plugin
+      isFormPresented = true
+    }
   }
 }
 

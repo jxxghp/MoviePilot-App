@@ -201,6 +201,10 @@
       "value": "Media Data Sources"
     },
     {
+      "name": "mp_1928ecc1",
+      "value": "Proxied Stream"
+    },
+    {
       "name": "mp_195212d5",
       "value": "Delete server"
     },
@@ -843,6 +847,10 @@
     {
       "name": "mp_6b576e0f",
       "value": "Enter your username and password."
+    },
+    {
+      "name": "mp_6b7f2134",
+      "value": "Incompatible format, automatically switched to %s"
     },
     {
       "name": "mp_6ba4b7be",
@@ -1649,6 +1657,10 @@
       "value": "Enable current account"
     },
     {
+      "name": "mp_d1ef28a0",
+      "value": "Unable to load media stream. Check your network connection or switch the playback engine in the top-right menu."
+    },
+    {
       "name": "mp_d2052a57",
       "value": "This account does not have permission for this action."
     },
@@ -1783,6 +1795,10 @@
     {
       "name": "mp_e188ebca",
       "value": "Starting value"
+    },
+    {
+      "name": "mp_e2a97512",
+      "value": "Direct Stream"
     },
     {
       "name": "mp_e3526937",
@@ -2051,6 +2067,10 @@
     {
       "name": "mp_fdad07e6",
       "value": "Download %s, upload %s"
+    },
+    {
+      "name": "mp_fdc1bfa5",
+      "value": "Playback Mode"
     },
     {
       "name": "mp_fe33307a",

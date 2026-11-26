@@ -345,9 +345,8 @@ fun MoviePilotRootShell(
     val activeInstanceUrl = currentActiveInstanceUrl()
 
     // 登录后空闲 1.5s 自动预热 1 个本地联邦插件运行时壳，做到点击 Vue 插件零冷启动延迟
-    val appearance = LocalAppearanceStore.current
-    LaunchedEffect(activeInstanceUrl, appearance.useLegacyVuePluginContainer) {
-        if (activeInstanceUrl.isNotBlank() && !appearance.useLegacyVuePluginContainer) {
+    LaunchedEffect(activeInstanceUrl) {
+        if (activeInstanceUrl.isNotBlank()) {
             AndroidPluginWebViewPool.scheduleIdlePrewarm(context, 1500L)
         }
     }

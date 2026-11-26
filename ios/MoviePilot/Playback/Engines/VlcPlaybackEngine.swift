@@ -3,9 +3,10 @@ import MoviePilotCore
 import UIKit
 @preconcurrency import VLCKit
 
-/// 过渡期兼容播放引擎（封装既有 `VLCMediaPlayer`）：
-/// - 放开标准/大缓冲 `:network-caching` 档位与软硬解选项；
-/// - 保留既有 `AVSampleBufferDisplayLayer` 原生画中画能力与后台串行释放队列。
+/// 过渡期兼容播放引擎（安全封装 `VLCMediaPlayer`）：
+/// - 为每次会话分配独立子渲染视图 `renderView`，避免与其他内核争抢共享 `videoView`；
+/// - 仅在真正进入 `.playing` 视频输出就绪后应用 `videoFitMode` 与轨道枚举，杜绝起播期 vout 未就绪崩溃；
+/// - 异步停止与 `VLCMediaPlayer` 析构严格在独立后台线程完成（规避 `libvlc_media_player_release` 与 iOS vout `dispatch_sync(main)` 互锁），同时强持有 `renderView` 直至底层解码器完全销毁后再交回主线程释放。
 @MainActor
 final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate {
   let kind: ResolvedPlaybackEngine = .legacy
@@ -17,9 +18,24 @@ final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate 
     maxRate: 2.0
   )
 
-  private let player = VLCMediaPlayer(options: ["--no-mouse-events", "--no-keyboard-events"])
-  private weak var videoContainer: UIView?
+  private var player: VLCMediaPlayer? = VLCMediaPlayer(
+    options: ["--no-mouse-events", "--no-keyboard-events"]
+  )
+  private let renderView: UIView = {
+    let v = UIView()
+    v.translatesAutoresizingMaskIntoConstraints = false
+    v.backgroundColor = .clear
+    v.isUserInteractionEnabled = false
+    return v
+  }()
+  private weak var attachedContainer: UIView?
   private var currentRate: Float = 1.0
+  private var aspectFillEnabled = false
+  private var hasEnteredPlayingState = false
+  private var isStopping = false
+  private var cachedIsPlaying = false
+  private var cachedTimeMs: Int = 0
+  private var cachedDurationMs: Int = 0
   private var pendingStartPositionMs: Int = 0
   private var hasAppliedStartSeek = false
 
@@ -28,30 +44,62 @@ final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate 
 
   override init() {
     super.init()
-    player.delegate = self
+    player?.delegate = self
+  }
+
+  deinit {
+    nonisolated(unsafe) let leftoverPlayer = player
+    let viewToKeep = renderView
+    guard leftoverPlayer != nil else { return }
+    DispatchQueue.global(qos: .utility).async {
+      autoreleasepool {
+        var localPlayer: VLCMediaPlayer? = leftoverPlayer
+        if let p = localPlayer {
+          p.delegate = nil
+          p.stop()
+          var polls = 0
+          while p.state != .stopped && p.state != .error && polls < 200 {
+            Thread.sleep(forTimeInterval: 0.025)
+            polls += 1
+          }
+          p.media = nil
+        }
+        localPlayer = nil
+      }
+      DispatchQueue.main.async {
+        _ = viewToKeep
+      }
+    }
   }
 
   var pipSource: EnginePictureInPictureSource {
-    guard let videoContainer else { return .none }
-    return .vlcSampleBuffer(player, videoContainer)
+    guard !isStopping, attachedContainer != nil, let player else { return .none }
+    return .vlcSampleBuffer(player, renderView)
   }
 
-  var isPlaying: Bool { player.isPlaying }
-  var isSeekable: Bool { player.isSeekable }
-  var currentTimeMs: Int { max(0, Int(player.time.intValue)) }
-  var durationMs: Int { max(0, Int(player.media?.length.intValue ?? 0)) }
+  var isPlaying: Bool { !isStopping && cachedIsPlaying }
+  var isSeekable: Bool { !isStopping && hasEnteredPlayingState && (player?.isSeekable == true) }
+  var currentTimeMs: Int { cachedTimeMs }
+  var durationMs: Int {
+    if cachedDurationMs > 0 { return cachedDurationMs }
+    guard !isStopping else { return 0 }
+    return max(0, Int(player?.media?.length.intValue ?? 0))
+  }
 
   var rate: Float {
     get { currentRate }
     set {
       let clamped = max(0.5, min(capabilities.maxRate, newValue))
       currentRate = clamped
-      player.rate = clamped
+      if !isStopping, hasEnteredPlayingState {
+        player?.rate = clamped
+      }
     }
   }
 
   var audioTracks: [EngineTrack] {
-    player.audioTracks.enumerated().map { idx, track in
+    guard !isStopping, hasEnteredPlayingState, let player else { return [] }
+    return player.audioTracks.enumerated().map { idx, track in
       let name =
         track.trackName.isEmpty ? (track.trackDescription ?? L10n.text("音轨")) : track.trackName
       return EngineTrack(
@@ -64,7 +112,8 @@ final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate 
   }
 
   var subtitleTracks: [EngineTrack] {
-    player.textTracks.enumerated().map { idx, track in
+    guard !isStopping, hasEnteredPlayingState, let player else { return [] }
+    return player.textTracks.enumerated().map { idx, track in
       let name =
         track.trackName.isEmpty ? (track.trackDescription ?? L10n.text("字幕")) : track.trackName
       return EngineTrack(
@@ -77,18 +126,38 @@ final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate 
   }
 
   func attachVideoContainer(_ container: UIView) {
-    videoContainer = container
-    player.drawable = container
+    guard !isStopping else { return }
+    attachedContainer = container
+    if renderView.superview !== container {
+      renderView.removeFromSuperview()
+      container.addSubview(renderView)
+      NSLayoutConstraint.activate([
+        renderView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        renderView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        renderView.topAnchor.constraint(equalTo: container.topAnchor),
+        renderView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      ])
+      container.layoutIfNeeded()
+    }
+    player?.drawable = renderView
   }
 
   func detachVideoContainer() {
-    player.drawable = nil
-    videoContainer = nil
+    renderView.removeFromSuperview()
+    attachedContainer = nil
   }
 
   func load(source: EngineMediaSource, options: EngineLoadOptions) throws {
+    guard !isStopping, let player else {
+      throw MediaPlaybackError.unavailable
+    }
+    hasEnteredPlayingState = false
+    cachedIsPlaying = false
+    cachedTimeMs = max(0, options.startPositionMs)
+    cachedDurationMs = 0
+    aspectFillEnabled = options.aspectFill
     player.delegate = self
-    player.drawable = options.isAudio ? nil : videoContainer
+    player.drawable = options.isAudio ? nil : renderView
     currentRate = max(0.5, min(capabilities.maxRate, options.rate))
     pendingStartPositionMs = max(0, options.startPositionMs)
     hasAppliedStartSeek = pendingStartPositionMs <= 0
@@ -128,30 +197,38 @@ final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate 
       media.addOption(":avcodec-hw=none")
     }
     if abs(options.subtitleScale - 1.0) >= 0.01 {
-      // libVLC freetype-rel-fontsize 数值越小字体越大（默认 16）
       let relSize = max(10, min(24, Int(round(16.0 / options.subtitleScale))))
       media.addOption(":freetype-rel-fontsize=\(relSize)")
     }
 
-    player.videoFitMode = options.aspectFill ? .larger : .smaller
     player.media = media
     onStateChanged?(.opening)
   }
 
   func play() {
-    player.play()
+    guard !isStopping else { return }
+    player?.play()
   }
 
   func pause() {
-    player.pause()
+    guard !isStopping else { return }
+    cachedIsPlaying = false
+    player?.pause()
   }
 
   func seek(toMs: Int) {
-    player.time = VLCTime(int: Int32(clamping: max(0, toMs)))
+    let clamped = max(0, toMs)
+    cachedTimeMs = clamped
+    guard !isStopping, hasEnteredPlayingState, let player else {
+      pendingStartPositionMs = clamped
+      hasAppliedStartSeek = false
+      return
+    }
+    player.time = VLCTime(int: Int32(clamping: clamped))
   }
 
   func jump(byOffsetMs deltaMs: Int, completion: (@MainActor () -> Void)?) {
-    guard player.isSeekable else {
+    guard !isStopping, hasEnteredPlayingState, let player, player.isSeekable else {
       completion?()
       return
     }
@@ -166,10 +243,13 @@ final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate 
   }
 
   func setAspectFill(_ fill: Bool) {
+    aspectFillEnabled = fill
+    guard !isStopping, hasEnteredPlayingState, let player else { return }
     player.videoFitMode = fill ? .larger : .smaller
   }
 
   func selectAudioTrack(id: String) {
+    guard !isStopping, hasEnteredPlayingState, let player else { return }
     let tracks = player.audioTracks
     guard let idx = Int(id), tracks.indices.contains(idx) else { return }
     tracks[idx].isSelectedExclusively = true
@@ -177,6 +257,7 @@ final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate 
   }
 
   func selectSubtitleTrack(id: String) {
+    guard !isStopping, hasEnteredPlayingState, let player else { return }
     let tracks = player.textTracks
     guard let idx = Int(id), tracks.indices.contains(idx) else { return }
     tracks[idx].isSelectedExclusively = true
@@ -184,53 +265,111 @@ final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate 
   }
 
   func deselectAllSubtitles() {
+    guard !isStopping, hasEnteredPlayingState, let player else { return }
     player.deselectAllTextTracks()
     onTracksChanged?()
   }
 
   @discardableResult
   func addExternalSubtitle(fileURL: URL) -> Bool {
-    player.addPlaybackSlave(fileURL, type: .subtitle, enforce: true) != 0
+    guard !isStopping, let player else { return false }
+    return player.addPlaybackSlave(fileURL, type: .subtitle, enforce: true) != 0
   }
 
   func stopAndReleaseAsync(on queue: DispatchQueue, completion: (@Sendable () -> Void)?) {
-    player.delegate = nil
-    player.drawable = nil
-    videoContainer = nil
+    isStopping = true
+    hasEnteredPlayingState = false
+    cachedIsPlaying = false
+    renderView.removeFromSuperview()
+    attachedContainer = nil
     onStateChanged = nil
     onTracksChanged = nil
-    nonisolated(unsafe) let playerToStop = player
-    queue.async {
-      playerToStop.stop()
-      playerToStop.media = nil
-      completion?()
+    nonisolated(unsafe) let capturedPlayer = player
+    player = nil
+    capturedPlayer?.delegate = nil
+    let viewToKeep = renderView
+    guard capturedPlayer != nil else {
+      if let completion { queue.async(execute: completion) }
+      return
+    }
+    let vlcDisposeQueue = DispatchQueue(
+      label: "com.moviepilot.playback.vlc.dispose.\(UUID().uuidString)",
+      qos: .utility
+    )
+    vlcDisposeQueue.async {
+      autoreleasepool {
+        var localPlayer: VLCMediaPlayer? = capturedPlayer
+        if let p = localPlayer {
+          p.stop()
+          var polls = 0
+          while p.state != .stopped && p.state != .error && polls < 200 {
+            Thread.sleep(forTimeInterval: 0.025)
+            polls += 1
+          }
+          p.media = nil
+        }
+        localPlayer = nil
+      }
+      DispatchQueue.main.async {
+        _ = viewToKeep
+      }
+      if let completion {
+        queue.async(execute: completion)
+      }
     }
   }
 
   // MARK: - VLCMediaPlayerDelegate
 
+  nonisolated func mediaPlayerTimeChanged(_ aNotification: Notification) {
+    Task { @MainActor [weak self] in
+      guard let self, !self.isStopping, let player = self.player else { return }
+      self.cachedTimeMs = max(0, Int(player.time.intValue))
+      let dur = Int(player.media?.length.intValue ?? 0)
+      if dur > 0 {
+        self.cachedDurationMs = dur
+      }
+    }
+  }
+
   nonisolated func mediaPlayerStateChanged(_ newState: VLCMediaPlayerState) {
     Task { @MainActor [weak self] in
-      guard let self else { return }
+      guard let self, !self.isStopping, let player = self.player else { return }
       switch newState {
       case .nothingSpecial:
         break
       case .opening:
         self.onStateChanged?(.opening)
       case .playing:
+        let firstPlaying = !self.hasEnteredPlayingState
+        self.hasEnteredPlayingState = true
+        self.cachedIsPlaying = true
+        let dur = Int(player.media?.length.intValue ?? 0)
+        if dur > 0 {
+          self.cachedDurationMs = dur
+        }
+        if self.aspectFillEnabled || !firstPlaying {
+          player.videoFitMode = self.aspectFillEnabled ? .larger : .smaller
+        }
         if !self.hasAppliedStartSeek && self.pendingStartPositionMs > 0 {
           self.hasAppliedStartSeek = true
-          self.seek(toMs: self.pendingStartPositionMs)
+          player.time = VLCTime(int: Int32(clamping: self.pendingStartPositionMs))
         }
         if abs(self.currentRate - 1.0) >= 0.01 {
-          self.player.rate = self.currentRate
+          player.rate = self.currentRate
         }
         self.onStateChanged?(.playing)
+        if firstPlaying {
+          self.onTracksChanged?()
+        }
       case .paused:
+        self.cachedIsPlaying = false
         self.onStateChanged?(.paused)
       case .stopping, .stopped:
+        self.cachedIsPlaying = false
         self.onStateChanged?(.ended)
       case .error:
+        self.cachedIsPlaying = false
         self.onStateChanged?(.error(.unknown))
       @unknown default:
         break
@@ -242,7 +381,8 @@ final class VlcPlaybackEngine: NSObject, PlaybackEngine, VLCMediaPlayerDelegate 
     _ = trackId
     _ = trackType
     Task { @MainActor [weak self] in
-      self?.onTracksChanged?()
+      guard let self, !self.isStopping, self.hasEnteredPlayingState else { return }
+      self.onTracksChanged?()
     }
   }
 }

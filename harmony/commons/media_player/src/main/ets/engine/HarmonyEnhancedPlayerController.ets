@@ -283,10 +283,13 @@ export class HarmonyEnhancedPlayerController {
 
   private teardownIjkInstance(): void {
     const inst = this.ijk;
+    const wasPrepared = this.prepared;
     this.ijk = null;
     this.prepared = false;
     if (inst) {
-      try { inst.stop(); } catch { /* ignore */ }
+      if (wasPrepared) {
+        try { inst.stop(); } catch { /* ignore */ }
+      }
       try { inst.reset(); } catch { /* ignore */ }
       try { inst.release(); } catch { /* ignore */ }
     }

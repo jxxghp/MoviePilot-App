@@ -1727,9 +1727,8 @@ fun IsolatedVuePluginWebView(
     pluginHasPage: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val appearance = LocalAppearanceStore.current
     var fallbackToLegacy by remember(pluginId, surface) { mutableStateOf(false) }
-    if (!appearance.useLegacyVuePluginContainer && !fallbackToLegacy) {
+    if (!fallbackToLegacy) {
         LocalPluginShellWebView(
             pluginId = pluginId,
             session = session,

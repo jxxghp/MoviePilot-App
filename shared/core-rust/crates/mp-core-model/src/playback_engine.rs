@@ -163,12 +163,11 @@ impl PlaybackEngineRouter {
             }
             PlaybackEngineChoice::Enhanced => {
                 if input.has_enhanced_engine {
-                    let fb = if is_available(ResolvedPlaybackEngine::Legacy) {
-                        Some(ResolvedPlaybackEngine::Legacy)
-                    } else {
-                        Some(ResolvedPlaybackEngine::Native)
-                    };
-                    return make_plan(ResolvedPlaybackEngine::Enhanced, fb, "user_pinned_enhanced");
+                    return make_plan(
+                        ResolvedPlaybackEngine::Enhanced,
+                        Some(ResolvedPlaybackEngine::Native),
+                        "user_pinned_enhanced",
+                    );
                 }
                 return make_plan(ResolvedPlaybackEngine::Native, None, "enhanced_unavailable");
             }
@@ -235,126 +234,48 @@ impl PlaybackEngineRouter {
             );
         }
 
-        let container = Self::resolve_container(input);
-        let audio_codec = Self::normalize_hint(input.audio_codec_hint.as_deref());
-        let video_codec = Self::normalize_hint(input.video_codec_hint.as_deref());
-        let needs_rich_subtitle = input.has_ass_or_pgs_subtitle && !input.ignore_ass_style;
+        // 4. 视频自动模式：三端默认统一优先使用系统原生内核（AVPlayer / Media3），
+        //    并将全能增强内核（MPV / IJK）作为自动无感兜底（仅自签名 TLS 等系统原生底层无法握手的场景直入增强内核）。
+        let default_fallback = if input.has_enhanced_engine {
+            Some(ResolvedPlaybackEngine::Enhanced)
+        } else if is_available(ResolvedPlaybackEngine::Legacy) {
+            Some(ResolvedPlaybackEngine::Legacy)
+        } else {
+            None
+        };
 
         match input.platform {
             PlatformKind::Ios => {
-                let standard_native_container =
-                    matches!(container.as_str(), "mp4" | "m4v" | "mov" | "m3u8" | "hls");
-                let unsupported_audio =
-                    matches!(audio_codec.as_str(), "dts" | "dca" | "truehd" | "mlp");
-                let unsupported_video = matches!(
-                    video_codec.as_str(),
-                    "av1" | "vc1" | "mpeg2" | "mpeg2video" | "vp9" | "hi10p" | "rv40"
-                );
-                if standard_native_container
-                    && !unsupported_audio
-                    && !unsupported_video
-                    && !needs_rich_subtitle
-                    && !input.allow_self_signed_tls
-                {
-                    let fb = if input.has_enhanced_engine {
-                        Some(ResolvedPlaybackEngine::Enhanced)
-                    } else if is_available(ResolvedPlaybackEngine::Legacy) {
-                        Some(ResolvedPlaybackEngine::Legacy)
-                    } else {
-                        None
-                    };
-                    make_plan(ResolvedPlaybackEngine::Native, fb, "ios_native_standard")
-                } else if input.has_enhanced_engine {
-                    let fb = if is_available(ResolvedPlaybackEngine::Legacy) {
-                        Some(ResolvedPlaybackEngine::Legacy)
-                    } else {
-                        Some(ResolvedPlaybackEngine::Native)
-                    };
-                    make_plan(
-                        ResolvedPlaybackEngine::Enhanced,
-                        fb,
-                        if needs_rich_subtitle {
-                            "mkv_or_ass_enhanced"
-                        } else if input.allow_self_signed_tls {
-                            "ios_self_signed_tls_enhanced"
-                        } else {
-                            "ios_container_or_codec_enhanced"
-                        },
-                    )
-                } else if is_available(ResolvedPlaybackEngine::Legacy) {
-                    make_plan(
-                        ResolvedPlaybackEngine::Legacy,
-                        Some(ResolvedPlaybackEngine::Native),
-                        "ios_legacy_fallback",
-                    )
-                } else {
-                    make_plan(ResolvedPlaybackEngine::Native, None, "ios_native_only")
-                }
-            }
-            PlatformKind::Android => {
-                let hard_video = matches!(
-                    video_codec.as_str(),
-                    "vc1" | "mpeg2" | "mpeg2video" | "hi10p" | "rv40" | "wmv3"
-                ) || matches!(container.as_str(), "rmvb" | "rm" | "avi" | "wmv");
-                if (needs_rich_subtitle || hard_video) && input.has_enhanced_engine {
+                if input.allow_self_signed_tls && input.has_enhanced_engine {
                     make_plan(
                         ResolvedPlaybackEngine::Enhanced,
                         Some(ResolvedPlaybackEngine::Native),
-                        if needs_rich_subtitle {
-                            "android_ass_or_pgs_enhanced"
-                        } else {
-                            "android_codec_enhanced"
-                        },
+                        "ios_self_signed_tls_enhanced",
                     )
                 } else {
                     make_plan(
                         ResolvedPlaybackEngine::Native,
-                        if input.has_enhanced_engine {
-                            Some(ResolvedPlaybackEngine::Enhanced)
-                        } else {
-                            None
-                        },
-                        "android_media3_default",
+                        default_fallback,
+                        "ios_native_default",
                     )
                 }
             }
+            PlatformKind::Android => make_plan(
+                ResolvedPlaybackEngine::Native,
+                default_fallback,
+                "android_media3_default",
+            ),
             PlatformKind::Harmony => {
-                let standard_native_container =
-                    matches!(container.as_str(), "mp4" | "m4v" | "mov" | "m3u8" | "hls");
-                let needs_enhanced_container = matches!(
-                    container.as_str(),
-                    "mkv" | "ts" | "m2ts" | "flv" | "rmvb" | "avi" | "wmv" | "webm"
-                );
-                let needs_enhanced_audio = matches!(
-                    audio_codec.as_str(),
-                    "dts" | "dca" | "truehd" | "ac3" | "eac3" | "mlp"
-                );
-                if input.has_enhanced_engine
-                    && (needs_enhanced_container
-                        || needs_enhanced_audio
-                        || input.allow_self_signed_tls
-                        || needs_rich_subtitle
-                        || (!standard_native_container && !container.is_empty()))
-                {
+                if input.allow_self_signed_tls && input.has_enhanced_engine {
                     make_plan(
                         ResolvedPlaybackEngine::Enhanced,
                         Some(ResolvedPlaybackEngine::Native),
-                        if input.allow_self_signed_tls {
-                            "harmony_self_signed_tls"
-                        } else if needs_enhanced_audio {
-                            "harmony_audio_codec_enhanced"
-                        } else {
-                            "harmony_container_enhanced"
-                        },
+                        "harmony_self_signed_tls",
                     )
                 } else {
                     make_plan(
                         ResolvedPlaybackEngine::Native,
-                        if input.has_enhanced_engine {
-                            Some(ResolvedPlaybackEngine::Enhanced)
-                        } else {
-                            None
-                        },
+                        default_fallback,
                         "harmony_avplayer_default",
                     )
                 }
@@ -436,14 +357,6 @@ impl PlaybackEngineRouter {
         }
     }
 
-    fn resolve_container(input: &EngineResolutionInput) -> String {
-        let hint = Self::normalize_hint(input.container_hint.as_deref());
-        if !hint.is_empty() {
-            return hint;
-        }
-        Self::extract_extension(&input.url_or_filename)
-    }
-
     fn percent_encode(input: &str) -> String {
         let mut out = String::with_capacity(input.len() * 2);
         for byte in input.as_bytes() {
@@ -502,43 +415,42 @@ mod tests {
     }
 
     #[test]
-    fn ios_auto_routes_standard_mp4_to_avplayer_and_mkv_or_ass_to_mpv() {
+    fn ios_auto_prioritizes_native_avplayer_with_enhanced_mpv_fallback() {
         let mp4_plan = PlaybackEngineRouter::resolve(&base_input(PlatformKind::Ios));
         assert_eq!(mp4_plan.primary, ResolvedPlaybackEngine::Native);
         assert_eq!(mp4_plan.fallback, Some(ResolvedPlaybackEngine::Enhanced));
+        assert_eq!(mp4_plan.engine_label_zh, "AVPlayer 原生");
 
         let mut mkv_input = base_input(PlatformKind::Ios);
         mkv_input.url_or_filename = "https://media.example.com/remux.mkv".into();
         let mkv_plan = PlaybackEngineRouter::resolve(&mkv_input);
-        assert_eq!(mkv_plan.primary, ResolvedPlaybackEngine::Enhanced);
-        assert_eq!(mkv_plan.fallback, Some(ResolvedPlaybackEngine::Legacy));
-        assert_eq!(mkv_plan.engine_label_zh, "MPV 全能");
+        assert_eq!(mkv_plan.primary, ResolvedPlaybackEngine::Native);
+        assert_eq!(mkv_plan.fallback, Some(ResolvedPlaybackEngine::Enhanced));
 
         let mut proxy_unknown = base_input(PlatformKind::Ios);
         proxy_unknown.url_or_filename =
             "https://mp.example.com/api/v1/mediaserver/stream?itemid=123".into();
         let proxy_plan = PlaybackEngineRouter::resolve(&proxy_unknown);
-        assert_eq!(proxy_plan.primary, ResolvedPlaybackEngine::Enhanced);
+        assert_eq!(proxy_plan.primary, ResolvedPlaybackEngine::Native);
+        assert_eq!(proxy_plan.fallback, Some(ResolvedPlaybackEngine::Enhanced));
+
+        let mut tls_input = base_input(PlatformKind::Ios);
+        tls_input.allow_self_signed_tls = true;
+        let tls_plan = PlaybackEngineRouter::resolve(&tls_input);
+        assert_eq!(tls_plan.primary, ResolvedPlaybackEngine::Enhanced);
+        assert_eq!(tls_plan.fallback, Some(ResolvedPlaybackEngine::Native));
     }
 
     #[test]
-    fn android_auto_uses_media3_by_default_and_mpv_for_ass_or_sw_decode() {
+    fn android_auto_prioritizes_media3_and_uses_mpv_for_force_sw_decode() {
         let mut mkv = base_input(PlatformKind::Android);
         mkv.url_or_filename = "https://media.example.com/movie.mkv".into();
         mkv.audio_codec_hint = Some("dts".into());
+        mkv.has_ass_or_pgs_subtitle = true;
         let plan = PlaybackEngineRouter::resolve(&mkv);
         assert_eq!(plan.primary, ResolvedPlaybackEngine::Native);
         assert_eq!(plan.fallback, Some(ResolvedPlaybackEngine::Enhanced));
         assert_eq!(plan.engine_label_zh, "Media3 原生");
-
-        mkv.has_ass_or_pgs_subtitle = true;
-        let ass_plan = PlaybackEngineRouter::resolve(&mkv);
-        assert_eq!(ass_plan.primary, ResolvedPlaybackEngine::Enhanced);
-        assert_eq!(ass_plan.engine_label_zh, "MPV 全能");
-
-        mkv.ignore_ass_style = true;
-        let ignored_plan = PlaybackEngineRouter::resolve(&mkv);
-        assert_eq!(ignored_plan.primary, ResolvedPlaybackEngine::Native);
 
         mkv.decode_force_software = true;
         let sw_plan = PlaybackEngineRouter::resolve(&mkv);
@@ -547,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn harmony_auto_routes_mkv_dts_and_self_signed_tls_to_enhanced() {
+    fn harmony_auto_prioritizes_native_with_enhanced_fallback_and_handles_self_signed_tls() {
         let mp4 = PlaybackEngineRouter::resolve(&base_input(PlatformKind::Harmony));
         assert_eq!(mp4.primary, ResolvedPlaybackEngine::Native);
         assert_eq!(mp4.fallback, Some(ResolvedPlaybackEngine::Enhanced));
@@ -555,8 +467,9 @@ mod tests {
         let mut mkv = base_input(PlatformKind::Harmony);
         mkv.url_or_filename = "https://nas.local/movie.mkv".into();
         let mkv_plan = PlaybackEngineRouter::resolve(&mkv);
-        assert_eq!(mkv_plan.primary, ResolvedPlaybackEngine::Enhanced);
-        assert_eq!(mkv_plan.engine_label_zh, "IJK 增强");
+        assert_eq!(mkv_plan.primary, ResolvedPlaybackEngine::Native);
+        assert_eq!(mkv_plan.fallback, Some(ResolvedPlaybackEngine::Enhanced));
+        assert_eq!(mkv_plan.engine_label_zh, "AVPlayer 原生");
 
         let mut tls = base_input(PlatformKind::Harmony);
         tls.allow_self_signed_tls = true;

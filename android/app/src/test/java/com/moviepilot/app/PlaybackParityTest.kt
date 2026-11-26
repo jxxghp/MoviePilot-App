@@ -407,7 +407,7 @@ class PlaybackParityTest {
         assertEquals("native", mp4Plan.primary)
         assertEquals("enhanced", mp4Plan.fallback)
 
-        // 2. MKV / ASS 特效字幕 / 强制软解自动切入 MPV 全能内核
+        // 2. 自动模式默认优先使用原生内核（支持失败自动回退 MPV 全能内核），仅强制软解直入 MPV
         val mkvPlan = com.moviepilot.rustbridge.RustCoreBridge.resolvePlaybackEngine(
             com.moviepilot.rustbridge.EngineResolutionInputDto(
                 platform = "android",
@@ -415,8 +415,8 @@ class PlaybackParityTest {
                 urlOrFilename = "https://cdn.example.com/anime.mkv",
             ),
         )
-        assertEquals("enhanced", mkvPlan.primary)
-        assertEquals("native", mkvPlan.fallback)
+        assertEquals("native", mkvPlan.primary)
+        assertEquals("enhanced", mkvPlan.fallback)
 
         val swPlan = com.moviepilot.rustbridge.RustCoreBridge.resolvePlaybackEngine(
             com.moviepilot.rustbridge.EngineResolutionInputDto(

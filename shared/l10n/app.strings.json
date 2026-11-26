@@ -2830,6 +2830,31 @@
       "zh-Hans": "清空弹幕缓存",
       "zh-Hant": "清空彈幕快取",
       "en": "Clear Danmaku Cache"
+    },
+    "播放方式": {
+      "zh-Hans": "播放方式",
+      "zh-Hant": "播放方式",
+      "en": "Playback Mode"
+    },
+    "直流播放": {
+      "zh-Hans": "直流播放",
+      "zh-Hant": "直流播放",
+      "en": "Direct Stream"
+    },
+    "非直流播放": {
+      "zh-Hans": "非直流播放",
+      "zh-Hant": "非直流播放",
+      "en": "Proxied Stream"
+    },
+    "当前格式不兼容，已自动切换至 %@": {
+      "zh-Hans": "当前格式不兼容，已自动切换至 %@",
+      "zh-Hant": "目前格式不相容，已自動切換至 %@",
+      "en": "Incompatible format, automatically switched to %@"
+    },
+    "无法加载当前媒体流，请检查网络连接或在右上角菜单中切换播放内核重试。": {
+      "zh-Hans": "无法加载当前媒体流，请检查网络连接或在右上角菜单中切换播放内核重试。",
+      "zh-Hant": "無法載入目前媒體串流，請檢查網路連線或在右上角選單中切換播放核心重試。",
+      "en": "Unable to load media stream. Check your network connection or switch the playback engine in the top-right menu."
     }
   }
 }

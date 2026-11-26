@@ -178,8 +178,7 @@ public enum PlaybackEngineRouter {
       return makePlan(primary: .native, fallback: fb, reason: "user_pinned_native")
     case .enhanced:
       if input.hasEnhancedEngine {
-        let fb: ResolvedPlaybackEngine = isAvailable(.legacy) ? .legacy : .native
-        return makePlan(primary: .enhanced, fallback: fb, reason: "user_pinned_enhanced")
+        return makePlan(primary: .enhanced, fallback: .native, reason: "user_pinned_enhanced")
       }
       return makePlan(primary: .native, fallback: nil, reason: "enhanced_unavailable")
     case .legacy:
@@ -212,83 +211,38 @@ public enum PlaybackEngineRouter {
       return makePlan(primary: .enhanced, fallback: .native, reason: "force_software_decode")
     }
 
-    let container = resolveContainer(input)
-    let audioCodec = normalizeHint(input.audioCodecHint)
-    let videoCodec = normalizeHint(input.videoCodecHint)
-    let needsRichSubtitle = input.hasAssOrPgsSubtitle && !input.ignoreAssStyle
+    let defaultFallback: ResolvedPlaybackEngine? =
+      input.hasEnhancedEngine ? .enhanced : (isAvailable(.legacy) ? .legacy : nil)
 
     switch input.platform {
     case .ios:
-      let standardNative: Set<String> = ["mp4", "m4v", "mov", "m3u8", "hls"]
-      let unsupportedAudio: Set<String> = ["dts", "dca", "truehd", "mlp"]
-      let unsupportedVideo: Set<String> = [
-        "av1", "vc1", "mpeg2", "mpeg2video", "vp9", "hi10p", "rv40",
-      ]
-      if standardNative.contains(container)
-        && !unsupportedAudio.contains(audioCodec)
-        && !unsupportedVideo.contains(videoCodec)
-        && !needsRichSubtitle
-        && !input.allowSelfSignedTls
-      {
-        let fb: ResolvedPlaybackEngine? =
-          input.hasEnhancedEngine ? .enhanced : (isAvailable(.legacy) ? .legacy : nil)
-        return makePlan(primary: .native, fallback: fb, reason: "ios_native_standard")
-      }
-      if input.hasEnhancedEngine {
-        let fb: ResolvedPlaybackEngine = isAvailable(.legacy) ? .legacy : .native
-        let reason =
-          needsRichSubtitle
-          ? "mkv_or_ass_enhanced"
-          : (input.allowSelfSignedTls
-            ? "ios_self_signed_tls_enhanced" : "ios_container_or_codec_enhanced")
-        return makePlan(primary: .enhanced, fallback: fb, reason: reason)
-      }
-      if isAvailable(.legacy) {
-        return makePlan(primary: .legacy, fallback: .native, reason: "ios_legacy_fallback")
-      }
-      return makePlan(primary: .native, fallback: nil, reason: "ios_native_only")
-
-    case .android:
-      let hardVideo: Set<String> = ["vc1", "mpeg2", "mpeg2video", "hi10p", "rv40", "wmv3"]
-      let hardContainer: Set<String> = ["rmvb", "rm", "avi", "wmv"]
-      if (needsRichSubtitle || hardVideo.contains(videoCodec) || hardContainer.contains(container))
-        && input.hasEnhancedEngine
-      {
+      if input.allowSelfSignedTls && input.hasEnhancedEngine {
         return makePlan(
           primary: .enhanced,
           fallback: .native,
-          reason: needsRichSubtitle ? "android_ass_or_pgs_enhanced" : "android_codec_enhanced"
+          reason: "ios_self_signed_tls_enhanced"
         )
       }
+      return makePlan(primary: .native, fallback: defaultFallback, reason: "ios_native_default")
+
+    case .android:
       return makePlan(
         primary: .native,
-        fallback: input.hasEnhancedEngine ? .enhanced : nil,
+        fallback: defaultFallback,
         reason: "android_media3_default"
       )
 
     case .harmony:
-      let standardNative: Set<String> = ["mp4", "m4v", "mov", "m3u8", "hls"]
-      let enhancedContainers: Set<String> = [
-        "mkv", "ts", "m2ts", "flv", "rmvb", "avi", "wmv", "webm",
-      ]
-      let enhancedAudio: Set<String> = ["dts", "dca", "truehd", "ac3", "eac3", "mlp"]
-      if input.hasEnhancedEngine
-        && (enhancedContainers.contains(container)
-          || enhancedAudio.contains(audioCodec)
-          || input.allowSelfSignedTls
-          || needsRichSubtitle
-          || (!container.isEmpty && !standardNative.contains(container)))
-      {
-        let reason =
-          input.allowSelfSignedTls
-          ? "harmony_self_signed_tls"
-          : (enhancedAudio.contains(audioCodec)
-            ? "harmony_audio_codec_enhanced" : "harmony_container_enhanced")
-        return makePlan(primary: .enhanced, fallback: .native, reason: reason)
+      if input.allowSelfSignedTls && input.hasEnhancedEngine {
+        return makePlan(
+          primary: .enhanced,
+          fallback: .native,
+          reason: "harmony_self_signed_tls"
+        )
       }
       return makePlan(
         primary: .native,
-        fallback: input.hasEnhancedEngine ? .enhanced : nil,
+        fallback: defaultFallback,
         reason: "harmony_avplayer_default"
       )
     }
@@ -335,7 +289,8 @@ public enum PlaybackEngineRouter {
 
     let rendered: String
     if cleanTpl.contains("{url}") || cleanTpl.contains("{raw_url}") {
-      rendered = cleanTpl
+      rendered =
+        cleanTpl
         .replacingOccurrences(of: "{url}", with: encodedURL)
         .replacingOccurrences(of: "{raw_url}", with: cleanMedia)
         .replacingOccurrences(of: "{title}", with: encodedTitle)
@@ -355,18 +310,13 @@ public enum PlaybackEngineRouter {
     if let url = URL(string: trimmed), url.scheme != nil {
       pathPart = url.path
     } else {
-      pathPart = trimmed.split(whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init) ?? ""
+      pathPart =
+        trimmed.split(whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init) ?? ""
     }
     let fileName = pathPart.split(separator: "/").last.map(String.init) ?? ""
     guard let dotIdx = fileName.lastIndex(of: ".") else { return "" }
     return String(fileName[fileName.index(after: dotIdx)...])
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .lowercased()
-  }
-
-  private static func resolveContainer(_ input: PlaybackEngineResolutionInput) -> String {
-    let hint = normalizeHint(input.containerHint)
-    if !hint.isEmpty { return hint }
-    return extractExtension(input.urlOrFilename)
   }
 }

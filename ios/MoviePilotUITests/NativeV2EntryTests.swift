@@ -96,6 +96,109 @@ final class NativeV2EntryTests: XCTestCase {
       XCTAssertEqual(app.webViews.count, 0)
       return
     }
+    if environment["MOVIEPILOT_NATIVE_V2_LIVE_SCOPE"] == "playback" {
+      let libraryCard = app.descendants(matching: .any).matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-discover-provider-library|'")
+      ).firstMatch
+      reveal(libraryCard, app: app)
+      XCTAssertTrue(libraryCard.waitForExistence(timeout: 20))
+      tap(libraryCard, app: app)
+
+      let mediaItem = app.descendants(matching: .any).matching(
+        NSPredicate(format: "identifier BEGINSWITH 'native-mediaserver-item-'")
+      ).firstMatch
+      XCTAssertTrue(mediaItem.waitForExistence(timeout: 20))
+      tap(mediaItem, app: app)
+
+      let playBtn = app.buttons["native-mediaserver-detail-play"].firstMatch
+      if !playBtn.waitForExistence(timeout: 6) {
+        let seasonCard = app.descendants(matching: .any).matching(
+          NSPredicate(format: "identifier BEGINSWITH 'native-mediaserver-season-'")
+        ).firstMatch
+        reveal(seasonCard, app: app)
+        XCTAssertTrue(seasonCard.waitForExistence(timeout: 15))
+        tap(seasonCard, app: app)
+
+        let epRow = app.descendants(matching: .any).matching(
+          NSPredicate(format: "identifier BEGINSWITH 'native-mediaserver-episode-row-'")
+        ).firstMatch
+        reveal(epRow, app: app)
+        XCTAssertTrue(epRow.waitForExistence(timeout: 15))
+        tap(epRow, app: app)
+      }
+      XCTAssertTrue(playBtn.waitForExistence(timeout: 15))
+      tap(playBtn, app: app)
+
+      // 1. 验证顶栏不展示内核与路由胶囊，自动模式拉起真实媒体流（MKV 自动回退至 MPV）不崩溃、不卡死 00:00
+      let moreBtn = app.buttons["video-playback-more"].firstMatch
+      XCTAssertTrue(moreBtn.waitForExistence(timeout: 20))
+      XCTAssertFalse(app.staticTexts["playback-engine-badge"].exists)
+      XCTAssertFalse(app.staticTexts["playback-route-badge"].exists)
+      try await Task.sleep(nanoseconds: 4_000_000_000)
+      let resumeAlert = app.alerts["继续观看？"]
+      if resumeAlert.exists {
+        resumeAlert.buttons["继续播放"].tap()
+        try await Task.sleep(nanoseconds: 500_000_000)
+      }
+      XCTAssertEqual(app.alerts.count, 0)
+
+      let centerCoord = app.windows.firstMatch.coordinate(
+        withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      if !moreBtn.isHittable {
+        centerCoord.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      moreBtn.tap()
+      XCTAssertTrue(
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "播放方式")).firstMatch
+          .waitForExistence(timeout: 6))
+      let switchMenu = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "切换播放内核")
+      ).firstMatch
+      XCTAssertTrue(switchMenu.exists)
+      switchMenu.tap()
+
+      // 2. 切换至 VLCKit 兼容内核拉取真实后端流，验证不崩溃
+      let vlcItem = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "VLCKit 兼容")
+      ).firstMatch
+      XCTAssertTrue(vlcItem.waitForExistence(timeout: 6))
+      vlcItem.tap()
+      let vlcSwitched = NSPredicate(format: "value == %@", "legacy")
+      let vlcExp = XCTNSPredicateExpectation(predicate: vlcSwitched, object: moreBtn)
+      let vlcResult = await XCTWaiter().fulfillment(of: [vlcExp], timeout: 10)
+      XCTAssertEqual(vlcResult, .completed)
+      try await Task.sleep(nanoseconds: 3_000_000_000)
+      XCTAssertEqual(app.alerts.count, 0)
+
+      // 3. 在切换内核拉流尚未稳定出画面瞬间立即点击返回关闭，验证零崩溃安全退回详情页
+      if !moreBtn.isHittable {
+        centerCoord.tap()
+        try await Task.sleep(nanoseconds: 400_000_000)
+      }
+      moreBtn.tap()
+      let switchMenu2 = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "切换播放内核")
+      ).firstMatch
+      XCTAssertTrue(switchMenu2.waitForExistence(timeout: 6))
+      switchMenu2.tap()
+      let mpvItem = app.buttons.matching(
+        NSPredicate(format: "label BEGINSWITH %@", "MPV 全能")
+      ).firstMatch
+      XCTAssertTrue(mpvItem.waitForExistence(timeout: 6))
+      mpvItem.tap()
+      try await Task.sleep(nanoseconds: 120_000_000)
+      let closeBtn = app.buttons["video-playback-close"].firstMatch
+      if !closeBtn.isHittable {
+        centerCoord.tap()
+        try await Task.sleep(nanoseconds: 250_000_000)
+      }
+      XCTAssertTrue(closeBtn.waitForExistence(timeout: 6))
+      closeBtn.tap()
+      XCTAssertTrue(playBtn.waitForExistence(timeout: 12))
+      XCTAssertEqual(app.webViews.count, 0)
+      return
+    }
     if environment["MOVIEPILOT_NATIVE_V2_LIVE_SCOPE"] == "subscriptions" {
       tap(tabButton("订阅", app: app), app: app)
       let subScroll = app.scrollViews["native-subscriptions-scroll"]
@@ -1896,23 +1999,19 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(playBtn.waitForExistence(timeout: 15))
     tap(playBtn, app: app)
 
-    let engineBadge = app.staticTexts["playback-engine-badge"].firstMatch
-    XCTAssertTrue(engineBadge.waitForExistence(timeout: 15))
+    let moreBtn = app.buttons["video-playback-more"].firstMatch
+    XCTAssertTrue(moreBtn.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.staticTexts["playback-engine-badge"].exists)
+    XCTAssertFalse(app.staticTexts["playback-route-badge"].exists)
     XCTAssertEqual(app.webViews.count, 0)
     try await Task.sleep(nanoseconds: 1_800_000_000)
-    let initialEngineValue = (engineBadge.value as? String) ?? ""
-    XCTAssertFalse(initialEngineValue.isEmpty)
+    let initialEngineValue = (moreBtn.value as? String) ?? ""
+    XCTAssertEqual(initialEngineValue, "native")
     capture("multi-engine-03-player-initial")
 
-    // 3. 依次在播放器内一键热切换至 MPV 全能 -> VLCKit 兼容 -> AVPlayer 原生
+    // 3. 依次在播放器右上角弹出菜单内校验播放方式展示，并一键热切换至 MPV 全能 -> VLCKit 兼容 -> AVPlayer 原生
     let switchSequence: [(title: String, expectedValue: String, shot: String)] =
-      initialEngineValue == "enhanced"
-      ? [
-        ("VLCKit 兼容", "legacy", "multi-engine-04-engine-vlc"),
-        ("AVPlayer 原生", "native", "multi-engine-05-engine-avplayer"),
-        ("MPV 全能", "enhanced", "multi-engine-06-engine-mpv"),
-      ]
-      : [
+      [
         ("MPV 全能", "enhanced", "multi-engine-04-engine-mpv"),
         ("VLCKit 兼容", "legacy", "multi-engine-05-engine-vlc"),
         ("AVPlayer 原生", "native", "multi-engine-06-engine-avplayer"),
@@ -1920,19 +2019,25 @@ final class NativeV2EntryTests: XCTestCase {
 
     let centerCoord = app.windows.firstMatch.coordinate(
       withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-    for step in switchSequence {
-      let moreBtn = app.buttons["video-playback-more"].firstMatch
-      if !moreBtn.exists || !moreBtn.isHittable {
+    for (idx, step) in switchSequence.enumerated() {
+      let currentMoreBtn = app.buttons["video-playback-more"].firstMatch
+      if !currentMoreBtn.exists || !currentMoreBtn.isHittable {
         centerCoord.tap()
         try await Task.sleep(nanoseconds: 400_000_000)
       }
-      XCTAssertTrue(moreBtn.waitForExistence(timeout: 8))
-      moreBtn.tap()
+      XCTAssertTrue(currentMoreBtn.waitForExistence(timeout: 8))
+      currentMoreBtn.tap()
 
       let switchMenu = app.buttons.matching(
         NSPredicate(format: "label BEGINSWITH %@", "切换播放内核")
       ).firstMatch
       XCTAssertTrue(switchMenu.waitForExistence(timeout: 6))
+      if idx == 0 {
+        XCTAssertTrue(
+          app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "播放方式")
+          ).firstMatch.exists)
+      }
       XCTAssertTrue(
         app.buttons.matching(
           NSPredicate(format: "label BEGINSWITH %@", "使用外部播放器打开")
@@ -1946,11 +2051,11 @@ final class NativeV2EntryTests: XCTestCase {
       targetItem.tap()
 
       let switched = NSPredicate(format: "value == %@", step.expectedValue)
-      let exp = XCTNSPredicateExpectation(predicate: switched, object: engineBadge)
+      let exp = XCTNSPredicateExpectation(predicate: switched, object: currentMoreBtn)
       let result = await XCTWaiter().fulfillment(of: [exp], timeout: 10)
       XCTAssertEqual(result, .completed, "Expected playback engine \(step.expectedValue)")
       try await Task.sleep(nanoseconds: 1_800_000_000)
-      if !moreBtn.isHittable {
+      if !currentMoreBtn.isHittable {
         centerCoord.tap()
         try await Task.sleep(nanoseconds: 400_000_000)
       }
@@ -3619,7 +3724,7 @@ final class NativeV2EntryTests: XCTestCase {
     let app = try await signInToNativeBusiness()
     defer { app.terminate() }
 
-    // 1. 进入设置页确认「Vue 插件兼容网页模式」开关存在且默认关闭
+    // 1. 进入设置页确认全局「Vue 插件兼容网页模式」总开关已移除（仅在个别插件不兼容报错时按需切换兼容容器）
     openOverflowItem("native-more-settings-btn", viaTab: "更多", app: app)
     if !app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 6) {
       let gear = app.buttons["native-more-settings-btn"]
@@ -3629,8 +3734,7 @@ final class NativeV2EntryTests: XCTestCase {
     }
     XCTAssertTrue(app.scrollViews["native-settings-scroll"].waitForExistence(timeout: 10))
     let legacyRow = app.descendants(matching: .any)["native-settings-vue-legacy-mode"].firstMatch
-    reveal(legacyRow, app: app)
-    XCTAssertTrue(legacyRow.waitForExistence(timeout: 8))
+    XCTAssertFalse(legacyRow.exists)
     capture("vue-runtime-01-settings-toggle")
 
     // 清空上一次运行可能残留的本地插件分片缓存，保证本次首次打开从夹具拉取 1 次、二次打开严格命中磁盘缓存
@@ -3657,7 +3761,8 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(vueCard.waitForExistence(timeout: 10))
     tap(vueCard, app: app)
 
-    let readyContainer = app.descendants(matching: .any)["native-vue-local-runtime-ready"].firstMatch
+    let readyContainer = app.descendants(matching: .any)["native-vue-local-runtime-ready"]
+      .firstMatch
     XCTAssertTrue(readyContainer.waitForExistence(timeout: 20), "本地联邦运行时未在 20 秒内完成挂载")
 
     // 3. 校验共享 Vue/Vuetify 渲染、Native Bridge 鉴权 API 代理以及零 localStorage.auth 暴露
@@ -3759,7 +3864,8 @@ final class NativeV2EntryTests: XCTestCase {
     app.navigationBars.buttons.firstMatch.tap()
     openOverflowItem("native-overflow-plugin-market", app: app)
     XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 10))
-    let vueCardLight = app.descendants(matching: .any)["native-installed-card-VueCompatDemo"].firstMatch
+    let vueCardLight = app.descendants(matching: .any)["native-installed-card-VueCompatDemo"]
+      .firstMatch
     reveal(vueCardLight, app: app)
     XCTAssertTrue(vueCardLight.waitForExistence(timeout: 10))
     tap(vueCardLight, app: app)

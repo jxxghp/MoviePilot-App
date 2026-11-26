@@ -82,6 +82,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
@@ -95,7 +96,10 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -328,57 +332,13 @@ fun formatDurationMs(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
 }
 
-/** 播放控制栏轻量路由角标胶囊（区分局域网直连、外网直连、STRM 直链与后台中转）。 */
-@Composable
-private fun PlaybackRouteBadgePill(routeKind: String) {
-    val (label, bgColor, borderColor) = when (routeKind) {
-        "server_lan" -> Triple("局域网直连", Color(0xFF16A34A).copy(alpha = 0.28f), Color(0xFF4ADE80).copy(alpha = 0.52f))
-        "server_wan" -> Triple("外网直连", Color(0xFF0284C7).copy(alpha = 0.28f), Color(0xFF38BDF8).copy(alpha = 0.52f))
-        "strm_direct" -> Triple("STRM 直链", Color(0xFF0284C7).copy(alpha = 0.28f), Color(0xFF38BDF8).copy(alpha = 0.52f))
-        "mp_proxy" -> Triple("后台中转", Color.White.copy(alpha = 0.16f), Color.White.copy(alpha = 0.28f))
-        else -> return
-    }
-    Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = bgColor,
-        modifier = Modifier.border(0.75.dp, borderColor, RoundedCornerShape(999.dp)),
-    ) {
-        Text(
-            text = label,
-            color = Color.White,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
-        )
-    }
-}
-
-/** 播放顶栏轻量内核徽标（点击可一键热切 Media3 原生 / MPV 全能内核）。 */
-@Composable
-private fun PlaybackEngineBadgePill(
-    engine: ResolvedAndroidEngine,
-    onClick: () -> Unit,
-) {
-    val (bgColor, borderColor) = when (engine) {
-        ResolvedAndroidEngine.NATIVE -> Color(0xFF0D9488).copy(alpha = 0.28f) to Color(0xFF2DD4BF).copy(alpha = 0.52f)
-        ResolvedAndroidEngine.ENHANCED -> Color(0xFF6366F1).copy(alpha = 0.32f) to Color(0xFFA5B4FC).copy(alpha = 0.56f)
-    }
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(999.dp),
-        color = bgColor,
-        modifier = Modifier.border(0.75.dp, borderColor, RoundedCornerShape(999.dp)),
-    ) {
-        Text(
-            text = engine.shortBadge,
-            color = Color.White,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
-        )
-    }
+/** 格式化媒体服务器播放方式描述（供右上角弹出菜单与内核面板展示，不占用顶部标题空间）。 */
+private fun formatPlaybackRouteSummary(routeKind: String): String? = when (routeKind) {
+    "server_lan" -> "直流播放 · 局域网直连"
+    "server_wan" -> "直流播放 · 外网直连"
+    "strm_direct" -> "直流播放 · STRM 直链"
+    "mp_proxy" -> "非直流播放 · 后台中转"
+    else -> null
 }
 
 private fun subtitleMimeTypeForUrl(url: String): String {
@@ -712,7 +672,9 @@ fun NativeMediaPlayerOverlay(
     var engineCarryPositionMs by remember(request.url) { mutableLongStateOf(bestInitialResumeMs) }
     val suppressStopForEngineSwitchRef = remember(request.url) { AtomicBoolean(false) }
     var didAutoFallbackEngine by remember(request.url) { mutableStateOf(false) }
+    var playbackLoadFailed by remember(request.url, activeEngineKind) { mutableStateOf(false) }
     var showEngineSheet by remember { mutableStateOf(false) }
+    var showTopMoreMenu by remember { mutableStateOf(false) }
     var mpvAudioTracks by remember(request.url, activeEngineKind) { mutableStateOf<List<EngineTrackItem>>(emptyList()) }
     var mpvSubtitleTracks by remember(request.url, activeEngineKind) { mutableStateOf<List<EngineTrackItem>>(emptyList()) }
 
@@ -859,7 +821,23 @@ fun NativeMediaPlayerOverlay(
         if (isMpvActive) (mpvEngineHolder?.isPlaying ?: isPlaying) else (exoPlayer?.isPlaying == true)
 
     fun activePlay() {
-        if (isMpvActive) mpvEngineHolder?.play() else exoPlayer?.play()
+        if (isMpvActive) {
+            if (playbackLoadFailed) {
+                playbackLoadFailed = false
+                val curRoute = activeStreamRouteRef.get()
+                mpvEngineHolder?.reloadWithRoute(curRoute.first, curRoute.second)
+            } else {
+                mpvEngineHolder?.play()
+            }
+        } else {
+            exoPlayer?.let { ep ->
+                if (playbackLoadFailed || ep.playbackState == Player.STATE_IDLE) {
+                    playbackLoadFailed = false
+                    ep.prepare()
+                }
+                ep.play()
+            }
+        }
     }
 
     fun activePause() {
@@ -1077,7 +1055,11 @@ fun NativeMediaPlayerOverlay(
                 if (playbackPrefs.videoEngine == "auto" && !didAutoFallbackEngine && curPos <= 3_000L) {
                     didAutoFallbackEngine = true
                     switchVideoEngine(ResolvedAndroidEngine.NATIVE, "已自动切换至 Media3 原生内核")
+                    return@MpvPlaybackEngine
                 }
+                playbackLoadFailed = true
+                isPlaying = false
+                hudMessage = "无法加载当前媒体流，请检查网络或在右上角菜单切换内核重试"
             },
         )
         engine.setResizeMode(resizeModeIndex)
@@ -1123,7 +1105,7 @@ fun NativeMediaPlayerOverlay(
         }
     }
 
-    val anySheetOpen = showQueueSheet || showSubtitleSheet || showAudioTrackSheet || showSpeedSheet || showEngineSheet || showDanmakuSettingsSheet || showDanmakuMatchSheet
+    val anySheetOpen = showQueueSheet || showSubtitleSheet || showAudioTrackSheet || showSpeedSheet || showEngineSheet || showTopMoreMenu || showDanmakuSettingsSheet || showDanmakuMatchSheet
     var draggingProgress by remember { mutableFloatStateOf(-1f) }
 
     // 视频控制栏播放中 4.5 秒无操作自动隐藏
@@ -1421,13 +1403,13 @@ fun NativeMediaPlayerOverlay(
                 if (
                     isDecoderOrFormatError &&
                     !request.isAudio &&
-                    playbackPrefs.videoEngine == "auto" &&
+                    activeEngineKind == ResolvedAndroidEngine.NATIVE &&
                     !didAutoFallbackEngine
                 ) {
                     didAutoFallbackEngine = true
                     switchVideoEngine(
                         ResolvedAndroidEngine.ENHANCED,
-                        "当前格式不兼容，已自动切换全能内核",
+                        "当前格式不兼容，已自动切换至 ${ResolvedAndroidEngine.ENHANCED.displayName}",
                     )
                     return
                 }
@@ -1457,9 +1439,13 @@ fun NativeMediaPlayerOverlay(
                     didAutoFallbackEngine = true
                     switchVideoEngine(
                         ResolvedAndroidEngine.ENHANCED,
-                        "当前格式不兼容，已自动切换全能内核",
+                        "当前格式不兼容，已自动切换至 ${ResolvedAndroidEngine.ENHANCED.displayName}",
                     )
+                    return
                 }
+                playbackLoadFailed = true
+                isPlaying = false
+                hudMessage = "无法加载当前媒体流，请检查网络或在右上角菜单切换内核重试"
             }
 
             override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
@@ -1937,6 +1923,21 @@ fun NativeMediaPlayerOverlay(
                     color = colors.textSecondary,
                     fontSize = 12.5.sp,
                 )
+                val routeSummary = if (request.server.isNotBlank()) formatPlaybackRouteSummary(currentRouteKind) else null
+                if (routeSummary != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(colors.surfaceContainerLow)
+                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("播放方式", color = colors.textSecondary, fontSize = 13.5.sp)
+                        Text(routeSummary, color = colors.textPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
                 options.forEach { (kind, title, desc) ->
                     val selected = activeEngineKind == kind
                     Row(
@@ -2486,10 +2487,6 @@ fun NativeMediaPlayerOverlay(
                                         textAlign = TextAlign.Center,
                                         modifier = Modifier.clickable { showLyricsView = true },
                                     )
-                                }
-                                if (request.server.isNotBlank() && currentRouteKind.isNotBlank()) {
-                                    Spacer(Modifier.height(8.dp))
-                                    PlaybackRouteBadgePill(routeKind = currentRouteKind)
                                 }
                             }
                         } else {
@@ -3042,44 +3039,6 @@ fun NativeMediaPlayerOverlay(
                         )
                     }
                 }
-                if (ownsPlayer && !request.isAudio) {
-                    PlaybackEngineBadgePill(
-                        engine = activeEngineKind,
-                        onClick = {
-                            bumpInteraction()
-                            showEngineSheet = true
-                        },
-                    )
-                }
-                if (request.server.isNotBlank() && currentRouteKind.isNotBlank()) {
-                    PlaybackRouteBadgePill(routeKind = currentRouteKind)
-                }
-                Surface(
-                    onClick = {
-                        bumpInteraction()
-                        activePause()
-                        val ok = ExternalPlayerLauncher.launchExternalPlayerChooser(
-                            context = context,
-                            streamUrl = request.url,
-                            title = request.title,
-                            isAudio = false,
-                            headers = request.headers,
-                        )
-                        if (!ok) hudMessage = "未找到可用的外部播放器"
-                    },
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.45f),
-                    modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
-                            contentDescription = "外部播放器",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
                 Surface(
                     onClick = {
                         bumpInteraction()
@@ -3122,6 +3081,93 @@ fun NativeMediaPlayerOverlay(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
+                    }
+                }
+                Box {
+                    Surface(
+                        onClick = {
+                            bumpInteraction()
+                            showTopMoreMenu = true
+                        },
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.45f),
+                        modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Rounded.MoreVert,
+                                contentDescription = "更多播放选项",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = showTopMoreMenu,
+                        onDismissRequest = { showTopMoreMenu = false },
+                    ) {
+                        if (ownsPlayer && !request.isAudio) {
+                            DropdownMenuItem(
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("切换播放内核", fontWeight = FontWeight.Medium)
+                                        Text(
+                                            activeEngineKind.displayName,
+                                            fontSize = 12.sp,
+                                            color = colors.textSecondary,
+                                        )
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.Memory, contentDescription = null)
+                                },
+                                onClick = {
+                                    showTopMoreMenu = false
+                                    bumpInteraction()
+                                    showEngineSheet = true
+                                },
+                            )
+                        }
+                        val routeSummary = if (request.server.isNotBlank()) formatPlaybackRouteSummary(currentRouteKind) else null
+                        if (routeSummary != null) {
+                            DropdownMenuItem(
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("播放方式", fontWeight = FontWeight.Medium)
+                                        Text(
+                                            routeSummary,
+                                            fontSize = 12.sp,
+                                            color = colors.textSecondary,
+                                        )
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.Tune, contentDescription = null)
+                                },
+                                enabled = false,
+                                onClick = {},
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("使用外部播放器打开") },
+                            leadingIcon = {
+                                Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null)
+                            },
+                            onClick = {
+                                showTopMoreMenu = false
+                                bumpInteraction()
+                                activePause()
+                                val ok = ExternalPlayerLauncher.launchExternalPlayerChooser(
+                                    context = context,
+                                    streamUrl = request.url,
+                                    title = request.title,
+                                    isAudio = false,
+                                    headers = request.headers,
+                                )
+                                if (!ok) hudMessage = "未找到可用的外部播放器"
+                            },
+                        )
                     }
                 }
             }

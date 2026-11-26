@@ -25,7 +25,7 @@ struct PlaybackEngineRouterTests {
     #expect(dsf.fallback == .native)
   }
 
-  @Test func iosVideoAutoRoutesStandardMp4ToAVPlayerAndMkvToMpv() {
+  @Test func iosVideoAutoPrioritizesNativeAVPlayerWithMpvFallback() {
     let mp4 = PlaybackEngineRouter.resolve(
       PlaybackEngineResolutionInput(
         platform: .ios,
@@ -39,9 +39,9 @@ struct PlaybackEngineRouterTests {
         platform: .ios,
         urlOrFilename: "https://cdn.example.com/remux.mkv"
       ))
-    #expect(mkv.primary == .enhanced)
-    #expect(mkv.fallback == .legacy)
-    #expect(mkv.engineLabelKey == "MPV 全能")
+    #expect(mkv.primary == .native)
+    #expect(mkv.fallback == .enhanced)
+    #expect(mkv.engineLabelKey == "AVPlayer 原生")
 
     let forceSw = PlaybackEngineRouter.resolve(
       PlaybackEngineResolutionInput(

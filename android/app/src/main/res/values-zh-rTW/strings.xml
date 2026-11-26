@@ -51,6 +51,7 @@
     <string name="mp_1883b092" formatted="false">%1$s，頁內分類</string>
     <string name="mp_18b1353a" formatted="false">請輸入服務根地址，不要包含查詢參數或 # 後的頁面路徑。</string>
     <string name="mp_1911c530" formatted="false">媒體資料來源</string>
+    <string name="mp_1928ecc1" formatted="false">非直流播放</string>
     <string name="mp_195212d5" formatted="false">刪除服務</string>
     <string name="mp_1955f6f3" formatted="false">清除選擇</string>
     <string name="mp_199d45f0" formatted="false">續期</string>
@@ -212,6 +213,7 @@
     <string name="mp_6_e478600e" formatted="false">請輸入身份驗證器中的 6 位驗證碼。</string>
     <string name="mp_6ab2e222" formatted="false">驗證方式</string>
     <string name="mp_6b576e0f" formatted="false">請輸入用戶名和密碼。</string>
+    <string name="mp_6b7f2134" formatted="false">目前格式不相容，已自動切換至 %1$s</string>
     <string name="mp_6ba4b7be" formatted="false">繼續觀看？</string>
     <string name="mp_6c14bd7f" formatted="false">關閉</string>
     <string name="mp_6c85e1de" formatted="false">解碼模式</string>
@@ -413,6 +415,7 @@
     <string name="mp_d171944c" formatted="false">發送測試通知</string>
     <string name="mp_d19e8611" formatted="false">音軌</string>
     <string name="mp_d1edda3e" formatted="false">啓用當前帳號</string>
+    <string name="mp_d1ef28a0" formatted="false">無法載入目前媒體串流，請檢查網路連線或在右上角選單中切換播放核心重試。</string>
     <string name="mp_d2052a57" formatted="false">目前帳號沒有此操作權限。</string>
     <string name="mp_d2ee63ce" formatted="false">兩次輸入的密碼不一致。</string>
     <string name="mp_d30fc804" formatted="false">長按可查看操作</string>
@@ -447,6 +450,7 @@
     <string name="mp_e10994d9" formatted="false">未能完成通行密鑰驗證，請重新嘗試。</string>
     <string name="mp_e1119ef7" formatted="false">資源與媒體流轉</string>
     <string name="mp_e188ebca" formatted="false">起點</string>
+    <string name="mp_e2a97512" formatted="false">直流播放</string>
     <string name="mp_e3526937" formatted="false">星期</string>
     <string name="mp_e39b02ad" formatted="false">目錄對應與刮削</string>
     <string name="mp_e3a58614" formatted="false">關鍵字封鎖</string>
@@ -514,6 +518,7 @@
     <string name="mp_fd60ff58" formatted="false">訊息推播設定</string>
     <string name="mp_fd900500" formatted="false">簡繁轉換</string>
     <string name="mp_fdad07e6" formatted="false">下載速度 %1$s，上傳速度 %2$s</string>
+    <string name="mp_fdc1bfa5" formatted="false">播放方式</string>
     <string name="mp_fe33307a" formatted="false">媒體</string>
     <string name="mp_fe84e2eb" formatted="false">影片畫面</string>
     <string name="mp_fea82dd2" formatted="false">清空運算式</string>
