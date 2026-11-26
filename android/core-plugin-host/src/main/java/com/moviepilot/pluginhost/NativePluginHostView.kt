@@ -1725,6 +1725,8 @@ fun IsolatedVuePluginWebView(
     surface: VuePluginSurface = VuePluginSurface.DataPage,
     chromeController: VuePluginChromeController? = null,
     pluginHasPage: Boolean = false,
+    onLegacyFallbackChanged: ((Boolean) -> Unit)? = null,
+    onRequestExit: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var fallbackToLegacy by remember(pluginId, surface) { mutableStateOf(false) }
@@ -1735,7 +1737,11 @@ fun IsolatedVuePluginWebView(
             surface = surface,
             chromeController = chromeController,
             pluginHasPage = pluginHasPage,
-            onFallbackToLegacy = { fallbackToLegacy = true },
+            onFallbackToLegacy = {
+                fallbackToLegacy = true
+                onLegacyFallbackChanged?.invoke(true)
+            },
+            onRequestExit = onRequestExit,
             modifier = modifier,
         )
         return

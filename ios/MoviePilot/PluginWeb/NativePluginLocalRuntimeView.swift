@@ -72,8 +72,8 @@ struct NativePluginLocalRuntimeView: View {
   @State private var errorMessage: String?
   @State private var activeToast: PluginToastPayload?
   @State private var toastDismissTask: Task<Void, Never>?
+  @State private var navBackFallbackTask: Task<Void, Never>?
   @State private var standaloneConfirm: NativeVueSheetConfirmation?
-  @State private var standaloneHeaderActions: [NativeVueSheetAction] = []
   @State private var reloadNonce = 0
 
   private var preferDark: Bool {
@@ -131,26 +131,6 @@ struct NativePluginLocalRuntimeView: View {
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
     }
-    .toolbar {
-      if sheetBridge == nil, !standaloneHeaderActions.isEmpty {
-        ToolbarItem(placement: .topBarTrailing) {
-          Menu {
-            ForEach(standaloneHeaderActions) { action in
-              Button {
-                activeSlot?.bridge.sendHostAction(id: action.id)
-              } label: {
-                Label(action.title, systemImage: action.sfSymbol)
-              }
-              .disabled(!action.enabled)
-            }
-          } label: {
-            Image(systemName: "ellipsis.circle")
-          }
-          .tint(.primary)
-          .accessibilityIdentifier("native-vue-local-runtime-menu")
-        }
-      }
-    }
     .alert(
       standaloneConfirm?.title ?? "",
       isPresented: Binding(
@@ -189,6 +169,8 @@ struct NativePluginLocalRuntimeView: View {
     .onDisappear {
       toastDismissTask?.cancel()
       toastDismissTask = nil
+      navBackFallbackTask?.cancel()
+      navBackFallbackTask = nil
       detachSheetBridgeCallbacks()
       if let slot = activeSlot {
         activeSlot = nil
@@ -248,11 +230,28 @@ struct NativePluginLocalRuntimeView: View {
           .accessibilityIdentifier("native-vue-local-runtime-fallback")
         }
         .padding(.top, 4)
+
+        Button(L10n.text("返回")) {
+          dismissHostContainer()
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("native-vue-local-runtime-exit")
       }
       .frame(maxWidth: .infinity)
       .padding(.vertical, 12)
     }
     .padding(.horizontal, CinematicStyle.margin)
+  }
+
+  private func dismissHostContainer() {
+    navBackFallbackTask?.cancel()
+    navBackFallbackTask = nil
+    if let sheetBridge {
+      sheetBridge.shouldDismiss = true
+    } else {
+      dismiss()
+    }
   }
 
   private func toastBanner(_ toast: PluginToastPayload) -> some View {
@@ -484,10 +483,14 @@ struct NativePluginLocalRuntimeView: View {
     }
 
     slot.bridge.onPluginClose = {
-      if let sheetBridge {
-        sheetBridge.shouldDismiss = true
-      } else {
-        dismiss()
+      dismissHostContainer()
+    }
+
+    slot.bridge.onNavBackResult = { handled in
+      navBackFallbackTask?.cancel()
+      navBackFallbackTask = nil
+      if !handled {
+        dismissHostContainer()
       }
     }
 
@@ -497,8 +500,6 @@ struct NativePluginLocalRuntimeView: View {
           sheetBridge.title = title
         }
         sheetBridge.actions = actions
-      } else {
-        standaloneHeaderActions = actions
       }
     }
 
@@ -541,8 +542,15 @@ struct NativePluginLocalRuntimeView: View {
         slot?.bridge.sendHostAction(id: id)
       }
       sheetBridge.localRequestClose = { [weak slot] in
-        slot?.bridge.sendNavBack()
-        return false
+        guard isMounted, let slot else { return false }
+        navBackFallbackTask?.cancel()
+        navBackFallbackTask = Task { @MainActor in
+          try? await Task.sleep(nanoseconds: 350_000_000)
+          guard !Task.isCancelled else { return }
+          dismissHostContainer()
+        }
+        slot.bridge.sendNavBack()
+        return true
       }
       sheetBridge.localRespondConfirmation = { [weak slot] id, confirmed in
         slot?.bridge.sendConfirmResult(id: id, confirmed: confirmed)

@@ -1,10 +1,14 @@
 package com.moviepilot.app
 
+import com.moviepilot.feature.settings.isDetectedFederationVuePlugin
+import com.moviepilot.feature.settings.shouldHideAppPluginTopBar
 import com.moviepilot.rustbridge.RustCoreBridge
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** 验证 Android 侧 Vue 联邦插件本地运行时的路径安全校验、入口规划与实例隔离缓存键派生。 */
@@ -51,5 +55,21 @@ class PluginRemoteRuntimeTest {
         assertEquals("myplugin", a.pluginIdLower)
         assertEquals("2.0.1", a.versionSegment)
         assertEquals("${a.instanceHash}/myplugin/2.0.1", a.relativeDir)
+    }
+
+    @Test
+    fun hidesAppTopBarOnlyForFederationVuePluginsWithoutLegacyFallback() {
+        assertTrue(isDetectedFederationVuePlugin(pluginRenderMode = "vue"))
+        assertTrue(isDetectedFederationVuePlugin(pluginRenderMode = "vuetify", pageJson = """{"render_mode": "vue"}"""))
+        assertTrue(isDetectedFederationVuePlugin(pluginRenderMode = "vuetify", formJson = """{"data":{"render_mode":"vue","model":{}}}"""))
+        assertFalse(isDetectedFederationVuePlugin(pluginRenderMode = "vuetify", pageJson = """{"render_mode":"vuetify","page":[]}"""))
+
+        // 模块联邦插件已自带关闭退出按钮：隐藏 App 顶栏退出按钮
+        assertTrue(shouldHideAppPluginTopBar(isInstalled = true, detectedVuePlugin = true, usingLegacyFallback = false))
+        // 传统 MoviePilot 自渲染（vuetify）插件：必须保留 App 顶栏返回退出按钮
+        assertFalse(shouldHideAppPluginTopBar(isInstalled = true, detectedVuePlugin = false, usingLegacyFallback = false))
+        // 未安装插件或手动回退旧版网页壳：保留 App 顶栏返回退出按钮
+        assertFalse(shouldHideAppPluginTopBar(isInstalled = false, detectedVuePlugin = true, usingLegacyFallback = false))
+        assertFalse(shouldHideAppPluginTopBar(isInstalled = true, detectedVuePlugin = true, usingLegacyFallback = true))
     }
 }

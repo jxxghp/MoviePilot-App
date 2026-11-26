@@ -204,6 +204,7 @@ struct NativePluginFormView: View {
     .navigationTitle(plugin.name)
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
+    .toolbar(isVuePlugin ? .hidden : .visible, for: .navigationBar)
     .navigationBarBackButtonHidden(!isVuePlugin && (form.draft?.hasChanges == true || busy))
     .toolbar {
       if !isVuePlugin && (form.draft?.hasChanges == true || busy) {
@@ -265,7 +266,8 @@ struct NativePluginFormView: View {
         pluginID: plugin.id,
         pluginName: plugin.name,
         surface: .config,
-        pluginHasPage: plugin.hasPage
+        pluginHasPage: plugin.hasPage,
+        isFederationPlugin: false
       )
     }
     .task { do { try await form.load() } catch {} }

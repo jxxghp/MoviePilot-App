@@ -589,6 +589,7 @@ export struct NativePluginDataPageView {
   onChromeTitleChange: (title: string) => void = () => {};
   onChromeActionsChange: (actions: VueChromeAction[]) => void = () => {};
   onRequestDismiss: () => void = () => {};
+  onLegacyFallbackChange: (legacy: boolean) => void = () => {};
   @State private renderMode: string = 'vuetify';
   @State private blocks: PluginDataBlock[] = [];
 
@@ -631,7 +632,8 @@ export struct NativePluginDataPageView {
         chromeController: this.chromeController,
         onChromeTitleChange: this.onChromeTitleChange,
         onChromeActionsChange: this.onChromeActionsChange,
-        onRequestDismiss: this.onRequestDismiss
+        onRequestDismiss: this.onRequestDismiss,
+        onLegacyFallbackChange: this.onLegacyFallbackChange
       })
     } else {
       Scroll() {
@@ -827,6 +829,7 @@ export struct IsolatedVuePluginWebView {
   onChromeTitleChange: (title: string) => void = () => {};
   onChromeActionsChange: (actions: VueChromeAction[]) => void = () => {};
   onRequestDismiss: () => void = () => {};
+  onLegacyFallbackChange: (legacy: boolean) => void = () => {};
 
   @State private isReady: boolean = false;
   @State private fallbackToLegacy: boolean = false;
@@ -1332,6 +1335,7 @@ if(!window.MoviePilotNative&&window.__mpHarmonyChromeHost){
         },
         onFallbackToLegacy: () => {
           this.fallbackToLegacy = true;
+          this.onLegacyFallbackChange(true);
         },
         onRegisterActions: (invoke: (actionId: string) => void, close: () => boolean) => {
           if (this.chromeController) {
@@ -1419,6 +1423,7 @@ export struct NativePluginHostView {
   onChromeTitleChange: (title: string) => void = () => {};
   onChromeActionsChange: (actions: VueChromeAction[]) => void = () => {};
   onRequestDismiss: () => void = () => {};
+  onLegacyFallbackChange: (legacy: boolean) => void = () => {};
   onSaveFullModel: (fullJson: string) => void = () => {};
 
   @State private renderMode: string = 'vuetify';
@@ -1600,7 +1605,8 @@ export struct NativePluginHostView {
         chromeController: this.chromeController,
         onChromeTitleChange: this.onChromeTitleChange,
         onChromeActionsChange: this.onChromeActionsChange,
-        onRequestDismiss: this.onRequestDismiss
+        onRequestDismiss: this.onRequestDismiss,
+        onLegacyFallbackChange: this.onLegacyFallbackChange
       })
     } else {
       Scroll() {

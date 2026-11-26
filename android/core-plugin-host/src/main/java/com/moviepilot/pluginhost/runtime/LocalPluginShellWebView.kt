@@ -119,12 +119,15 @@ fun LocalPluginShellWebView(
     chromeController: VuePluginChromeController? = null,
     pluginHasPage: Boolean = false,
     onFallbackToLegacy: () -> Unit,
+    onRequestExit: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val colors = LocalMoviePilotColors.current
     val appearance = LocalAppearanceStore.current
     val fontScale = LocalDensity.current.fontScale
+    val backHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+    val pendingBackFallback = remember { mutableStateOf<Runnable?>(null) }
 
     var reloadNonce by remember { mutableIntStateOf(0) }
     var activeSlot by remember { mutableStateOf<PooledAndroidPluginWebView?>(null) }
@@ -256,10 +259,38 @@ fun LocalPluginShellWebView(
         label = "pluginShellFadeIn",
     )
 
-    // 返回键透传给壳内 `nav.back`（如有嵌套弹窗则由插件优先关闭）
+    val dismissHostPage: () -> Unit = {
+        pendingBackFallback.value?.let { backHandler.removeCallbacks(it) }
+        pendingBackFallback.value = null
+        if (chromeController != null) {
+            chromeController.shouldDismiss = true
+        } else {
+            onRequestExit?.invoke()
+        }
+    }
+
+    val dispatchNavBackOrDismiss: () -> Boolean = {
+        val slot = activeSlot
+        if (!isMounted || slot == null) {
+            false
+        } else {
+            pendingBackFallback.value?.let { backHandler.removeCallbacks(it) }
+            val fallback = Runnable {
+                pendingBackFallback.value = null
+                dismissHostPage()
+            }
+            pendingBackFallback.value = fallback
+            backHandler.postDelayed(fallback, 350L)
+            slot.bridge.sendNavBack()
+            true
+        }
+    }
+
+    // 返回键透传给壳内 `nav.back`：若插件内有弹窗/遮罩则仅关闭内层（`handled == true`），否则退出插件页
     BackHandler(enabled = isMounted && standaloneConfirm == null && chromeController?.confirmation == null) {
-        activeSlot?.bridge?.sendNavBack()
-        chromeController?.shouldDismiss = true
+        if (!dispatchNavBackOrDismiss()) {
+            dismissHostPage()
+        }
     }
 
     // 实时同步主题与外观变更到运行中插件，无需重载 WebView
@@ -322,7 +353,14 @@ fun LocalPluginShellWebView(
             chromeController?.isReady = false
         }
         slot.bridge.onPluginClose = {
-            chromeController?.shouldDismiss = true
+            dismissHostPage()
+        }
+        slot.bridge.onNavBackResult = { handled ->
+            pendingBackFallback.value?.let { backHandler.removeCallbacks(it) }
+            pendingBackFallback.value = null
+            if (!handled) {
+                dismissHostPage()
+            }
         }
         slot.bridge.onHeaderUpdate = { title, actions ->
             if (chromeController != null) {
@@ -349,8 +387,7 @@ fun LocalPluginShellWebView(
         if (chromeController != null) {
             chromeController.invokeActionHandler = { aid -> slot.bridge.sendHostAction(aid) }
             chromeController.requestCloseHandler = {
-                slot.bridge.sendNavBack()
-                false
+                dispatchNavBackOrDismiss()
             }
             chromeController.respondConfirmationHandler = { cid, confirmed ->
                 slot.bridge.sendConfirmResult(cid, confirmed)
@@ -373,6 +410,8 @@ fun LocalPluginShellWebView(
 
     DisposableEffect(Unit) {
         onDispose {
+            pendingBackFallback.value?.let { backHandler.removeCallbacks(it) }
+            pendingBackFallback.value = null
             chromeController?.invokeActionHandler = null
             chromeController?.requestCloseHandler = null
             chromeController?.respondConfirmationHandler = null
@@ -449,6 +488,11 @@ fun LocalPluginShellWebView(
                             }
                             OutlinedButton(onClick = onFallbackToLegacy) {
                                 Text("用兼容网页容器打开", color = colors.textPrimary)
+                            }
+                        }
+                        if (chromeController != null || onRequestExit != null) {
+                            TextButton(onClick = dismissHostPage) {
+                                Text("返回上一页", color = colors.textSecondary)
                             }
                         }
                     }

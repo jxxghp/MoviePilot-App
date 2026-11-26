@@ -72,6 +72,7 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
   var onPluginMounted: ((_ mountId: String, _ title: String) -> Void)?
   var onPluginError: ((_ stage: String, _ message: String, _ recoverable: Bool) -> Void)?
   var onPluginClose: (() -> Void)?
+  var onNavBackResult: ((_ handled: Bool) -> Void)?
   var onPluginAction: ((_ payload: [String: Any]) -> Void)?
   var onHeaderUpdate: ((_ title: String, _ actions: [NativeVueSheetAction]) -> Void)?
   var onToast: ((_ toast: PluginToastPayload) -> Void)?
@@ -97,6 +98,7 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
     onPluginMounted = nil
     onPluginError = nil
     onPluginClose = nil
+    onNavBackResult = nil
     onPluginAction = nil
     onHeaderUpdate = nil
     onToast = nil
@@ -228,6 +230,10 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
 
     case "plugin.close":
       onPluginClose?()
+
+    case "nav.backResult":
+      let handled = (payload["handled"] as? Bool) ?? false
+      onNavBackResult?(handled)
 
     case "plugin.action":
       onPluginAction?(payload)

@@ -855,9 +855,19 @@ final class NativeV2EntryTests: XCTestCase {
       app.descendants(matching: .any)["native-vue-local-runtime-ready"].waitForExistence(
         timeout: 25),
       "Vue 联邦插件本地预热运行时必须完成远程分片加载并挂载。")
-    XCTAssertTrue(app.buttons["native-vue-plugin-sheet-close"].exists)
-    XCTAssertTrue(app.webViews.firstMatch.exists)
-    app.buttons["native-vue-plugin-sheet-close"].tap()
+    XCTAssertFalse(
+      app.buttons["native-vue-plugin-sheet-close"].exists,
+      "模块联邦插件自带退出按钮，App 不应重复渲染顶部关闭按钮。")
+    let webView = app.webViews.firstMatch
+    XCTAssertTrue(webView.exists)
+    let pluginCloseBtn = webView.buttons.matching(
+      NSPredicate(format: "label CONTAINS[c] %@ OR label == '×' OR label == '✕'", "关闭")
+    ).firstMatch
+    if pluginCloseBtn.waitForExistence(timeout: 5) {
+      pluginCloseBtn.tap()
+    } else {
+      webView.swipeDown(velocity: .fast)
+    }
     XCTAssertTrue(app.scrollViews["native-plugin-market-scroll"].waitForExistence(timeout: 12))
   }
 
@@ -3841,16 +3851,19 @@ final class NativeV2EntryTests: XCTestCase {
     try await Task.sleep(nanoseconds: 600_000_000)
     capture("vue-runtime-02-dark-fusion")
 
-    // 4. 校验原生标题栏按钮桥接（hostSdk.shell.registerButton -> 原生导航栏 Menu -> host.action 回传）
-    let headerMenu = app.buttons["native-sheet-menu"]
-    XCTAssertTrue(headerMenu.waitForExistence(timeout: 8), "原生标题栏插件操作菜单未展示")
-    headerMenu.tap()
-    let refreshAction = app.buttons["刷新状态"]
-    XCTAssertTrue(refreshAction.waitForExistence(timeout: 6), "标题栏菜单中未找到插件注册的「刷新状态」按钮")
+    // 4. 校验联邦插件不重复渲染 App 顶栏退出按钮，并支持插件自身顶部操作按钮
+    XCTAssertFalse(
+      app.buttons["native-vue-plugin-sheet-close"].exists,
+      "模块联邦插件自带退出按钮，App 不应重复渲染顶部关闭按钮"
+    )
+    let refreshAction = webView.buttons.matching(
+      NSPredicate(format: "label CONTAINS[c] %@", "刷新状态")
+    ).firstMatch
+    XCTAssertTrue(refreshAction.waitForExistence(timeout: 8), "联邦插件未展示内置「刷新状态」按钮")
     refreshAction.tap()
     XCTAssertTrue(
       webView.staticTexts["刷新次数 1"].waitForExistence(timeout: 8),
-      "点击原生标题栏动作后未触发插件回调更新刷新次数"
+      "点击插件刷新动作后未更新刷新次数"
     )
 
     // 5. 校验原生 Toast 桥接（Vuetify VBtn 默认 uppercase，使用大小写不敏感匹配）
@@ -3890,9 +3903,11 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(capsPass.waitForExistence(timeout: 12), "原生音频与硬件能力自检未通过")
     capture("vue-runtime-04b-native-capabilities")
 
-    // 6. 关闭弹窗 -> 切换浅色模式 -> 再次打开验证热池复用 + 磁盘缓存命中 + 浅色透明视觉融合
-    let closeBtn = app.buttons["native-vue-plugin-sheet-close"]
-    XCTAssertTrue(closeBtn.waitForExistence(timeout: 8))
+    // 6. 使用联邦插件自带退出按钮关闭弹窗 -> 切换浅色模式 -> 再次打开验证热池复用 + 磁盘缓存命中 + 浅色透明视觉融合
+    let closeBtn = webView.buttons.matching(
+      NSPredicate(format: "label CONTAINS[c] %@", "关闭插件")
+    ).firstMatch
+    XCTAssertTrue(closeBtn.waitForExistence(timeout: 8), "联邦插件自带退出按钮未展示")
     closeBtn.tap()
     try await Task.sleep(nanoseconds: 600_000_000)
     if app.navigationBars.buttons.firstMatch.exists {

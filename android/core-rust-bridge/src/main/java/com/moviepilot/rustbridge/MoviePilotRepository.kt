@@ -3023,18 +3023,58 @@ class MoviePilotRepository(context: Context) {
 
     suspend fun fetchPlugins(installedOnly: Boolean): List<PluginItemDto> {
         val state = if (installedOnly) "installed" else "market"
-        val resp = authedRequest(
-            segments = listOf("plugin"),
-            query = listOf("state" to state),
-            trailingSlash = true,
-        ).getOrNull()
+        val (resp, remotesResp) = coroutineScope {
+            val listDeferred = async {
+                authedRequest(
+                    segments = listOf("plugin"),
+                    query = listOf("state" to state),
+                    trailingSlash = true,
+                ).getOrNull()
+            }
+            val remotesDeferred = async {
+                if (installedOnly) {
+                    runCatching {
+                        authedRequest(
+                            segments = listOf("plugin", "remotes"),
+                            query = listOf("token" to "moviepilot"),
+                        ).getOrNull()
+                    }.getOrNull()
+                } else {
+                    null
+                }
+            }
+            listDeferred.await() to remotesDeferred.await()
+        }
+        val remoteVueIds = if (remotesResp != null) {
+            extractArray(remotesResp.body).flatMap { rem ->
+                val remObj = rem.asObj() ?: return@flatMap emptyList()
+                listOfNotNull(
+                    remObj.str("id")?.lowercase(),
+                    remObj.str("source_plugin_id")?.lowercase(),
+                )
+            }.toSet()
+        } else {
+            emptySet()
+        }
         return extractArray(resp?.body).mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
+            val id = obj.str("id") ?: return@mapNotNull null
+            val sourceId = obj.str("source_plugin_id")?.lowercase()
+            val rawRenderMode = obj.str("render_mode")
+            val resolvedRenderMode = if (
+                rawRenderMode.equals("vue", ignoreCase = true) ||
+                id.lowercase() in remoteVueIds ||
+                (sourceId != null && sourceId in remoteVueIds)
+            ) {
+                "vue"
+            } else {
+                rawRenderMode ?: "vuetify"
+            }
             val labelRaw = obj.str("plugin_label").orEmpty()
             val labels = labelRaw.split(",", "，", " ").map { it.trim() }.filter { it.isNotBlank() }
             PluginItemDto(
-                id = obj.str("id") ?: return@mapNotNull null,
-                name = obj.str("plugin_name") ?: obj.str("id") ?: "",
+                id = id,
+                name = obj.str("plugin_name") ?: id,
                 desc = obj.str("plugin_desc") ?: "",
                 version = obj.str("plugin_version") ?: "1.0.0",
                 author = obj.str("plugin_author") ?: "",
@@ -3044,7 +3084,7 @@ class MoviePilotRepository(context: Context) {
                 state = obj.bool("state") ?: false,
                 hasPage = obj.bool("has_page") ?: false,
                 hasUpdate = obj.bool("has_update") ?: false,
-                renderMode = obj.str("render_mode") ?: "vuetify",
+                renderMode = resolvedRenderMode,
                 repoUrl = obj.str("repo_url").orEmpty(),
             )
         }.distinctBy { it.id }

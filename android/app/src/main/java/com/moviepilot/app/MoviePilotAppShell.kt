@@ -213,7 +213,7 @@ sealed interface AppRoute {
     data object ChannelAuthorization : AppRoute
     data object PlaybackSettings : AppRoute
     data class Plugins(val installedOnly: Boolean = true) : AppRoute
-    data class PluginDetail(val plugin: PluginItemDto) : AppRoute
+    data class PluginDetail(val plugin: PluginItemDto, val openConfigFirst: Boolean = false) : AppRoute
     data class Diagnostics(val tab: String = "词表") : AppRoute
     data class Agent(val prompt: String = "") : AppRoute
     data object Appearance : AppRoute
@@ -1676,11 +1676,12 @@ fun MoviePilotRootShell(
                                                     repository = repository,
                                                     initialInstalledOnly = route.installedOnly,
                                                     onBack = ::popRoute,
-                                                    onOpenPluginDetail = { p -> pushRoute(AppRoute.PluginDetail(p)) },
+                                                    onOpenPluginDetail = { p, configFirst -> pushRoute(AppRoute.PluginDetail(p, configFirst)) },
                                                 )
                                                 is AppRoute.PluginDetail -> PluginDetailScreen(
                                                     plugin = route.plugin,
                                                     repository = repository,
+                                                    openConfigFirst = route.openConfigFirst,
                                                     onBack = ::popRoute,
                                                 )
                                                 is AppRoute.Diagnostics -> ShortcutsDiagnosticsScreen(

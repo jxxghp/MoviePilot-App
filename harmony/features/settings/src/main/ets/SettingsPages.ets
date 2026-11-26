@@ -169,6 +169,7 @@ export struct HarmonyPluginsPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
   @StorageProp('mp_plugin_detail_close_req') @Watch('onExternalCloseDetailReq') closeDetailReq: number = 0;
   @Prop serverUrl: string = '';
   @Prop userName: string = 'admin';
@@ -185,6 +186,7 @@ export struct HarmonyPluginsPage {
   @State private activePlugin: MpPluginItem | null = null;
   @State private detailTabIndex: number = 0; // 0: 数据页, 1: 参数配置
   @State private forceWebView: boolean = false;
+  @State private usingLegacyFallback: boolean = false;
   @State private activeFormDoc: string = '{}';
   @State private activePageDoc: string = '{}';
   @State private loadingDetail: boolean = false;
@@ -274,9 +276,28 @@ export struct HarmonyPluginsPage {
     }
   }
 
-  private confirmUninstallActivePlugin(): void {
-    const pl = this.activePlugin;
-    if (!pl) { return; }
+  private confirmResetPluginItem(pl: MpPluginItem): void {
+    this.getUIContext().showAlertDialog({
+      title: '重置插件',
+      message: `确定要重置插件「${pl.pluginName}」的配置与缓存数据吗？此操作不可撤销。`,
+      autoCancel: true,
+      primaryButton: {
+        value: '取消',
+        action: () => {}
+      },
+      secondaryButton: {
+        value: '确认重置',
+        fontColor: '#F29B38',
+        action: () => {
+          MoviePilotRepository.shared().resetPlugin(pl.id).then((ok: boolean) => {
+            this.listNotice = ok ? `已重置插件「${pl.pluginName}」` : `重置插件「${pl.pluginName}」失败`;
+          });
+        }
+      }
+    });
+  }
+
+  private confirmUninstallPluginItem(pl: MpPluginItem): void {
     this.getUIContext().showAlertDialog({
       title: '卸载插件',
       message: `确定要卸载插件「${pl.pluginName}」吗？卸载后插件配置与运行任务将被移除。`,
@@ -295,6 +316,12 @@ export struct HarmonyPluginsPage {
     });
   }
 
+  private confirmUninstallActivePlugin(): void {
+    const pl = this.activePlugin;
+    if (!pl) { return; }
+    this.confirmUninstallPluginItem(pl);
+  }
+
   private async executeUninstallPlugin(pl: MpPluginItem): Promise<void> {
     this.actionBusy = true;
     const ok = await MoviePilotRepository.shared().uninstallPlugin(pl.id);
@@ -309,14 +336,21 @@ export struct HarmonyPluginsPage {
     }
   }
 
-  private async openPluginDetail(pl: MpPluginItem): Promise<void> {
+  private async openPluginDetail(pl: MpPluginItem, openConfigFirst: boolean = false): Promise<void> {
     this.activePlugin = pl;
     this.syncDetailBackFlag(true);
     this.chromeTitle = pl.pluginName;
     this.chromeActions = [];
     this.saveNotice = '';
     this.forceWebView = false;
-    this.detailTabIndex = pl.hasPage ? 0 : 1;
+    this.usingLegacyFallback = false;
+    this.detailTabIndex = (pl.hasPage && !openConfigFirst) ? 0 : 1;
+    if (pl.renderMode.toLowerCase() === 'vue') {
+      this.activeFormDoc = '{"render_mode":"vue"}';
+      this.activePageDoc = '{"render_mode":"vue"}';
+      this.loadingDetail = false;
+      return;
+    }
     this.loadingDetail = true;
     const repo = MoviePilotRepository.shared();
     try {
@@ -333,12 +367,19 @@ export struct HarmonyPluginsPage {
     this.loadingDetail = false;
   }
 
-  private isActivePluginVue(): boolean {
-    if (this.forceWebView) { return true; }
+  private isDetectedVuePlugin(): boolean {
     if (!this.activePlugin) { return false; }
     if (this.activePlugin.renderMode.toLowerCase() === 'vue') { return true; }
     return this.activeFormDoc.includes('"render_mode":"vue"') || this.activeFormDoc.includes('"render_mode": "vue"')
       || this.activePageDoc.includes('"render_mode":"vue"') || this.activePageDoc.includes('"render_mode": "vue"');
+  }
+
+  private isActivePluginVue(): boolean {
+    return this.forceWebView || this.isDetectedVuePlugin();
+  }
+
+  private shouldHideAppTopBar(): boolean {
+    return this.isDetectedVuePlugin() && !this.usingLegacyFallback;
   }
 
   private closePluginDetail(): void {
@@ -350,55 +391,75 @@ export struct HarmonyPluginsPage {
     this.chromeTitle = '';
     this.chromeActions = [];
     this.forceWebView = false;
+    this.usingLegacyFallback = false;
+  }
+
+  @Builder
+  private installedCardMenuBuilder(pl: MpPluginItem) {
+    Menu() {
+      if (pl.hasPage) {
+        MenuItem({ content: '打开数据页' })
+          .onClick(() => { this.openPluginDetail(pl, false); })
+      }
+      MenuItem({ content: '参数配置' })
+        .onClick(() => { this.openPluginDetail(pl, true); })
+      MenuItem({ content: '重置插件' })
+        .onClick(() => { this.confirmResetPluginItem(pl); })
+      MenuItem({ content: '卸载插件' })
+        .contentFontColor('#E84855')
+        .onClick(() => { this.confirmUninstallPluginItem(pl); })
+    }
   }
 
   build() {
     if (this.activePlugin) {
-      Column({ space: 8 }) {
-        NativeBackHeader({
-          title: this.chromeTitle || this.activePlugin.pluginName,
-          trailingText: this.chromeActions.length > 0
-            ? this.chromeActions[0].title
-            : (this.forceWebView ? '原生视图' : '网页视图'),
-          onBack: () => this.closePluginDetail(),
-          onTrailingClick: () => {
-            if (this.chromeActions.length > 0) {
-              this.vueChromeController.invokeAction(this.chromeActions[0].id);
-            } else {
-              this.forceWebView = !this.forceWebView;
+      Column({ space: this.shouldHideAppTopBar() ? 0 : 8 }) {
+        if (!this.shouldHideAppTopBar()) {
+          NativeBackHeader({
+            title: this.chromeTitle || this.activePlugin.pluginName,
+            trailingText: this.chromeActions.length > 0
+              ? this.chromeActions[0].title
+              : (this.forceWebView ? '原生视图' : '网页视图'),
+            onBack: () => this.closePluginDetail(),
+            onTrailingClick: () => {
+              if (this.chromeActions.length > 0) {
+                this.vueChromeController.invokeAction(this.chromeActions[0].id);
+              } else {
+                this.forceWebView = !this.forceWebView;
+              }
             }
-          }
-        })
-
-        // 插件管理动作条（重置与卸载）
-        Row({ space: 8 }) {
-          if (this.activePlugin.pluginVersion.length > 0) {
-            NativeAdaptiveBadge({ text: `v${this.activePlugin.pluginVersion}`, tintHex: this.accentHex })
-          }
-          Blank()
-          NativeAdaptivePill({
-            title: '重置插件',
-            selected: false,
-            onTap: () => { this.handleResetActivePlugin(); }
           })
-          Row({ space: 4 }) {
-            SymbolGlyph($r('sys.symbol.trash')).fontSize(13).fontColor(['#E84855'])
-            Text('卸载').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor('#E84855')
-          }
-          .padding({ left: 10, right: 12, top: 6, bottom: 6 })
-          .borderRadius(14)
-          .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
-          .onClick(() => this.confirmUninstallActivePlugin())
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16 })
 
-        if (this.saveNotice.length > 0) {
-          Text(this.saveNotice)
-            .fontSize(12)
-            .fontColor('#34C759')
-            .padding({ left: 16, right: 16 })
-            .width('100%')
+          // 插件管理动作条（重置与卸载）
+          Row({ space: 8 }) {
+            if (this.activePlugin.pluginVersion.length > 0) {
+              NativeAdaptiveBadge({ text: `v${this.activePlugin.pluginVersion}`, tintHex: this.accentHex })
+            }
+            Blank()
+            NativeAdaptivePill({
+              title: '重置插件',
+              selected: false,
+              onTap: () => { this.handleResetActivePlugin(); }
+            })
+            Row({ space: 4 }) {
+              SymbolGlyph($r('sys.symbol.trash')).fontSize(13).fontColor(['#E84855'])
+              Text('卸载').fontSize(12.5).fontWeight(FontWeight.Medium).fontColor('#E84855')
+            }
+            .padding({ left: 10, right: 12, top: 6, bottom: 6 })
+            .borderRadius(14)
+            .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
+            .onClick(() => this.confirmUninstallActivePlugin())
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16 })
+
+          if (this.saveNotice.length > 0) {
+            Text(this.saveNotice)
+              .fontSize(12)
+              .fontColor('#34C759')
+              .padding({ left: 16, right: 16 })
+              .width('100%')
+          }
         }
 
         if (!this.isActivePluginVue() && this.activePlugin.hasPage) {
@@ -434,9 +495,11 @@ export struct HarmonyPluginsPage {
             chromeController: this.vueChromeController,
             onChromeTitleChange: (t: string) => { this.chromeTitle = t; },
             onChromeActionsChange: (acts: VueChromeAction[]) => { this.chromeActions = acts; },
+            onLegacyFallbackChange: (legacy: boolean) => { this.usingLegacyFallback = legacy; },
             onRequestDismiss: () => {
               this.activePlugin = null;
               this.syncDetailBackFlag(false);
+              this.usingLegacyFallback = false;
             }
           }).layoutWeight(1)
         } else {
@@ -452,9 +515,11 @@ export struct HarmonyPluginsPage {
             chromeController: this.vueChromeController,
             onChromeTitleChange: (t: string) => { this.chromeTitle = t; },
             onChromeActionsChange: (acts: VueChromeAction[]) => { this.chromeActions = acts; },
+            onLegacyFallbackChange: (legacy: boolean) => { this.usingLegacyFallback = legacy; },
             onRequestDismiss: () => {
               this.activePlugin = null;
               this.syncDetailBackFlag(false);
+              this.usingLegacyFallback = false;
             },
             onSaveFullModel: async (fullJson: string) => {
               if (this.activePlugin) {
@@ -467,6 +532,7 @@ export struct HarmonyPluginsPage {
       }
       .width('100%')
       .height('100%')
+      .padding({ top: this.shouldHideAppTopBar() ? Math.max(8, this.safeTopVp) : 0 })
     } else {
       Column({ space: 10 }) {
         NativeBackHeader({
@@ -560,10 +626,21 @@ export struct HarmonyPluginsPage {
                       }.alignItems(HorizontalAlign.Start).layoutWeight(1)
 
                       if (this.activeTabIdx === 0) {
-                        NativeAdaptiveBadge({
-                          text: pl.state ? '已启用' : '配置',
-                          tintHex: pl.state ? '#34C759' : this.accentHex
-                        })
+                        Row({ space: 6 }) {
+                          NativeAdaptiveBadge({
+                            text: pl.state ? '已启用' : '配置',
+                            tintHex: pl.state ? '#34C759' : this.accentHex
+                          })
+                          Button({ type: ButtonType.Circle }) {
+                            SymbolGlyph($r('sys.symbol.dot_grid_1x2'))
+                              .fontSize(15)
+                              .fontColor([mpSecondaryText(this.isDark)])
+                          }
+                          .width(28)
+                          .height(28)
+                          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                          .bindMenu(this.installedCardMenuBuilder(pl))
+                        }
                       } else if (pl.installed || this.isInstalledInList(pl.id)) {
                         NativeAdaptiveBadge({ text: '已安装', tintHex: '#34C759' })
                       } else {

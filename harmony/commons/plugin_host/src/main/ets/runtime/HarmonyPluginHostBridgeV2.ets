@@ -32,6 +32,7 @@ export interface HarmonyPluginBridgeCallbacks {
   onPluginMounted: (mountId: string, title: string) => void;
   onPluginError: (stage: string, message: string, recoverable: boolean) => void;
   onPluginClose: () => void;
+  onNavBackResult: (handled: boolean) => void;
   onHeaderUpdate: (title: string, actions: HarmonyPluginHeaderAction[]) => void;
   onToast: (toast: HarmonyPluginToastSpec) => void;
   onConfirm: (spec: HarmonyPluginConfirmSpec) => void;
@@ -196,6 +197,11 @@ export class HarmonyPluginHostBridgeV2 {
       case 'plugin.close':
         this.callbacks.onPluginClose();
         break;
+      case 'nav.backResult': {
+        const handled = typeof payload['handled'] === 'boolean' ? (payload['handled'] as boolean) : false;
+        this.callbacks.onNavBackResult(handled);
+        break;
+      }
       case 'api.request': {
         const reqId = typeof payload['requestId'] === 'string' ? (payload['requestId'] as string) : '';
         if (reqId.length > 0) {

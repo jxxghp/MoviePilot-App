@@ -68,6 +68,14 @@ export struct HarmonyLocalPluginShellView {
   private isShellReady: boolean = false;
   private pendingMountPayloadJson: string = '';
   private toastTimer: number = -1;
+  private backFallbackTimer: number = -1;
+
+  private clearBackFallbackTimer(): void {
+    if (this.backFallbackTimer !== -1) {
+      clearTimeout(this.backFallbackTimer);
+      this.backFallbackTimer = -1;
+    }
+  }
 
   aboutToAppear(): void {
     this.bridge = new HarmonyPluginHostBridgeV2(
@@ -90,7 +98,14 @@ export struct HarmonyLocalPluginShellView {
           this.errorMessage = msg || '本地运行时加载插件失败';
         },
         onPluginClose: () => {
+          this.clearBackFallbackTimer();
           this.onRequestDismiss();
+        },
+        onNavBackResult: (handled: boolean) => {
+          this.clearBackFallbackTimer();
+          if (!handled) {
+            this.onRequestDismiss();
+          }
         },
         onHeaderUpdate: (title: string, actions: HarmonyPluginHeaderAction[]) => {
           this.onHeaderUpdate(title, actions);
@@ -116,14 +131,23 @@ export struct HarmonyLocalPluginShellView {
         this.bridge?.sendHostAction(actionId);
       },
       () => {
-        this.bridge?.sendNavBack();
-        return false;
+        if (!this.isMounted || !this.bridge) {
+          return false;
+        }
+        this.clearBackFallbackTimer();
+        this.backFallbackTimer = setTimeout(() => {
+          this.backFallbackTimer = -1;
+          this.onRequestDismiss();
+        }, 350);
+        this.bridge.sendNavBack();
+        return true;
       }
     );
     this.prepareMountPayload();
   }
 
   aboutToDisappear(): void {
+    this.clearBackFallbackTimer();
     if (this.toastTimer !== -1) {
       clearTimeout(this.toastTimer);
       this.toastTimer = -1;
@@ -641,6 +665,13 @@ export struct HarmonyLocalPluginShellView {
                 this.onFallbackToLegacy();
               })
           }
+          Button('返回上一页')
+            .backgroundColor(Color.Transparent)
+            .fontColor(mpSecondaryText(this.isDark))
+            .fontSize(13)
+            .onClick(() => {
+              this.onRequestDismiss();
+            })
         }
         .padding(20)
         .margin({ left: 16, right: 16 })

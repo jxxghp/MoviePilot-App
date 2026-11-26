@@ -3120,16 +3120,45 @@ export class MoviePilotRepository {
   async fetchPlugins(state: string = 'installed'): Promise<MpPluginItem[]> {
     const q: Record<string, string> = {};
     q['state'] = state;
-    const resp = await this.get(['plugin'], q, true);
+    const remotesPromise: Promise<Set<string>> = state === 'installed'
+      ? this.get(['plugin', 'remotes'], { 'token': 'moviepilot' })
+        .then((remResp) => {
+          const ids = new Set<string>();
+          if (remResp.status === 200) {
+            const remArr = unwrapArray(parseJsonSafe(remResp.body));
+            for (let j = 0; j < remArr.length; j++) {
+              const remRec = asRec(remArr[j]);
+              if (!remRec) { continue; }
+              const rid = strVal(remRec, 'id').toLowerCase();
+              const rsrc = strVal(remRec, 'source_plugin_id').toLowerCase();
+              if (rid.length > 0) { ids.add(rid); }
+              if (rsrc.length > 0) { ids.add(rsrc); }
+            }
+          }
+          return ids;
+        })
+        .catch(() => new Set<string>())
+      : Promise.resolve(new Set<string>());
+    const pair = await Promise.all([this.get(['plugin'], q, true), remotesPromise]);
+    const resp = pair[0];
+    const remoteVueIds = pair[1];
     if (resp.status !== 200) { return []; }
     const arr = unwrapArray(parseJsonSafe(resp.body));
     const out: MpPluginItem[] = [];
     for (let i = 0; i < arr.length; i++) {
       const r = asRec(arr[i]);
       if (!r) { continue; }
+      const pid = strVal(r, 'id');
+      const srcId = strVal(r, 'source_plugin_id').toLowerCase();
+      const rawMode = strVal(r, 'render_mode', 'vuetify');
+      const resolvedMode = (rawMode.toLowerCase() === 'vue'
+        || remoteVueIds.has(pid.toLowerCase())
+        || (srcId.length > 0 && remoteVueIds.has(srcId)))
+        ? 'vue'
+        : rawMode;
       out.push({
-        id: strVal(r, 'id'),
-        pluginName: strVal(r, 'plugin_name') || strVal(r, 'id'),
+        id: pid,
+        pluginName: strVal(r, 'plugin_name') || pid,
         pluginDesc: strVal(r, 'plugin_desc'),
         pluginVersion: strVal(r, 'plugin_version'),
         pluginAuthor: strVal(r, 'plugin_author'),
@@ -3137,7 +3166,7 @@ export class MoviePilotRepository {
         state: boolVal(r, 'state', false),
         hasPage: boolVal(r, 'has_page', false),
         iconUrl: this.resolvePluginIconUrl(strVal(r, 'plugin_icon')),
-        renderMode: strVal(r, 'render_mode', 'vuetify'),
+        renderMode: resolvedMode,
         repoUrl: strVal(r, 'repo_url')
       });
     }

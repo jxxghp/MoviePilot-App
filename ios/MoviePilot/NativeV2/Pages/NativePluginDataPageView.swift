@@ -125,6 +125,7 @@ struct NativePluginDataPageView: View {
     .navigationTitle(pluginName)
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
+    .toolbar(renderMode.lowercased() == "vue" ? .hidden : .visible, for: .navigationBar)
     .toolbar {
       if navKey == nil, renderMode.lowercased() != "vue" {
         ToolbarItem(placement: .topBarTrailing) {
@@ -177,7 +178,8 @@ struct NativePluginDataPageView: View {
         session: session,
         pluginID: pluginID,
         pluginName: pluginName,
-        surface: .dataPage
+        surface: .dataPage,
+        isFederationPlugin: false
       )
     }
     .task(id: reloadToken) {
@@ -1250,8 +1252,9 @@ final class NativeVueSheetBridge: ObservableObject {
 }
 
 /// V1 风格原生 Modal Sheet 容器：专用于 `render_mode == "vue"` 的插件数据页 / 配置弹窗，
-/// 以及原生无法完整呈现的 JSON 插件兼容视图。网页侧由前端原生容器协议只展示当前插件弹窗内容，
-/// 弹窗标题、标题栏按钮与关闭按钮注册到原生 Sheet 导航栏。
+/// 以及原生无法完整呈现的 JSON 插件兼容视图。
+/// 模块联邦插件自带顶部栏与退出按钮，默认不再重复渲染宿主导航栏与关闭按钮；
+/// 传统 JSON 插件切换兼容网页样式或回退旧版网页壳时，继续由宿主展示导航栏与关闭按钮。
 @MainActor
 struct NativeVuePluginSheet: View {
   let session: NativeSession
@@ -1260,93 +1263,114 @@ struct NativeVuePluginSheet: View {
   let surface: NativeVuePluginWebContainer.Surface
   /// 插件是否带详情页：配置入口需先经由详情弹窗的设置按钮切换。
   let pluginHasPage: Bool
+  /// 是否为自带退出按钮的模块联邦组件插件（传统插件兼容网页视图传 `false`）。
+  let isFederationPlugin: Bool
 
   @Environment(\.dismiss) private var dismiss
   @StateObject private var bridge: NativeVueSheetBridge
+  @State private var usesLegacyFallback = false
 
   init(
     session: NativeSession,
     pluginID: String,
     pluginName: String,
     surface: NativeVuePluginWebContainer.Surface,
-    pluginHasPage: Bool = true
+    pluginHasPage: Bool = true,
+    isFederationPlugin: Bool = true
   ) {
     self.session = session
     self.pluginID = pluginID
     self.pluginName = pluginName
     self.surface = surface
     self.pluginHasPage = pluginHasPage
+    self.isFederationPlugin = isFederationPlugin
     _bridge = StateObject(wrappedValue: NativeVueSheetBridge(defaultTitle: pluginName))
   }
 
-  var body: some View {
-    NavigationStack {
-      NativeVuePluginWebContainer(
-        session: session,
-        pluginID: pluginID,
-        pluginName: pluginName,
-        surface: surface,
-        sheetBridge: bridge,
-        pluginHasPage: pluginHasPage
-      )
-      .navigationTitle(bridge.title.isEmpty ? pluginName : bridge.title)
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbarBackground(.visible, for: .navigationBar)
-      .toolbar {
-        if !bridge.actions.isEmpty {
-          ToolbarItem(placement: .topBarLeading) {
-            Menu {
-              ForEach(bridge.actions) { action in
-                Button {
-                  bridge.invokeAction(id: action.id)
-                } label: {
-                  Label(action.title, systemImage: action.sfSymbol)
-                }
-                .disabled(!action.enabled)
-              }
-            } label: {
-              Image(systemName: "ellipsis")
-            }
-            .tint(.primary)
-            .accessibilityLabel("弹窗操作")
-            .accessibilityIdentifier("native-sheet-menu")
-          }
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-          Button {
-            if !bridge.requestClose() { dismiss() }
-          } label: {
-            Image(systemName: "xmark")
-              .font(.body.weight(.semibold))
-          }
-          .tint(.primary)
-          .accessibilityLabel("关闭")
-          .accessibilityIdentifier("native-vue-plugin-sheet-close")
-        }
+  private var hidesAppNavigationBar: Bool {
+    isFederationPlugin && !usesLegacyFallback
+  }
+
+  @ViewBuilder
+  private var webContainerView: some View {
+    NativeVuePluginWebContainer(
+      session: session,
+      pluginID: pluginID,
+      pluginName: pluginName,
+      surface: surface,
+      sheetBridge: bridge,
+      pluginHasPage: pluginHasPage,
+      onFallbackToLegacyChanged: { usesLegacyFallback = $0 }
+    )
+    .alert(
+      bridge.confirmation?.title ?? "",
+      isPresented: Binding(
+        get: { bridge.confirmation != nil },
+        set: { presented in
+          if !presented, bridge.confirmation != nil { bridge.respondConfirmation(false) }
+        }),
+      presenting: bridge.confirmation
+    ) { confirmation in
+      Button(confirmation.cancelText, role: .cancel) {
+        bridge.respondConfirmation(false)
       }
-      .alert(
-        bridge.confirmation?.title ?? "",
-        isPresented: Binding(
-          get: { bridge.confirmation != nil },
-          set: { presented in
-            if !presented, bridge.confirmation != nil { bridge.respondConfirmation(false) }
-          }),
-        presenting: bridge.confirmation
-      ) { confirmation in
-        Button(confirmation.cancelText, role: .cancel) {
-          bridge.respondConfirmation(false)
+      .disabled(!confirmation.cancelEnabled)
+      Button(confirmation.confirmText, role: confirmation.destructive ? .destructive : nil) {
+        bridge.respondConfirmation(true)
+      }
+      .disabled(!confirmation.confirmEnabled)
+    } message: { confirmation in
+      Text(confirmation.message)
+    }
+  }
+
+  var body: some View {
+    Group {
+      if hidesAppNavigationBar {
+        webContainerView
+      } else {
+        NavigationStack {
+          webContainerView
+            .navigationTitle(bridge.title.isEmpty ? pluginName : bridge.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+              if !bridge.actions.isEmpty {
+                ToolbarItem(placement: .topBarLeading) {
+                  Menu {
+                    ForEach(bridge.actions) { action in
+                      Button {
+                        bridge.invokeAction(id: action.id)
+                      } label: {
+                        Label(action.title, systemImage: action.sfSymbol)
+                      }
+                      .disabled(!action.enabled)
+                    }
+                  } label: {
+                    Image(systemName: "ellipsis")
+                  }
+                  .tint(.primary)
+                  .accessibilityLabel("弹窗操作")
+                  .accessibilityIdentifier("native-sheet-menu")
+                }
+              }
+              ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                  if !bridge.requestClose() { dismiss() }
+                } label: {
+                  Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                }
+                .tint(.primary)
+                .accessibilityLabel("关闭")
+                .accessibilityIdentifier("native-vue-plugin-sheet-close")
+              }
+            }
         }
-        .disabled(!confirmation.cancelEnabled)
-        Button(confirmation.confirmText, role: confirmation.destructive ? .destructive : nil) {
-          bridge.respondConfirmation(true)
-        }
-        .disabled(!confirmation.confirmEnabled)
-      } message: { confirmation in
-        Text(confirmation.message)
       }
     }
     .presentationDetents([.large])
-    .presentationDragIndicator(.visible)
+    .presentationDragIndicator(hidesAppNavigationBar ? .hidden : .visible)
     .onChange(of: bridge.shouldDismiss) { closed in
       if closed { dismiss() }
     }
@@ -1373,6 +1397,7 @@ struct NativeVuePluginWebContainer: View {
   let surface: Surface
   let sheetBridge: NativeVueSheetBridge?
   let pluginHasPage: Bool
+  let onFallbackToLegacyChanged: ((Bool) -> Void)?
   /// 必须订阅 Sheet 协议状态：前端确认接管（`isReady`）或失败后才会重新计算加载层，
   /// 只持有普通引用时 SwiftUI 不会刷新本视图，WebView 会一直停在透明加载态。
   @ObservedObject private var observedBridge: NativeVueSheetBridge
@@ -1383,7 +1408,8 @@ struct NativeVuePluginWebContainer: View {
     pluginName: String,
     surface: Surface,
     sheetBridge: NativeVueSheetBridge? = nil,
-    pluginHasPage: Bool = true
+    pluginHasPage: Bool = true,
+    onFallbackToLegacyChanged: ((Bool) -> Void)? = nil
   ) {
     self.session = session
     self.pluginID = pluginID
@@ -1391,6 +1417,7 @@ struct NativeVuePluginWebContainer: View {
     self.surface = surface
     self.sheetBridge = sheetBridge
     self.pluginHasPage = pluginHasPage
+    self.onFallbackToLegacyChanged = onFallbackToLegacyChanged
     _observedBridge = ObservedObject(wrappedValue: sheetBridge ?? NativeVueSheetBridge.detached)
   }
 
@@ -1423,6 +1450,7 @@ struct NativeVuePluginWebContainer: View {
         pluginHasPage: pluginHasPage,
         onFallbackToLegacy: {
           fallbackToLegacy = true
+          onFallbackToLegacyChanged?(true)
         }
       )
     } else {

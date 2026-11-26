@@ -222,6 +222,8 @@ class NativeFixtureTests(unittest.TestCase):
             self.assertIn("javascript", js_resp.headers.get("Content-Type", ""))
             js_body = js_resp.read().decode("utf-8")
             self.assertIn("export async function get(", js_body)
+            self.assertIn("emit('close')", js_body)
+            self.assertIn("关闭插件", js_body)
 
         status_code, payload = self.request(
             "/a/api/v1/plugin/VueCompatDemo/status",

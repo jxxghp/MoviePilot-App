@@ -24,8 +24,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1048,6 +1050,36 @@ fun AppearanceSettingsScreen(onBack: () -> Unit) {
 }
 
 /**
+ * 判定插件是否声明使用模块联邦（`render_mode == "vue"`）组件自渲染：
+ * 联邦组件插件自带标题栏与关闭（`@close`）退出按钮；传统 MoviePilot JSON（`vuetify`）插件由宿主负责顶栏与返回按钮。
+ */
+fun isDetectedFederationVuePlugin(
+    pluginRenderMode: String,
+    pageJson: String? = null,
+    formJson: String? = null,
+): Boolean {
+    fun declaresVue(raw: String?): Boolean {
+        if (raw.isNullOrBlank()) return false
+        val compact = raw.filterNot { it.isWhitespace() }
+        return compact.contains("\"render_mode\":\"vue\"", ignoreCase = true)
+    }
+    return pluginRenderMode.equals("vue", ignoreCase = true) ||
+        declaresVue(pageJson) ||
+        declaresVue(formJson)
+}
+
+/**
+ * 判定当前插件详情页是否应隐藏 App 自身的顶栏与返回退出按钮：
+ * - 已安装的模块联邦插件（`detectedVuePlugin == true`）且未回退旧版网页壳时隐藏 App 顶栏，交由插件自身退出按钮与系统侧滑返回处理，为上方腾出显示空间；
+ * - 未安装插件、传统 `vuetify` 自渲染插件（含手动切换兼容网页模式）及回退旧版 `moviepilot.chrome` v1 壳时，均由 App 显示顶栏与返回退出按钮。
+ */
+fun shouldHideAppPluginTopBar(
+    isInstalled: Boolean,
+    detectedVuePlugin: Boolean,
+    usingLegacyFallback: Boolean = false,
+): Boolean = isInstalled && detectedVuePlugin && !usingLegacyFallback
+
+/**
  * Android 原生插件中心：
  * 支持 HorizontalPager 左右手势在「已安装 / 插件市场」之间丝滑切换、关键词搜索、下拉刷新，
  * 市场一键安装与在线更新（`GET /api/v1/plugin/install/{id}`），
@@ -1059,7 +1091,7 @@ fun PluginsCenterScreen(
     repository: MoviePilotRepository,
     initialInstalledOnly: Boolean = true,
     onBack: () -> Unit,
-    onOpenPluginDetail: (PluginItemDto) -> Unit,
+    onOpenPluginDetail: (PluginItemDto, Boolean) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
@@ -1075,6 +1107,9 @@ fun PluginsCenterScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     val installingIds = remember { mutableStateMapOf<String, Boolean>() }
+    var cardMenuPluginId by remember { mutableStateOf<String?>(null) }
+    var pendingResetPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
+    var pendingUninstallPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
 
     suspend fun loadTab(installedOnly: Boolean) {
         if (installedOnly) {
@@ -1204,7 +1239,7 @@ fun PluginsCenterScreen(
                             val isInstalling = installingIds[plugin.id] == true
                             CinematicPanel(
                                 padding = 16.dp,
-                                modifier = Modifier.clickable { onOpenPluginDetail(plugin) },
+                                modifier = Modifier.clickable { onOpenPluginDetail(plugin, false) },
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1274,6 +1309,83 @@ fun PluginsCenterScreen(
                                                     },
                                                 )
                                             }
+                                            if (plugin.installed) {
+                                                val menuKey = "${pageIdx}_${plugin.id}"
+                                                Box {
+                                                    IconButton(
+                                                        onClick = { cardMenuPluginId = menuKey },
+                                                        modifier = Modifier.size(28.dp),
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Rounded.MoreVert,
+                                                            contentDescription = "插件操作",
+                                                            tint = colors.textSecondary,
+                                                            modifier = Modifier.size(18.dp),
+                                                        )
+                                                    }
+                                                    DropdownMenu(
+                                                        expanded = cardMenuPluginId == menuKey,
+                                                        onDismissRequest = { cardMenuPluginId = null },
+                                                    ) {
+                                                        if (plugin.hasPage) {
+                                                            DropdownMenuItem(
+                                                                text = { Text("打开数据页") },
+                                                                leadingIcon = { Icon(Icons.Rounded.Extension, contentDescription = null) },
+                                                                onClick = {
+                                                                    cardMenuPluginId = null
+                                                                    onOpenPluginDetail(plugin, false)
+                                                                },
+                                                            )
+                                                        }
+                                                        DropdownMenuItem(
+                                                            text = { Text("参数配置") },
+                                                            leadingIcon = { Icon(Icons.Rounded.Tune, contentDescription = null) },
+                                                            onClick = {
+                                                                cardMenuPluginId = null
+                                                                onOpenPluginDetail(plugin, true)
+                                                            },
+                                                        )
+                                                        if (plugin.hasUpdate) {
+                                                            DropdownMenuItem(
+                                                                text = { Text("更新插件版本") },
+                                                                leadingIcon = { Icon(Icons.Rounded.Download, contentDescription = null) },
+                                                                onClick = {
+                                                                    cardMenuPluginId = null
+                                                                    if (!isInstalling) {
+                                                                        scope.launch {
+                                                                            installingIds[plugin.id] = true
+                                                                            val (ok, msg) = repository.installPlugin(
+                                                                                pluginId = plugin.id,
+                                                                                repoUrl = plugin.repoUrl,
+                                                                                force = true,
+                                                                            )
+                                                                            if (ok) reloadBoth()
+                                                                            installingIds.remove(plugin.id)
+                                                                            snackbar?.showSnackbar(msg)
+                                                                        }
+                                                                    }
+                                                                },
+                                                            )
+                                                        }
+                                                        DropdownMenuItem(
+                                                            text = { Text("重置插件数据") },
+                                                            leadingIcon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
+                                                            onClick = {
+                                                                cardMenuPluginId = null
+                                                                pendingResetPlugin = plugin
+                                                            },
+                                                        )
+                                                        DropdownMenuItem(
+                                                            text = { Text("卸载此插件", color = colors.danger) },
+                                                            leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = colors.danger) },
+                                                            onClick = {
+                                                                cardMenuPluginId = null
+                                                                pendingUninstallPlugin = plugin
+                                                            },
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
                                         }
                                     }
@@ -1284,6 +1396,55 @@ fun PluginsCenterScreen(
                 }
             }
         }
+    }
+
+    pendingResetPlugin?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingResetPlugin = null },
+            title = { Text("确认重置插件数据？") },
+            text = { Text("确定要重置「${target.name}」的配置与缓存数据吗？此操作不可撤销。") },
+            dismissButton = {
+                TextButton(onClick = { pendingResetPlugin = null }) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingResetPlugin = null
+                        scope.launch {
+                            val (_, msg) = repository.resetPlugin(target.id)
+                            snackbar?.showSnackbar(msg)
+                        }
+                    },
+                ) {
+                    Text("确认重置", color = colors.warning)
+                }
+            },
+        )
+    }
+
+    pendingUninstallPlugin?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingUninstallPlugin = null },
+            title = { Text("确认卸载插件？") },
+            text = { Text("卸载后将从 MoviePilot 实例移除「${target.name}」。") },
+            dismissButton = {
+                TextButton(onClick = { pendingUninstallPlugin = null }) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingUninstallPlugin = null
+                        scope.launch {
+                            val (ok, msg) = repository.uninstallPlugin(target.id)
+                            if (ok) reloadBoth()
+                            snackbar?.showSnackbar(msg)
+                        }
+                    },
+                ) {
+                    Text("卸载", color = colors.danger)
+                }
+            },
+        )
     }
 }
 
@@ -1298,6 +1459,7 @@ fun PluginsCenterScreen(
 fun PluginDetailScreen(
     plugin: PluginItemDto,
     repository: MoviePilotRepository,
+    openConfigFirst: Boolean = false,
     onBack: () -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
@@ -1324,12 +1486,14 @@ fun PluginDetailScreen(
 
     val hasDataPage = plugin.hasPage
     val pageCount = if (hasDataPage) 2 else 1
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { pageCount })
+    val initialTab = if (hasDataPage && openConfigFirst) 1 else 0
+    val pagerState = rememberPagerState(initialPage = initialTab, pageCount = { pageCount })
 
     var pageJson by remember(plugin.id) { mutableStateOf<String?>(null) }
     var formJson by remember(plugin.id) { mutableStateOf<String?>(null) }
     var isLoading by remember(plugin.id) { mutableStateOf(plugin.installed) }
     var forceVueWebMode by remember(plugin.id) { mutableStateOf(false) }
+    var usingLegacyVueFallback by remember(plugin.id) { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var hasUnsavedChanges by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
@@ -1359,16 +1523,14 @@ fun PluginDetailScreen(
     }
 
     val detectedVuePlugin = remember(plugin.renderMode, pageJson, formJson) {
-        fun declaresVue(raw: String?): Boolean {
-            if (raw.isNullOrBlank()) return false
-            val compact = raw.replace(" ", "")
-            return compact.contains("\"render_mode\":\"vue\"", ignoreCase = true)
-        }
-        plugin.renderMode.equals("vue", ignoreCase = true) ||
-            declaresVue(pageJson) ||
-            declaresVue(formJson)
+        isDetectedFederationVuePlugin(plugin.renderMode, pageJson, formJson)
     }
     val openInVueWebView = isInstalled && (forceVueWebMode || detectedVuePlugin)
+    val hideAppTopBar = shouldHideAppPluginTopBar(
+        isInstalled = isInstalled,
+        detectedVuePlugin = detectedVuePlugin,
+        usingLegacyFallback = usingLegacyVueFallback,
+    )
 
     val attemptLeave: () -> Unit = {
         when {
@@ -1378,7 +1540,7 @@ fun PluginDetailScreen(
         }
     }
 
-    BackHandler(enabled = hasUnsavedChanges || openInVueWebView) {
+    BackHandler(enabled = hasUnsavedChanges || openInVueWebView || hideAppTopBar) {
         attemptLeave()
     }
 
@@ -1389,7 +1551,28 @@ fun PluginDetailScreen(
         plugin.name
     }
 
-    ExpressiveTintedScaffold(
+    if (hideAppTopBar) {
+        // 模块联邦插件自带顶部栏与关闭退出按钮：隐藏 App 顶栏与返回按钮，释放上方空间交由插件全屏展示
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(colors.sheetSurface)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+            IsolatedVuePluginWebView(
+                pluginId = plugin.id,
+                session = vueSession,
+                surface = if (currentIsConfigTab) VuePluginSurface.Config else VuePluginSurface.DataPage,
+                chromeController = vueChrome,
+                pluginHasPage = hasDataPage,
+                onLegacyFallbackChanged = { usingLegacyVueFallback = it },
+                onRequestExit = onBack,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    } else {
+        ExpressiveTintedScaffold(
         title = resolvedTopTitle,
         onBack = attemptLeave,
         actions = {
@@ -1584,6 +1767,8 @@ fun PluginDetailScreen(
                     surface = if (currentIsConfigTab) VuePluginSurface.Config else VuePluginSurface.DataPage,
                     chromeController = vueChrome,
                     pluginHasPage = hasDataPage,
+                    onLegacyFallbackChanged = { usingLegacyVueFallback = it },
+                    onRequestExit = onBack,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
@@ -1686,6 +1871,7 @@ fun PluginDetailScreen(
                 }
             }
         }
+    }
     }
 
     if (showResetConfirm) {

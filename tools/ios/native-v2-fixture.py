@@ -1721,13 +1721,14 @@ function createDemoComponent(Vue, mode) {
   const { defineComponent, h, ref, onMounted, resolveComponent } = Vue;
   return defineComponent({
     name: mode === 'Config' ? 'VueCompatDemoConfig' : 'VueCompatDemoPage',
+    emits: ['close', 'switch', 'save', 'action'],
     props: {
       api: { type: Object, required: true },
       hostSdk: { type: Object, default: null },
       initialConfig: { type: Object, default: () => ({}) },
       pluginId: { type: String, default: 'VueCompatDemo' },
     },
-    setup(props) {
+    setup(props, { emit }) {
       const apiStatus = ref('正在经 Native Bridge 请求状态…');
       const tokenAudit = ref('校验中…');
       const confirmResult = ref('尚未触发确认框');
@@ -1880,7 +1881,47 @@ function createDemoComponent(Vue, mode) {
               { class: 'mb-4', variant: 'flat' },
               {
                 default: () => [
-                  h(VCardTitle, null, () => '合成联邦插件运行正常'),
+                  h(
+                    'div',
+                    {
+                      style: {
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '12px 16px 4px',
+                        gap: '8px',
+                      },
+                    },
+                    [
+                      h(VCardTitle, { class: 'pa-0' }, () => '合成联邦插件运行正常'),
+                      h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+                        h(
+                          VBtn,
+                          {
+                            size: 'small',
+                            variant: 'tonal',
+                            color: 'primary',
+                            onClick: () => {
+                              refreshCount.value += 1;
+                              loadStatus();
+                            },
+                          },
+                          () => '刷新状态'
+                        ),
+                        h(
+                          VBtn,
+                          {
+                            size: 'small',
+                            variant: 'tonal',
+                            color: 'secondary',
+                            'aria-label': '关闭插件',
+                            onClick: () => emit('close'),
+                          },
+                          () => '关闭插件'
+                        ),
+                      ]),
+                    ]
+                  ),
                   h(VCardText, null, () => [
                     h('div', { style: { marginBottom: '10px', fontSize: '14px' } }, apiStatus.value),
                     h(

@@ -111,6 +111,7 @@ class AndroidPluginHostBridgeV2(
     var onPluginMounted: ((mountId: String, title: String) -> Unit)? = null
     var onPluginError: ((stage: String, message: String, recoverable: Boolean) -> Unit)? = null
     var onPluginClose: (() -> Unit)? = null
+    var onNavBackResult: ((handled: Boolean) -> Unit)? = null
     var onHeaderUpdate: ((title: String, actions: List<VuePluginSheetAction>) -> Unit)? = null
     var onToast: ((AndroidPluginToast) -> Unit)? = null
     var onConfirm: ((VuePluginConfirmation) -> Unit)? = null
@@ -125,6 +126,7 @@ class AndroidPluginHostBridgeV2(
         onPluginMounted = null
         onPluginError = null
         onPluginClose = null
+        onNavBackResult = null
         onHeaderUpdate = null
         onToast = null
         onConfirm = null
@@ -213,6 +215,10 @@ class AndroidPluginHostBridgeV2(
                 mainHandler.post { onPluginError?.invoke(stage, msg, rec) }
             }
             "plugin.close" -> mainHandler.post { onPluginClose?.invoke() }
+            "nav.backResult" -> {
+                val handled = (payload["handled"] as? JsonPrimitive)?.booleanOrNull ?: false
+                mainHandler.post { onNavBackResult?.invoke(handled) }
+            }
             "api.request" -> {
                 val reqId = payload["requestId"]?.strOrNull()?.takeIf { it.isNotBlank() } ?: return
                 executor.execute { executeApiRequest(reqId, payload) }
