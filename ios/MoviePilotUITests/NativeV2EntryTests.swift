@@ -1063,6 +1063,62 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
+  /// 验证资源搜索页多选菜单勾选后保持展开可连续勾选且全部勾选项同时保留，互斥项与清空项仍点选即收起，零 WebView。
+  func testNativeResourceMultiSelectMenusStayOpen() async throws {
+    guard #available(iOS 16.4, *) else {
+      throw XCTSkip("iOS 16.4 以下系统菜单不支持点选后保持展开，沿用点选即收起")
+    }
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    openOverflowItem("native-workspace-resources", app: app)
+    XCTAssertTrue(app.scrollViews["native-resource-search-scroll"].waitForExistence(timeout: 15))
+    let outsideMenu = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.82))
+
+    let sitesMenu = app.buttons["native-resource-search-sites"]
+    XCTAssertTrue(sitesMenu.waitForExistence(timeout: 10))
+    sitesMenu.tap()
+    let siteOptions = try tapEveryMenuOption(prefix: "native-resource-search-site-", app: app)
+    let expectedScope =
+      siteOptions.count == 1 ? String(siteOptions[0].label.prefix(6)) : "\(siteOptions.count)站"
+    capture("native-v2-fixture-resource-site-menu-multi-select")
+    outsideMenu.tap()
+    XCTAssertTrue(siteOptions[0].waitForNonExistence(timeout: 5), "点选菜单外应收起菜单")
+    XCTAssertTrue(sitesMenu.label.contains(expectedScope), "全部勾选站点应同时保留")
+    sitesMenu.tap()
+    XCTAssertTrue(siteOptions[0].waitForExistence(timeout: 5))
+    app.buttons["全部站点"].tap()
+    XCTAssertTrue(siteOptions[0].waitForNonExistence(timeout: 5), "互斥项点选后菜单应收起")
+
+    let resolutionMenu = app.buttons["native-resource-facet-分辨率"]
+    XCTAssertTrue(resolutionMenu.waitForExistence(timeout: 10))
+    // 大字号窄屏下胶囊可能位于横向筛选条屏外，先横向滑入可视区域再点选。
+    for _ in 0..<4 where !resolutionMenu.isHittable {
+      app.scrollViews["native-resource-facet-bar"].swipeLeft()
+    }
+    resolutionMenu.tap()
+    let facetOptions = try tapEveryMenuOption(prefix: "native-resource-facet-分辨率-", app: app)
+    capture("native-v2-fixture-resource-facet-menu-multi-select")
+    XCTAssertTrue(resolutionMenu.label.contains("\(facetOptions.count)"), "全部勾选项应同时保留")
+    app.buttons["清空分辨率"].tap()
+    XCTAssertTrue(facetOptions[0].waitForNonExistence(timeout: 5), "清空项点选后菜单应收起")
+    XCTAssertEqual(app.webViews.count, 0)
+  }
+
+  /// 依次点选已展开菜单内全部多选项，每次点选后菜单都必须保持展开；返回这些菜单项供后续断言。
+  private func tapEveryMenuOption(prefix: String, app: XCUIApplication) throws -> [XCUIElement] {
+    let query = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
+    XCTAssertTrue(query.firstMatch.waitForExistence(timeout: 5))
+    let options = query.allElementsBoundByIndex.map { app.buttons[$0.identifier] }
+    for option in try XCTUnwrap(options.isEmpty ? nil : options) {
+      option.tap()
+      let dismissed = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "exists == false"), object: option)
+      XCTAssertEqual(
+        XCTWaiter.wait(for: [dismissed], timeout: 1.5), .timedOut, "多选项点选后菜单应保持展开")
+    }
+    return options
+  }
+
   /// P5.3 / P6.1 / P6.4：验证原生整理历史展开/确认删除、站点连通测试与消息中心分类过滤，零 WebView。
   func testNativeHistorySitesAndMessagesFlows() async throws {
     let app = try await signInToNativeBusiness()

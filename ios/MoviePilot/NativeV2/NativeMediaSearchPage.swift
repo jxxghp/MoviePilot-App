@@ -897,6 +897,7 @@ struct NativeMediaSearchPage: View {
               Text(displayName)
             }
           }
+          .nativeKeepsMenuOpen()
           .accessibilityIdentifier("native-media-search-source-\(source.id)")
         }
         if !selectedSources.isEmpty {

@@ -250,6 +250,16 @@ extension View {
   func nativeGlassSheet() -> some View {
     modifier(NativeGlassSheetModifier())
   }
+
+  /// 多选菜单项点选后保持菜单展开，便于连续勾选多项；iOS 16.4 以下系统无对应能力，沿用点选即收起。
+  @ViewBuilder
+  func nativeKeepsMenuOpen() -> some View {
+    if #available(iOS 16.4, *) {
+      menuActionDismissBehavior(.disabled)
+    } else {
+      self
+    }
+  }
 }
 
 /// 跨系统版本顶部导航栏模糊修饰器：iOS 26+ 保持全透液态玻璃与软边过渡；旧系统首屏顶边全透，向上滚动离顶后自动启用超薄毛玻璃覆盖状态栏与标题栏。
