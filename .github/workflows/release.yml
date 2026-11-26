@@ -64,9 +64,9 @@ jobs:
           fi
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
             case "$GITHUB_REF" in
-              refs/heads/v2|refs/heads/main|refs/heads/feat/multiplatform) ;;
+              refs/heads/v2|refs/heads/main|refs/heads/feat/multiplatform|refs/heads/release/*) ;;
               *)
-                echo "Manual release dispatch requires v2, main, or feat/multiplatform (got: $GITHUB_REF)." >&2
+                echo "Manual release dispatch requires v2, main, feat/multiplatform, or release/* (got: $GITHUB_REF)." >&2
                 exit 1
                 ;;
             esac

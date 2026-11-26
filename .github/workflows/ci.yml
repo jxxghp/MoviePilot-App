@@ -30,7 +30,8 @@ jobs:
   ios:
     needs: ssot-and-rust
     runs-on: macos-26
-    timeout-minutes: 25
+    # 冷构建后还需完整执行四项模拟器回归，避免在生成结果前被中止。
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
       - name: Toolchain
