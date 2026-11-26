@@ -53,7 +53,8 @@ final class CloudflareAccessAuthManager: NSObject {
     config.urlCache = nil
     config.timeoutIntervalForRequest = 20
     config.timeoutIntervalForResource = 45
-    self.urlSession = URLSession(configuration: config, delegate: NoRedirectDelegate(), delegateQueue: nil)
+    self.urlSession = URLSession(
+      configuration: config, delegate: NoRedirectDelegate(), delegateQueue: nil)
     super.init()
   }
 
@@ -82,18 +83,21 @@ final class CloudflareAccessAuthManager: NSObject {
     ])
     var req = URLRequest(url: tokenURL)
     req.httpMethod = "POST"
-    req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    req.setValue(
+      "application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     req.httpBody = form
 
     guard let (data, raw) = try? await urlSession.data(for: req),
       let http = raw as? HTTPURLResponse, (200..<300).contains(http.statusCode),
       let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let newAccessToken = (payload["access_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+      let newAccessToken = (payload["access_token"] as? String)?.trimmingCharacters(
+        in: .whitespacesAndNewlines),
       !newAccessToken.isEmpty
     else { return }
 
-    let nextRefresh = (payload["refresh_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let nextRefresh = (payload["refresh_token"] as? String)?.trimmingCharacters(
+      in: .whitespacesAndNewlines)
     let expiresIn = (payload["expires_in"] as? NSNumber)?.int64Value
     let expiresAtMs = expiresIn.map { Int64(Date().timeIntervalSince1970 * 1000) + $0 * 1000 }
     let updated = CloudflareAccessSession(
@@ -108,11 +112,16 @@ final class CloudflareAccessAuthManager: NSObject {
     CloudflareAccessCredentialRegistry.shared.store(updated, persist: true)
   }
 
-  /// 执行完整 Cloudflare Access Managed OAuth（RFC 9728 -> RFC 8414 -> RFC 7591 DCR -> PKCE S256 -> Token 交换）。
+  /// 执行完整 Cloudflare Access Managed OAuth（RFC 9728 -> RFC 8414 -> RFC 7591 DCR -> PKCE S256 + RFC 8707 resource -> Token 交换）。
   func authenticate(address: ServerAddress) async throws -> CloudflareAccessSession {
     let origin = CloudflareAccessProtocol.normalizedOriginKey(for: address)
     let resourceMetaHint = await probeResourceMetadataHint(for: address)
-    let serverMeta = try await discoverServerMetadata(serverURL: address.url.absoluteString, hintURL: resourceMetaHint)
+    let (serverMeta, discoveredResource) = try await discoverServerMetadata(
+      serverURL: address.url.absoluteString, hintURL: resourceMetaHint)
+    let resolvedResource =
+      discoveredResource
+      ?? CloudflareAccessProtocol.normalizedResourceIndicator(for: address.url.absoluteString)
+      ?? origin
 
     let cachedClientId = CloudflareAccessCredentialRegistry.shared
       .session(for: address)
@@ -132,7 +141,8 @@ final class CloudflareAccessAuthManager: NSObject {
       clientId: clientId,
       redirectURI: defaultCloudflareOAuthRedirectURI,
       codeChallenge: pkce.codeChallenge,
-      state: pkce.state
+      state: pkce.state,
+      resource: resolvedResource
     )
 
     let callbackURL = try await presentAuthSession(url: authorizeURL)
@@ -156,8 +166,10 @@ final class CloudflareAccessAuthManager: NSObject {
   // MARK: - Discovery & Registration
 
   private func probeResourceMetadataHint(for address: ServerAddress) async -> String? {
-    let probeURL = address.url.appending(path: "api").appending(path: "v1").appending(path: "system")
-      .appending(path: "setup-status")
+    let probeURL = address.url.appending(path: "api").appending(path: "v1").appending(
+      path: "system"
+    )
+    .appending(path: "setup-status")
     var req = URLRequest(url: probeURL)
     req.httpMethod = "GET"
     req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -170,11 +182,12 @@ final class CloudflareAccessAuthManager: NSObject {
   }
 
   private func discoverServerMetadata(serverURL: String, hintURL: String?) async throws
-    -> CloudflareOAuthServerMetadata
+    -> (CloudflareOAuthServerMetadata, String?)
   {
     let candidates = CloudflareAccessProtocol.buildDiscoveryURLs(
       serverURL: serverURL, resourceMetadataURL: hintURL)
     var authServerMetadataURLs: [String] = []
+    var discoveredResource: String?
 
     for candidate in candidates {
       guard let url = URL(string: candidate) else { continue }
@@ -182,10 +195,13 @@ final class CloudflareAccessAuthManager: NSObject {
         (200..<300).contains(raw.statusCode)
       else { continue }
       if let directMeta = try? CloudflareAccessProtocol.parseOAuthServerMetadata(data) {
-        return directMeta
+        return (directMeta, discoveredResource)
       }
-      if let servers = try? CloudflareAccessProtocol.parseProtectedResourceMetadata(data) {
-        for s in servers where !authServerMetadataURLs.contains(s) {
+      if let prm = try? CloudflareAccessProtocol.parseProtectedResourceMetadataDetail(data) {
+        if discoveredResource == nil, let res = prm.resource, !res.isEmpty {
+          discoveredResource = res
+        }
+        for s in prm.authorizationServers where !authServerMetadataURLs.contains(s) {
           authServerMetadataURLs.append(s)
         }
       }
@@ -197,7 +213,7 @@ final class CloudflareAccessAuthManager: NSObject {
         (200..<300).contains(raw.statusCode),
         let meta = try? CloudflareAccessProtocol.parseOAuthServerMetadata(data)
       {
-        return meta
+        return (meta, discoveredResource)
       }
     }
 
@@ -248,19 +264,22 @@ final class CloudflareAccessAuthManager: NSObject {
     ])
     var req = URLRequest(url: tokenURL)
     req.httpMethod = "POST"
-    req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    req.setValue(
+      "application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
     req.setValue("application/json", forHTTPHeaderField: "Accept")
     req.httpBody = body
 
     let (data, raw) = try await urlSession.data(for: req)
     guard let http = raw as? HTTPURLResponse, (200..<300).contains(http.statusCode),
       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let accessToken = (obj["access_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+      let accessToken = (obj["access_token"] as? String)?.trimmingCharacters(
+        in: .whitespacesAndNewlines),
       !accessToken.isEmpty
     else {
       throw AuthError.tokenExchangeFailed
     }
-    let refreshToken = (obj["refresh_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let refreshToken = (obj["refresh_token"] as? String)?.trimmingCharacters(
+      in: .whitespacesAndNewlines)
     let expiresIn = (obj["expires_in"] as? NSNumber)?.int64Value
     let expiresAtMs = expiresIn.map { Int64(Date().timeIntervalSince1970 * 1000) + $0 * 1000 }
     return CloudflareAccessSession(
@@ -329,7 +348,9 @@ final class CloudflareAccessAuthManager: NSObject {
 }
 
 extension CloudflareAccessAuthManager: ASWebAuthenticationPresentationContextProviding {
-  nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+  nonisolated func presentationAnchor(for session: ASWebAuthenticationSession)
+    -> ASPresentationAnchor
+  {
     MainActor.assumeIsolated {
       for scene in UIApplication.shared.connectedScenes {
         guard let windowScene = scene as? UIWindowScene else { continue }

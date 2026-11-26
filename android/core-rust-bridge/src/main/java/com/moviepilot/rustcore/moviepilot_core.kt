@@ -802,6 +802,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -861,6 +865,8 @@ fun uniffi_moviepilot_core_checksum_func_merge_cf_access_cookie(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_normalize_danmaku_query_title(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_normalize_oauth_resource_url(
+): Short
 fun uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_normalize_plugin_remote_entry_json(
@@ -876,6 +882,8 @@ fun uniffi_moviepilot_core_checksum_func_parse_deep_link_json(
 fun uniffi_moviepilot_core_checksum_func_parse_oauth_callback_url_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_oauth_server_metadata_json(
+): Short
+fun uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_detail_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_json(
 ): Short
@@ -970,7 +978,7 @@ fun uniffi_moviepilot_core_fn_func_apply_plugin_form_patch(`originalModelJson`: 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_build_external_player_url(`template`: RustBuffer.ByValue,`mediaUrl`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-fun uniffi_moviepilot_core_fn_func_build_oauth_authorize_url(`authorizationEndpoint`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`redirectUri`: RustBuffer.ByValue,`codeChallenge`: RustBuffer.ByValue,`state`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+fun uniffi_moviepilot_core_fn_func_build_oauth_authorize_url(`authorizationEndpoint`: RustBuffer.ByValue,`clientId`: RustBuffer.ByValue,`redirectUri`: RustBuffer.ByValue,`codeChallenge`: RustBuffer.ByValue,`state`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`resource`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_build_oauth_discovery_urls_json(`serverUrl`: RustBuffer.ByValue,`resourceMetadataUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1008,6 +1016,8 @@ fun uniffi_moviepilot_core_fn_func_merge_cf_access_cookie(`existingCookieHeader`
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_normalize_danmaku_query_title(`seriesName`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`season`: RustBuffer.ByValue,`episode`: RustBuffer.ByValue,`fileName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_normalize_oauth_resource_url(`rawUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_normalize_pending_playback_stops_json(`entriesJson`: RustBuffer.ByValue,`nowEpochMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_normalize_plugin_remote_entry_json(`pluginId`: RustBuffer.ByValue,`versionOrHash`: RustBuffer.ByValue,`rawRemoteUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1023,6 +1033,8 @@ fun uniffi_moviepilot_core_fn_func_parse_deep_link_json(`rawUrl`: RustBuffer.ByV
 fun uniffi_moviepilot_core_fn_func_parse_oauth_callback_url_json(`callbackUrl`: RustBuffer.ByValue,`expectedState`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_parse_oauth_server_metadata_json(`jsonStr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_parse_protected_resource_metadata_detail_json(`jsonStr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_parse_protected_resource_metadata_json(`jsonStr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1181,7 +1193,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_build_external_player_url() != 48700.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_moviepilot_core_checksum_func_build_oauth_authorize_url() != 17385.toShort()) {
+    if (lib.uniffi_moviepilot_core_checksum_func_build_oauth_authorize_url() != 55430.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_build_oauth_discovery_urls_json() != 40514.toShort()) {
@@ -1238,6 +1250,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_normalize_danmaku_query_title() != 7723.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_normalize_oauth_resource_url() != 21236.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json() != 59689.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1260,6 +1275,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_parse_oauth_server_metadata_json() != 61028.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_detail_json() != 40938.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_json() != 19972.toShort()) {
@@ -2768,13 +2786,13 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
-         * 构造 OAuth 2.0 + PKCE (`S256`) 授权跳转 URL。
+         * 构造 OAuth 2.0 + PKCE (`S256`) + RFC 8707 `resource` 授权跳转 URL。
          */
-    @Throws(CoreFfiException::class) fun `buildOauthAuthorizeUrl`(`authorizationEndpoint`: kotlin.String, `clientId`: kotlin.String, `redirectUri`: kotlin.String, `codeChallenge`: kotlin.String, `state`: kotlin.String, `scope`: kotlin.String): kotlin.String {
+    @Throws(CoreFfiException::class) fun `buildOauthAuthorizeUrl`(`authorizationEndpoint`: kotlin.String, `clientId`: kotlin.String, `redirectUri`: kotlin.String, `codeChallenge`: kotlin.String, `state`: kotlin.String, `scope`: kotlin.String, `resource`: kotlin.String?): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(CoreFfiException) { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_build_oauth_authorize_url(
-        FfiConverterString.lower(`authorizationEndpoint`),FfiConverterString.lower(`clientId`),FfiConverterString.lower(`redirectUri`),FfiConverterString.lower(`codeChallenge`),FfiConverterString.lower(`state`),FfiConverterString.lower(`scope`),_status)
+        FfiConverterString.lower(`authorizationEndpoint`),FfiConverterString.lower(`clientId`),FfiConverterString.lower(`redirectUri`),FfiConverterString.lower(`codeChallenge`),FfiConverterString.lower(`state`),FfiConverterString.lower(`scope`),FfiConverterOptionalString.lower(`resource`),_status)
 }
     )
     }
@@ -3001,6 +3019,18 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 将实例地址规范化为 RFC 8707 `resource` 默认回退值。
+         */ fun `normalizeOauthResourceUrl`(`rawUrl`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_normalize_oauth_resource_url(
+        FfiConverterString.lower(`rawUrl`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 规整离线待补报 `stopped` 队列（去重、清理 7 天过期项并裁剪至上限）。
          */
     @Throws(CoreFfiException::class) fun `normalizePendingPlaybackStopsJson`(`entriesJson`: kotlin.String, `nowEpochMs`: kotlin.Long): kotlin.String {
@@ -3094,6 +3124,19 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
             return FfiConverterString.lift(
     uniffiRustCallWithError(CoreFfiException) { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_oauth_server_metadata_json(
+        FfiConverterString.lower(`jsonStr`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 解析 RFC 9728 Protected Resource Metadata，完整返回 `resource` 与 `authorizationServers` JSON。
+         */
+    @Throws(CoreFfiException::class) fun `parseProtectedResourceMetadataDetailJson`(`jsonStr`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_protected_resource_metadata_detail_json(
         FfiConverterString.lower(`jsonStr`),_status)
 }
     )

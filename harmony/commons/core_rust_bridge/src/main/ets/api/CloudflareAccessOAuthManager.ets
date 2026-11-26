@@ -193,7 +193,9 @@ export class CloudflareAccessOAuthManager {
     await this.hydrateOrigin(normalized);
 
     const hintUrl = await this.probeResourceMetadataHint(normalized, allowSelfSigned);
-    const serverMeta = await this.discoverServerMetadata(normalized, hintUrl, allowSelfSigned);
+    const discovered = await this.discoverServerMetadata(normalized, hintUrl, allowSelfSigned);
+    const serverMeta = discovered.serverMeta;
+    const resolvedResource = discovered.resource || RustCoreBridge.normalizeOAuthResourceUrl(normalized) || origin;
 
     const existing = this.memoryCache.get(origin);
     let clientId = '';
@@ -212,7 +214,8 @@ export class CloudflareAccessOAuthManager {
       CloudflareAccessOAuthManager.REDIRECT_URI,
       pkce.codeChallenge,
       pkce.state,
-      'openid email profile offline_access'
+      'openid email profile offline_access',
+      resolvedResource
     );
 
     const callbackUrl = await this.awaitBrowserCallback(authorizeUrl, launchBrowser);
@@ -280,19 +283,23 @@ export class CloudflareAccessOAuthManager {
     serverUrl: string,
     hintUrl: string,
     allowSelfSigned: boolean
-  ): Promise<OAuthServerMetadata> {
+  ): Promise<DiscoveredOAuthContext> {
     const candidates = RustCoreBridge.buildOAuthDiscoveryUrls(serverUrl, hintUrl);
     const authServers: string[] = [];
+    let discoveredResource = '';
 
     for (let i = 0; i < candidates.length; i++) {
       const resp = await this.rawRequest(candidates[i], http.RequestMethod.GET, '', 'application/json', allowSelfSigned);
       if (resp.status < 200 || resp.status >= 300) { continue; }
       const direct = RustCoreBridge.parseOAuthServerMetadata(resp.body);
-      if (direct) { return direct; }
-      const servers = RustCoreBridge.parseProtectedResourceMetadata(resp.body);
-      for (let j = 0; j < servers.length; j++) {
-        if (!authServers.includes(servers[j])) {
-          authServers.push(servers[j]);
+      if (direct) { return { serverMeta: direct, resource: discoveredResource }; }
+      const prm = RustCoreBridge.parseProtectedResourceMetadataDetail(resp.body);
+      if (!discoveredResource && prm.resource && prm.resource.length > 0) {
+        discoveredResource = prm.resource;
+      }
+      for (let j = 0; j < prm.authorizationServers.length; j++) {
+        if (!authServers.includes(prm.authorizationServers[j])) {
+          authServers.push(prm.authorizationServers[j]);
         }
       }
     }
@@ -301,7 +308,7 @@ export class CloudflareAccessOAuthManager {
       const resp = await this.rawRequest(authServers[i], http.RequestMethod.GET, '', 'application/json', allowSelfSigned);
       if (resp.status < 200 || resp.status >= 300) { continue; }
       const meta = RustCoreBridge.parseOAuthServerMetadata(resp.body);
-      if (meta) { return meta; }
+      if (meta) { return { serverMeta: meta, resource: discoveredResource }; }
     }
 
     throw new Error('未能发现 Cloudflare Access OAuth 元数据，请确认服务已开启 Cloudflare Access OAuth');
@@ -412,6 +419,11 @@ export class CloudflareAccessOAuthManager {
       client.destroy();
     }
   }
+}
+
+interface DiscoveredOAuthContext {
+  serverMeta: OAuthServerMetadata;
+  resource: string;
 }
 
 interface RawOAuthResponse {

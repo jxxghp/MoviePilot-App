@@ -83,6 +83,22 @@ const HISTORY_DELETE_MODES: DeleteModeOption[] = [
   { label: '同时删除源文件与媒体库文件', desc: '彻底删除记录、源文件与媒体库文件', deleteSrc: true, deleteDest: true, danger: true }
 ];
 
+interface FileSortOption {
+  id: string;
+  label: string;
+  shortLabel: string;
+}
+
+const FILE_SORT_OPTIONS: FileSortOption[] = [
+  { id: 'name_asc', label: '名称（A → Z）', shortLabel: '名称 ↑' },
+  { id: 'name_desc', label: '名称（Z → A）', shortLabel: '名称 ↓' },
+  { id: 'type_asc', label: '类型（按扩展名）', shortLabel: '类型' },
+  { id: 'size_desc', label: '大小（从大到小）', shortLabel: '大小 ↓' },
+  { id: 'size_asc', label: '大小（从小到大）', shortLabel: '大小 ↑' },
+  { id: 'time_desc', label: '修改时间（最新优先）', shortLabel: '时间 ↓' },
+  { id: 'time_asc', label: '修改时间（最早优先）', shortLabel: '时间 ↑' }
+];
+
 /**
  * 鸿蒙多存储文件管理、整理历史与 1:1 对齐 iOS 的全量「手动识别整理」页：
  * - 文件管理搭载真实存储品牌图标（115/阿里云盘/Rclone/SMB/本地），支持系统侧滑返回上级目录；
@@ -103,6 +119,8 @@ export struct HarmonyLibraryPage {
   @State private activeStorage: string = 'local';
   @State private currentPath: string = '/';
   @State private files: MpStorageFile[] = [];
+  @State private fileSortId: string = 'name_asc';
+  @State private fileFilterId: string = 'all';
   @State private history: MpTransferHistoryItem[] = [];
   @State private historyQuery: string = '';
   @State private loading: boolean = true;
@@ -317,6 +335,102 @@ export struct HarmonyLibraryPage {
       if (q.length > 0 && !(`${h.title} ${h.src} ${h.dest}`.toLowerCase().includes(q))) { return false; }
       return true;
     });
+  }
+
+  private resolveExtLower(f: MpStorageFile): string {
+    const rawExt = (f.extension ?? '').trim().replace(/^\.+/, '');
+    if (rawExt.length > 0) {
+      return rawExt.toLowerCase();
+    }
+    const dotIdx = f.name.lastIndexOf('.');
+    return dotIdx > 0 ? f.name.substring(dotIdx + 1).toLowerCase() : '';
+  }
+
+  private currentFileSortShortLabel(): string {
+    for (let i = 0; i < FILE_SORT_OPTIONS.length; i++) {
+      if (FILE_SORT_OPTIONS[i].id === this.fileSortId) {
+        return FILE_SORT_OPTIONS[i].shortLabel;
+      }
+    }
+    return '名称 ↑';
+  }
+
+  private sortedFiles(): MpStorageFile[] {
+    const filtered = this.files.filter((f: MpStorageFile) => {
+      if (this.fileFilterId === 'dirs') { return f.type === 'dir'; }
+      if (this.fileFilterId === 'files') { return f.type !== 'dir'; }
+      return true;
+    });
+    const mode = this.fileSortId;
+    return filtered.slice().sort((a: MpStorageFile, b: MpStorageFile) => {
+      const aDir = a.type === 'dir';
+      const bDir = b.type === 'dir';
+      if (aDir !== bDir) {
+        return aDir ? -1 : 1;
+      }
+      const nameCmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+      if (mode === 'name_desc') {
+        return -nameCmp;
+      }
+      if (mode === 'type_asc') {
+        const extCmp = this.resolveExtLower(a).localeCompare(this.resolveExtLower(b), undefined, { numeric: true, sensitivity: 'base' });
+        return extCmp !== 0 ? extCmp : nameCmp;
+      }
+      if (mode === 'size_desc') {
+        return b.sizeBytes !== a.sizeBytes ? (b.sizeBytes - a.sizeBytes) : nameCmp;
+      }
+      if (mode === 'size_asc') {
+        return a.sizeBytes !== b.sizeBytes ? (a.sizeBytes - b.sizeBytes) : nameCmp;
+      }
+      if (mode === 'time_desc') {
+        const at = a.modifyTime ?? 0;
+        const bt = b.modifyTime ?? 0;
+        return bt !== at ? (bt - at) : nameCmp;
+      }
+      if (mode === 'time_asc') {
+        const at = a.modifyTime ?? 0;
+        const bt = b.modifyTime ?? 0;
+        return at !== bt ? (at - bt) : nameCmp;
+      }
+      return nameCmp;
+    });
+  }
+
+  private formatFileMeta(f: MpStorageFile): string {
+    if (f.type === 'dir') { return '目录'; }
+    const parts: string[] = [];
+    if (f.sizeBytes > 0) {
+      parts.push(formatByteSize(f.sizeBytes));
+    }
+    const ext = this.resolveExtLower(f).toUpperCase();
+    if (ext.length > 0) {
+      parts.push(ext);
+    }
+    return parts.length > 0 ? parts.join(' · ') : formatByteSize(f.sizeBytes);
+  }
+
+  @Builder
+  fileSortMenuBuilder() {
+    Menu() {
+      MenuItemGroup({ header: '排列顺序' }) {
+        ForEach(FILE_SORT_OPTIONS, (opt: FileSortOption) => {
+          MenuItem({
+            content: this.fileSortId === opt.id ? `✓ ${opt.label}` : opt.label
+          })
+            .onClick(() => {
+              this.fileSortId = opt.id;
+            })
+        }, (opt: FileSortOption) => opt.id)
+      }
+      MenuItemGroup({ header: '筛选' }) {
+        MenuItem({ content: this.fileFilterId === 'all' ? '✓ 全部项目' : '全部项目' })
+          .onClick(() => { this.fileFilterId = 'all'; })
+        MenuItem({ content: this.fileFilterId === 'dirs' ? '✓ 仅文件夹' : '仅文件夹' })
+          .onClick(() => { this.fileFilterId = 'dirs'; })
+        MenuItem({ content: this.fileFilterId === 'files' ? '✓ 仅文件' : '仅文件' })
+          .onClick(() => { this.fileFilterId = 'files'; })
+      }
+    }
   }
 
   private buildManualPayload(preview: boolean, onlyMatch: boolean = false): string {
@@ -972,6 +1086,19 @@ export struct HarmonyLibraryPage {
               .fontSize(12.5).fontWeight(FontWeight.Bold).fontColor(this.accentHex)
               .onClick(() => this.navigateUpDirectory())
           }
+          Row({ space: 4 }) {
+            Text(this.currentFileSortShortLabel())
+              .fontSize(12)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(mpPrimaryText(this.isDark))
+            SymbolGlyph($r('sys.symbol.chevron_down'))
+              .fontSize(11)
+              .fontColor([mpSecondaryText(this.isDark)])
+          }
+          .padding({ left: 10, right: 9, top: 5, bottom: 5 })
+          .borderRadius(10)
+          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+          .bindMenu(this.fileSortMenuBuilder())
         }.width('100%').padding({ left: 16, right: 16 })
       } else {
         Row() {
@@ -1005,7 +1132,7 @@ export struct HarmonyLibraryPage {
             bottomPadding: 40
           })
         }
-      } else if (this.activeTabIdx === 0 && this.files.length === 0) {
+      } else if (this.activeTabIdx === 0 && this.sortedFiles().length === 0) {
         Column({ space: 8 }) {
           SymbolGlyph($r('sys.symbol.folder')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
           Text('当前目录为空').fontSize(14).fontColor(mpSecondaryText(this.isDark))
@@ -1024,7 +1151,7 @@ export struct HarmonyLibraryPage {
       } else {
         Grid() {
           if (this.activeTabIdx === 0) {
-            ForEach(this.files, (f: MpStorageFile) => {
+            ForEach(this.sortedFiles(), (f: MpStorageFile) => {
               GridItem() {
                 Column() {
                   CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
@@ -1036,7 +1163,7 @@ export struct HarmonyLibraryPage {
                         Text(f.name)
                           .fontSize(14).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
                           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                        Text(f.type === 'dir' ? '目录' : formatByteSize(f.sizeBytes))
+                        Text(this.formatFileMeta(f))
                           .fontSize(11).fontColor(mpSecondaryText(this.isDark))
                       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
 

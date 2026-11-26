@@ -73,4 +73,34 @@ class CloudflareOAuthBridgeTest {
         )
         assertEquals("MoviePilot=res-token; lang=zh; CF_Authorization=fresh-cf-jwt", merged)
     }
+
+    @Test
+    fun parsesProtectedResourceAndAppendsRfc8707ResourceParameter() {
+        val prm = RustCoreBridge.parseProtectedResourceMetadataDetail(
+            """
+            {
+              "resource": "https://moviepilot.example.com",
+              "authorization_servers": ["https://example.cloudflareaccess.com"]
+            }
+            """.trimIndent(),
+        ).getOrThrow()
+        assertEquals("https://moviepilot.example.com", prm.resource)
+        assertEquals(
+            listOf("https://example.cloudflareaccess.com/.well-known/oauth-authorization-server"),
+            prm.authorizationServers,
+        )
+        assertEquals(
+            "https://moviepilot.example.com",
+            RustCoreBridge.normalizeOAuthResourceUrl("https://moviepilot.example.com:443/"),
+        )
+
+        val authUrl = RustCoreBridge.buildOAuthAuthorizeUrl(
+            authorizationEndpoint = "https://example.cloudflareaccess.com/cdn-cgi/access/oauth/authorization",
+            clientId = "cid-demo",
+            codeChallenge = "chal-demo",
+            state = "state-demo",
+            resource = prm.resource,
+        ).getOrThrow()
+        assertTrue(authUrl.contains("resource=https%3A%2F%2Fmoviepilot.example.com"))
+    }
 }

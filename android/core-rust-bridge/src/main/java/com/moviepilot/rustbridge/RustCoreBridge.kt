@@ -30,6 +30,7 @@ import com.moviepilot.rustcore.generatePkcePairJson
 import com.moviepilot.rustcore.isSameHttpOrigin
 import com.moviepilot.rustcore.mergeCfAccessCookie
 import com.moviepilot.rustcore.normalizeDanmakuQueryTitle
+import com.moviepilot.rustcore.normalizeOauthResourceUrl
 import com.moviepilot.rustcore.normalizePendingPlaybackStopsJson
 import com.moviepilot.rustcore.normalizePluginRemoteEntryJson
 import com.moviepilot.rustcore.normalizeServerAddress
@@ -38,6 +39,7 @@ import com.moviepilot.rustcore.parseAudioEmbeddedMetadata as ffiParseAudioEmbedd
 import com.moviepilot.rustcore.parseDeepLinkJson
 import com.moviepilot.rustcore.parseOauthCallbackUrlJson
 import com.moviepilot.rustcore.parseOauthServerMetadataJson
+import com.moviepilot.rustcore.parseProtectedResourceMetadataDetailJson
 import com.moviepilot.rustcore.parseProtectedResourceMetadataJson
 import com.moviepilot.rustcore.parseStrmContent
 import com.moviepilot.rustcore.planPlaybackRoutesJson
@@ -145,6 +147,12 @@ data class PkcePairDto(
     val codeChallenge: String = "",
     val codeChallengeMethod: String = "S256",
     val state: String = "",
+)
+
+@Serializable
+data class ProtectedResourceMetadataDto(
+    val resource: String? = null,
+    val authorizationServers: List<String> = emptyList(),
 )
 
 @Serializable
@@ -1054,17 +1062,23 @@ object RustCoreBridge {
         return out
     }
 
-    /** 解析 RFC 9728 Protected Resource Metadata 中的 `authorization_servers`。 */
-    fun parseProtectedResourceMetadata(jsonStr: String): Result<List<String>> = runCatching {
-        val raw = runCatching { parseProtectedResourceMetadataJson(jsonStr) }.getOrNull()
+    /** 解析 RFC 9728 Protected Resource Metadata，完整返回规范化 `resource` 与 `authorizationServers`。 */
+    fun parseProtectedResourceMetadataDetail(jsonStr: String): Result<ProtectedResourceMetadataDto> = runCatching {
+        val raw = runCatching { parseProtectedResourceMetadataDetailJson(jsonStr) }.getOrNull()
         if (!raw.isNullOrBlank()) {
-            return@runCatching syncJson.decodeFromString<List<String>>(raw)
+            return@runCatching syncJson.decodeFromString<ProtectedResourceMetadataDto>(raw)
         }
         val elem = syncJson.parseToJsonElement(jsonStr)
         val obj = elem as? kotlinx.serialization.json.JsonObject ?: error("Invalid metadata JSON")
+        val rawResource = (obj["resource"] as? kotlinx.serialization.json.JsonPrimitive)
+            ?.content
+            ?.trim()
+            ?.substringBefore('#')
+            ?.trim()
+            ?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
         val arr = obj["authorization_servers"] as? kotlinx.serialization.json.JsonArray
             ?: error("Missing authorization_servers")
-        arr.mapNotNull { item ->
+        val servers = arr.mapNotNull { item ->
             val str = (item as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim()
             if (str.isNullOrBlank() || (!str.startsWith("https://") && !str.startsWith("http://"))) {
                 null
@@ -1073,6 +1087,24 @@ object RustCoreBridge {
                 if ("/.well-known/" in trimmed) trimmed else "$trimmed/.well-known/oauth-authorization-server"
             }
         }.ifEmpty { error("No authorization_servers URL found") }
+        ProtectedResourceMetadataDto(resource = rawResource, authorizationServers = servers)
+    }
+
+    /** 解析 RFC 9728 Protected Resource Metadata 中的 `authorization_servers`。 */
+    fun parseProtectedResourceMetadata(jsonStr: String): Result<List<String>> =
+        parseProtectedResourceMetadataDetail(jsonStr).map { it.authorizationServers }
+
+    /** 将实例地址规范化为 RFC 8707 `resource` 默认回退值（去除查询串、片段、默认端口及末尾 `/`）。 */
+    fun normalizeOAuthResourceUrl(rawUrl: String): String? {
+        runCatching { normalizeOauthResourceUrl(rawUrl) }.getOrNull()?.takeIf { it.isNotBlank() }?.let { return it }
+        val uri = runCatching { java.net.URI(rawUrl.trim()) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase() ?: return null
+        if (scheme != "http" && scheme != "https") return null
+        val host = uri.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+        val defaultPort = if (scheme == "https") 443 else 80
+        val portPart = if (uri.port > 0 && uri.port != defaultPort) ":${uri.port}" else ""
+        val pathPart = uri.rawPath.orEmpty().trimEnd('/')
+        return "$scheme://$host$portPart$pathPart"
     }
 
     /** 解析 RFC 8414 Authorization Server Metadata。 */
@@ -1095,7 +1127,7 @@ object RustCoreBridge {
         )
     }
 
-    /** 构造标准 OAuth 2.0 + PKCE (`S256`) 授权 URL。 */
+    /** 构造标准 OAuth 2.0 + PKCE (`S256`) + RFC 8707 `resource` 授权 URL。 */
     fun buildOAuthAuthorizeUrl(
         authorizationEndpoint: String,
         clientId: String,
@@ -1103,9 +1135,22 @@ object RustCoreBridge {
         codeChallenge: String,
         state: String,
         scope: String = "openid email profile offline_access",
+        resource: String? = null,
     ): Result<String> = runCatching {
+        val cleanResource = resource?.trim()?.substringBefore('#')?.trim()?.takeIf { it.isNotEmpty() }
+        if (cleanResource != null && !cleanResource.startsWith("https://") && !cleanResource.startsWith("http://")) {
+            error("Invalid OAuth resource indicator URI: $cleanResource")
+        }
         runCatching {
-            buildOauthAuthorizeUrl(authorizationEndpoint, clientId, redirectUri, codeChallenge, state, scope)
+            buildOauthAuthorizeUrl(
+                authorizationEndpoint,
+                clientId,
+                redirectUri,
+                codeChallenge,
+                state,
+                scope,
+                cleanResource,
+            )
         }.getOrElse {
             fun enc(v: String) = java.net.URLEncoder.encode(v.trim(), "UTF-8")
             val sep = if ('?' in authorizationEndpoint) "&" else "?"
@@ -1118,6 +1163,7 @@ object RustCoreBridge {
                 append("&code_challenge_method=S256")
                 append("&state=").append(enc(state))
                 if (scope.isNotBlank()) append("&scope=").append(enc(scope))
+                if (cleanResource != null) append("&resource=").append(enc(cleanResource))
             }
         }
     }

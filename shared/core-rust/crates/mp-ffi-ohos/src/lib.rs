@@ -15,10 +15,12 @@ use mp_core_model::{
     generate_pkce_pair as model_generate_pkce_pair,
     merge_cf_access_cookie as model_merge_cf_access_cookie,
     normalize_danmaku_query_title as model_normalize_danmaku_query_title,
+    normalize_oauth_resource_url as model_normalize_oauth_resource_url,
     parse_audio_embedded_metadata as model_parse_audio_embedded_metadata,
     parse_oauth_callback_url as model_parse_oauth_callback_url,
     parse_oauth_server_metadata as model_parse_oauth_server_metadata,
     parse_protected_resource_metadata as model_parse_protected_resource_metadata,
+    parse_protected_resource_metadata_detail as model_parse_protected_resource_metadata_detail,
     prepare_danmaku_timeline_json as model_prepare_danmaku_timeline_json,
 };
 use mp_core_plugin::{
@@ -328,6 +330,15 @@ pub mod bridge {
         serde_json::to_string(&urls).map_err(|e| e.to_string())
     }
 
+    pub fn parse_protected_resource_metadata_detail_json(json_str: &str) -> Result<String, String> {
+        let detail = model_parse_protected_resource_metadata_detail(json_str)?;
+        serde_json::to_string(&detail).map_err(|e| e.to_string())
+    }
+
+    pub fn normalize_oauth_resource_url(raw_url: &str) -> String {
+        model_normalize_oauth_resource_url(raw_url).unwrap_or_default()
+    }
+
     pub fn parse_oauth_server_metadata_json(json_str: &str) -> Result<String, String> {
         let meta = model_parse_oauth_server_metadata(json_str)?;
         serde_json::to_string(&meta).map_err(|e| e.to_string())
@@ -340,7 +351,9 @@ pub mod bridge {
         code_challenge: &str,
         state: &str,
         scope: &str,
+        resource: &str,
     ) -> Result<String, String> {
+        let opt_resource = (!resource.trim().is_empty()).then_some(resource);
         model_build_oauth_authorize_url(
             authorization_endpoint,
             client_id,
@@ -348,6 +361,7 @@ pub mod bridge {
             code_challenge,
             state,
             scope,
+            opt_resource,
         )
     }
 
@@ -628,6 +642,17 @@ mod napi_exports {
     }
 
     #[napi]
+    pub fn parse_protected_resource_metadata_detail_json(json_str: String) -> Result<String> {
+        bridge::parse_protected_resource_metadata_detail_json(&json_str)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn normalize_oauth_resource_url(raw_url: String) -> String {
+        bridge::normalize_oauth_resource_url(&raw_url)
+    }
+
+    #[napi]
     pub fn parse_oauth_server_metadata_json(json_str: String) -> Result<String> {
         bridge::parse_oauth_server_metadata_json(&json_str).map_err(napi_ohos::Error::from_reason)
     }
@@ -640,6 +665,7 @@ mod napi_exports {
         code_challenge: String,
         state: String,
         scope: String,
+        resource: String,
     ) -> Result<String> {
         bridge::build_oauth_authorize_url(
             &authorization_endpoint,
@@ -648,6 +674,7 @@ mod napi_exports {
             &code_challenge,
             &state,
             &scope,
+            &resource,
         )
         .map_err(napi_ohos::Error::from_reason)
     }

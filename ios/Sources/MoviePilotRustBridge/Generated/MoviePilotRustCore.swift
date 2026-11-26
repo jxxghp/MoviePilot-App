@@ -448,6 +448,22 @@ fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
     typealias FfiType = Int64
     typealias SwiftType = Int64
@@ -539,6 +555,24 @@ fileprivate struct FfiConverterString: FfiConverter {
         let len = Int32(value.utf8.count)
         writeInt(&buf, len)
         writeBytes(&buf, value.utf8)
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterData: FfiConverterRustBuffer {
+    typealias SwiftType = Data
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        let len: Int32 = try readInt(&buf)
+        return Data(try readBytes(&buf, count: Int(len)))
+    }
+
+    public static func write(_ value: Data, into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        writeBytes(&buf, value)
     }
 }
 
@@ -686,6 +720,127 @@ public func FfiConverterTypeNativeSseParser_lower(_ value: NativeSseParser) -> U
 }
 
 
+
+
+/**
+ * 音频内嵌元数据解析结果（FLAC / ID3v2 / MP4·M4A / Ogg Vorbis·Opus）。
+ */
+public struct AudioEmbeddedMetadataFfi {
+    public let title: String?
+    public let artist: String?
+    public let album: String?
+    public let lyrics: String?
+    public let coverMime: String?
+    public let coverBytes: Data?
+    public let neededHeadBytes: UInt64?
+    public let neededTailBytes: UInt64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(title: String?, artist: String?, album: String?, lyrics: String?, coverMime: String?, coverBytes: Data?, neededHeadBytes: UInt64?, neededTailBytes: UInt64?) {
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.lyrics = lyrics
+        self.coverMime = coverMime
+        self.coverBytes = coverBytes
+        self.neededHeadBytes = neededHeadBytes
+        self.neededTailBytes = neededTailBytes
+    }
+}
+
+#if compiler(>=6)
+extension AudioEmbeddedMetadataFfi: Sendable {}
+#endif
+
+
+extension AudioEmbeddedMetadataFfi: Equatable, Hashable {
+    public static func ==(lhs: AudioEmbeddedMetadataFfi, rhs: AudioEmbeddedMetadataFfi) -> Bool {
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.artist != rhs.artist {
+            return false
+        }
+        if lhs.album != rhs.album {
+            return false
+        }
+        if lhs.lyrics != rhs.lyrics {
+            return false
+        }
+        if lhs.coverMime != rhs.coverMime {
+            return false
+        }
+        if lhs.coverBytes != rhs.coverBytes {
+            return false
+        }
+        if lhs.neededHeadBytes != rhs.neededHeadBytes {
+            return false
+        }
+        if lhs.neededTailBytes != rhs.neededTailBytes {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(title)
+        hasher.combine(artist)
+        hasher.combine(album)
+        hasher.combine(lyrics)
+        hasher.combine(coverMime)
+        hasher.combine(coverBytes)
+        hasher.combine(neededHeadBytes)
+        hasher.combine(neededTailBytes)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAudioEmbeddedMetadataFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AudioEmbeddedMetadataFfi {
+        return
+            try AudioEmbeddedMetadataFfi(
+                title: FfiConverterOptionString.read(from: &buf), 
+                artist: FfiConverterOptionString.read(from: &buf), 
+                album: FfiConverterOptionString.read(from: &buf), 
+                lyrics: FfiConverterOptionString.read(from: &buf), 
+                coverMime: FfiConverterOptionString.read(from: &buf), 
+                coverBytes: FfiConverterOptionData.read(from: &buf), 
+                neededHeadBytes: FfiConverterOptionUInt64.read(from: &buf), 
+                neededTailBytes: FfiConverterOptionUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AudioEmbeddedMetadataFfi, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.title, into: &buf)
+        FfiConverterOptionString.write(value.artist, into: &buf)
+        FfiConverterOptionString.write(value.album, into: &buf)
+        FfiConverterOptionString.write(value.lyrics, into: &buf)
+        FfiConverterOptionString.write(value.coverMime, into: &buf)
+        FfiConverterOptionData.write(value.coverBytes, into: &buf)
+        FfiConverterOptionUInt64.write(value.neededHeadBytes, into: &buf)
+        FfiConverterOptionUInt64.write(value.neededTailBytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAudioEmbeddedMetadataFfi_lift(_ buf: RustBuffer) throws -> AudioEmbeddedMetadataFfi {
+    return try FfiConverterTypeAudioEmbeddedMetadataFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAudioEmbeddedMetadataFfi_lower(_ value: AudioEmbeddedMetadataFfi) -> RustBuffer {
+    return FfiConverterTypeAudioEmbeddedMetadataFfi.lower(value)
+}
 
 
 /**
@@ -1589,6 +1744,30 @@ fileprivate struct FfiConverterOptionInt32: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
     typealias SwiftType = Int64?
 
@@ -1629,6 +1808,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -1742,9 +1945,9 @@ public func buildExternalPlayerUrl(template: String, mediaUrl: String, title: St
 })
 }
 /**
- * 构造 OAuth 2.0 + PKCE (`S256`) 授权跳转 URL。
+ * 构造 OAuth 2.0 + PKCE (`S256`) + RFC 8707 `resource` 授权跳转 URL。
  */
-public func buildOauthAuthorizeUrl(authorizationEndpoint: String, clientId: String, redirectUri: String, codeChallenge: String, state: String, scope: String)throws  -> String  {
+public func buildOauthAuthorizeUrl(authorizationEndpoint: String, clientId: String, redirectUri: String, codeChallenge: String, state: String, scope: String, resource: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
     uniffi_moviepilot_core_fn_func_build_oauth_authorize_url(
         FfiConverterString.lower(authorizationEndpoint),
@@ -1752,7 +1955,8 @@ public func buildOauthAuthorizeUrl(authorizationEndpoint: String, clientId: Stri
         FfiConverterString.lower(redirectUri),
         FfiConverterString.lower(codeChallenge),
         FfiConverterString.lower(state),
-        FfiConverterString.lower(scope),$0
+        FfiConverterString.lower(scope),
+        FfiConverterOptionString.lower(resource),$0
     )
 })
 }
@@ -1958,6 +2162,16 @@ public func normalizeDanmakuQueryTitle(seriesName: String?, title: String?, seas
 })
 }
 /**
+ * 将实例地址规范化为 RFC 8707 `resource` 默认回退值。
+ */
+public func normalizeOauthResourceUrl(rawUrl: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_normalize_oauth_resource_url(
+        FfiConverterString.lower(rawUrl),$0
+    )
+})
+}
+/**
  * 规整离线待补报 `stopped` 队列（去重、清理 7 天过期项并裁剪至上限）。
  */
 public func normalizePendingPlaybackStopsJson(entriesJson: String, nowEpochMs: Int64)throws  -> String  {
@@ -2001,6 +2215,17 @@ public func parseAgentMarkdown(markdown: String) -> [MarkdownBlockFfi]  {
 })
 }
 /**
+ * 解析音频文件头部（及可选尾部）字节中的内嵌标题、歌手、专辑、歌词与封面字节。
+ */
+public func parseAudioEmbeddedMetadata(headBytes: Data, tailBytes: Data) -> AudioEmbeddedMetadataFfi  {
+    return try!  FfiConverterTypeAudioEmbeddedMetadataFfi_lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_parse_audio_embedded_metadata(
+        FfiConverterData.lower(headBytes),
+        FfiConverterData.lower(tailBytes),$0
+    )
+})
+}
+/**
  * 解析 `moviepilot://` 或 Web 路由，返回强类型 JSON 结构（非法路由返回 `None`）。
  */
 public func parseDeepLinkJson(rawUrl: String) -> String?  {
@@ -2027,6 +2252,16 @@ public func parseOauthCallbackUrlJson(callbackUrl: String, expectedState: String
 public func parseOauthServerMetadataJson(jsonStr: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
     uniffi_moviepilot_core_fn_func_parse_oauth_server_metadata_json(
+        FfiConverterString.lower(jsonStr),$0
+    )
+})
+}
+/**
+ * 解析 RFC 9728 Protected Resource Metadata，完整返回 `resource` 与 `authorizationServers` JSON。
+ */
+public func parseProtectedResourceMetadataDetailJson(jsonStr: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_parse_protected_resource_metadata_detail_json(
         FfiConverterString.lower(jsonStr),$0
     )
 })
@@ -2172,7 +2407,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_build_external_player_url() != 48700) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_moviepilot_core_checksum_func_build_oauth_authorize_url() != 17385) {
+    if (uniffi_moviepilot_core_checksum_func_build_oauth_authorize_url() != 55430) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_build_oauth_discovery_urls_json() != 40514) {
@@ -2229,6 +2464,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_normalize_danmaku_query_title() != 7723) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_normalize_oauth_resource_url() != 21236) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_normalize_pending_playback_stops_json() != 59689) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2241,6 +2479,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_parse_agent_markdown() != 45114) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_parse_audio_embedded_metadata() != 9108) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_parse_deep_link_json() != 45112) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2248,6 +2489,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_parse_oauth_server_metadata_json() != 61028) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_detail_json() != 40938) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_json() != 19972) {

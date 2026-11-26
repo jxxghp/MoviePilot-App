@@ -15,9 +15,27 @@ struct NativeFileManagerPage: View {
   }
 
   private enum FileSort: String, CaseIterable, Identifiable {
-    case nameAsc = "按名称"
-    case sizeDesc = "按体积从大到小"
+    case nameAsc = "名称（A → Z）"
+    case nameDesc = "名称（Z → A）"
+    case typeAsc = "类型（按扩展名）"
+    case sizeDesc = "大小（从大到小）"
+    case sizeAsc = "大小（从小到大）"
+    case timeDesc = "修改时间（最新优先）"
+    case timeAsc = "修改时间（最早优先）"
+
     var id: String { rawValue }
+
+    var shortLabel: String {
+      switch self {
+      case .nameAsc: "名称 ↑"
+      case .nameDesc: "名称 ↓"
+      case .typeAsc: "类型"
+      case .sizeDesc: "大小 ↓"
+      case .sizeAsc: "大小 ↑"
+      case .timeDesc: "时间 ↓"
+      case .timeAsc: "时间 ↑"
+      }
+    }
   }
 
   let session: NativeSession
@@ -206,7 +224,7 @@ struct NativeFileManagerPage: View {
       ?? NativeFileItem(storage: activeStorage, type: "dir", path: "/", name: "根目录")
   }
 
-  /// 按当前筛选与排序条件整理目录与文件列表（文件夹始终置前）。
+  /// 按当前筛选与排序条件整理目录与文件列表（文件夹始终置前，名称采用自然数字序对比）。
   private var sortedItems: [NativeFileItem] {
     let filtered = items.filter { item in
       switch fileFilter {
@@ -219,9 +237,33 @@ struct NativeFileManagerPage: View {
       if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
       switch fileSort {
       case .nameAsc:
-        return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+      case .nameDesc:
+        return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedDescending
+      case .typeAsc:
+        let extCmp = lhs.normalizedExtension.localizedStandardCompare(rhs.normalizedExtension)
+        if extCmp != .orderedSame { return extCmp == .orderedAscending }
+        return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
       case .sizeDesc:
-        return (lhs.size ?? 0) > (rhs.size ?? 0)
+        let lSize = lhs.size ?? 0
+        let rSize = rhs.size ?? 0
+        if lSize != rSize { return lSize > rSize }
+        return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+      case .sizeAsc:
+        let lSize = lhs.size ?? 0
+        let rSize = rhs.size ?? 0
+        if lSize != rSize { return lSize < rSize }
+        return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+      case .timeDesc:
+        let lTime = lhs.modifyTime ?? 0
+        let rTime = rhs.modifyTime ?? 0
+        if lTime != rTime { return lTime > rTime }
+        return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+      case .timeAsc:
+        let lTime = lhs.modifyTime ?? 0
+        let rTime = rhs.modifyTime ?? 0
+        if lTime != rTime { return lTime < rTime }
+        return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
       }
     }
   }
@@ -335,7 +377,53 @@ struct NativeFileManagerPage: View {
           }
         }
 
-        Text("\(items.count) 项")
+        Menu {
+          Section("排列顺序") {
+            ForEach(FileSort.allCases) { option in
+              Button {
+                fileSort = option
+              } label: {
+                if fileSort == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
+          }
+          Section("筛选") {
+            ForEach(FileFilter.allCases) { option in
+              Button {
+                fileFilter = option
+              } label: {
+                if fileFilter == option {
+                  Label(option.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(option.rawValue)
+                }
+              }
+            }
+          }
+        } label: {
+          HStack(spacing: 3) {
+            Text(fileSort.shortLabel)
+              .font(.caption2.weight(.medium))
+              .foregroundStyle(.primary)
+            Image(systemName: "chevron.down")
+              .font(.system(size: 8.5, weight: .bold))
+              .foregroundStyle(.secondary)
+          }
+          .padding(.horizontal, 7)
+          .padding(.vertical, 5)
+          .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .fill(NativeTheme.chipFill)
+          }
+        }
+        .accessibilityLabel("文件排列顺序 \(fileSort.rawValue)")
+        .accessibilityIdentifier("native-files-sort-menu")
+
+        Text("\(sortedItems.count) 项")
           .font(.caption2.monospacedDigit())
           .foregroundStyle(.secondary)
           .padding(.trailing, 4)
@@ -2031,13 +2119,14 @@ struct NativeFileItem: Codable, Sendable, Identifiable {
   let basename: String?
   let fileExtension: String?
   let size: Int64?
+  let modifyTime: Double?
   let fileid: String?
   let parentFileid: String?
 
   init(
     storage: String, type: String, path: String, name: String? = nil, basename: String? = nil,
-    fileExtension: String? = nil, size: Int64? = nil, fileid: String? = nil,
-    parentFileid: String? = nil
+    fileExtension: String? = nil, size: Int64? = nil, modifyTime: Double? = nil,
+    fileid: String? = nil, parentFileid: String? = nil
   ) {
     self.storage = storage
     self.type = type
@@ -2046,11 +2135,39 @@ struct NativeFileItem: Codable, Sendable, Identifiable {
     self.basename = basename
     self.fileExtension = fileExtension
     self.size = size
+    self.modifyTime = modifyTime
     self.fileid = fileid
     self.parentFileid = parentFileid
   }
 
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    storage = (try? c.decodeIfPresent(String.self, forKey: .storage)) ?? "local"
+    type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "file"
+    path = (try? c.decodeIfPresent(String.self, forKey: .path)) ?? "/"
+    name = try? c.decodeIfPresent(String.self, forKey: .name)
+    basename = try? c.decodeIfPresent(String.self, forKey: .basename)
+    fileExtension = try? c.decodeIfPresent(String.self, forKey: .fileExtension)
+    size = try? c.decodeIfPresent(Int64.self, forKey: .size)
+    if let ts = try? c.decodeIfPresent(Double.self, forKey: .modifyTime) {
+      modifyTime = ts
+    } else if let tsStr = try? c.decodeIfPresent(String.self, forKey: .modifyTime),
+      let parsed = Double(tsStr)
+    {
+      modifyTime = parsed
+    } else {
+      modifyTime = nil
+    }
+    fileid = try? c.decodeIfPresent(String.self, forKey: .fileid)
+    parentFileid = try? c.decodeIfPresent(String.self, forKey: .parentFileid)
+  }
+
   var id: String { "\(storage)|\(type)|\(fileid ?? path)" }
+
+  var normalizedExtension: String {
+    let raw = fileExtension ?? URL(fileURLWithPath: path).pathExtension
+    return raw.trimmingCharacters(in: CharacterSet(charactersIn: ". ")).lowercased()
+  }
 
   var safeIdentifier: String {
     let raw = displayName
@@ -2107,6 +2224,7 @@ struct NativeFileItem: Codable, Sendable, Identifiable {
     case basename
     case fileExtension = "extension"
     case size
+    case modifyTime = "modify_time"
     case fileid
     case parentFileid = "parent_fileid"
   }

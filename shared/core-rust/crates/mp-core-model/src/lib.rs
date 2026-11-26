@@ -19,10 +19,11 @@ pub use audio_metadata::{
 };
 pub use cloudflare_oauth::{
     CloudflareChallengeResult, DEFAULT_CF_OAUTH_REDIRECT_URI, OAuthCallbackResult,
-    OAuthServerMetadata, PkcePair, build_oauth_authorize_url, build_oauth_discovery_urls,
-    compute_pkce_s256_challenge, detect_cloudflare_access_challenge, generate_pkce_pair,
-    merge_cf_access_cookie, parse_oauth_callback_url, parse_oauth_server_metadata,
-    parse_protected_resource_metadata,
+    OAuthServerMetadata, PkcePair, ProtectedResourceMetadata, build_oauth_authorize_url,
+    build_oauth_discovery_urls, compute_pkce_s256_challenge, detect_cloudflare_access_challenge,
+    generate_pkce_pair, merge_cf_access_cookie, normalize_oauth_resource_url,
+    parse_oauth_callback_url, parse_oauth_server_metadata, parse_protected_resource_metadata,
+    parse_protected_resource_metadata_detail,
 };
 pub use danmaku::{
     DanmakuFilterOptions, DanmakuItem, DanmakuMode, PreparedDanmakuTimeline,

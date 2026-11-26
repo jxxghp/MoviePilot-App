@@ -7,7 +7,9 @@ struct CloudflareAccessOAuthTests {
   @Test func detectsRedirectAndResourceMetadataAndHtmlGate() {
     let redir = CloudflareAccessProtocol.detectChallenge(
       statusCode: 302,
-      headers: ["Location": "https://demo.cloudflareaccess.com/cdn-cgi/access/login/mp.example.com"],
+      headers: [
+        "Location": "https://demo.cloudflareaccess.com/cdn-cgi/access/login/mp.example.com"
+      ],
       bodyPrefix: "",
       requestURL: "https://mp.example.com/api/v1/system/setup-status"
     )
@@ -25,7 +27,8 @@ struct CloudflareAccessOAuthTests {
       requestURL: "https://mp.example.com/api/v1/user/current"
     )
     #expect(prm.isChallenge)
-    #expect(prm.resourceMetadataUrl == "https://mp.example.com/.well-known/oauth-protected-resource")
+    #expect(
+      prm.resourceMetadataUrl == "https://mp.example.com/.well-known/oauth-protected-resource")
 
     let html = CloudflareAccessProtocol.detectChallenge(
       statusCode: 200,
@@ -53,7 +56,9 @@ struct CloudflareAccessOAuthTests {
     let pair = CloudflareAccessProtocol.generatePKCEPair()
     #expect(pair.codeChallengeMethod == "S256")
     #expect(pair.codeVerifier.count >= 43)
-    #expect(CloudflareAccessProtocol.computePKCES256Challenge(codeVerifier: pair.codeVerifier) == pair.codeChallenge)
+    #expect(
+      CloudflareAccessProtocol.computePKCES256Challenge(codeVerifier: pair.codeVerifier)
+        == pair.codeChallenge)
   }
 
   @Test func metadataDiscoveryAuthorizeAndCallbackValidation() throws {
@@ -61,14 +66,29 @@ struct CloudflareAccessOAuthTests {
       serverURL: "https://mp.example.com/sub/path/",
       resourceMetadataURL: nil
     )
-    #expect(urls == [
-      "https://mp.example.com/.well-known/oauth-protected-resource",
-      "https://mp.example.com/.well-known/oauth-authorization-server",
-    ])
+    #expect(
+      urls == [
+        "https://mp.example.com/.well-known/oauth-protected-resource",
+        "https://mp.example.com/.well-known/oauth-authorization-server",
+      ])
 
-    let prmJSON = Data(#"{"authorization_servers":["https://demo.cloudflareaccess.com/cdn-cgi/access/sso/oidc/abc"]}"#.utf8)
-    let authServers = try CloudflareAccessProtocol.parseProtectedResourceMetadata(prmJSON)
-    #expect(authServers == ["https://demo.cloudflareaccess.com/cdn-cgi/access/sso/oidc/abc/.well-known/oauth-authorization-server"])
+    let prmJSON = Data(
+      #"""
+      {
+        "resource": "https://moviepilot.example.com",
+        "authorization_servers": ["https://demo.cloudflareaccess.com/cdn-cgi/access/sso/oidc/abc"]
+      }
+      """#.utf8)
+    let prmDetail = try CloudflareAccessProtocol.parseProtectedResourceMetadataDetail(prmJSON)
+    #expect(prmDetail.resource == "https://moviepilot.example.com")
+    #expect(
+      prmDetail.authorizationServers == [
+        "https://demo.cloudflareaccess.com/cdn-cgi/access/sso/oidc/abc/.well-known/oauth-authorization-server"
+      ])
+    #expect(
+      CloudflareAccessProtocol.normalizedResourceIndicator(
+        for: "https://moviepilot.example.com:443/")
+        == "https://moviepilot.example.com")
 
     let asJSON = Data(
       #"""
@@ -86,10 +106,18 @@ struct CloudflareAccessOAuthTests {
       authorizationEndpoint: meta.authorizationEndpoint,
       clientId: "cid-1",
       codeChallenge: "chal-1",
-      state: "st-1"
+      state: "st-1",
+      resource: prmDetail.resource
     )
     #expect(authURL.absoluteString.contains("code_challenge_method=S256"))
     #expect(authURL.absoluteString.contains("client_id=cid-1"))
+    #expect(
+      authURL.absoluteString.contains("resource=https://moviepilot.example.com")
+        || authURL.absoluteString.contains("resource=https%3A%2F%2Fmoviepilot.example.com"))
+    let authComps = URLComponents(url: authURL, resolvingAgainstBaseURL: false)
+    #expect(
+      authComps?.queryItems?.first(where: { $0.name == "resource" })?.value
+        == "https://moviepilot.example.com")
 
     let okCb = CloudflareAccessProtocol.parseCallbackURL(
       URL(string: "moviepilot://oauth/callback?code=auth123&state=st-1")!,
@@ -134,7 +162,9 @@ struct CloudflareAccessOAuthTests {
 
     #expect(sameOriginReq.value(forHTTPHeaderField: "Authorization") == "Bearer mp-jwt-token")
     #expect(sameOriginReq.value(forHTTPHeaderField: "cf-access-token") == "cf-tok-123")
-    #expect(sameOriginReq.value(forHTTPHeaderField: "Cookie") == "MoviePilot=res-cookie; CF_Authorization=cf-tok-123")
+    #expect(
+      sameOriginReq.value(forHTTPHeaderField: "Cookie")
+        == "MoviePilot=res-cookie; CF_Authorization=cf-tok-123")
 
     var crossOriginReq = URLRequest(url: URL(string: "https://other.example.com/video.mp4")!)
     registry.applyHeaders(to: &crossOriginReq, for: address)

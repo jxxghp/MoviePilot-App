@@ -45,6 +45,17 @@ public struct CloudflarePKCEPair: Codable, Equatable, Sendable {
   }
 }
 
+/// RFC 9728 受保护资源元数据（含 RFC 8707 规范化 `resource` 标识与关联授权服务器元数据地址列表）。
+public struct CloudflareProtectedResourceMetadata: Codable, Equatable, Sendable {
+  public let resource: String?
+  public let authorizationServers: [String]
+
+  public init(resource: String? = nil, authorizationServers: [String]) {
+    self.resource = resource
+    self.authorizationServers = authorizationServers
+  }
+}
+
 /// RFC 8414 OAuth 授权服务器元数据。
 public struct CloudflareOAuthServerMetadata: Codable, Equatable, Sendable {
   public let issuer: String
@@ -117,7 +128,9 @@ public struct CloudflareAccessSession: Codable, Equatable, Sendable {
   }
 
   /// 是否已过期或在指定提前刷新窗口（默认 120 秒）内即将过期。
-  public func needsRefresh(nowEpochMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000), leewayMs: Int64 = 120_000) -> Bool {
+  public func needsRefresh(
+    nowEpochMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000), leewayMs: Int64 = 120_000
+  ) -> Bool {
     guard let expiresAtEpochMs, expiresAtEpochMs > 0 else { return false }
     return nowEpochMs + leewayMs >= expiresAtEpochMs
   }
@@ -180,7 +193,7 @@ public enum CloudflareAccessProtocol {
       }
     }
 
-    if (statusCode == 401 || statusCode == 403), let wwwAuth = lowerHeaders["www-authenticate"] {
+    if statusCode == 401 || statusCode == 403, let wwwAuth = lowerHeaders["www-authenticate"] {
       if let metaURL = extractWWWAuthenticateParam(header: wwwAuth, key: "resource_metadata") {
         return CloudflareChallengeResult(
           isChallenge: true,
@@ -290,14 +303,17 @@ public enum CloudflareAccessProtocol {
     return urls
   }
 
-  /// 解析 RFC 9728 Protected Resource Metadata，返回授权服务器元数据地址列表。
-  public static func parseProtectedResourceMetadata(_ data: Data) throws -> [String] {
+  /// 解析 RFC 9728 Protected Resource Metadata，完整返回规范化 `resource` 与授权服务器元数据地址列表。
+  public static func parseProtectedResourceMetadataDetail(_ data: Data) throws
+    -> CloudflareProtectedResourceMetadata
+  {
     guard
       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
       let servers = obj["authorization_servers"] as? [Any]
     else {
       throw CloudflareOAuthProtocolError.invalidMetadata("Missing authorization_servers array")
     }
+    let resource = (obj["resource"] as? String).flatMap { sanitizeResourceIndicator($0) }
     var out: [String] = []
     for entry in servers {
       guard let raw = (entry as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -313,11 +329,39 @@ public enum CloudflareAccessProtocol {
     guard !out.isEmpty else {
       throw CloudflareOAuthProtocolError.invalidMetadata("No valid authorization server URL found")
     }
-    return out
+    return CloudflareProtectedResourceMetadata(resource: resource, authorizationServers: out)
+  }
+
+  /// 解析 RFC 9728 Protected Resource Metadata，返回授权服务器元数据地址列表。
+  public static func parseProtectedResourceMetadata(_ data: Data) throws -> [String] {
+    try parseProtectedResourceMetadataDetail(data).authorizationServers
+  }
+
+  /// 计算实例地址对应的 RFC 8707 `resource` 默认回退值（去除查询串、片段、默认端口及末尾 `/`）。
+  public static func normalizedResourceIndicator(for rawURL: String) -> String? {
+    let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let url = URL(string: trimmed),
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      let origin = WebOrigin(url: url)
+    else { return nil }
+    let defaultPort = origin.scheme == "https" ? 443 : 80
+    var base =
+      origin.port == defaultPort
+      ? "\(origin.scheme)://\(origin.host)"
+      : "\(origin.scheme)://\(origin.host):\(origin.port)"
+    var cleanPath = components.percentEncodedPath
+    while cleanPath.hasSuffix("/") {
+      cleanPath.removeLast()
+    }
+    if !cleanPath.isEmpty {
+      base += cleanPath
+    }
+    return base
   }
 
   /// 解析 RFC 8414 Authorization Server Metadata 并校验端点协议安全性。
-  public static func parseOAuthServerMetadata(_ data: Data) throws -> CloudflareOAuthServerMetadata {
+  public static func parseOAuthServerMetadata(_ data: Data) throws -> CloudflareOAuthServerMetadata
+  {
     guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
       throw CloudflareOAuthProtocolError.invalidMetadata("Invalid OAuth server metadata JSON")
     }
@@ -326,7 +370,8 @@ public enum CloudflareAccessProtocol {
         .trimmingCharacters(in: .whitespacesAndNewlines),
       isValidHTTPURL(authEP)
     else {
-      throw CloudflareOAuthProtocolError.invalidMetadata("Missing or invalid authorization_endpoint")
+      throw CloudflareOAuthProtocolError.invalidMetadata(
+        "Missing or invalid authorization_endpoint")
     }
     guard
       let tokenEP = (obj["token_endpoint"] as? String)?
@@ -347,14 +392,15 @@ public enum CloudflareAccessProtocol {
     )
   }
 
-  /// 构造标准 OAuth 2.0 + PKCE (`S256`) 授权跳转 URL。
+  /// 构造标准 OAuth 2.0 + PKCE (`S256`) + RFC 8707 `resource` 授权跳转 URL。
   public static func buildAuthorizeURL(
     authorizationEndpoint: String,
     clientId: String,
     redirectURI: String = defaultCloudflareOAuthRedirectURI,
     codeChallenge: String,
     state: String,
-    scope: String = "openid email profile offline_access"
+    scope: String = "openid email profile offline_access",
+    resource: String? = nil
   ) throws -> URL {
     let cleanEndpoint = authorizationEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
     guard isValidHTTPURL(cleanEndpoint),
@@ -365,6 +411,16 @@ public enum CloudflareAccessProtocol {
     let cleanClient = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !cleanClient.isEmpty else {
       throw CloudflareOAuthProtocolError.emptyClientId
+    }
+    var cleanResource: String?
+    if let rawResource = resource?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !rawResource.isEmpty
+    {
+      guard let sanitized = sanitizeResourceIndicator(rawResource) else {
+        throw CloudflareOAuthProtocolError.invalidMetadata(
+          "Invalid OAuth resource indicator URI: \(rawResource)")
+      }
+      cleanResource = sanitized
     }
     let cleanRedirect = redirectURI.trimmingCharacters(in: .whitespacesAndNewlines)
     let finalRedirect = cleanRedirect.isEmpty ? defaultCloudflareOAuthRedirectURI : cleanRedirect
@@ -384,6 +440,9 @@ public enum CloudflareAccessProtocol {
     let cleanScope = scope.trimmingCharacters(in: .whitespacesAndNewlines)
     if !cleanScope.isEmpty {
       items.append(URLQueryItem(name: "scope", value: cleanScope))
+    }
+    if let cleanResource {
+      items.append(URLQueryItem(name: "resource", value: cleanResource))
     }
     components.queryItems = items
     guard let url = components.url else {
@@ -436,7 +495,8 @@ public enum CloudflareAccessProtocol {
       for rawSegment in existing.split(separator: ";") {
         let segment = rawSegment.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !segment.isEmpty else { continue }
-        let name = segment.split(separator: "=", maxSplits: 1).first?
+        let name =
+          segment.split(separator: "=", maxSplits: 1).first?
           .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if name.caseInsensitiveCompare("CF_Authorization") == .orderedSame {
           continue
@@ -461,6 +521,17 @@ public enum CloudflareAccessProtocol {
     return true
   }
 
+  /// 校验并清理 RFC 8707 `resource` 标识：必须为不含 `#fragment` 的有效 HTTP(S) 绝对 URI，保留原始末尾斜杠形态。
+  private static func sanitizeResourceIndicator(_ raw: String) -> String? {
+    let withoutFragment =
+      raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+      .first
+      .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+    guard !withoutFragment.isEmpty, isValidHTTPURL(withoutFragment) else { return nil }
+    return withoutFragment
+  }
+
   private static func resolveRelativeURL(base: String, candidate: String) -> String {
     let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
     if isValidHTTPURL(trimmed) { return trimmed }
@@ -474,7 +545,8 @@ public enum CloudflareAccessProtocol {
     let lower = header.lowercased()
     let needle = "\(key.lowercased())="
     guard let range = lower.range(of: needle) else { return nil }
-    let restStart = header.index(header.startIndex, offsetBy: lower.distance(from: lower.startIndex, to: range.upperBound))
+    let restStart = header.index(
+      header.startIndex, offsetBy: lower.distance(from: lower.startIndex, to: range.upperBound))
     let rest = header[restStart...].drop(while: { $0.isWhitespace })
     if rest.first == "\"" {
       let afterQuote = rest.dropFirst()
@@ -539,7 +611,9 @@ public final class CloudflareAccessCredentialRegistry: @unchecked Sendable {
 
   /// 读取指定实例可用的 CF Access 令牌（仅当非空时返回）。
   public func accessToken(for address: ServerAddress) -> String? {
-    guard let token = session(for: address)?.accessToken.trimmingCharacters(in: .whitespacesAndNewlines),
+    guard
+      let token = session(for: address)?.accessToken.trimmingCharacters(
+        in: .whitespacesAndNewlines),
       !token.isEmpty
     else { return nil }
     return token
@@ -548,7 +622,8 @@ public final class CloudflareAccessCredentialRegistry: @unchecked Sendable {
   /// 缓存并可选持久化指定实例的 Cloudflare Access 会话（`persist = false` 适用于无 Keychain 单测）。
   public func store(_ session: CloudflareAccessSession, persist: Bool = true) {
     let cleanOrigin =
-      CloudflareAccessProtocol.normalizedOriginKey(for: session.serverOrigin) ?? session.serverOrigin
+      CloudflareAccessProtocol.normalizedOriginKey(for: session.serverOrigin)
+      ?? session.serverOrigin
     let normalized = CloudflareAccessSession(
       serverOrigin: cleanOrigin,
       accessToken: session.accessToken,

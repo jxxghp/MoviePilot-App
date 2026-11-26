@@ -59,6 +59,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -108,6 +109,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -592,247 +597,231 @@ private data class ResolvedTrackChoice(
     val selected: Boolean,
 )
 
+private val VIDEO_RESIZE_MODES: List<Pair<Int, String>> = listOf(
+    AspectRatioFrameLayout.RESIZE_MODE_FIT to "自适应",
+    AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "铺满裁剪",
+    AspectRatioFrameLayout.RESIZE_MODE_FILL to "拉伸填充",
+)
+
 /** 支持的全量倍速档位（与播放偏好页一致）。 */
 val PLAYER_SUPPORTED_SPEEDS: List<Float> = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
-/**
- * Material 3 Expressive 原生全屏音视频播放器：
- * - **音频模式**：动态丝绒封面着色、LRC 多时间戳同步歌词、3 秒上一曲规则、随机/循环与延迟解析队列、收起迷你条不误报停止；
- * - **视频模式**：Media3 硬件/FFmpeg 渲染、4.5 秒控制栏自动隐藏与沉浸式系统栏、三分区双击快进快退/播控、长按 2.0x 触觉加速、
- *   横竖屏双态锁屏、动态比例自动画中画（PiP）、中文字幕与播前选轨自动匹配、本地断点续播胶囊、5 秒片尾自动连播下一集玻璃卡片及外部播放器唤起。
- */
-@OptIn(UnstableApi::class)
-@kotlin.OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun NativeMediaPlayerOverlay(
-    request: MediaPlaybackRequest,
-    sharedPlayer: ExoPlayer? = null,
-    instanceUrl: String = "",
-    audioShuffleEnabled: Boolean = false,
-    audioRepeatMode: Int = Player.REPEAT_MODE_OFF,
-    onUpdateAudioShuffle: ((Boolean) -> Unit)? = null,
-    onUpdateAudioRepeatMode: ((Int) -> Unit)? = null,
-    onAudioSkipPrevious: (() -> Unit)? = null,
-    onAudioSkipNext: (() -> Unit)? = null,
-    onClose: () -> Unit,
-    onMinimizeToMiniBar: (() -> Unit)? = null,
-    onSwitchRequest: ((MediaPlaybackRequest) -> Unit)? = null,
-    onMetadataEnriched: ((MediaPlaybackRequest) -> Unit)? = null,
-    repository: MoviePilotRepository? = null,
-    onReportProgress: ((positionMs: Long, durationMs: Long, isPaused: Boolean, state: String) -> Unit)? = null,
+@Stable
+private class PlayerUiPersistentState(
+    initialResizeMode: Int,
+    initialOrientation: Int,
+    initialInPip: Boolean,
+    initialShuffle: Boolean,
+    initialRepeatMode: Int,
+    initialDanmakuVisible: Boolean,
 ) {
-    val context = LocalContext.current
-    val hostView = LocalView.current
-    val colors = LocalMoviePilotColors.current
-    var embeddedAudioMeta by remember(request.url) { mutableStateOf<ResolvedEmbeddedAudioMetadata?>(null) }
-    val displayRequest = remember(request, embeddedAudioMeta) {
-        EmbeddedAudioMetadataFetcher.applyToRequest(request, embeddedAudioMeta)
-    }
-    val resolvedArtworkModel: Any? = displayRequest.artworkUrl?.takeIf { it.isNotBlank() }
-        ?: displayRequest.artworkBytes?.takeIf { it.isNotEmpty() }
-    val playerPalette = rememberArtworkPlayerPalette(displayRequest.artworkUrl, displayRequest.artworkBytes)
-    val latestMetadataEnriched by rememberUpdatedState(onMetadataEnriched)
-    val cfg = LocalConfiguration.current
-    val isLandscape = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE || cfg.screenWidthDp > cfg.screenHeightDp
-    val compactHeight = cfg.screenHeightDp < 480
-    val compactVideoHeight = isLandscape && cfg.screenHeightDp < 460
-    val playbackPrefs = remember(context) { PlaybackPreferencesStore(context) }
-    val localHistoryStore = remember(context) { LocalPlaybackHistoryStore(context) }
+    var controlsVisible by mutableStateOf(true)
+    var lastInteractionTick by mutableLongStateOf(System.currentTimeMillis())
+    var isLocked by mutableStateOf(false)
+    var showRemainingTime by mutableStateOf(false)
+    var isLongPressBoost by mutableStateOf(false)
+    var resizeModeIndex by mutableIntStateOf(initialResizeMode)
+    var localShuffle by mutableStateOf(initialShuffle)
+    var localRepeatMode by mutableIntStateOf(initialRepeatMode)
+    var showLyricsView by mutableStateOf(false)
+    var showQueueSheet by mutableStateOf(false)
+    var showSubtitleSheet by mutableStateOf(false)
+    var showAudioTrackSheet by mutableStateOf(false)
+    var showSpeedSheet by mutableStateOf(false)
+    var showEngineSheet by mutableStateOf(false)
+    var showTopMoreMenu by mutableStateOf(false)
+    var showDanmakuSettingsSheet by mutableStateOf(false)
+    var showDanmakuMatchSheet by mutableStateOf(false)
+    var hudMessage by mutableStateOf<String?>(null)
+    var tracksVersion by mutableIntStateOf(0)
+    var danmakuVisible by mutableStateOf(initialDanmakuVisible)
+    var danmakuOverlayRef by mutableStateOf<DanmakuOverlayView?>(null)
+    var danmakuPrefsVersion by mutableIntStateOf(0)
+    var videoAspectRatio by mutableStateOf(Rational(16, 9))
+    var preLockOrientation by mutableIntStateOf(initialOrientation)
+    var isInPipMode by mutableStateOf(initialInPip)
+    var draggingProgress by mutableFloatStateOf(-1f)
 
-    val initialLocalSavedMs = remember(request.localResumeId, instanceUrl, request.server) {
-        localHistoryStore.readResumePositionMs(instanceUrl, request.server, request.localResumeId)
-    }
-    val bestInitialResumeMs = remember(initialLocalSavedMs, request.resumePositionMs) {
-        LocalPlaybackHistoryStore.resolveBestResumeMs(initialLocalSavedMs, request.resumePositionMs)
+    val anySheetOpen: Boolean
+        get() = showQueueSheet || showSubtitleSheet || showAudioTrackSheet ||
+            showSpeedSheet || showEngineSheet || showTopMoreMenu ||
+            showDanmakuSettingsSheet || showDanmakuMatchSheet
+
+    fun bumpInteraction() {
+        lastInteractionTick = System.currentTimeMillis()
     }
 
-    val ownsPlayer = sharedPlayer == null
-    val activeStreamRouteRef = remember(request.url) {
+    fun dismissSheetsOnPipEnter() {
+        showSubtitleSheet = false
+        showAudioTrackSheet = false
+        showQueueSheet = false
+        showSpeedSheet = false
+        showEngineSheet = false
+        showDanmakuSettingsSheet = false
+        showDanmakuMatchSheet = false
+    }
+}
+
+@Stable
+private class PlayerSessionState(
+    request: MediaPlaybackRequest,
+    ownsPlayer: Boolean,
+    primaryEngineId: String,
+    bestInitialResumeMs: Long,
+) {
+    var embeddedAudioMeta by mutableStateOf<ResolvedEmbeddedAudioMetadata?>(null)
+    val activeStreamRouteRef: AtomicReference<Pair<String, Map<String, String>>> =
         AtomicReference(request.url to request.streamHeaders)
-    }
-    var currentRouteKind by remember(request.url) { mutableStateOf(request.activeRouteKind) }
-    val enginePlan = remember(
-        request.url,
-        request.isAudio,
-        playbackPrefs.videoEngine,
-        playbackPrefs.decodeMode,
-        playbackPrefs.ignoreAssStyle,
-    ) {
-        AndroidPlaybackEngineRouter.resolvePlan(request, playbackPrefs)
-    }
-    var activeEngineKind by remember(request.url, ownsPlayer) {
-        mutableStateOf(
-            if (ownsPlayer && !request.isAudio) {
-                ResolvedAndroidEngine.fromId(enginePlan.primary)
-            } else {
-                ResolvedAndroidEngine.NATIVE
-            },
-        )
-    }
-    var engineCarryPositionMs by remember(request.url) { mutableLongStateOf(bestInitialResumeMs) }
-    val suppressStopForEngineSwitchRef = remember(request.url) { AtomicBoolean(false) }
-    var didAutoFallbackEngine by remember(request.url) { mutableStateOf(false) }
-    var playbackLoadFailed by remember(request.url, activeEngineKind) { mutableStateOf(false) }
-    var showEngineSheet by remember { mutableStateOf(false) }
-    var showTopMoreMenu by remember { mutableStateOf(false) }
-    var mpvAudioTracks by remember(request.url, activeEngineKind) { mutableStateOf<List<EngineTrackItem>>(emptyList()) }
-    var mpvSubtitleTracks by remember(request.url, activeEngineKind) { mutableStateOf<List<EngineTrackItem>>(emptyList()) }
-
-    val isMpvActive = ownsPlayer && !request.isAudio && activeEngineKind == ResolvedAndroidEngine.ENHANCED
-    val exoPlayer: ExoPlayer? = remember(request.url, sharedPlayer, isMpvActive) {
-        if (isMpvActive) {
-            null
+    var currentRouteKind by mutableStateOf(request.activeRouteKind)
+    var activeEngineKind by mutableStateOf(
+        if (ownsPlayer && !request.isAudio) {
+            ResolvedAndroidEngine.fromId(primaryEngineId)
         } else {
-            sharedPlayer ?: buildConfiguredExoPlayer(
-                context = context,
-                request = request,
-                resumePositionOverrideMs = engineCarryPositionMs,
-                activeStreamProvider = { activeStreamRouteRef.get() },
+            ResolvedAndroidEngine.NATIVE
+        },
+    )
+    var engineCarryPositionMs by mutableLongStateOf(bestInitialResumeMs)
+    val suppressStopForEngineSwitchRef: AtomicBoolean = AtomicBoolean(false)
+    var didAutoFallbackEngine by mutableStateOf(false)
+    var playbackLoadFailed by mutableStateOf(false)
+    var mpvAudioTracks by mutableStateOf<List<EngineTrackItem>>(emptyList())
+    var mpvSubtitleTracks by mutableStateOf<List<EngineTrackItem>>(emptyList())
+    var positionMs by mutableLongStateOf(bestInitialResumeMs.coerceAtLeast(0L))
+    var durationMs by mutableLongStateOf(1L)
+    var activePreferredAudioLang by mutableStateOf(request.preferredAudioLang)
+    var activePreferredSubtitleLang by mutableStateOf(request.preferredSubtitleLang)
+    var activeDisableSubtitles by mutableStateOf(request.disableSubtitles)
+    var appliedInitialTracks by mutableStateOf(false)
+    var resumeBannerPositionMs by mutableStateOf(
+        bestInitialResumeMs.takeIf { it > LocalPlaybackHistoryStore.MIN_RESUME_POSITION_MS },
+    )
+    var upNextCancelled by mutableStateOf(false)
+    var autoAdvancedTriggered by mutableStateOf(false)
+    var mpvEngineHolder by mutableStateOf<MpvPlaybackEngine?>(null)
+    val mpvFallbackRoutes: ArrayDeque<PlaybackRouteDto> = buildFallbackRoutesDeque(request)
+}
+
+@Stable
+private class VideoDanmakuSessionState {
+    var rawJson by mutableStateOf<String?>(null)
+    var episodeId by mutableStateOf<Long?>(null)
+    var animeId by mutableStateOf<Long?>(null)
+    var animeTitle by mutableStateOf<String?>(null)
+    var episodeTitle by mutableStateOf<String?>(null)
+    var candidates by mutableStateOf<List<DanmakuEpisodeCandidateDto>>(emptyList())
+    var fromBinding by mutableStateOf(false)
+    var shiftMs by mutableIntStateOf(0)
+    var totalCount by mutableIntStateOf(0)
+}
+
+private fun buildFallbackRoutesDeque(request: MediaPlaybackRequest): ArrayDeque<PlaybackRouteDto> =
+    ArrayDeque<PlaybackRouteDto>().apply {
+        request.fallbackRoutes.forEach { addLast(it) }
+        val legacyFallback = request.proxyFallbackUrl
+        if (!legacyFallback.isNullOrBlank() && legacyFallback != request.url && none { it.url == legacyFallback }) {
+            addLast(
+                PlaybackRouteDto(
+                    kind = "mp_proxy",
+                    url = legacyFallback,
+                    priority = 100,
+                    requiresSameOriginAuth = true,
+                ),
             )
         }
     }
-    val nightModeEffect = remember(exoPlayer) { AudioNightModeEffect() }
 
-    val speeds = remember(isMpvActive) {
-        if (isMpvActive) listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f) else PLAYER_SUPPORTED_SPEEDS
-    }
-    val resizeModes = listOf(
-        AspectRatioFrameLayout.RESIZE_MODE_FIT to "自适应",
-        AspectRatioFrameLayout.RESIZE_MODE_ZOOM to "铺满裁剪",
-        AspectRatioFrameLayout.RESIZE_MODE_FILL to "拉伸填充",
-    )
-
-    var isPlaying by remember(exoPlayer, isMpvActive) {
-        mutableStateOf(exoPlayer?.let { it.isPlaying || it.playWhenReady } ?: true)
-    }
-    var positionMs by remember(request.url) {
-        mutableLongStateOf(bestInitialResumeMs.coerceAtLeast(exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L))
-    }
-    var durationMs by remember(request.url) {
-        mutableLongStateOf((exoPlayer?.duration ?: 1L).coerceAtLeast(1L))
-    }
-    var controlsVisible by remember { mutableStateOf(true) }
-    var lastInteractionTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var isLocked by remember { mutableStateOf(false) }
-    var showRemainingTime by remember { mutableStateOf(false) }
-    var isLongPressBoost by remember { mutableStateOf(false) }
-
-    var speedIndex by remember(request.isAudio, isMpvActive) {
-        val targetSpd = if (request.isAudio) 1.0f else playbackPrefs.defaultSpeed
-        val defaultIdx = speeds.indexOfFirst { abs(it - targetSpd) < 0.05f }.takeIf { it >= 0 }
-            ?: speeds.indexOf(1.0f).coerceAtLeast(0)
-        mutableIntStateOf(defaultIdx)
-    }
-    var resizeModeIndex by remember {
-        mutableIntStateOf(playbackPrefs.defaultResizeMode.coerceIn(0, resizeModes.lastIndex))
-    }
-    var localShuffle by remember { mutableStateOf(audioShuffleEnabled) }
-    var localRepeatMode by remember { mutableIntStateOf(audioRepeatMode) }
-    val effectiveShuffle = if (onUpdateAudioShuffle != null) audioShuffleEnabled else localShuffle
-    val effectiveRepeatMode = if (onUpdateAudioRepeatMode != null) audioRepeatMode else localRepeatMode
-
-    var showLyricsView by remember { mutableStateOf(false) }
-    var showQueueSheet by remember { mutableStateOf(false) }
-    var showSubtitleSheet by remember { mutableStateOf(false) }
-    var showAudioTrackSheet by remember { mutableStateOf(false) }
-    var showSpeedSheet by remember { mutableStateOf(false) }
-    var showDanmakuSettingsSheet by remember { mutableStateOf(false) }
-    var showDanmakuMatchSheet by remember { mutableStateOf(false) }
-    var hudMessage by remember { mutableStateOf<String?>(null) }
-    var tracksVersion by remember { mutableIntStateOf(0) }
-
-    // 原生弹幕状态与本地渲染偏好（仅视频且服务端已启用弹幕时激活，全异步零阻塞起播）
-    val danmakuScope = rememberCoroutineScope()
-    val danmakuPrefs = remember(context) { DanmakuPreferencesStore(context) }
-    var danmakuVisible by remember { mutableStateOf(danmakuPrefs.enabled) }
-    var danmakuOverlayRef by remember { mutableStateOf<DanmakuOverlayView?>(null) }
-    var danmakuRawJson by remember(request.url, request.itemId) { mutableStateOf<String?>(null) }
-    var danmakuEpisodeId by remember(request.url, request.itemId) { mutableStateOf<Long?>(null) }
-    var danmakuAnimeId by remember(request.url, request.itemId) { mutableStateOf<Long?>(null) }
-    var danmakuAnimeTitle by remember(request.url, request.itemId) { mutableStateOf<String?>(null) }
-    var danmakuEpisodeTitle by remember(request.url, request.itemId) { mutableStateOf<String?>(null) }
-    var danmakuCandidates by remember(request.url, request.itemId) { mutableStateOf<List<DanmakuEpisodeCandidateDto>>(emptyList()) }
-    var danmakuFromBinding by remember(request.url, request.itemId) { mutableStateOf(false) }
-    var danmakuShiftMs by remember(request.url, request.itemId) { mutableIntStateOf(0) }
-    var danmakuTotalCount by remember(request.url, request.itemId) { mutableIntStateOf(0) }
-    var danmakuPrefsVersion by remember { mutableIntStateOf(0) }
-
-    // 记录当前会话用户选定的音轨/字幕偏好，用于跨剧集连播时无损继承
-    var activePreferredAudioLang by remember(request.url) { mutableStateOf(request.preferredAudioLang) }
-    var activePreferredSubtitleLang by remember(request.url) { mutableStateOf(request.preferredSubtitleLang) }
-    var activeDisableSubtitles by remember(request.url) { mutableStateOf(request.disableSubtitles) }
-    var appliedInitialTracks by remember(request.url) { mutableStateOf(false) }
-
-    // 续播提示胶囊（> 30s 时展示 6 秒，支持一键从 00:00 重新开始）
-    var resumeBannerPositionMs by remember(request.url) {
-        mutableStateOf(bestInitialResumeMs.takeIf { it > LocalPlaybackHistoryStore.MIN_RESUME_POSITION_MS })
-    }
-    // 下一集自动连播倒计时与取消标记
-    var upNextCancelled by remember(request.url) { mutableStateOf(false) }
-    var autoAdvancedTriggered by remember(request.url) { mutableStateOf(false) }
-
-    var videoAspectRatio by remember { mutableStateOf(Rational(16, 9)) }
-
-    val activity = context as? Activity
-    val initialOrientation = remember(activity) {
-        activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-    }
-    var preLockOrientation by remember { mutableIntStateOf(initialOrientation) }
-    var isInPipMode by remember(activity) {
-        mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity?.isInPictureInPictureMode == true else false)
-    }
-
-    val latestReportProgress by rememberUpdatedState(onReportProgress)
-    val latestSwitchRequest by rememberUpdatedState(onSwitchRequest)
-    val latestClose by rememberUpdatedState(onClose)
-    val videoSyncTracker = remember(request.url, request.playSessionId, ownsPlayer) {
-        PlaybackSyncSessionTracker(request.playSessionId.orEmpty())
-    }
-    var hasEmittedVideoStart by remember(request.url, request.playSessionId, ownsPlayer) {
-        mutableStateOf(false)
-    }
-
-    val mpvFallbackRoutes = remember(request.url) {
-        ArrayDeque<PlaybackRouteDto>().apply {
-            request.fallbackRoutes.forEach { addLast(it) }
-            val legacyFallback = request.proxyFallbackUrl
-            if (!legacyFallback.isNullOrBlank() && legacyFallback != request.url && none { it.url == legacyFallback }) {
-                addLast(
-                    PlaybackRouteDto(
-                        kind = "mp_proxy",
-                        url = legacyFallback,
-                        priority = 100,
-                        requiresSameOriginAuth = true,
-                    ),
-                )
-            }
+@OptIn(UnstableApi::class)
+@Stable
+private class PlayerRuntimeController(
+    val context: Context,
+    val request: MediaPlaybackRequest,
+    val ownsPlayer: Boolean,
+    val instanceUrl: String,
+    val repository: MoviePilotRepository?,
+    val playbackPrefs: PlaybackPreferencesStore,
+    val localHistoryStore: LocalPlaybackHistoryStore,
+    val ui: PlayerUiPersistentState,
+    val session: PlayerSessionState,
+    val exoPlayer: ExoPlayer?,
+    val isMpvActive: Boolean,
+    val speeds: List<Float>,
+    private val isPlayingState: MutableState<Boolean>,
+    private val speedIndexState: MutableIntState,
+    private val hasEmittedVideoStartState: MutableState<Boolean>,
+    private val videoSyncTracker: PlaybackSyncSessionTracker,
+    private val latestReportProgressState: State<((Long, Long, Boolean, String) -> Unit)?>,
+    private val latestSwitchRequestState: State<((MediaPlaybackRequest) -> Unit)?>,
+    private val latestCloseState: State<() -> Unit>,
+    private val latestMetadataEnrichedState: State<((MediaPlaybackRequest) -> Unit)?>,
+) {
+    var isPlaying: Boolean
+        get() = isPlayingState.value
+        set(value) {
+            isPlayingState.value = value
         }
-    }
 
-    var mpvEngineHolder by remember(request.url) { mutableStateOf<MpvPlaybackEngine?>(null) }
+    var speedIndex: Int
+        get() = speedIndexState.intValue
+        set(value) {
+            speedIndexState.intValue = value
+        }
+
+    var hasEmittedVideoStart: Boolean
+        get() = hasEmittedVideoStartState.value
+        set(value) {
+            hasEmittedVideoStartState.value = value
+        }
+
+    val hasPrevVideoEpisode: Boolean
+        get() = !request.isAudio && request.queue.size > 1 && request.queueIndex > 0
+
+    val hasNextVideoEpisode: Boolean
+        get() = !request.isAudio && request.queue.size > 1 && request.queueIndex + 1 < request.queue.size
+
+    val nextVideoEpisode: MediaPlaybackRequest?
+        get() = if (hasNextVideoEpisode) request.queue.getOrNull(request.queueIndex + 1) else null
+
+    val currentSelectedSpeed: Float
+        get() = speeds[speedIndex.coerceIn(0, speeds.lastIndex)]
+
+    fun notifyMetadataEnriched(enriched: MediaPlaybackRequest) {
+        latestMetadataEnrichedState.value?.invoke(enriched)
+    }
 
     fun activeCurrentPositionMs(): Long =
-        if (isMpvActive) (mpvEngineHolder?.positionMs ?: positionMs) else (exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: positionMs)
+        if (isMpvActive) {
+            session.mpvEngineHolder?.positionMs ?: session.positionMs
+        } else {
+            exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: session.positionMs
+        }
 
     fun activeDurationMs(): Long =
-        if (isMpvActive) (mpvEngineHolder?.durationMs ?: durationMs) else (exoPlayer?.duration?.coerceAtLeast(0L) ?: durationMs)
+        if (isMpvActive) {
+            session.mpvEngineHolder?.durationMs ?: session.durationMs
+        } else {
+            exoPlayer?.duration?.coerceAtLeast(0L) ?: session.durationMs
+        }
 
     fun activeIsPlaying(): Boolean =
-        if (isMpvActive) (mpvEngineHolder?.isPlaying ?: isPlaying) else (exoPlayer?.isPlaying == true)
+        if (isMpvActive) {
+            session.mpvEngineHolder?.isPlaying ?: isPlaying
+        } else {
+            exoPlayer?.isPlaying == true
+        }
 
     fun activePlay() {
         if (isMpvActive) {
-            if (playbackLoadFailed) {
-                playbackLoadFailed = false
-                val curRoute = activeStreamRouteRef.get()
-                mpvEngineHolder?.reloadWithRoute(curRoute.first, curRoute.second)
+            if (session.playbackLoadFailed) {
+                session.playbackLoadFailed = false
+                val curRoute = session.activeStreamRouteRef.get()
+                session.mpvEngineHolder?.reloadWithRoute(curRoute.first, curRoute.second)
             } else {
-                mpvEngineHolder?.play()
+                session.mpvEngineHolder?.play()
             }
         } else {
             exoPlayer?.let { ep ->
-                if (playbackLoadFailed || ep.playbackState == Player.STATE_IDLE) {
-                    playbackLoadFailed = false
+                if (session.playbackLoadFailed || ep.playbackState == Player.STATE_IDLE) {
+                    session.playbackLoadFailed = false
                     ep.prepare()
                 }
                 ep.play()
@@ -841,51 +830,54 @@ fun NativeMediaPlayerOverlay(
     }
 
     fun activePause() {
-        if (isMpvActive) mpvEngineHolder?.pause() else exoPlayer?.pause()
+        if (isMpvActive) session.mpvEngineHolder?.pause() else exoPlayer?.pause()
     }
 
     fun activeSeekTo(targetMs: Long) {
         val clamped = targetMs.coerceAtLeast(0L)
         if (isMpvActive) {
-            mpvEngineHolder?.seekTo(clamped)
-            positionMs = clamped
+            session.mpvEngineHolder?.seekTo(clamped)
+            session.positionMs = clamped
         } else {
             exoPlayer?.seekTo(clamped)
         }
-        danmakuOverlayRef?.syncPlayback(
+        ui.danmakuOverlayRef?.syncPlayback(
             positionMs = clamped,
             playing = activeIsPlaying(),
-            rate = speeds[speedIndex.coerceIn(0, speeds.lastIndex)],
-            inPip = isInPipMode,
+            rate = currentSelectedSpeed,
+            inPip = ui.isInPipMode,
         )
     }
 
     fun activeSetSpeed(spd: Float) {
         if (isMpvActive) {
-            mpvEngineHolder?.setSpeed(spd)
+            session.mpvEngineHolder?.setSpeed(spd)
         } else {
             exoPlayer?.playbackParameters = PlaybackParameters(spd)
         }
-        danmakuOverlayRef?.syncPlayback(
+        ui.danmakuOverlayRef?.syncPlayback(
             positionMs = activeCurrentPositionMs(),
             playing = activeIsPlaying(),
             rate = spd,
-            inPip = isInPipMode,
+            inPip = ui.isInPipMode,
         )
     }
 
     /** 播放器内一键热切换内核：保留当前进度与 `play_session_id`，绝不向媒体服务器发送 `stopped`。 */
     fun switchVideoEngine(target: ResolvedAndroidEngine, reasonNotice: String? = null) {
-        if (!ownsPlayer || request.isAudio || target == activeEngineKind) return
-        engineCarryPositionMs = activeCurrentPositionMs().coerceAtLeast(0L)
-        suppressStopForEngineSwitchRef.set(true)
-        activeEngineKind = target
-        hudMessage = reasonNotice ?: "已切换至 ${target.displayName}"
+        if (!ownsPlayer || request.isAudio || target == session.activeEngineKind) return
+        session.engineCarryPositionMs = activeCurrentPositionMs().coerceAtLeast(0L)
+        session.suppressStopForEngineSwitchRef.set(true)
+        session.playbackLoadFailed = false
+        session.mpvAudioTracks = emptyList()
+        session.mpvSubtitleTracks = emptyList()
+        session.activeEngineKind = target
+        ui.hudMessage = reasonNotice ?: "已切换至 ${target.displayName}"
     }
 
     fun resolveSelectedAudioIndex(): Int? {
         if (isMpvActive) {
-            val idx = mpvAudioTracks.indexOfFirst { it.isSelected }
+            val idx = session.mpvAudioTracks.indexOfFirst { it.isSelected }
             return if (idx >= 0) idx else null
         }
         val ep = exoPlayer ?: return null
@@ -902,7 +894,7 @@ fun NativeMediaPlayerOverlay(
 
     fun resolveSelectedSubtitleIndex(): Int? {
         if (isMpvActive) {
-            val idx = mpvSubtitleTracks.indexOfFirst { it.isSelected }
+            val idx = session.mpvSubtitleTracks.indexOfFirst { it.isSelected }
             return if (idx >= 0) idx else -1
         }
         val ep = exoPlayer ?: return null
@@ -957,26 +949,18 @@ fun NativeMediaPlayerOverlay(
                 subtitleStreamIndex = subIdx,
             )
         } else {
-            latestReportProgress?.invoke(decision.positionMs, dur, decision.isPaused, decision.state)
+            latestReportProgressState.value?.invoke(decision.positionMs, dur, decision.isPaused, decision.state)
         }
     }
 
-    fun bumpInteraction() {
-        lastInteractionTick = System.currentTimeMillis()
-    }
-
-    fun buildCarryOverEpisodeRequest(target: MediaPlaybackRequest, nextIndex: Int): MediaPlaybackRequest =
+    private fun buildCarryOverEpisodeRequest(target: MediaPlaybackRequest, nextIndex: Int): MediaPlaybackRequest =
         target.copy(
             queue = request.queue,
             queueIndex = nextIndex,
-            preferredAudioLang = activePreferredAudioLang,
-            preferredSubtitleLang = activePreferredSubtitleLang,
-            disableSubtitles = activeDisableSubtitles,
+            preferredAudioLang = session.activePreferredAudioLang,
+            preferredSubtitleLang = session.activePreferredSubtitleLang,
+            disableSubtitles = session.activeDisableSubtitles,
         )
-
-    val hasPrevVideoEpisode = !request.isAudio && request.queue.size > 1 && request.queueIndex > 0
-    val hasNextVideoEpisode = !request.isAudio && request.queue.size > 1 && request.queueIndex + 1 < request.queue.size
-    val nextVideoEpisode = if (hasNextVideoEpisode) request.queue.getOrNull(request.queueIndex + 1) else null
 
     fun closeVideoCleanly() {
         if (ownsPlayer && !request.isAudio) {
@@ -985,7 +969,7 @@ fun NativeMediaPlayerOverlay(
             localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
             dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
         }
-        latestClose()
+        latestCloseState.value.invoke()
     }
 
     fun switchVideoEpisode(nextIdx: Int) {
@@ -996,283 +980,19 @@ fun NativeMediaPlayerOverlay(
             localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
             dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
         }
-        latestSwitchRequest?.invoke(buildCarryOverEpisodeRequest(target, nextIdx))
+        latestSwitchRequestState.value?.invoke(buildCarryOverEpisodeRequest(target, nextIdx))
     }
 
-    // 当切换为 MPV 全能内核时创建并托管 `MpvPlaybackEngine`
-    DisposableEffect(request.url, isMpvActive) {
-        if (!isMpvActive) {
-            mpvEngineHolder = null
-            return@DisposableEffect onDispose {}
-        }
-        val engine = MpvPlaybackEngine(
-            context = context,
-            request = request,
-            prefs = playbackPrefs,
-            initialStartPositionMs = engineCarryPositionMs,
-            activeStreamRouteRef = activeStreamRouteRef,
-            onStateSnapshot = { playing, pos, dur ->
-                isPlaying = playing
-                positionMs = pos.coerceAtLeast(0L)
-                if (dur > 0L) durationMs = dur
-                if (playing && !hasEmittedVideoStart && pos > 0L) {
-                    dispatchVideoSync("start", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = false)
-                }
-            },
-            onVideoSizeChanged = { w, h ->
-                videoAspectRatio = PlaybackPipBridge.computeClampedPipAspectRatio(w, h)
-            },
-            onTracksUpdated = { audio, subs ->
-                mpvAudioTracks = audio
-                mpvSubtitleTracks = subs
-                tracksVersion++
-            },
-            onEnded = {
-                localHistoryStore.clearResumePosition(instanceUrl, request.server, request.localResumeId)
-                val dur = activeDurationMs()
-                dispatchVideoSync("finish", posOverrideMs = dur, durOverrideMs = dur, pausedOverride = true)
-                if (hasNextVideoEpisode && !upNextCancelled && !autoAdvancedTriggered) {
-                    autoAdvancedTriggered = true
-                    switchVideoEpisode(request.queueIndex + 1)
-                }
-            },
-            onError = { _ ->
-                val curPos = activeCurrentPositionMs()
-                if (curPos <= 3_000L && mpvFallbackRoutes.isNotEmpty()) {
-                    val failedKind = currentRouteKind
-                    val failedUrl = activeStreamRouteRef.get().first
-                    if (failedKind == "server_lan" || failedKind == "server_wan") {
-                        repository?.playbackRouteResolver?.markRouteFailed(request.server, failedUrl)
-                    }
-                    while (mpvFallbackRoutes.isNotEmpty()) {
-                        val nextRoute = mpvFallbackRoutes.removeFirst()
-                        if (nextRoute.url.isBlank() || nextRoute.url == failedUrl) continue
-                        currentRouteKind = nextRoute.kind
-                        mpvEngineHolder?.reloadWithRoute(nextRoute.url, nextRoute.headers)
-                        return@MpvPlaybackEngine
-                    }
-                }
-                if (playbackPrefs.videoEngine == "auto" && !didAutoFallbackEngine && curPos <= 3_000L) {
-                    didAutoFallbackEngine = true
-                    switchVideoEngine(ResolvedAndroidEngine.NATIVE, "已自动切换至 Media3 原生内核")
-                    return@MpvPlaybackEngine
-                }
-                playbackLoadFailed = true
-                isPlaying = false
-                hudMessage = "无法加载当前媒体流，请检查网络或在右上角菜单切换内核重试"
-            },
-        )
-        engine.setResizeMode(resizeModeIndex)
-        mpvEngineHolder = engine
-        onDispose {
-            val isEngineSwitch = suppressStopForEngineSwitchRef.compareAndSet(true, false)
-            val pos = engine.positionMs.coerceAtLeast(0L)
-            val dur = engine.durationMs.coerceAtLeast(0L)
-            if (!isEngineSwitch) {
-                localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
-                dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
-            }
-            if (mpvEngineHolder === engine) {
-                mpvEngineHolder = null
-            }
-            engine.release()
-        }
-    }
-
-    val canMinimizeAudio = request.isAudio && playbackPrefs.keepMusicMiniBar && onMinimizeToMiniBar != null
-
-    // 锁屏状态下拦截系统返回手势并唤出解锁提示；未锁屏时按偏好最小化或关闭
-    BackHandler(enabled = isLocked) {
-        controlsVisible = true
-        bumpInteraction()
-        hudMessage = "屏幕已锁定，请点击右侧锁图标解锁"
-    }
-    BackHandler(enabled = !isLocked) {
-        if (canMinimizeAudio) {
-            onMinimizeToMiniBar?.invoke()
-        } else if (request.isAudio) {
-            onClose()
-        } else {
-            closeVideoCleanly()
-        }
-    }
-
-    // 续播胶囊 6 秒后自动淡出
-    LaunchedEffect(resumeBannerPositionMs) {
-        if (resumeBannerPositionMs != null) {
-            delay(6_000L)
-            resumeBannerPositionMs = null
-        }
-    }
-
-    val anySheetOpen = showQueueSheet || showSubtitleSheet || showAudioTrackSheet || showSpeedSheet || showEngineSheet || showTopMoreMenu || showDanmakuSettingsSheet || showDanmakuMatchSheet
-    var draggingProgress by remember { mutableFloatStateOf(-1f) }
-
-    // 视频控制栏播放中 4.5 秒无操作自动隐藏
-    LaunchedEffect(request.isAudio, controlsVisible, isPlaying, draggingProgress < 0f, anySheetOpen, isLongPressBoost, lastInteractionTick) {
-        if (!request.isAudio && controlsVisible && isPlaying && draggingProgress < 0f && !anySheetOpen && !isLongPressBoost) {
-            delay(4_500L)
-            controlsVisible = false
-        }
-    }
-
-    // 视频沉浸式系统状态栏/导航栏联动隐藏，退出时完整还原
-    DisposableEffect(activity, hostView, request.isAudio, controlsVisible, isInPipMode) {
-        val window = activity?.window
-        val controller = if (window != null) WindowCompat.getInsetsController(window, hostView) else null
-        if (!request.isAudio && controller != null) {
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (!controlsVisible && !isInPipMode) {
-                controller.hide(WindowInsetsCompat.Type.systemBars())
-            } else {
-                controller.show(WindowInsetsCompat.Type.systemBars())
-            }
-        }
-        onDispose {
-            controller?.show(WindowInsetsCompat.Type.systemBars())
-        }
-    }
-
-    // 保持屏幕常亮、监听画中画模式，并在退出播放页时还原窗口亮度、方向与 PiP 自动进入标志
-    DisposableEffect(hostView, activity, request.isAudio) {
-        val prevKeepScreenOn = hostView.keepScreenOn
-        if (!request.isAudio) {
-            hostView.keepScreenOn = true
-        }
-        val compActivity = activity as? ComponentActivity
-        val pipListener = Consumer<PictureInPictureModeChangedInfo> { info ->
-            isInPipMode = info.isInPictureInPictureMode
-            if (info.isInPictureInPictureMode) {
-                showSubtitleSheet = false
-                showAudioTrackSheet = false
-                showQueueSheet = false
-                showSpeedSheet = false
-                showEngineSheet = false
-                showDanmakuSettingsSheet = false
-                showDanmakuMatchSheet = false
-            }
-            danmakuOverlayRef?.syncPlayback(
-                positionMs = activeCurrentPositionMs(),
-                playing = activeIsPlaying(),
-                rate = speeds[speedIndex.coerceIn(0, speeds.lastIndex)],
-                inPip = info.isInPictureInPictureMode,
-            )
-        }
-        compActivity?.addOnPictureInPictureModeChangedListener(pipListener)
-        onDispose {
-            compActivity?.removeOnPictureInPictureModeChangedListener(pipListener)
-            PlaybackPipBridge.onUserLeaveHintCallback = null
-            if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !request.isAudio) {
-                runCatching {
-                    activity.setPictureInPictureParams(
-                        PictureInPictureParams.Builder().setAutoEnterEnabled(false).build(),
-                    )
-                }
-            }
-            hostView.keepScreenOn = prevKeepScreenOn
-            if (activity != null) {
-                if (!request.isAudio) {
-                    activity.requestedOrientation = initialOrientation
-                }
-                val lp = activity.window.attributes
-                if (lp.screenBrightness >= 0f) {
-                    lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-                    activity.window.attributes = lp
-                }
-            }
-        }
-    }
-
-    // 动态同步 API 31+ setAutoEnterEnabled 与 API 29–30 onUserLeaveHint 自动画中画参数
-    LaunchedEffect(activity, request.isAudio, isPlaying, playbackPrefs.autoPip, videoAspectRatio) {
-        if (activity == null || request.isAudio) {
-            PlaybackPipBridge.onUserLeaveHintCallback = null
-            return@LaunchedEffect
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            PlaybackPipBridge.onUserLeaveHintCallback = null
-            runCatching {
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(videoAspectRatio)
-                    .setAutoEnterEnabled(isPlaying && playbackPrefs.autoPip)
-                    .build()
-                activity.setPictureInPictureParams(params)
-            }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PlaybackPipBridge.onUserLeaveHintCallback = {
-                if (activeIsPlaying() && playbackPrefs.autoPip && !activity.isInPictureInPictureMode) {
-                    runCatching {
-                        val params = PictureInPictureParams.Builder()
-                            .setAspectRatio(videoAspectRatio)
-                            .build()
-                        activity.enterPictureInPictureMode(params)
-                    }
-                }
-            }
-        }
-    }
-
-    // 视频独立播放器绑定系统 MediaSession 通知栏与蓝牙播控（Media3 与 MPV 均统一接入）
-    val sessionBridgePlayer: Player? = if (isMpvActive) mpvEngineHolder?.sessionPlayer else exoPlayer
-    DisposableEffect(sessionBridgePlayer, ownsPlayer, request.isAudio, request.queueIndex, request.queue.size) {
-        if (ownsPlayer && !request.isAudio && sessionBridgePlayer != null) {
-            PlaybackServiceBridge.attachActivePlayer(
-                context = context,
-                exoPlayer = sessionBridgePlayer,
-                canSkipPrevious = { activeCurrentPositionMs() > 3_000L || hasPrevVideoEpisode },
-                canSkipNext = { hasNextVideoEpisode },
-                onSkipPrevious = {
-                    if (activeCurrentPositionMs() > 3_000L || !hasPrevVideoEpisode) {
-                        activeSeekTo(0L)
-                    } else {
-                        switchVideoEpisode(request.queueIndex - 1)
-                    }
-                },
-                onSkipNext = {
-                    if (hasNextVideoEpisode) {
-                        switchVideoEpisode(request.queueIndex + 1)
-                    }
-                },
-            )
-        }
-        onDispose {
-            if (ownsPlayer && sessionBridgePlayer != null) {
-                PlaybackServiceBridge.detachIfMatching(sessionBridgePlayer)
-            }
-        }
-    }
-
-    val lrcLines = remember(displayRequest.lyricsLrc) { parseLrcLyrics(displayRequest.lyricsLrc) }
-    val plainLyricsLines = remember(displayRequest.lyricsLrc, lrcLines) {
-        if (lrcLines.isEmpty()) EmbeddedAudioMetadataFetcher.extractPlainLyricsLines(displayRequest.lyricsLrc) else emptyList()
-    }
-    val lrcListState = rememberLazyListState()
-
-    // 音频内嵌封面与歌词异步提取（零阻塞主播放流：FLAC / ID3v2 / MP4·M4A / Ogg Vorbis·Opus）
-    LaunchedEffect(request.url, request.isAudio) {
-        if (!request.isAudio || !EmbeddedAudioMetadataFetcher.needsExtraction(request)) {
-            return@LaunchedEffect
-        }
-        val fetched = EmbeddedAudioMetadataFetcher.fetchEmbeddedMetadata(context, request)
-        if (fetched != null) {
-            embeddedAudioMeta = fetched
-            val merged = EmbeddedAudioMetadataFetcher.applyToRequest(request, fetched)
-            latestMetadataEnriched?.invoke(merged)
-        }
-    }
-
-    // 初始音轨/中文字幕偏好应用辅助方法
     fun applyInitialTrackPreferencesIfReady(tracks: Tracks) {
         val ep = exoPlayer ?: return
-        if (request.isAudio || appliedInitialTracks) return
+        if (request.isAudio || session.appliedInitialTracks) return
         val hasMediaGroups = tracks.groups.any { it.type == C.TRACK_TYPE_VIDEO || it.type == C.TRACK_TYPE_AUDIO }
         if (!hasMediaGroups) return
-        appliedInitialTracks = true
+        session.appliedInitialTracks = true
 
         var paramsBuilder = ep.trackSelectionParameters.buildUpon()
         var changed = false
 
-        // 1. 匹配预选音轨（按序号或语言标签）
         val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
         if (audioGroups.isNotEmpty()) {
             val flattenedAudio = buildList {
@@ -1301,7 +1021,6 @@ fun NativeMediaPlayerOverlay(
             }
         }
 
-        // 2. 匹配预选字幕或自动启用中文字幕
         val textGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
         if (request.disableSubtitles) {
             paramsBuilder = paramsBuilder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
@@ -1364,827 +1083,1724 @@ fun NativeMediaPlayerOverlay(
 
         if (changed) {
             ep.trackSelectionParameters = paramsBuilder.build()
-            tracksVersion++
+            ui.tracksVersion++
         }
     }
 
-    DisposableEffect(exoPlayer, ownsPlayer, request.url) {
-        val ep = exoPlayer ?: return@DisposableEffect onDispose {}
-        val fallbackQueue = ArrayDeque<PlaybackRouteDto>().apply {
-            request.fallbackRoutes.forEach { addLast(it) }
-            val legacyFallback = request.proxyFallbackUrl
-            if (!legacyFallback.isNullOrBlank() && legacyFallback != request.url && none { it.url == legacyFallback }) {
-                addLast(
-                    PlaybackRouteDto(
-                        kind = "mp_proxy",
-                        url = legacyFallback,
-                        priority = 100,
-                        requiresSameOriginAuth = true,
-                    ),
-                )
+    fun selectSubtitleChoice(choice: ResolvedTrackChoice) {
+        if (isMpvActive) {
+            if (choice.trackId == null) {
+                session.mpvEngineHolder?.disableSubtitles()
+                session.activeDisableSubtitles = true
+                session.activePreferredSubtitleLang = null
+            } else {
+                session.mpvEngineHolder?.selectSubtitleTrack(choice.trackId)
+                session.activeDisableSubtitles = false
+                session.activePreferredSubtitleLang = choice.language ?: choice.label
+            }
+            dispatchVideoSync("track_change")
+        } else {
+            val ep = exoPlayer
+            if (ep != null) {
+                val builder = ep.trackSelectionParameters.buildUpon()
+                if (choice.group == null) {
+                    builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    session.activeDisableSubtitles = true
+                    session.activePreferredSubtitleLang = null
+                } else {
+                    builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(TrackSelectionOverride(choice.group.mediaTrackGroup, choice.trackIndex))
+                    session.activeDisableSubtitles = false
+                    session.activePreferredSubtitleLang = choice.language ?: choice.label
+                }
+                ep.trackSelectionParameters = builder.build()
             }
         }
-        nightModeEffect.apply(ep.audioSessionId, playbackPrefs.audioNightMode)
-        val listener = object : Player.Listener {
-            override fun onAudioSessionIdChanged(audioSessionId: Int) {
-                nightModeEffect.apply(audioSessionId, playbackPrefs.audioNightMode)
-            }
+        ui.tracksVersion++
+        ui.hudMessage = "字幕：${choice.label}"
+        ui.showSubtitleSheet = false
+    }
 
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                if (!ownsPlayer || ep.currentPosition > 3_000L) return
-                val isDecoderOrFormatError = error.errorCode in setOf(
-                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-                    androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
-                )
-                if (
-                    isDecoderOrFormatError &&
-                    !request.isAudio &&
-                    activeEngineKind == ResolvedAndroidEngine.NATIVE &&
-                    !didAutoFallbackEngine
-                ) {
-                    didAutoFallbackEngine = true
-                    switchVideoEngine(
-                        ResolvedAndroidEngine.ENHANCED,
-                        "当前格式不兼容，已自动切换至 ${ResolvedAndroidEngine.ENHANCED.displayName}",
-                    )
-                    return
-                }
-                val failedKind = currentRouteKind
-                val failedUrl = activeStreamRouteRef.get().first
-                if (failedKind == "server_lan" || failedKind == "server_wan") {
-                    repository?.playbackRouteResolver?.markRouteFailed(request.server, failedUrl)
-                }
-                while (fallbackQueue.isNotEmpty()) {
-                    val nextRoute = fallbackQueue.removeFirst()
-                    if (nextRoute.url.isBlank() || nextRoute.url == failedUrl) continue
-                    activeStreamRouteRef.set(nextRoute.url to nextRoute.headers)
-                    currentRouteKind = nextRoute.kind
-                    val curMeta = ep.currentMediaItem?.mediaMetadata ?: MediaMetadata.EMPTY
-                    val curSubs = ep.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
-                    val fallbackItem = MediaItem.Builder()
-                        .setUri(Uri.parse(nextRoute.url))
-                        .setMediaMetadata(curMeta)
-                        .setSubtitleConfigurations(curSubs)
+    fun selectAudioChoice(choice: ResolvedTrackChoice) {
+        if (isMpvActive) {
+            choice.trackId?.let { id ->
+                session.mpvEngineHolder?.selectAudioTrack(id)
+                session.activePreferredAudioLang = choice.language ?: choice.label
+                ui.tracksVersion++
+                dispatchVideoSync("track_change")
+                ui.hudMessage = "音轨：${choice.label}"
+            }
+        } else {
+            choice.group?.let { grp ->
+                exoPlayer?.let { ep ->
+                    ep.trackSelectionParameters = ep.trackSelectionParameters
+                        .buildUpon()
+                        .setOverrideForType(TrackSelectionOverride(grp.mediaTrackGroup, choice.trackIndex))
                         .build()
-                    ep.setMediaItem(fallbackItem)
-                    ep.prepare()
-                    ep.playWhenReady = true
-                    return
-                }
-                if (!request.isAudio && playbackPrefs.videoEngine == "auto" && !didAutoFallbackEngine) {
-                    didAutoFallbackEngine = true
-                    switchVideoEngine(
-                        ResolvedAndroidEngine.ENHANCED,
-                        "当前格式不兼容，已自动切换至 ${ResolvedAndroidEngine.ENHANCED.displayName}",
-                    )
-                    return
-                }
-                playbackLoadFailed = true
-                isPlaying = false
-                hudMessage = "无法加载当前媒体流，请检查网络或在右上角菜单切换内核重试"
-            }
-
-            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
-                if (request.isAudio && EmbeddedAudioMetadataFetcher.needsExtraction(displayRequest)) {
-                    val liveMeta = EmbeddedAudioMetadataFetcher.extractFromExoPlayer(
-                        context = context,
-                        player = ep,
-                        cacheKey = request.localResumeId.ifBlank { request.url },
-                    )
-                    if (liveMeta != null) {
-                        val mergedMeta = ResolvedEmbeddedAudioMetadata(
-                            title = embeddedAudioMeta?.title ?: liveMeta.title,
-                            artist = embeddedAudioMeta?.artist ?: liveMeta.artist,
-                            album = embeddedAudioMeta?.album ?: liveMeta.album,
-                            lyrics = embeddedAudioMeta?.lyrics ?: liveMeta.lyrics,
-                            artworkFileUri = embeddedAudioMeta?.artworkFileUri ?: liveMeta.artworkFileUri,
-                            artworkBytes = embeddedAudioMeta?.artworkBytes ?: liveMeta.artworkBytes,
-                        )
-                        embeddedAudioMeta = mergedMeta
-                        latestMetadataEnriched?.invoke(EmbeddedAudioMetadataFetcher.applyToRequest(request, mergedMeta))
-                    }
-                }
-            }
-
-            override fun onTracksChanged(tracks: Tracks) {
-                val hadInitial = appliedInitialTracks
-                tracksVersion++
-                applyInitialTrackPreferencesIfReady(tracks)
-                if (request.isAudio && EmbeddedAudioMetadataFetcher.needsExtraction(displayRequest)) {
-                    val liveMeta = EmbeddedAudioMetadataFetcher.extractFromExoPlayer(
-                        context = context,
-                        player = ep,
-                        cacheKey = request.localResumeId.ifBlank { request.url },
-                    )
-                    if (liveMeta != null) {
-                        val mergedMeta = ResolvedEmbeddedAudioMetadata(
-                            title = embeddedAudioMeta?.title ?: liveMeta.title,
-                            artist = embeddedAudioMeta?.artist ?: liveMeta.artist,
-                            album = embeddedAudioMeta?.album ?: liveMeta.album,
-                            lyrics = embeddedAudioMeta?.lyrics ?: liveMeta.lyrics,
-                            artworkFileUri = embeddedAudioMeta?.artworkFileUri ?: liveMeta.artworkFileUri,
-                            artworkBytes = embeddedAudioMeta?.artworkBytes ?: liveMeta.artworkBytes,
-                        )
-                        embeddedAudioMeta = mergedMeta
-                        latestMetadataEnriched?.invoke(EmbeddedAudioMetadataFetcher.applyToRequest(request, mergedMeta))
-                    }
-                }
-                if (ownsPlayer && !request.isAudio && hadInitial && hasEmittedVideoStart) {
-                    dispatchVideoSync("track_change")
-                }
-            }
-
-            override fun onPositionDiscontinuity(
-                oldPosition: Player.PositionInfo,
-                newPosition: Player.PositionInfo,
-                reason: Int,
-            ) {
-                if (
-                    ownsPlayer &&
-                    !request.isAudio &&
-                    (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)
-                ) {
-                    val targetPos = newPosition.positionMs.coerceAtLeast(0L)
-                    dispatchVideoSync("seek", posOverrideMs = targetPos)
-                }
-            }
-
-            override fun onVideoSizeChanged(videoSize: VideoSize) {
-                if (videoSize.width > 0 && videoSize.height > 0) {
-                    videoAspectRatio = PlaybackPipBridge.computeClampedPipAspectRatio(videoSize.width, videoSize.height)
-                }
-            }
-
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
-                if (ownsPlayer && !request.isAudio) {
-                    val pos = ep.currentPosition.coerceAtLeast(0L)
-                    val dur = ep.duration.coerceAtLeast(0L)
-                    localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
-                    val trigger = when {
-                        playing && !hasEmittedVideoStart -> "start"
-                        playing -> "resume"
-                        else -> "pause"
-                    }
-                    dispatchVideoSync(trigger, posOverrideMs = pos, durOverrideMs = dur, pausedOverride = !playing)
-                }
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED && ownsPlayer && !request.isAudio) {
-                    localHistoryStore.clearResumePosition(instanceUrl, request.server, request.localResumeId)
-                    val dur = ep.duration.coerceAtLeast(0L)
-                    dispatchVideoSync("finish", posOverrideMs = dur, durOverrideMs = dur, pausedOverride = true)
-                    if (hasNextVideoEpisode && !upNextCancelled && !autoAdvancedTriggered) {
-                        autoAdvancedTriggered = true
-                        switchVideoEpisode(request.queueIndex + 1)
-                    }
+                    session.activePreferredAudioLang = choice.language ?: choice.label
+                    ui.tracksVersion++
+                    ui.hudMessage = "音轨：${choice.label}"
                 }
             }
         }
+        ui.showAudioTrackSheet = false
+    }
+}
+
+private fun resolveSubtitleChoices(
+    isMpvActive: Boolean,
+    exoPlayer: ExoPlayer?,
+    mpvSubtitleTracks: List<EngineTrackItem>,
+): List<ResolvedTrackChoice> {
+    val list = mutableListOf<ResolvedTrackChoice>()
+    if (isMpvActive) {
+        val anySelected = mpvSubtitleTracks.any { it.isSelected }
+        list += ResolvedTrackChoice("关闭字幕", null, null, null, -1, !anySelected)
+        mpvSubtitleTracks.forEachIndexed { idx, track ->
+            list += ResolvedTrackChoice(
+                label = track.label,
+                language = track.language,
+                trackId = track.id,
+                group = null,
+                trackIndex = idx,
+                selected = track.isSelected,
+            )
+        }
+        return list
+    }
+    val ep = exoPlayer ?: return list
+    val tracks = ep.currentTracks
+    val isTextDisabled = ep.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+    list += ResolvedTrackChoice("关闭字幕", null, null, null, -1, isTextDisabled)
+    tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.forEachIndexed { gIdx, grp ->
+        for (i in 0 until grp.length) {
+            val fmt = grp.getTrackFormat(i)
+            val label = listOfNotNull(
+                fmt.label?.takeIf { it.isNotBlank() },
+                fmt.language?.takeIf { it.isNotBlank() && it != "und" },
+            ).joinToString(" · ").ifBlank { "字幕轨道 ${gIdx + 1}" }
+            list += ResolvedTrackChoice(
+                label = label,
+                language = fmt.language,
+                trackId = fmt.id,
+                group = grp,
+                trackIndex = i,
+                selected = !isTextDisabled && grp.isTrackSelected(i),
+            )
+        }
+    }
+    return list
+}
+
+private fun resolveAudioChoices(
+    isMpvActive: Boolean,
+    exoPlayer: ExoPlayer?,
+    mpvAudioTracks: List<EngineTrackItem>,
+): List<ResolvedTrackChoice> {
+    val list = mutableListOf<ResolvedTrackChoice>()
+    if (isMpvActive) {
+        mpvAudioTracks.forEachIndexed { idx, track ->
+            list += ResolvedTrackChoice(
+                label = track.label,
+                language = track.language,
+                trackId = track.id,
+                group = null,
+                trackIndex = idx,
+                selected = track.isSelected,
+            )
+        }
+        return list
+    }
+    val ep = exoPlayer ?: return list
+    ep.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.forEachIndexed { gIdx, grp ->
+        for (i in 0 until grp.length) {
+            val fmt = grp.getTrackFormat(i)
+            val ch = if (fmt.channelCount > 0) "${fmt.channelCount}ch" else null
+            val label = listOfNotNull(
+                fmt.label?.takeIf { it.isNotBlank() },
+                fmt.language?.takeIf { it.isNotBlank() && it != "und" },
+                ch,
+            ).joinToString(" · ").ifBlank { "音轨 ${gIdx + 1}" }
+            list += ResolvedTrackChoice(
+                label = label,
+                language = fmt.language,
+                trackId = fmt.id,
+                group = grp,
+                trackIndex = i,
+                selected = grp.isTrackSelected(i),
+            )
+        }
+    }
+    return list
+}
+
+/**
+ * Material 3 Expressive 原生全屏音视频播放器：
+ * - **音频模式**：动态丝绒封面着色、LRC 多时间戳同步歌词、3 秒上一曲规则、随机/循环与延迟解析队列、收起迷你条不误报停止；
+ * - **视频模式**：Media3 硬件/FFmpeg 渲染、4.5 秒控制栏自动隐藏与沉浸式系统栏、三分区双击快进快退/播控、长按 2.0x 触觉加速、
+ *   横竖屏双态锁屏、动态比例自动画中画（PiP）、中文字幕与播前选轨自动匹配、本地断点续播胶囊、5 秒片尾自动连播下一集玻璃卡片及外部播放器唤起。
+ */
+@OptIn(UnstableApi::class)
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NativeMediaPlayerOverlay(
+    request: MediaPlaybackRequest,
+    sharedPlayer: ExoPlayer? = null,
+    instanceUrl: String = "",
+    audioShuffleEnabled: Boolean = false,
+    audioRepeatMode: Int = Player.REPEAT_MODE_OFF,
+    onUpdateAudioShuffle: ((Boolean) -> Unit)? = null,
+    onUpdateAudioRepeatMode: ((Int) -> Unit)? = null,
+    onAudioSkipPrevious: (() -> Unit)? = null,
+    onAudioSkipNext: (() -> Unit)? = null,
+    onClose: () -> Unit,
+    onMinimizeToMiniBar: (() -> Unit)? = null,
+    onSwitchRequest: ((MediaPlaybackRequest) -> Unit)? = null,
+    onMetadataEnriched: ((MediaPlaybackRequest) -> Unit)? = null,
+    repository: MoviePilotRepository? = null,
+    onReportProgress: ((positionMs: Long, durationMs: Long, isPaused: Boolean, state: String) -> Unit)? = null,
+) {
+    val context = LocalContext.current
+    val playbackPrefs = remember(context) { PlaybackPreferencesStore(context) }
+    val localHistoryStore = remember(context) { LocalPlaybackHistoryStore(context) }
+    val danmakuPrefs = remember(context) { DanmakuPreferencesStore(context) }
+    val activity = context as? Activity
+    val initialOrientation = remember(activity) {
+        activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    }
+    val ui = remember {
+        PlayerUiPersistentState(
+            initialResizeMode = playbackPrefs.defaultResizeMode.coerceIn(0, VIDEO_RESIZE_MODES.lastIndex),
+            initialOrientation = initialOrientation,
+            initialInPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && activity?.isInPictureInPictureMode == true,
+            initialShuffle = audioShuffleEnabled,
+            initialRepeatMode = audioRepeatMode,
+            initialDanmakuVisible = danmakuPrefs.enabled,
+        )
+    }
+
+    val initialLocalSavedMs = remember(request.localResumeId, instanceUrl, request.server) {
+        localHistoryStore.readResumePositionMs(instanceUrl, request.server, request.localResumeId)
+    }
+    val bestInitialResumeMs = remember(initialLocalSavedMs, request.resumePositionMs) {
+        LocalPlaybackHistoryStore.resolveBestResumeMs(initialLocalSavedMs, request.resumePositionMs)
+    }
+
+    val ownsPlayer = sharedPlayer == null
+    val enginePlan = remember(
+        request.url,
+        request.isAudio,
+        playbackPrefs.videoEngine,
+        playbackPrefs.decodeMode,
+        playbackPrefs.ignoreAssStyle,
+    ) {
+        AndroidPlaybackEngineRouter.resolvePlan(request, playbackPrefs)
+    }
+    val session = remember(request.url, ownsPlayer) {
+        PlayerSessionState(
+            request = request,
+            ownsPlayer = ownsPlayer,
+            primaryEngineId = enginePlan.primary,
+            bestInitialResumeMs = bestInitialResumeMs,
+        )
+    }
+
+    val isMpvActive = ownsPlayer && !request.isAudio && session.activeEngineKind == ResolvedAndroidEngine.ENHANCED
+    val exoPlayer: ExoPlayer? = remember(request.url, sharedPlayer, isMpvActive) {
+        if (isMpvActive) {
+            null
+        } else {
+            val built = sharedPlayer ?: buildConfiguredExoPlayer(
+                context = context,
+                request = request,
+                resumePositionOverrideMs = session.engineCarryPositionMs,
+                activeStreamProvider = { session.activeStreamRouteRef.get() },
+            )
+            session.positionMs = session.positionMs.coerceAtLeast(built.currentPosition.coerceAtLeast(0L))
+            session.durationMs = (built.duration).coerceAtLeast(1L)
+            built
+        }
+    }
+
+    val speeds = remember(isMpvActive) {
+        if (isMpvActive) listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f) else PLAYER_SUPPORTED_SPEEDS
+    }
+    val isPlayingState = remember(exoPlayer, isMpvActive) {
+        mutableStateOf(exoPlayer?.let { it.isPlaying || it.playWhenReady } ?: true)
+    }
+    val speedIndexState = remember(request.isAudio, isMpvActive) {
+        val targetSpd = if (request.isAudio) 1.0f else playbackPrefs.defaultSpeed
+        val defaultIdx = speeds.indexOfFirst { abs(it - targetSpd) < 0.05f }.takeIf { it >= 0 }
+            ?: speeds.indexOf(1.0f).coerceAtLeast(0)
+        mutableIntStateOf(defaultIdx)
+    }
+    val videoSyncTracker = remember(request.url, request.playSessionId, ownsPlayer) {
+        PlaybackSyncSessionTracker(request.playSessionId.orEmpty())
+    }
+    val hasEmittedVideoStartState = remember(request.url, request.playSessionId, ownsPlayer) {
+        mutableStateOf(false)
+    }
+
+    val latestReportProgressState = rememberUpdatedState(onReportProgress)
+    val latestSwitchRequestState = rememberUpdatedState(onSwitchRequest)
+    val latestCloseState = rememberUpdatedState(onClose)
+    val latestMetadataEnrichedState = rememberUpdatedState(onMetadataEnriched)
+
+    val controller = remember(request, ownsPlayer, exoPlayer, isMpvActive, videoSyncTracker, instanceUrl, repository) {
+        PlayerRuntimeController(
+            context = context,
+            request = request,
+            ownsPlayer = ownsPlayer,
+            instanceUrl = instanceUrl,
+            repository = repository,
+            playbackPrefs = playbackPrefs,
+            localHistoryStore = localHistoryStore,
+            ui = ui,
+            session = session,
+            exoPlayer = exoPlayer,
+            isMpvActive = isMpvActive,
+            speeds = speeds,
+            isPlayingState = isPlayingState,
+            speedIndexState = speedIndexState,
+            hasEmittedVideoStartState = hasEmittedVideoStartState,
+            videoSyncTracker = videoSyncTracker,
+            latestReportProgressState = latestReportProgressState,
+            latestSwitchRequestState = latestSwitchRequestState,
+            latestCloseState = latestCloseState,
+            latestMetadataEnrichedState = latestMetadataEnrichedState,
+        )
+    }
+
+    val canMinimizeAudio = request.isAudio && playbackPrefs.keepMusicMiniBar && onMinimizeToMiniBar != null
+    PlayerBackAndCommonTimersEffect(
+        controller = controller,
+        canMinimizeAudio = canMinimizeAudio,
+        onMinimizeToMiniBar = onMinimizeToMiniBar,
+        onCloseAudio = onClose,
+    )
+    PlayerMpvEngineEffect(controller = controller)
+    PlayerExoEngineEffect(controller = controller)
+    PlayerWindowPipAndSessionEffects(
+        controller = controller,
+        activity = activity,
+        initialOrientation = initialOrientation,
+    )
+    PlayerProgressTickerEffect(controller = controller)
+
+    if (request.isAudio) {
+        NativeAudioPlayerStage(
+            controller = controller,
+            canMinimizeAudio = canMinimizeAudio,
+            audioShuffleEnabled = audioShuffleEnabled,
+            audioRepeatMode = audioRepeatMode,
+            onUpdateAudioShuffle = onUpdateAudioShuffle,
+            onUpdateAudioRepeatMode = onUpdateAudioRepeatMode,
+            onAudioSkipPrevious = onAudioSkipPrevious,
+            onAudioSkipNext = onAudioSkipNext,
+            onClose = onClose,
+            onMinimizeToMiniBar = onMinimizeToMiniBar,
+            onSwitchRequest = onSwitchRequest,
+        )
+        return
+    }
+
+    NativeVideoPlayerStage(
+        controller = controller,
+        activity = activity,
+        danmakuPrefs = danmakuPrefs,
+    )
+    VideoDanmakuHost(
+        controller = controller,
+        danmakuPrefs = danmakuPrefs,
+    )
+}
+
+@Composable
+private fun PlayerBackAndCommonTimersEffect(
+    controller: PlayerRuntimeController,
+    canMinimizeAudio: Boolean,
+    onMinimizeToMiniBar: (() -> Unit)?,
+    onCloseAudio: () -> Unit,
+) {
+    val ui = controller.ui
+    val session = controller.session
+    val request = controller.request
+
+    BackHandler(enabled = ui.isLocked) {
+        ui.controlsVisible = true
+        ui.bumpInteraction()
+        ui.hudMessage = "屏幕已锁定，请点击右侧锁图标解锁"
+    }
+    BackHandler(enabled = !ui.isLocked) {
+        if (canMinimizeAudio) {
+            onMinimizeToMiniBar?.invoke()
+        } else if (request.isAudio) {
+            onCloseAudio()
+        } else {
+            controller.closeVideoCleanly()
+        }
+    }
+
+    LaunchedEffect(session.resumeBannerPositionMs) {
+        if (session.resumeBannerPositionMs != null) {
+            delay(6_000L)
+            session.resumeBannerPositionMs = null
+        }
+    }
+
+    val isNotDragging = ui.draggingProgress < 0f
+    LaunchedEffect(
+        request.isAudio,
+        ui.controlsVisible,
+        controller.isPlaying,
+        isNotDragging,
+        ui.anySheetOpen,
+        ui.isLongPressBoost,
+        ui.lastInteractionTick,
+    ) {
+        if (!request.isAudio && ui.controlsVisible && controller.isPlaying && isNotDragging && !ui.anySheetOpen && !ui.isLongPressBoost) {
+            delay(4_500L)
+            ui.controlsVisible = false
+        }
+    }
+
+    LaunchedEffect(ui.hudMessage) {
+        if (ui.hudMessage != null) {
+            delay(1400L)
+            ui.hudMessage = null
+        }
+    }
+}
+
+@Composable
+private fun PlayerMpvEngineEffect(controller: PlayerRuntimeController) {
+    val request = controller.request
+    val session = controller.session
+    val ui = controller.ui
+    DisposableEffect(request.url, controller.isMpvActive) {
+        if (!controller.isMpvActive) {
+            session.mpvEngineHolder = null
+            return@DisposableEffect onDispose {}
+        }
+        val engine = MpvPlaybackEngine(
+            context = controller.context,
+            request = request,
+            prefs = controller.playbackPrefs,
+            initialStartPositionMs = session.engineCarryPositionMs,
+            activeStreamRouteRef = session.activeStreamRouteRef,
+            onStateSnapshot = { playing, pos, dur ->
+                controller.isPlaying = playing
+                session.positionMs = pos.coerceAtLeast(0L)
+                if (dur > 0L) session.durationMs = dur
+                if (playing && !controller.hasEmittedVideoStart && pos > 0L) {
+                    controller.dispatchVideoSync("start", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = false)
+                }
+            },
+            onVideoSizeChanged = { w, h ->
+                ui.videoAspectRatio = PlaybackPipBridge.computeClampedPipAspectRatio(w, h)
+            },
+            onTracksUpdated = { audio, subs ->
+                session.mpvAudioTracks = audio
+                session.mpvSubtitleTracks = subs
+                ui.tracksVersion++
+            },
+            onEnded = {
+                controller.localHistoryStore.clearResumePosition(controller.instanceUrl, request.server, request.localResumeId)
+                val dur = controller.activeDurationMs()
+                controller.dispatchVideoSync("finish", posOverrideMs = dur, durOverrideMs = dur, pausedOverride = true)
+                if (controller.hasNextVideoEpisode && !session.upNextCancelled && !session.autoAdvancedTriggered) {
+                    session.autoAdvancedTriggered = true
+                    controller.switchVideoEpisode(request.queueIndex + 1)
+                }
+            },
+            onError = { _ ->
+                val curPos = controller.activeCurrentPositionMs()
+                if (curPos <= 3_000L && session.mpvFallbackRoutes.isNotEmpty()) {
+                    val failedKind = session.currentRouteKind
+                    val failedUrl = session.activeStreamRouteRef.get().first
+                    if (failedKind == "server_lan" || failedKind == "server_wan") {
+                        controller.repository?.playbackRouteResolver?.markRouteFailed(request.server, failedUrl)
+                    }
+                    while (session.mpvFallbackRoutes.isNotEmpty()) {
+                        val nextRoute = session.mpvFallbackRoutes.removeFirst()
+                        if (nextRoute.url.isBlank() || nextRoute.url == failedUrl) continue
+                        session.currentRouteKind = nextRoute.kind
+                        session.mpvEngineHolder?.reloadWithRoute(nextRoute.url, nextRoute.headers)
+                        return@MpvPlaybackEngine
+                    }
+                }
+                if (controller.playbackPrefs.videoEngine == "auto" && !session.didAutoFallbackEngine && curPos <= 3_000L) {
+                    session.didAutoFallbackEngine = true
+                    controller.switchVideoEngine(ResolvedAndroidEngine.NATIVE, "已自动切换至 Media3 原生内核")
+                    return@MpvPlaybackEngine
+                }
+                session.playbackLoadFailed = true
+                controller.isPlaying = false
+                ui.hudMessage = "无法加载当前媒体流，请检查网络或在右上角菜单切换内核重试"
+            },
+        )
+        engine.setResizeMode(ui.resizeModeIndex)
+        session.mpvEngineHolder = engine
+        onDispose {
+            val isEngineSwitch = session.suppressStopForEngineSwitchRef.compareAndSet(true, false)
+            val pos = engine.positionMs.coerceAtLeast(0L)
+            val dur = engine.durationMs.coerceAtLeast(0L)
+            if (!isEngineSwitch) {
+                controller.localHistoryStore.recordPlaybackProgress(controller.instanceUrl, request.server, request.localResumeId, pos, dur)
+                controller.dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
+            }
+            if (session.mpvEngineHolder === engine) {
+                session.mpvEngineHolder = null
+            }
+            engine.release()
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun PlayerExoEngineEffect(controller: PlayerRuntimeController) {
+    val ep = controller.exoPlayer
+    val request = controller.request
+    val session = controller.session
+    val ui = controller.ui
+    val nightModeEffect = remember(ep) { AudioNightModeEffect() }
+
+    LaunchedEffect(request.url, request.isAudio) {
+        if (!request.isAudio || !EmbeddedAudioMetadataFetcher.needsExtraction(request)) {
+            return@LaunchedEffect
+        }
+        val fetched = EmbeddedAudioMetadataFetcher.fetchEmbeddedMetadata(controller.context, request)
+        if (fetched != null) {
+            session.embeddedAudioMeta = fetched
+            controller.notifyMetadataEnriched(EmbeddedAudioMetadataFetcher.applyToRequest(request, fetched))
+        }
+    }
+
+    DisposableEffect(ep, controller.ownsPlayer, request.url) {
+        if (ep == null) return@DisposableEffect onDispose {}
+        val fallbackQueue = buildFallbackRoutesDeque(request)
+        nightModeEffect.apply(ep.audioSessionId, controller.playbackPrefs.audioNightMode)
+        val listener = createExoOverlayListener(controller, ep, nightModeEffect, fallbackQueue)
         ep.addListener(listener)
         if (ep.currentTracks.groups.isNotEmpty()) {
-            applyInitialTrackPreferencesIfReady(ep.currentTracks)
+            controller.applyInitialTrackPreferencesIfReady(ep.currentTracks)
         }
         onDispose {
             ep.removeListener(listener)
             nightModeEffect.release()
-            // 仅在播放器归属当前页面时释放；内核热切换期间跳过 `stopped` 上报以保持媒体服务器会话连续
-            if (ownsPlayer) {
-                val isEngineSwitch = suppressStopForEngineSwitchRef.compareAndSet(true, false)
+            if (controller.ownsPlayer) {
+                val isEngineSwitch = session.suppressStopForEngineSwitchRef.compareAndSet(true, false)
                 val pos = ep.currentPosition.coerceAtLeast(0L)
                 val dur = ep.duration.coerceAtLeast(0L)
                 if (!isEngineSwitch) {
-                    localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
+                    controller.localHistoryStore.recordPlaybackProgress(controller.instanceUrl, request.server, request.localResumeId, pos, dur)
                     if (!request.isAudio) {
-                        dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
+                        controller.dispatchVideoSync("stop", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = true)
                     }
                 }
                 ep.release()
             }
         }
     }
+}
 
-    // 应用退到后台（ON_PAUSE / ON_STOP）时主动上报一次进度并记录本地续播点，避免切换应用或进程回收丢进度
+@OptIn(UnstableApi::class)
+private fun createExoOverlayListener(
+    controller: PlayerRuntimeController,
+    ep: ExoPlayer,
+    nightModeEffect: AudioNightModeEffect,
+    fallbackQueue: ArrayDeque<PlaybackRouteDto>,
+): Player.Listener {
+    val request = controller.request
+    val session = controller.session
+    val ui = controller.ui
+
+    fun extractLiveAudioMetaIfNeeded() {
+        val currentDisplay = EmbeddedAudioMetadataFetcher.applyToRequest(request, session.embeddedAudioMeta)
+        if (!request.isAudio || !EmbeddedAudioMetadataFetcher.needsExtraction(currentDisplay)) return
+        val liveMeta = EmbeddedAudioMetadataFetcher.extractFromExoPlayer(
+            context = controller.context,
+            player = ep,
+            cacheKey = request.localResumeId.ifBlank { request.url },
+        ) ?: return
+        val prev = session.embeddedAudioMeta
+        val mergedMeta = ResolvedEmbeddedAudioMetadata(
+            title = prev?.title ?: liveMeta.title,
+            artist = prev?.artist ?: liveMeta.artist,
+            album = prev?.album ?: liveMeta.album,
+            lyrics = prev?.lyrics ?: liveMeta.lyrics,
+            artworkFileUri = prev?.artworkFileUri ?: liveMeta.artworkFileUri,
+            artworkBytes = prev?.artworkBytes ?: liveMeta.artworkBytes,
+        )
+        session.embeddedAudioMeta = mergedMeta
+        controller.notifyMetadataEnriched(EmbeddedAudioMetadataFetcher.applyToRequest(request, mergedMeta))
+    }
+
+    return object : Player.Listener {
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            nightModeEffect.apply(audioSessionId, controller.playbackPrefs.audioNightMode)
+        }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            if (!controller.ownsPlayer || ep.currentPosition > 3_000L) return
+            val isDecoderOrFormatError = error.errorCode in setOf(
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+            )
+            if (
+                isDecoderOrFormatError &&
+                !request.isAudio &&
+                session.activeEngineKind == ResolvedAndroidEngine.NATIVE &&
+                !session.didAutoFallbackEngine
+            ) {
+                session.didAutoFallbackEngine = true
+                controller.switchVideoEngine(
+                    ResolvedAndroidEngine.ENHANCED,
+                    "当前格式不兼容，已自动切换至 ${ResolvedAndroidEngine.ENHANCED.displayName}",
+                )
+                return
+            }
+            val failedKind = session.currentRouteKind
+            val failedUrl = session.activeStreamRouteRef.get().first
+            if (failedKind == "server_lan" || failedKind == "server_wan") {
+                controller.repository?.playbackRouteResolver?.markRouteFailed(request.server, failedUrl)
+            }
+            while (fallbackQueue.isNotEmpty()) {
+                val nextRoute = fallbackQueue.removeFirst()
+                if (nextRoute.url.isBlank() || nextRoute.url == failedUrl) continue
+                session.activeStreamRouteRef.set(nextRoute.url to nextRoute.headers)
+                session.currentRouteKind = nextRoute.kind
+                val curMeta = ep.currentMediaItem?.mediaMetadata ?: MediaMetadata.EMPTY
+                val curSubs = ep.currentMediaItem?.localConfiguration?.subtitleConfigurations.orEmpty()
+                val fallbackItem = MediaItem.Builder()
+                    .setUri(Uri.parse(nextRoute.url))
+                    .setMediaMetadata(curMeta)
+                    .setSubtitleConfigurations(curSubs)
+                    .build()
+                ep.setMediaItem(fallbackItem)
+                ep.prepare()
+                ep.playWhenReady = true
+                return
+            }
+            if (!request.isAudio && controller.playbackPrefs.videoEngine == "auto" && !session.didAutoFallbackEngine) {
+                session.didAutoFallbackEngine = true
+                controller.switchVideoEngine(
+                    ResolvedAndroidEngine.ENHANCED,
+                    "当前格式不兼容，已自动切换至 ${ResolvedAndroidEngine.ENHANCED.displayName}",
+                )
+                return
+            }
+            session.playbackLoadFailed = true
+            controller.isPlaying = false
+            ui.hudMessage = "无法加载当前媒体流，请检查网络或在右上角菜单切换内核重试"
+        }
+
+        override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+            extractLiveAudioMetaIfNeeded()
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            val hadInitial = session.appliedInitialTracks
+            ui.tracksVersion++
+            controller.applyInitialTrackPreferencesIfReady(tracks)
+            extractLiveAudioMetaIfNeeded()
+            if (controller.ownsPlayer && !request.isAudio && hadInitial && controller.hasEmittedVideoStart) {
+                controller.dispatchVideoSync("track_change")
+            }
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
+            if (
+                controller.ownsPlayer &&
+                !request.isAudio &&
+                (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)
+            ) {
+                controller.dispatchVideoSync("seek", posOverrideMs = newPosition.positionMs.coerceAtLeast(0L))
+            }
+        }
+
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            if (videoSize.width > 0 && videoSize.height > 0) {
+                ui.videoAspectRatio = PlaybackPipBridge.computeClampedPipAspectRatio(videoSize.width, videoSize.height)
+            }
+        }
+
+        override fun onIsPlayingChanged(playing: Boolean) {
+            controller.isPlaying = playing
+            if (controller.ownsPlayer && !request.isAudio) {
+                val pos = ep.currentPosition.coerceAtLeast(0L)
+                val dur = ep.duration.coerceAtLeast(0L)
+                controller.localHistoryStore.recordPlaybackProgress(controller.instanceUrl, request.server, request.localResumeId, pos, dur)
+                val trigger = when {
+                    playing && !controller.hasEmittedVideoStart -> "start"
+                    playing -> "resume"
+                    else -> "pause"
+                }
+                controller.dispatchVideoSync(trigger, posOverrideMs = pos, durOverrideMs = dur, pausedOverride = !playing)
+            }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED && controller.ownsPlayer && !request.isAudio) {
+                controller.localHistoryStore.clearResumePosition(controller.instanceUrl, request.server, request.localResumeId)
+                val dur = ep.duration.coerceAtLeast(0L)
+                controller.dispatchVideoSync("finish", posOverrideMs = dur, durOverrideMs = dur, pausedOverride = true)
+                if (controller.hasNextVideoEpisode && !session.upNextCancelled && !session.autoAdvancedTriggered) {
+                    session.autoAdvancedTriggered = true
+                    controller.switchVideoEpisode(request.queueIndex + 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerWindowPipAndSessionEffects(
+    controller: PlayerRuntimeController,
+    activity: Activity?,
+    initialOrientation: Int,
+) {
+    val hostView = LocalView.current
+    val request = controller.request
+    val ui = controller.ui
+    val session = controller.session
+
+    DisposableEffect(activity, hostView, request.isAudio, ui.controlsVisible, ui.isInPipMode) {
+        val window = activity?.window
+        val insetsController = if (window != null) WindowCompat.getInsetsController(window, hostView) else null
+        if (!request.isAudio && insetsController != null) {
+            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (!ui.controlsVisible && !ui.isInPipMode) {
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose {
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    DisposableEffect(hostView, activity, request.isAudio) {
+        val prevKeepScreenOn = hostView.keepScreenOn
+        if (!request.isAudio) {
+            hostView.keepScreenOn = true
+        }
+        val compActivity = activity as? ComponentActivity
+        val pipListener = Consumer<PictureInPictureModeChangedInfo> { info ->
+            ui.isInPipMode = info.isInPictureInPictureMode
+            if (info.isInPictureInPictureMode) {
+                ui.dismissSheetsOnPipEnter()
+            }
+            ui.danmakuOverlayRef?.syncPlayback(
+                positionMs = controller.activeCurrentPositionMs(),
+                playing = controller.activeIsPlaying(),
+                rate = controller.currentSelectedSpeed,
+                inPip = info.isInPictureInPictureMode,
+            )
+        }
+        compActivity?.addOnPictureInPictureModeChangedListener(pipListener)
+        onDispose {
+            compActivity?.removeOnPictureInPictureModeChangedListener(pipListener)
+            PlaybackPipBridge.onUserLeaveHintCallback = null
+            if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !request.isAudio) {
+                runCatching {
+                    activity.setPictureInPictureParams(
+                        PictureInPictureParams.Builder().setAutoEnterEnabled(false).build(),
+                    )
+                }
+            }
+            hostView.keepScreenOn = prevKeepScreenOn
+            if (activity != null) {
+                if (!request.isAudio) {
+                    activity.requestedOrientation = initialOrientation
+                }
+                val lp = activity.window.attributes
+                if (lp.screenBrightness >= 0f) {
+                    lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    activity.window.attributes = lp
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(activity, request.isAudio, controller.isPlaying, controller.playbackPrefs.autoPip, ui.videoAspectRatio) {
+        if (activity == null || request.isAudio) {
+            PlaybackPipBridge.onUserLeaveHintCallback = null
+            return@LaunchedEffect
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PlaybackPipBridge.onUserLeaveHintCallback = null
+            runCatching {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(ui.videoAspectRatio)
+                    .setAutoEnterEnabled(controller.isPlaying && controller.playbackPrefs.autoPip)
+                    .build()
+                activity.setPictureInPictureParams(params)
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PlaybackPipBridge.onUserLeaveHintCallback = {
+                if (controller.activeIsPlaying() && controller.playbackPrefs.autoPip && !activity.isInPictureInPictureMode) {
+                    runCatching {
+                        val params = PictureInPictureParams.Builder()
+                            .setAspectRatio(ui.videoAspectRatio)
+                            .build()
+                        activity.enterPictureInPictureMode(params)
+                    }
+                }
+            }
+        }
+    }
+
+    val sessionBridgePlayer: Player? = if (controller.isMpvActive) session.mpvEngineHolder?.sessionPlayer else controller.exoPlayer
+    DisposableEffect(sessionBridgePlayer, controller.ownsPlayer, request.isAudio, request.queueIndex, request.queue.size) {
+        if (controller.ownsPlayer && !request.isAudio && sessionBridgePlayer != null) {
+            PlaybackServiceBridge.attachActivePlayer(
+                context = controller.context,
+                exoPlayer = sessionBridgePlayer,
+                canSkipPrevious = { controller.activeCurrentPositionMs() > 3_000L || controller.hasPrevVideoEpisode },
+                canSkipNext = { controller.hasNextVideoEpisode },
+                onSkipPrevious = {
+                    if (controller.activeCurrentPositionMs() > 3_000L || !controller.hasPrevVideoEpisode) {
+                        controller.activeSeekTo(0L)
+                    } else {
+                        controller.switchVideoEpisode(request.queueIndex - 1)
+                    }
+                },
+                onSkipNext = {
+                    if (controller.hasNextVideoEpisode) {
+                        controller.switchVideoEpisode(request.queueIndex + 1)
+                    }
+                },
+            )
+        }
+        onDispose {
+            if (controller.ownsPlayer && sessionBridgePlayer != null) {
+                PlaybackServiceBridge.detachIfMatching(sessionBridgePlayer)
+            }
+        }
+    }
+
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, ownsPlayer, request.url) {
+    DisposableEffect(lifecycleOwner, controller.ownsPlayer, request.url) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if ((event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) &&
-                ownsPlayer && !request.isAudio
+                controller.ownsPlayer && !request.isAudio
             ) {
-                val pos = activeCurrentPositionMs().coerceAtLeast(0L)
-                val dur = activeDurationMs().coerceAtLeast(0L)
+                val pos = controller.activeCurrentPositionMs().coerceAtLeast(0L)
+                val dur = controller.activeDurationMs().coerceAtLeast(0L)
                 if (pos > 0L) {
-                    localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, pos, dur)
-                    dispatchVideoSync("background", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = !activeIsPlaying())
+                    controller.localHistoryStore.recordPlaybackProgress(controller.instanceUrl, request.server, request.localResumeId, pos, dur)
+                    controller.dispatchVideoSync("background", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = !controller.activeIsPlaying())
                 }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+}
 
-    // 400ms 刷新界面进度，每 3 轮（~1.2s）驱动一次共享状态机（播放 10s 心跳 / 暂停 12s 保活 / 15 分钟自动释放）
-    LaunchedEffect(exoPlayer, mpvEngineHolder, isMpvActive, ownsPlayer, request.url) {
+@Composable
+private fun PlayerProgressTickerEffect(controller: PlayerRuntimeController) {
+    val request = controller.request
+    val session = controller.session
+    val ui = controller.ui
+    LaunchedEffect(controller.exoPlayer, session.mpvEngineHolder, controller.isMpvActive, controller.ownsPlayer, request.url) {
         var tick = 0
         while (true) {
-            isPlaying = activeIsPlaying()
-            positionMs = activeCurrentPositionMs().coerceAtLeast(0L)
-            durationMs = activeDurationMs().coerceAtLeast(1L)
+            val playing = controller.activeIsPlaying()
+            val pos = controller.activeCurrentPositionMs().coerceAtLeast(0L)
+            val dur = controller.activeDurationMs().coerceAtLeast(1L)
+            controller.isPlaying = playing
+            session.positionMs = pos
+            session.durationMs = dur
             if (!request.isAudio && request.danmakuEnabled) {
-                val activeRate = if (isLongPressBoost) 2.0f else speeds[speedIndex.coerceIn(0, speeds.lastIndex)]
-                danmakuOverlayRef?.syncPlayback(
-                    positionMs = positionMs,
-                    playing = isPlaying,
+                val activeRate = if (ui.isLongPressBoost) 2.0f else controller.currentSelectedSpeed
+                ui.danmakuOverlayRef?.syncPlayback(
+                    positionMs = pos,
+                    playing = playing,
                     rate = activeRate,
-                    inPip = isInPipMode,
+                    inPip = ui.isInPipMode,
                 )
             }
             tick++
-            if (ownsPlayer && !request.isAudio && (durationMs > 1L || positionMs > 0L)) {
+            if (controller.ownsPlayer && !request.isAudio && (dur > 1L || pos > 0L)) {
                 if (tick % 3 == 0) {
-                    dispatchVideoSync("tick", posOverrideMs = positionMs, durOverrideMs = durationMs, pausedOverride = !isPlaying)
+                    controller.dispatchVideoSync("tick", posOverrideMs = pos, durOverrideMs = dur, pausedOverride = !playing)
                 }
                 if (tick % 25 == 0) {
-                    localHistoryStore.recordPlaybackProgress(instanceUrl, request.server, request.localResumeId, positionMs, durationMs)
+                    controller.localHistoryStore.recordPlaybackProgress(controller.instanceUrl, request.server, request.localResumeId, pos, dur)
                 }
             }
             delay(400L)
         }
     }
+}
 
-    LaunchedEffect(hudMessage) {
-        if (hudMessage != null) {
-            delay(1400L)
-            hudMessage = null
-        }
-    }
-
-    suspend fun rebuildDanmakuTimelineOnWorker(rawJson: String) {
-        val options = danmakuPrefs.toFilterOptions(danmakuShiftMs.toLong())
-        val prepared = withContext(Dispatchers.Default) {
-            RustCoreBridge.prepareDanmakuTimeline(rawJson, options)
-        }
-        danmakuTotalCount = prepared.items.size
-        danmakuOverlayRef?.let { overlay ->
-            overlay.applyPreferences(danmakuPrefs)
-            overlay.loadTimeline(prepared.items, activeCurrentPositionMs())
-            overlay.syncPlayback(
-                positionMs = activeCurrentPositionMs(),
-                playing = activeIsPlaying(),
-                rate = speeds[speedIndex.coerceIn(0, speeds.lastIndex)],
-                inPip = isInPipMode,
-            )
-        }
-    }
-
-    suspend fun loadDanmakuEpisodeComments(epId: Long, forceRefresh: Boolean = false) {
-        val repo = repository ?: return
-        val res = withContext(Dispatchers.IO) {
-            repo.fetchDanmakuComments(epId, forceRefresh = forceRefresh)
-        }
-        res.onSuccess { payload ->
-            danmakuRawJson = payload.rawJson
-            rebuildDanmakuTimelineOnWorker(payload.rawJson)
-        }
-    }
-
-    // 视频起播后异步匹配并拉取弹幕（零阻塞主播放流）
-    LaunchedEffect(request.itemId, request.server, request.danmakuEnabled, request.isAudio, repository) {
-        if (request.isAudio || !request.danmakuEnabled || repository == null) {
-            danmakuOverlayRef?.stopAndClear()
-            return@LaunchedEffect
-        }
-        val matchRes = withContext(Dispatchers.IO) {
-            repository.matchDanmaku(
-                itemId = request.itemId.ifBlank { null },
-                server = request.server.ifBlank { null },
-                title = request.title.ifBlank { null },
-                seriesName = request.seriesName,
-                seasonNumber = request.seasonNumber,
-                episodeNumber = request.episodeNumber,
-                year = request.year,
-                tmdbId = request.tmdbId,
-                fileName = request.fileName,
-                fileSize = request.fileSize,
-                durationMs = durationMs.takeIf { it > 1_000L },
-            )
-        }
-        matchRes.onSuccess { resp ->
-            danmakuFromBinding = resp.fromBinding
-            danmakuCandidates = resp.candidates
-            danmakuShiftMs = resp.shiftMs
-            val ep = resp.episode
-            if (resp.matched && ep != null && ep.episodeId > 0L) {
-                danmakuEpisodeId = ep.episodeId
-                danmakuAnimeId = ep.animeId
-                danmakuAnimeTitle = ep.animeTitle
-                danmakuEpisodeTitle = ep.episodeTitle
-                loadDanmakuEpisodeComments(ep.episodeId, forceRefresh = false)
-            } else {
-                danmakuEpisodeId = null
-                danmakuRawJson = null
-                danmakuTotalCount = 0
-                danmakuOverlayRef?.stopAndClear()
-            }
-        }
-    }
-
-    // 弹幕偏好或偏移调整时实时重算时间轴与视图配置
-    LaunchedEffect(danmakuPrefsVersion, danmakuVisible, danmakuOverlayRef) {
-        if (request.isAudio || !request.danmakuEnabled) return@LaunchedEffect
-        danmakuOverlayRef?.applyPreferences(danmakuPrefs)
-        val raw = danmakuRawJson
-        if (!raw.isNullOrBlank()) {
-            rebuildDanmakuTimelineOnWorker(raw)
-        }
-    }
-
-    val activeLrcIdx = remember(positionMs, lrcLines) {
-        lrcLines.indexOfLast { it.timeMs <= positionMs }.coerceAtLeast(0)
-    }
-    LaunchedEffect(activeLrcIdx, lrcLines.size, showLyricsView) {
-        if (request.isAudio && showLyricsView && lrcLines.isNotEmpty()) {
-            lrcListState.animateScrollToItem((activeLrcIdx - 2).coerceAtLeast(0))
-        }
-    }
-
-    val subtitleChoices = remember(tracksVersion, exoPlayer, mpvSubtitleTracks, isMpvActive) {
-        val list = mutableListOf<ResolvedTrackChoice>()
-        if (isMpvActive) {
-            val anySelected = mpvSubtitleTracks.any { it.isSelected }
-            list += ResolvedTrackChoice("关闭字幕", null, null, null, -1, !anySelected)
-            mpvSubtitleTracks.forEachIndexed { idx, track ->
-                list += ResolvedTrackChoice(
-                    label = track.label,
-                    language = track.language,
-                    trackId = track.id,
-                    group = null,
-                    trackIndex = idx,
-                    selected = track.isSelected,
-                )
-            }
-            return@remember list
-        }
-        val ep = exoPlayer ?: return@remember list
-        val tracks = ep.currentTracks
-        val isTextDisabled = ep.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-        list += ResolvedTrackChoice("关闭字幕", null, null, null, -1, isTextDisabled)
-        tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.forEachIndexed { gIdx, grp ->
-            for (i in 0 until grp.length) {
-                val fmt = grp.getTrackFormat(i)
-                val label = listOfNotNull(
-                    fmt.label?.takeIf { it.isNotBlank() },
-                    fmt.language?.takeIf { it.isNotBlank() && it != "und" },
-                ).joinToString(" · ").ifBlank { "字幕轨道 ${gIdx + 1}" }
-                list += ResolvedTrackChoice(
-                    label = label,
-                    language = fmt.language,
-                    trackId = fmt.id,
-                    group = grp,
-                    trackIndex = i,
-                    selected = !isTextDisabled && grp.isTrackSelected(i),
-                )
-            }
-        }
-        list
-    }
-    val audioChoices = remember(tracksVersion, exoPlayer, mpvAudioTracks, isMpvActive) {
-        val list = mutableListOf<ResolvedTrackChoice>()
-        if (isMpvActive) {
-            mpvAudioTracks.forEachIndexed { idx, track ->
-                list += ResolvedTrackChoice(
-                    label = track.label,
-                    language = track.language,
-                    trackId = track.id,
-                    group = null,
-                    trackIndex = idx,
-                    selected = track.isSelected,
-                )
-            }
-            return@remember list
-        }
-        val ep = exoPlayer ?: return@remember list
-        ep.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.forEachIndexed { gIdx, grp ->
-            for (i in 0 until grp.length) {
-                val fmt = grp.getTrackFormat(i)
-                val ch = if (fmt.channelCount > 0) "${fmt.channelCount}ch" else null
-                val label = listOfNotNull(
-                    fmt.label?.takeIf { it.isNotBlank() },
-                    fmt.language?.takeIf { it.isNotBlank() && it != "und" },
-                    ch,
-                ).joinToString(" · ").ifBlank { "音轨 ${gIdx + 1}" }
-                list += ResolvedTrackChoice(
-                    label = label,
-                    language = fmt.language,
-                    trackId = fmt.id,
-                    group = grp,
-                    trackIndex = i,
-                    selected = grp.isTrackSelected(i),
-                )
-            }
-        }
-        list
-    }
-
-    val progress = (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-    val displayPositionMs = if (draggingProgress >= 0f) (draggingProgress * durationMs).toLong() else positionMs
-    val rightDurationLabel = if (showRemainingTime && durationMs > 1_000L) {
-        "-${formatDurationMs((durationMs - displayPositionMs).coerceAtLeast(0L))}"
-    } else {
-        formatDurationMs(durationMs)
-    }
-
-    @Composable
-    fun ResumeFromHistoryBanner(modifier: Modifier = Modifier) {
-        val savedMs = resumeBannerPositionMs ?: return
-        Surface(
-            shape = CircleShape,
-            color = Color(0xDD171B26),
-            modifier = modifier
-                .border(0.8.dp, Color.White.copy(alpha = 0.18f), CircleShape),
+@Composable
+private fun ResumeFromHistoryBanner(
+    savedMs: Long?,
+    onRestartFromZero: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (savedMs == null) return
+    val colors = LocalMoviePilotColors.current
+    Surface(
+        shape = CircleShape,
+        color = Color(0xDD171B26),
+        modifier = modifier
+            .border(0.8.dp, Color.White.copy(alpha = 0.18f), CircleShape),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Icon(Icons.Rounded.Replay, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
+            Text(
+                text = "已从 ${formatDurationMs(savedMs)} 继续播放",
+                color = Color.White,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Surface(
+                onClick = onRestartFromZero,
+                shape = CircleShape,
+                color = colors.accent,
             ) {
-                Icon(Icons.Rounded.Replay, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
                 Text(
-                    text = "已从 ${formatDurationMs(savedMs)} 继续播放",
-                    color = Color.White,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Medium,
+                    text = "从头开始",
+                    color = colors.primaryButtonFg,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                 )
-                Surface(
-                    onClick = {
-                        activeSeekTo(0L)
-                        localHistoryStore.clearResumePosition(instanceUrl, request.server, request.localResumeId)
-                        resumeBannerPositionMs = null
-                        hudMessage = "已从头开始播放"
-                    },
-                    shape = CircleShape,
-                    color = colors.accent,
-                ) {
-                    Text(
-                        text = "从头开始",
-                        color = colors.primaryButtonFg,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    )
-                }
-                IconButton(onClick = { resumeBannerPositionMs = null }, modifier = Modifier.size(22.dp)) {
-                    Icon(Icons.Rounded.Close, contentDescription = "关闭提示", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
-                }
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.size(22.dp)) {
+                Icon(Icons.Rounded.Close, contentDescription = "关闭提示", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
             }
         }
     }
+}
 
-    @Composable
-    fun SpeedSelectorBottomSheet() {
-        if (!showSpeedSheet) return
-        NativeGlassSheet(onDismissRequest = { showSpeedSheet = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SpeedSelectorBottomSheet(
+    visible: Boolean,
+    speeds: List<Float>,
+    selectedIndex: Int,
+    onSelectSpeed: (Int, Float) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    val colors = LocalMoviePilotColors.current
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("选择播放倍速", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("选择播放倍速", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    itemsIndexed(speeds) { idx, spd ->
-                        val selected = idx == speedIndex
-                        val label = if (abs(spd - 1.0f) < 0.01f) "1.0x（正常原速）" else "${spd}x"
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(if (selected) colors.activeIndicator else colors.surfaceContainerLow)
-                                .clickable {
-                                    speedIndex = idx
-                                    activeSetSpeed(spd)
-                                    hudMessage = "倍速：${spd}x"
-                                    showSpeedSheet = false
-                                }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                text = label,
-                                color = colors.textPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            )
-                            if (selected) {
-                                Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-            }
-        }
-    }
-
-    @Composable
-    fun EngineSelectorBottomSheet() {
-        if (!showEngineSheet || request.isAudio || !ownsPlayer) return
-        val options = listOf(
-            Triple(
-                ResolvedAndroidEngine.NATIVE,
-                "Media3 原生",
-                "系统硬解省电秒开，支持原生画中画与 SurfaceView/TextureView",
-            ),
-            Triple(
-                ResolvedAndroidEngine.ENHANCED,
-                "MPV 全能",
-                "libmpv 全格式内核，支持视频软解、完整 ASS 动漫特效与 PGS 蓝光字幕",
-            ),
-        )
-        NativeGlassSheet(onDismissRequest = { showEngineSheet = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text("切换播放内核", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "切换时自动保留当前进度且不中断媒体服务器正在播放状态",
-                    color = colors.textSecondary,
-                    fontSize = 12.5.sp,
-                )
-                val routeSummary = if (request.server.isNotBlank()) formatPlaybackRouteSummary(currentRouteKind) else null
-                if (routeSummary != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(colors.surfaceContainerLow)
-                            .padding(horizontal = 16.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("播放方式", color = colors.textSecondary, fontSize = 13.5.sp)
-                        Text(routeSummary, color = colors.textPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-                options.forEach { (kind, title, desc) ->
-                    val selected = activeEngineKind == kind
+                itemsIndexed(speeds) { idx, spd ->
+                    val selected = idx == selectedIndex
+                    val label = if (abs(spd - 1.0f) < 0.01f) "1.0x（正常原速）" else "${spd}x"
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
                             .background(if (selected) colors.activeIndicator else colors.surfaceContainerLow)
-                            .clickable {
-                                showEngineSheet = false
-                                switchVideoEngine(kind)
-                            }
-                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                            .clickable { onSelectSpeed(idx, spd) }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(
-                                text = title,
-                                color = colors.textPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            )
-                            Text(text = desc, color = colors.textSecondary, fontSize = 12.sp)
-                        }
+                        Text(
+                            text = label,
+                            color = colors.textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        )
                         if (selected) {
                             Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EngineSelectorBottomSheet(
+    visible: Boolean,
+    activeEngineKind: ResolvedAndroidEngine,
+    routeSummary: String?,
+    onSelectEngine: (ResolvedAndroidEngine) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    val colors = LocalMoviePilotColors.current
+    val options = listOf(
+        Triple(
+            ResolvedAndroidEngine.NATIVE,
+            "Media3 原生",
+            "系统硬解省电秒开，支持原生画中画与 SurfaceView/TextureView",
+        ),
+        Triple(
+            ResolvedAndroidEngine.ENHANCED,
+            "MPV 全能",
+            "libmpv 全格式内核，支持视频软解、完整 ASS 动漫特效与 PGS 蓝光字幕",
+        ),
+    )
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("切换播放内核", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "切换时自动保留当前进度且不中断媒体服务器正在播放状态",
+                color = colors.textSecondary,
+                fontSize = 12.5.sp,
+            )
+            if (routeSummary != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(colors.surfaceContainerLow)
+                        .padding(horizontal = 16.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("播放方式", color = colors.textSecondary, fontSize = 13.5.sp)
+                    Text(routeSummary, color = colors.textPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            options.forEach { (kind, title, desc) ->
+                val selected = activeEngineKind == kind
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (selected) colors.activeIndicator else colors.surfaceContainerLow)
+                        .clickable { onSelectEngine(kind) }
+                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = title,
+                            color = colors.textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                        )
+                        Text(text = desc, color = colors.textSecondary, fontSize = 12.sp)
+                    }
+                    if (selected) {
+                        Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+@Composable
+private fun NativeAudioPlayerStage(
+    controller: PlayerRuntimeController,
+    canMinimizeAudio: Boolean,
+    audioShuffleEnabled: Boolean,
+    audioRepeatMode: Int,
+    onUpdateAudioShuffle: ((Boolean) -> Unit)?,
+    onUpdateAudioRepeatMode: ((Int) -> Unit)?,
+    onAudioSkipPrevious: (() -> Unit)?,
+    onAudioSkipNext: (() -> Unit)?,
+    onClose: () -> Unit,
+    onMinimizeToMiniBar: (() -> Unit)?,
+    onSwitchRequest: ((MediaPlaybackRequest) -> Unit)?,
+) {
+    val request = controller.request
+    val session = controller.session
+    val ui = controller.ui
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE || cfg.screenWidthDp > cfg.screenHeightDp
+    val compactHeight = cfg.screenHeightDp < 480
+
+    val displayRequest = remember(request, session.embeddedAudioMeta) {
+        EmbeddedAudioMetadataFetcher.applyToRequest(request, session.embeddedAudioMeta)
+    }
+    val resolvedArtworkModel: Any? = displayRequest.artworkUrl?.takeIf { it.isNotBlank() }
+        ?: displayRequest.artworkBytes?.takeIf { it.isNotEmpty() }
+    val playerPalette = rememberArtworkPlayerPalette(displayRequest.artworkUrl, displayRequest.artworkBytes)
+
+    val lrcLines = remember(displayRequest.lyricsLrc) { parseLrcLyrics(displayRequest.lyricsLrc) }
+    val plainLyricsLines = remember(displayRequest.lyricsLrc, lrcLines) {
+        if (lrcLines.isEmpty()) EmbeddedAudioMetadataFetcher.extractPlainLyricsLines(displayRequest.lyricsLrc) else emptyList()
+    }
+    val lrcListState = rememberLazyListState()
+    val activeLrcIdx = remember(session.positionMs, lrcLines) {
+        lrcLines.indexOfLast { it.timeMs <= session.positionMs }.coerceAtLeast(0)
+    }
+    LaunchedEffect(activeLrcIdx, lrcLines.size, ui.showLyricsView) {
+        if (ui.showLyricsView && lrcLines.isNotEmpty()) {
+            lrcListState.animateScrollToItem((activeLrcIdx - 2).coerceAtLeast(0))
+        }
+    }
+
+    val effectiveShuffle = if (onUpdateAudioShuffle != null) audioShuffleEnabled else ui.localShuffle
+    val effectiveRepeatMode = if (onUpdateAudioRepeatMode != null) audioRepeatMode else ui.localRepeatMode
+    val defaultAudioSpeedIdx = controller.speeds.indexOf(1.0f).coerceAtLeast(0)
+    val audioDockActions = listOf(
+        ExpressiveDockAction(
+            icon = Icons.Rounded.Shuffle,
+            contentDescription = "随机播放",
+            active = effectiveShuffle,
+            onClick = {
+                val nextVal = !effectiveShuffle
+                if (onUpdateAudioShuffle != null) onUpdateAudioShuffle(nextVal) else ui.localShuffle = nextVal
+                controller.exoPlayer?.shuffleModeEnabled = nextVal
+                ui.hudMessage = if (nextVal) "已开启随机播放" else "已关闭随机播放"
+            },
+        ),
+        ExpressiveDockAction(
+            icon = if (effectiveRepeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+            contentDescription = "循环模式",
+            active = effectiveRepeatMode != Player.REPEAT_MODE_OFF,
+            onClick = {
+                val nextMode = when (effectiveRepeatMode) {
+                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                    else -> Player.REPEAT_MODE_OFF
+                }
+                if (onUpdateAudioRepeatMode != null) onUpdateAudioRepeatMode(nextMode) else ui.localRepeatMode = nextMode
+                controller.exoPlayer?.repeatMode = if (nextMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                ui.hudMessage = when (nextMode) {
+                    Player.REPEAT_MODE_ALL -> "列表循环"
+                    Player.REPEAT_MODE_ONE -> "单曲循环"
+                    else -> "顺序播放"
+                }
+            },
+        ),
+        ExpressiveDockAction(
+            icon = Icons.Rounded.Speed,
+            contentDescription = "播放倍速",
+            active = controller.speedIndex != defaultAudioSpeedIdx,
+            onClick = { ui.showSpeedSheet = true },
+        ),
+    )
+
+    val onPreviousTrack = {
+        if (controller.activeCurrentPositionMs() > 3_000L) {
+            controller.activeSeekTo(0L)
+            ui.hudMessage = "已回到本曲开头"
+        } else if (onAudioSkipPrevious != null && request.queue.size > 1) {
+            onAudioSkipPrevious()
+        } else if (request.queue.size > 1 && onSwitchRequest != null) {
+            val prevIdx = (request.queueIndex - 1 + request.queue.size) % request.queue.size
+            onSwitchRequest(request.queue[prevIdx].copy(queue = request.queue, queueIndex = prevIdx))
+        } else {
+            controller.activeSeekTo(0L)
+        }
+    }
+    val onNextTrack = {
+        if (onAudioSkipNext != null && request.queue.size > 1) {
+            onAudioSkipNext()
+        } else if (request.queue.size > 1 && onSwitchRequest != null) {
+            val nextIdx = (request.queueIndex + 1) % request.queue.size
+            onSwitchRequest(request.queue[nextIdx].copy(queue = request.queue, queueIndex = nextIdx))
+        } else {
+            controller.activeSeekTo((controller.activeCurrentPositionMs() + 15_000L).coerceAtMost(session.durationMs))
+            ui.hudMessage = "快进 15 秒"
+        }
+    }
+    val onBackOrMinimize = {
+        if (canMinimizeAudio) onMinimizeToMiniBar?.invoke() else onClose()
+        Unit
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(playerPalette.canvas),
+    ) {
+        if (isLandscape) {
+            AudioLandscapeBody(
+                controller = controller,
+                displayRequest = displayRequest,
+                resolvedArtworkModel = resolvedArtworkModel,
+                playerPalette = playerPalette,
+                compactHeight = compactHeight,
+                canMinimizeAudio = canMinimizeAudio,
+                lrcLines = lrcLines,
+                plainLyricsLines = plainLyricsLines,
+                lrcListState = lrcListState,
+                activeLrcIdx = activeLrcIdx,
+                audioDockActions = audioDockActions,
+                onBackOrMinimize = onBackOrMinimize,
+                onPreviousTrack = onPreviousTrack,
+                onNextTrack = onNextTrack,
+            )
+        } else {
+            AudioPortraitBody(
+                controller = controller,
+                displayRequest = displayRequest,
+                resolvedArtworkModel = resolvedArtworkModel,
+                playerPalette = playerPalette,
+                canMinimizeAudio = canMinimizeAudio,
+                lrcLines = lrcLines,
+                plainLyricsLines = plainLyricsLines,
+                lrcListState = lrcListState,
+                activeLrcIdx = activeLrcIdx,
+                audioDockActions = audioDockActions,
+                onBackOrMinimize = onBackOrMinimize,
+                onPreviousTrack = onPreviousTrack,
+                onNextTrack = onNextTrack,
+            )
+        }
+
+        val topOverlayInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+            .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+        ResumeFromHistoryBanner(
+            savedMs = session.resumeBannerPositionMs,
+            onRestartFromZero = {
+                controller.activeSeekTo(0L)
+                controller.localHistoryStore.clearResumePosition(controller.instanceUrl, request.server, request.localResumeId)
+                session.resumeBannerPositionMs = null
+                ui.hudMessage = "已从头开始播放"
+            },
+            onDismiss = { session.resumeBannerPositionMs = null },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(topOverlayInsets)
+                .padding(top = if (compactHeight) 50.dp else 64.dp),
+        )
+
+        ui.hudMessage?.let { msg ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(topOverlayInsets)
+                    .padding(top = if (compactHeight) 48.dp else 66.dp)
+                    .clip(CircleShape)
+                    .background(playerPalette.dock.copy(alpha = 0.92f))
+                    .padding(horizontal = 16.dp, vertical = 7.dp),
+            ) {
+                Text(msg, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
 
-    if (request.isAudio) {
-        // ═══════════════════════════════════════════════════════════════
-        // Material 3 Expressive 音频全屏播放页（横屏自动切换左封面右播控双栏）
-        // ═══════════════════════════════════════════════════════════════
-        val defaultAudioSpeedIdx = speeds.indexOf(1.0f).coerceAtLeast(0)
-        val audioDockActions = listOf(
-            ExpressiveDockAction(
-                icon = Icons.Rounded.Shuffle,
-                contentDescription = "随机播放",
-                active = effectiveShuffle,
-                onClick = {
-                    val nextVal = !effectiveShuffle
-                    if (onUpdateAudioShuffle != null) {
-                        onUpdateAudioShuffle(nextVal)
-                    } else {
-                        localShuffle = nextVal
-                    }
-                    exoPlayer?.shuffleModeEnabled = nextVal
-                    hudMessage = if (nextVal) "已开启随机播放" else "已关闭随机播放"
-                },
-            ),
-            ExpressiveDockAction(
-                icon = if (effectiveRepeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                contentDescription = "循环模式",
-                active = effectiveRepeatMode != Player.REPEAT_MODE_OFF,
-                onClick = {
-                    val nextMode = when (effectiveRepeatMode) {
-                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                        else -> Player.REPEAT_MODE_OFF
-                    }
-                    if (onUpdateAudioRepeatMode != null) {
-                        onUpdateAudioRepeatMode(nextMode)
-                    } else {
-                        localRepeatMode = nextMode
-                    }
-                    exoPlayer?.repeatMode = if (nextMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                    hudMessage = when (nextMode) {
-                        Player.REPEAT_MODE_ALL -> "列表循环"
-                        Player.REPEAT_MODE_ONE -> "单曲循环"
-                        else -> "顺序播放"
-                    }
-                },
-            ),
-            ExpressiveDockAction(
-                icon = Icons.Rounded.Speed,
-                contentDescription = "播放倍速",
-                active = speedIndex != defaultAudioSpeedIdx,
-                onClick = { showSpeedSheet = true },
-            ),
+    AudioQueueBottomSheet(
+        visible = ui.showQueueSheet,
+        request = request,
+        onSelectTrack = { nextReq ->
+            onSwitchRequest?.invoke(nextReq)
+            ui.showQueueSheet = false
+        },
+        onDismiss = { ui.showQueueSheet = false },
+    )
+    SpeedSelectorBottomSheet(
+        visible = ui.showSpeedSheet,
+        speeds = controller.speeds,
+        selectedIndex = controller.speedIndex,
+        onSelectSpeed = { idx, spd ->
+            controller.speedIndex = idx
+            controller.activeSetSpeed(spd)
+            ui.hudMessage = "倍速：${spd}x"
+            ui.showSpeedSheet = false
+        },
+        onDismiss = { ui.showSpeedSheet = false },
+    )
+}
+
+@Composable
+private fun AudioTopBar(
+    compact: Boolean,
+    canMinimizeAudio: Boolean,
+    showLyricsView: Boolean,
+    showQueueSheet: Boolean,
+    playerPalette: PlayerExpressivePalette,
+    onBackOrMinimize: () -> Unit,
+    onToggleLyrics: () -> Unit,
+    onOpenQueue: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Surface(
+            onClick = onBackOrMinimize,
+            shape = CircleShape,
+            color = playerPalette.dock,
+            modifier = Modifier.size(if (compact) 38.dp else 44.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (canMinimizeAudio) Icons.Rounded.KeyboardArrowDown else Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = if (canMinimizeAudio) "收起至迷你播放条" else "关闭播放器",
+                    tint = Color.White,
+                    modifier = Modifier.size(if (compact) 22.dp else 24.dp),
+                )
+            }
+        }
+
+        Text(
+            text = "正在播放",
+            color = Color.White.copy(alpha = 0.92f),
+            fontSize = if (compact) 15.sp else 17.sp,
+            fontWeight = FontWeight.Medium,
         )
 
-        @Composable
-        fun AudioTopBar(compact: Boolean) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Surface(
-                    onClick = {
-                        if (canMinimizeAudio) onMinimizeToMiniBar?.invoke() else onClose()
-                    },
-                    shape = CircleShape,
-                    color = playerPalette.dock,
-                    modifier = Modifier.size(if (compact) 38.dp else 44.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (canMinimizeAudio) Icons.Rounded.KeyboardArrowDown else Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = if (canMinimizeAudio) "收起至迷你播放条" else "关闭播放器",
-                            tint = Color.White,
-                            modifier = Modifier.size(if (compact) 22.dp else 24.dp),
-                        )
-                    }
-                }
+        ExpressiveSplitIconPair(
+            firstIcon = Icons.Rounded.Lyrics,
+            firstDesc = "同步歌词",
+            firstActive = showLyricsView,
+            onFirstClick = onToggleLyrics,
+            secondIcon = Icons.AutoMirrored.Rounded.QueueMusic,
+            secondDesc = "播放队列",
+            secondActive = showQueueSheet,
+            onSecondClick = onOpenQueue,
+            containerColor = playerPalette.dock,
+            activeContainerColor = playerPalette.accent,
+            contentColor = Color.White.copy(alpha = 0.90f),
+            activeContentColor = playerPalette.onAccent,
+        )
+    }
+}
 
-                Text(
-                    text = "正在播放",
-                    color = Color.White.copy(alpha = 0.92f),
-                    fontSize = if (compact) 15.sp else 17.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-
-                ExpressiveSplitIconPair(
-                    firstIcon = Icons.Rounded.Lyrics,
-                    firstDesc = "同步歌词",
-                    firstActive = showLyricsView,
-                    onFirstClick = { showLyricsView = !showLyricsView },
-                    secondIcon = Icons.AutoMirrored.Rounded.QueueMusic,
-                    secondDesc = "播放队列",
-                    secondActive = showQueueSheet,
-                    onSecondClick = { showQueueSheet = true },
-                    containerColor = playerPalette.dock,
-                    activeContainerColor = playerPalette.accent,
-                    contentColor = Color.White.copy(alpha = 0.90f),
-                    activeContentColor = playerPalette.onAccent,
-                )
-            }
-        }
-
-        @Composable
-        fun AudioTransportRow(compact: Boolean) {
-            val sideBtnSz = if (compact) 54.dp else 72.dp
-            val sideIconSz = if (compact) 24.dp else 28.dp
-            val playW = if (compact) 72.dp else 88.dp
-            val playH = if (compact) 60.dp else 78.dp
-            val playIconSz = if (compact) 30.dp else 36.dp
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 16.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    onClick = {
-                        // 对齐 iOS 3 秒上一曲规则：超过 3 秒回到本曲开头，3 秒内切上一首
-                        if (activeCurrentPositionMs() > 3_000L) {
-                            activeSeekTo(0L)
-                            hudMessage = "已回到本曲开头"
-                        } else if (onAudioSkipPrevious != null && request.queue.size > 1) {
-                            onAudioSkipPrevious()
-                        } else if (request.queue.size > 1 && onSwitchRequest != null) {
-                            val prevIdx = (request.queueIndex - 1 + request.queue.size) % request.queue.size
-                            onSwitchRequest(request.queue[prevIdx].copy(queue = request.queue, queueIndex = prevIdx))
-                        } else {
-                            activeSeekTo(0L)
-                        }
-                    },
-                    shape = CircleShape,
-                    color = playerPalette.buttonBg,
-                    modifier = Modifier.size(sideBtnSz),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.SkipPrevious,
-                            contentDescription = "上一首",
-                            tint = Color.White,
-                            modifier = Modifier.size(sideIconSz),
-                        )
-                    }
-                }
-
-                ExpressiveMorphingPlayButton(
-                    isPlaying = isPlaying,
-                    onClick = {
-                        if (activeIsPlaying()) activePause() else activePlay()
-                    },
-                    containerColor = playerPalette.accent,
-                    contentColor = playerPalette.onAccent,
-                    width = playW,
-                    height = playH,
-                    iconSize = playIconSz,
-                )
-
-                Surface(
-                    onClick = {
-                        if (onAudioSkipNext != null && request.queue.size > 1) {
-                            onAudioSkipNext()
-                        } else if (request.queue.size > 1 && onSwitchRequest != null) {
-                            val nextIdx = (request.queueIndex + 1) % request.queue.size
-                            onSwitchRequest(request.queue[nextIdx].copy(queue = request.queue, queueIndex = nextIdx))
-                        } else {
-                            activeSeekTo((activeCurrentPositionMs() + 15_000L).coerceAtMost(durationMs))
-                            hudMessage = "快进 15 秒"
-                        }
-                    },
-                    shape = CircleShape,
-                    color = playerPalette.buttonBg,
-                    modifier = Modifier.size(sideBtnSz),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (request.queue.size > 1) Icons.Rounded.SkipNext else Icons.Rounded.Forward10,
-                            contentDescription = "下一首",
-                            tint = Color.White,
-                            modifier = Modifier.size(sideIconSz),
-                        )
-                    }
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(playerPalette.canvas),
+@Composable
+private fun AudioTransportRow(
+    compact: Boolean,
+    isPlaying: Boolean,
+    hasMultiQueue: Boolean,
+    playerPalette: PlayerExpressivePalette,
+    onPrevious: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+) {
+    val sideBtnSz = if (compact) 54.dp else 72.dp
+    val sideIconSz = if (compact) 24.dp else 28.dp
+    val playW = if (compact) 72.dp else 88.dp
+    val playH = if (compact) 60.dp else 78.dp
+    val playIconSz = if (compact) 30.dp else 36.dp
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 16.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            onClick = onPrevious,
+            shape = CircleShape,
+            color = playerPalette.buttonBg,
+            modifier = Modifier.size(sideBtnSz),
         ) {
-            if (isLandscape) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
-                        .padding(horizontal = 20.dp, vertical = if (compactHeight) 8.dp else 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(22.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Rounded.SkipPrevious,
+                    contentDescription = "上一首",
+                    tint = Color.White,
+                    modifier = Modifier.size(sideIconSz),
+                )
+            }
+        }
+
+        ExpressiveMorphingPlayButton(
+            isPlaying = isPlaying,
+            onClick = onTogglePlay,
+            containerColor = playerPalette.accent,
+            contentColor = playerPalette.onAccent,
+            width = playW,
+            height = playH,
+            iconSize = playIconSz,
+        )
+
+        Surface(
+            onClick = onNext,
+            shape = CircleShape,
+            color = playerPalette.buttonBg,
+            modifier = Modifier.size(sideBtnSz),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (hasMultiQueue) Icons.Rounded.SkipNext else Icons.Rounded.Forward10,
+                    contentDescription = "下一首",
+                    tint = Color.White,
+                    modifier = Modifier.size(sideIconSz),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioLandscapeBody(
+    controller: PlayerRuntimeController,
+    displayRequest: MediaPlaybackRequest,
+    resolvedArtworkModel: Any?,
+    playerPalette: PlayerExpressivePalette,
+    compactHeight: Boolean,
+    canMinimizeAudio: Boolean,
+    lrcLines: List<LrcLine>,
+    plainLyricsLines: List<String>,
+    lrcListState: LazyListState,
+    activeLrcIdx: Int,
+    audioDockActions: List<ExpressiveDockAction>,
+    onBackOrMinimize: () -> Unit,
+    onPreviousTrack: () -> Unit,
+    onNextTrack: () -> Unit,
+) {
+    val ui = controller.ui
+    val session = controller.session
+    val progress = (session.positionMs.toFloat() / session.durationMs.toFloat()).coerceIn(0f, 1f)
+    val displayPositionMs = if (ui.draggingProgress >= 0f) (ui.draggingProgress * session.durationMs).toLong() else session.positionMs
+    val rightDurationLabel = if (ui.showRemainingTime && session.durationMs > 1_000L) {
+        "-${formatDurationMs((session.durationMs - displayPositionMs).coerceAtLeast(0L))}"
+    } else {
+        formatDurationMs(session.durationMs)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
+            .padding(horizontal = 20.dp, vertical = if (compactHeight) 8.dp else 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(22.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .weight(0.44f)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center,
+        ) {
+            val artSide = minOf(maxWidth * 0.90f, maxHeight * 0.82f)
+            Box(
+                modifier = Modifier
+                    .size(artSide)
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = RoundedCornerShape(26.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.45f),
+                        spotColor = Color.Black.copy(alpha = 0.45f),
+                    )
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(playerPalette.buttonBg),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (resolvedArtworkModel != null) {
+                    AsyncImage(
+                        model = resolvedArtworkModel,
+                        contentDescription = displayRequest.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = playerPalette.accent, modifier = Modifier.size(72.dp))
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .weight(0.56f)
+                .fillMaxHeight(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(if (compactHeight) 6.dp else 12.dp),
+        ) {
+            AudioTopBar(
+                compact = compactHeight,
+                canMinimizeAudio = canMinimizeAudio,
+                showLyricsView = ui.showLyricsView,
+                showQueueSheet = ui.showQueueSheet,
+                playerPalette = playerPalette,
+                onBackOrMinimize = onBackOrMinimize,
+                onToggleLyrics = { ui.showLyricsView = !ui.showLyricsView },
+                onOpenQueue = { ui.showQueueSheet = true },
+            )
+
+            AnimatedContent(
+                targetState = ui.showLyricsView,
+                transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                label = "audioLandscapeStage",
+            ) { lyricsMode ->
+                if (!lyricsMode) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = displayRequest.title,
+                            color = Color.White,
+                            fontSize = if (compactHeight) 20.sp else 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                        )
+                        if (displayRequest.subtitle.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = displayRequest.subtitle,
+                                color = Color.White.copy(alpha = 0.72f),
+                                fontSize = if (compactHeight) 13.5.sp else 15.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                        val previewLyric = lrcLines.getOrNull(activeLrcIdx)?.text?.takeIf { it.isNotBlank() }
+                            ?: plainLyricsLines.firstOrNull()
+                        if (!previewLyric.isNullOrBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = previewLyric,
+                                color = playerPalette.accent,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.clickable { ui.showLyricsView = true },
+                            )
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = listOfNotNull(displayRequest.title, displayRequest.subtitle.takeIf { it.isNotBlank() }).joinToString(" · "),
+                            color = Color.White.copy(alpha = 0.88f),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        AudioLyricsListContent(
+                            lrcLines = lrcLines,
+                            plainLyricsLines = plainLyricsLines,
+                            lrcListState = lrcListState,
+                            activeLrcIdx = activeLrcIdx,
+                            compact = compactHeight,
+                            isPortrait = false,
+                            onSeekTo = { controller.activeSeekTo(it) },
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.78f), fontSize = 11.5.sp)
+                ExpressiveWavySlider(
+                    value = if (ui.draggingProgress >= 0f) ui.draggingProgress else progress,
+                    onValueChange = { ui.draggingProgress = it },
+                    onValueChangeFinished = {
+                        if (ui.draggingProgress >= 0f) {
+                            controller.activeSeekTo((ui.draggingProgress * session.durationMs).toLong())
+                            ui.draggingProgress = -1f
+                        }
+                    },
+                    isPlaying = controller.isPlaying,
+                    activeColor = playerPalette.accent,
+                    inactiveColor = Color.White.copy(alpha = 0.24f),
+                    modifier = Modifier.weight(1f).height(28.dp),
+                )
+                Text(
+                    text = rightDurationLabel,
+                    color = Color.White.copy(alpha = 0.72f),
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.clickable { ui.showRemainingTime = !ui.showRemainingTime },
+                )
+            }
+
+            AudioTransportRow(
+                compact = compactHeight,
+                isPlaying = controller.isPlaying,
+                hasMultiQueue = controller.request.queue.size > 1,
+                playerPalette = playerPalette,
+                onPrevious = onPreviousTrack,
+                onTogglePlay = { if (controller.activeIsPlaying()) controller.activePause() else controller.activePlay() },
+                onNext = onNextTrack,
+            )
+
+            ExpressiveGroupedActionDock(
+                actions = audioDockActions,
+                dockColor = playerPalette.dock,
+                buttonColor = playerPalette.buttonBg.copy(alpha = 0.55f),
+                activeButtonColor = playerPalette.accent,
+                iconColor = Color.White.copy(alpha = 0.88f),
+                activeIconColor = playerPalette.onAccent,
+                modifier = Modifier.fillMaxWidth(0.90f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AudioPortraitBody(
+    controller: PlayerRuntimeController,
+    displayRequest: MediaPlaybackRequest,
+    resolvedArtworkModel: Any?,
+    playerPalette: PlayerExpressivePalette,
+    canMinimizeAudio: Boolean,
+    lrcLines: List<LrcLine>,
+    plainLyricsLines: List<String>,
+    lrcListState: LazyListState,
+    activeLrcIdx: Int,
+    audioDockActions: List<ExpressiveDockAction>,
+    onBackOrMinimize: () -> Unit,
+    onPreviousTrack: () -> Unit,
+    onNextTrack: () -> Unit,
+) {
+    val ui = controller.ui
+    val session = controller.session
+    val progress = (session.positionMs.toFloat() / session.durationMs.toFloat()).coerceIn(0f, 1f)
+    val displayPositionMs = if (ui.draggingProgress >= 0f) (ui.draggingProgress * session.durationMs).toLong() else session.positionMs
+    val rightDurationLabel = if (ui.showRemainingTime && session.durationMs > 1_000L) {
+        "-${formatDurationMs((session.durationMs - displayPositionMs).coerceAtLeast(0L))}"
+    } else {
+        formatDurationMs(session.durationMs)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        AudioTopBar(
+            compact = false,
+            canMinimizeAudio = canMinimizeAudio,
+            showLyricsView = ui.showLyricsView,
+            showQueueSheet = ui.showQueueSheet,
+            playerPalette = playerPalette,
+            onBackOrMinimize = onBackOrMinimize,
+            onToggleLyrics = { ui.showLyricsView = !ui.showLyricsView },
+            onOpenQueue = { ui.showQueueSheet = true },
+        )
+
+        Spacer(Modifier.height(22.dp))
+
+        AnimatedContent(
+            targetState = ui.showLyricsView,
+            transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(180)) },
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            label = "audioPlayerStage",
+        ) { lyricsMode ->
+            if (!lyricsMode) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    BoxWithConstraints(
+                    Box(
                         modifier = Modifier
-                            .weight(0.44f)
-                            .fillMaxHeight(),
+                            .fillMaxWidth(0.84f)
+                            .aspectRatio(1f)
+                            .shadow(
+                                elevation = 18.dp,
+                                shape = RoundedCornerShape(28.dp),
+                                ambientColor = Color.Black.copy(alpha = 0.45f),
+                                spotColor = Color.Black.copy(alpha = 0.45f),
+                            )
+                            .clip(RoundedCornerShape(28.dp))
+                            .background(playerPalette.buttonBg),
                         contentAlignment = Alignment.Center,
                     ) {
-                        val artSide = minOf(maxWidth * 0.90f, maxHeight * 0.82f)
+                        if (resolvedArtworkModel != null) {
+                            AsyncImage(
+                                model = resolvedArtworkModel,
+                                contentDescription = displayRequest.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = playerPalette.accent, modifier = Modifier.size(84.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(26.dp))
+                    Text(
+                        text = displayRequest.title,
+                        color = Color.White,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
+                    if (displayRequest.subtitle.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = displayRequest.subtitle,
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 15.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    val previewLyric = lrcLines.getOrNull(activeLrcIdx)?.text?.takeIf { it.isNotBlank() }
+                        ?: plainLyricsLines.firstOrNull()
+                    if (!previewLyric.isNullOrBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = previewLyric,
+                            color = playerPalette.accent,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.clickable { ui.showLyricsView = true },
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
                         Box(
                             modifier = Modifier
-                                .size(artSide)
-                                .shadow(
-                                    elevation = 16.dp,
-                                    shape = RoundedCornerShape(26.dp),
-                                    ambientColor = Color.Black.copy(alpha = 0.45f),
-                                    spotColor = Color.Black.copy(alpha = 0.45f),
-                                )
-                                .clip(RoundedCornerShape(26.dp))
+                                .size(54.dp)
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(playerPalette.buttonBg),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -2196,592 +2812,302 @@ fun NativeMediaPlayerOverlay(
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             } else {
-                                Icon(
-                                    Icons.Rounded.MusicNote,
-                                    contentDescription = null,
-                                    tint = playerPalette.accent,
-                                    modifier = Modifier.size(72.dp),
-                                )
+                                Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = playerPalette.accent)
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(displayRequest.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (displayRequest.subtitle.isNotBlank()) {
+                                Text(displayRequest.subtitle, color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
-
-                    Column(
-                        modifier = Modifier
-                            .weight(0.56f)
-                            .fillMaxHeight(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(if (compactHeight) 6.dp else 12.dp),
-                    ) {
-                        AudioTopBar(compact = compactHeight)
-
-                        AnimatedContent(
-                            targetState = showLyricsView,
-                            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            label = "audioLandscapeStage",
-                        ) { lyricsMode ->
-                            if (!lyricsMode) {
-                                Column(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.Center,
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                ) {
-                                    Text(
-                                        text = displayRequest.title,
-                                        color = Color.White,
-                                        fontSize = if (compactHeight) 20.sp else 24.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center,
-                                    )
-                                    if (displayRequest.subtitle.isNotBlank()) {
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            text = displayRequest.subtitle,
-                                            color = Color.White.copy(alpha = 0.72f),
-                                            fontSize = if (compactHeight) 13.5.sp else 15.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Center,
-                                        )
-                                    }
-                                    if (lrcLines.isNotEmpty()) {
-                                        val curLine = lrcLines.getOrNull(activeLrcIdx)?.text.orEmpty()
-                                        if (curLine.isNotBlank()) {
-                                            Spacer(Modifier.height(8.dp))
-                                            Text(
-                                                text = curLine,
-                                                color = playerPalette.accent,
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                textAlign = TextAlign.Center,
-                                                modifier = Modifier.clickable { showLyricsView = true },
-                                            )
-                                        }
-                                    } else if (plainLyricsLines.isNotEmpty()) {
-                                        Spacer(Modifier.height(8.dp))
-                                        Text(
-                                            text = plainLyricsLines.first(),
-                                            color = playerPalette.accent.copy(alpha = 0.88f),
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.clickable { showLyricsView = true },
-                                        )
-                                    }
-                                }
-                            } else {
-                                Column(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    Text(
-                                        text = listOfNotNull(displayRequest.title, displayRequest.subtitle.takeIf { it.isNotBlank() }).joinToString(" · "),
-                                        color = Color.White.copy(alpha = 0.88f),
-                                        fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    if (lrcLines.isNotEmpty()) {
-                                        LazyColumn(
-                                            state = lrcListState,
-                                            modifier = Modifier.fillMaxWidth().weight(1f),
-                                            contentPadding = PaddingValues(vertical = 8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        ) {
-                                            itemsIndexed(lrcLines) { idx, line ->
-                                                val active = idx == activeLrcIdx
-                                                Text(
-                                                    text = line.text,
-                                                    color = if (active) Color.White else Color.White.copy(alpha = 0.44f),
-                                                    fontSize = if (active) (if (compactHeight) 17.sp else 20.sp) else 14.sp,
-                                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                                    lineHeight = if (compactHeight) 22.sp else 26.sp,
-                                                    modifier = Modifier.clickable { activeSeekTo(line.timeMs) },
-                                                )
-                                            }
-                                        }
-                                    } else if (plainLyricsLines.isNotEmpty()) {
-                                        LazyColumn(
-                                            modifier = Modifier.fillMaxWidth().weight(1f),
-                                            contentPadding = PaddingValues(vertical = 8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        ) {
-                                            item {
-                                                Text(
-                                                    text = "内嵌歌词（纯文本，无时间轴）",
-                                                    color = Color.White.copy(alpha = 0.50f),
-                                                    fontSize = 12.sp,
-                                                )
-                                            }
-                                            itemsIndexed(plainLyricsLines) { _, line ->
-                                                Text(
-                                                    text = line,
-                                                    color = Color.White.copy(alpha = 0.88f),
-                                                    fontSize = if (compactHeight) 14.sp else 15.5.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    lineHeight = if (compactHeight) 21.sp else 24.sp,
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                                            Text("当前曲目暂未附带歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 14.sp)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.78f), fontSize = 11.5.sp)
-                            ExpressiveWavySlider(
-                                value = if (draggingProgress >= 0f) draggingProgress else progress,
-                                onValueChange = { draggingProgress = it },
-                                onValueChangeFinished = {
-                                    if (draggingProgress >= 0f) {
-                                        activeSeekTo((draggingProgress * durationMs).toLong())
-                                        draggingProgress = -1f
-                                    }
-                                },
-                                isPlaying = isPlaying,
-                                activeColor = playerPalette.accent,
-                                inactiveColor = Color.White.copy(alpha = 0.24f),
-                                modifier = Modifier.weight(1f).height(28.dp),
-                            )
-                            Text(
-                                text = rightDurationLabel,
-                                color = Color.White.copy(alpha = 0.72f),
-                                fontSize = 11.5.sp,
-                                modifier = Modifier.clickable { showRemainingTime = !showRemainingTime },
-                            )
-                        }
-
-                        AudioTransportRow(compact = compactHeight)
-
-                        ExpressiveGroupedActionDock(
-                            actions = audioDockActions,
-                            dockColor = playerPalette.dock,
-                            buttonColor = playerPalette.buttonBg.copy(alpha = 0.55f),
-                            activeButtonColor = playerPalette.accent,
-                            iconColor = Color.White.copy(alpha = 0.88f),
-                            activeIconColor = playerPalette.onAccent,
-                            modifier = Modifier.fillMaxWidth(0.90f),
-                        )
-                    }
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
-                        .padding(horizontal = 24.dp, vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    AudioTopBar(compact = false)
-
-                    Spacer(Modifier.height(22.dp))
-
-                    AnimatedContent(
-                        targetState = showLyricsView,
-                        transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(180)) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        label = "audioPlayerStage",
-                    ) { lyricsMode ->
-                        if (!lyricsMode) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.84f)
-                                        .aspectRatio(1f)
-                                        .shadow(
-                                            elevation = 18.dp,
-                                            shape = RoundedCornerShape(28.dp),
-                                            ambientColor = Color.Black.copy(alpha = 0.45f),
-                                            spotColor = Color.Black.copy(alpha = 0.45f),
-                                        )
-                                        .clip(RoundedCornerShape(28.dp))
-                                        .background(playerPalette.buttonBg),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (resolvedArtworkModel != null) {
-                                        AsyncImage(
-                                            model = resolvedArtworkModel,
-                                            contentDescription = displayRequest.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    } else {
-                                        Icon(
-                                            Icons.Rounded.MusicNote,
-                                            contentDescription = null,
-                                            tint = playerPalette.accent,
-                                            modifier = Modifier.size(84.dp),
-                                        )
-                                    }
-                                }
-                                Spacer(Modifier.height(26.dp))
-                                Text(
-                                    text = displayRequest.title,
-                                    color = Color.White,
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center,
-                                )
-                                if (displayRequest.subtitle.isNotBlank()) {
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = displayRequest.subtitle,
-                                        color = Color.White.copy(alpha = 0.72f),
-                                        fontSize = 15.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center,
-                                    )
-                                }
-                                if (lrcLines.isNotEmpty()) {
-                                    val curLine = lrcLines.getOrNull(activeLrcIdx)?.text.orEmpty()
-                                    if (curLine.isNotBlank()) {
-                                        Spacer(Modifier.height(10.dp))
-                                        Text(
-                                            text = curLine,
-                                            color = playerPalette.accent,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.clickable { showLyricsView = true },
-                                        )
-                                    }
-                                } else if (plainLyricsLines.isNotEmpty()) {
-                                    Spacer(Modifier.height(10.dp))
-                                    Text(
-                                        text = plainLyricsLines.first(),
-                                        color = playerPalette.accent.copy(alpha = 0.88f),
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.clickable { showLyricsView = true },
-                                    )
-                                }
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(14.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(54.dp)
-                                            .clip(RoundedCornerShape(14.dp))
-                                            .background(playerPalette.buttonBg),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        if (resolvedArtworkModel != null) {
-                                            AsyncImage(
-                                                model = resolvedArtworkModel,
-                                                contentDescription = displayRequest.title,
-                                                contentScale = ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        } else {
-                                            Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = playerPalette.accent)
-                                        }
-                                    }
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(displayRequest.title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (displayRequest.subtitle.isNotBlank()) {
-                                            Text(displayRequest.subtitle, color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        }
-                                    }
-                                }
-                                if (lrcLines.isNotEmpty()) {
-                                    LazyColumn(
-                                        state = lrcListState,
-                                        modifier = Modifier.fillMaxWidth().weight(1f),
-                                        contentPadding = PaddingValues(vertical = 24.dp),
-                                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                                        horizontalAlignment = Alignment.Start,
-                                    ) {
-                                        itemsIndexed(lrcLines) { idx, line ->
-                                            val active = idx == activeLrcIdx
-                                            Text(
-                                                text = line.text,
-                                                color = if (active) Color.White else Color.White.copy(alpha = 0.42f),
-                                                fontSize = if (active) 21.sp else 16.sp,
-                                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                                lineHeight = 28.sp,
-                                                modifier = Modifier.clickable { activeSeekTo(line.timeMs) },
-                                            )
-                                        }
-                                    }
-                                } else if (plainLyricsLines.isNotEmpty()) {
-                                    LazyColumn(
-                                        modifier = Modifier.fillMaxWidth().weight(1f),
-                                        contentPadding = PaddingValues(vertical = 16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                                        horizontalAlignment = Alignment.Start,
-                                    ) {
-                                        item {
-                                            Text(
-                                                text = "内嵌歌词（纯文本，无时间轴）",
-                                                color = Color.White.copy(alpha = 0.52f),
-                                                fontSize = 12.5.sp,
-                                            )
-                                        }
-                                        itemsIndexed(plainLyricsLines) { _, line ->
-                                            Text(
-                                                text = line,
-                                                color = Color.White.copy(alpha = 0.88f),
-                                                fontSize = 16.5.sp,
-                                                fontWeight = FontWeight.Medium,
-                                                lineHeight = 26.sp,
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                                        Text("当前曲目暂未附带歌词", color = Color.White.copy(alpha = 0.60f), fontSize = 15.sp)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(14.dp))
-
-                    ExpressiveWavySlider(
-                        value = if (draggingProgress >= 0f) draggingProgress else progress,
-                        onValueChange = { draggingProgress = it },
-                        onValueChangeFinished = {
-                            if (draggingProgress >= 0f) {
-                                activeSeekTo((draggingProgress * durationMs).toLong())
-                                draggingProgress = -1f
-                            }
-                        },
-                        isPlaying = isPlaying,
-                        activeColor = playerPalette.accent,
-                        inactiveColor = Color.White.copy(alpha = 0.24f),
+                    AudioLyricsListContent(
+                        lrcLines = lrcLines,
+                        plainLyricsLines = plainLyricsLines,
+                        lrcListState = lrcListState,
+                        activeLrcIdx = activeLrcIdx,
+                        compact = false,
+                        isPortrait = true,
+                        onSeekTo = { controller.activeSeekTo(it) },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
                     )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        ExpressiveWavySlider(
+            value = if (ui.draggingProgress >= 0f) ui.draggingProgress else progress,
+            onValueChange = { ui.draggingProgress = it },
+            onValueChangeFinished = {
+                if (ui.draggingProgress >= 0f) {
+                    controller.activeSeekTo((ui.draggingProgress * session.durationMs).toLong())
+                    ui.draggingProgress = -1f
+                }
+            },
+            isPlaying = controller.isPlaying,
+            activeColor = playerPalette.accent,
+            inactiveColor = Color.White.copy(alpha = 0.24f),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+            Text(
+                text = rightDurationLabel,
+                color = Color.White.copy(alpha = 0.72f),
+                fontSize = 12.sp,
+                modifier = Modifier.clickable { ui.showRemainingTime = !ui.showRemainingTime },
+            )
+        }
+
+        Spacer(Modifier.height(22.dp))
+
+        AudioTransportRow(
+            compact = false,
+            isPlaying = controller.isPlaying,
+            hasMultiQueue = controller.request.queue.size > 1,
+            playerPalette = playerPalette,
+            onPrevious = onPreviousTrack,
+            onTogglePlay = { if (controller.activeIsPlaying()) controller.activePause() else controller.activePlay() },
+            onNext = onNextTrack,
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        ExpressiveGroupedActionDock(
+            actions = audioDockActions,
+            dockColor = playerPalette.dock,
+            buttonColor = playerPalette.buttonBg.copy(alpha = 0.55f),
+            activeButtonColor = playerPalette.accent,
+            iconColor = Color.White.copy(alpha = 0.88f),
+            activeIconColor = playerPalette.onAccent,
+            modifier = Modifier.fillMaxWidth(0.84f),
+        )
+
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun AudioLyricsListContent(
+    lrcLines: List<LrcLine>,
+    plainLyricsLines: List<String>,
+    lrcListState: LazyListState,
+    activeLrcIdx: Int,
+    compact: Boolean,
+    isPortrait: Boolean,
+    onSeekTo: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (lrcLines.isNotEmpty()) {
+        LazyColumn(
+            state = lrcListState,
+            modifier = modifier,
+            contentPadding = PaddingValues(vertical = if (isPortrait) 24.dp else 8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isPortrait) 14.dp else 8.dp),
+        ) {
+            itemsIndexed(lrcLines) { idx, line ->
+                val active = idx == activeLrcIdx
+                val activeSz = if (isPortrait) 21.sp else (if (compact) 17.sp else 20.sp)
+                val inactiveSz = if (isPortrait) 16.sp else 14.sp
+                Text(
+                    text = line.text,
+                    color = if (active) Color.White else Color.White.copy(alpha = 0.43f),
+                    fontSize = if (active) activeSz else inactiveSz,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                    lineHeight = if (isPortrait) 28.sp else (if (compact) 22.sp else 26.sp),
+                    modifier = Modifier.clickable { onSeekTo(line.timeMs) },
+                )
+            }
+        }
+    } else if (plainLyricsLines.isNotEmpty()) {
+        LazyColumn(
+            modifier = modifier,
+            contentPadding = PaddingValues(vertical = if (isPortrait) 16.dp else 8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isPortrait) 12.dp else 8.dp),
+        ) {
+            item {
+                Text(
+                    text = "内嵌歌词（纯文本，无时间轴）",
+                    color = Color.White.copy(alpha = 0.52f),
+                    fontSize = 12.sp,
+                )
+            }
+            itemsIndexed(plainLyricsLines) { _, line ->
+                Text(
+                    text = line,
+                    color = Color.White.copy(alpha = 0.88f),
+                    fontSize = if (isPortrait) 16.5.sp else (if (compact) 14.sp else 15.5.sp),
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = if (isPortrait) 26.sp else (if (compact) 21.sp else 24.sp),
+                )
+            }
+        }
+    } else {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            Text("当前曲目暂未附带歌词", color = Color.White.copy(alpha = 0.60f), fontSize = if (isPortrait) 15.sp else 14.sp)
+        }
+    }
+}
+
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AudioQueueBottomSheet(
+    visible: Boolean,
+    request: MediaPlaybackRequest,
+    onSelectTrack: (MediaPlaybackRequest) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    val colors = LocalMoviePilotColors.current
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val list = if (request.queue.isNotEmpty()) request.queue else listOf(request)
+            Text(
+                text = "播放队列 (${list.size})",
+                color = colors.textPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                itemsIndexed(list) { idx, track ->
+                    val current = idx == request.queueIndex
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (current) colors.activeIndicator else colors.surfaceContainerLow)
+                            .clickable { onSelectTrack(track.copy(queue = list, queueIndex = idx)) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
                         Text(
-                            text = rightDurationLabel,
-                            color = Color.White.copy(alpha = 0.72f),
-                            fontSize = 12.sp,
-                            modifier = Modifier.clickable { showRemainingTime = !showRemainingTime },
+                            text = "${idx + 1}",
+                            color = if (current) colors.accent else colors.textMuted,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
                         )
-                    }
-
-                    Spacer(Modifier.height(22.dp))
-
-                    AudioTransportRow(compact = false)
-
-                    Spacer(Modifier.height(24.dp))
-
-                    ExpressiveGroupedActionDock(
-                        actions = audioDockActions,
-                        dockColor = playerPalette.dock,
-                        buttonColor = playerPalette.buttonBg.copy(alpha = 0.55f),
-                        activeButtonColor = playerPalette.accent,
-                        iconColor = Color.White.copy(alpha = 0.88f),
-                        activeIconColor = playerPalette.onAccent,
-                        modifier = Modifier.fillMaxWidth(0.84f),
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-                }
-            }
-
-            ResumeFromHistoryBanner(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                    .padding(top = if (compactHeight) 50.dp else 64.dp),
-            )
-
-            hudMessage?.let { msg ->
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                        .padding(top = if (compactHeight) 48.dp else 66.dp)
-                        .clip(CircleShape)
-                        .background(playerPalette.dock.copy(alpha = 0.92f))
-                        .padding(horizontal = 16.dp, vertical = 7.dp),
-                ) {
-                    Text(msg, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-
-        if (showQueueSheet) {
-            NativeGlassSheet(onDismissRequest = { showQueueSheet = false }) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    val list = if (request.queue.isNotEmpty()) request.queue else listOf(request)
-                    Text(
-                        text = "播放队列 (${list.size})",
-                        color = colors.textPrimary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        itemsIndexed(list) { idx, track ->
-                            val current = idx == request.queueIndex
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(if (current) colors.activeIndicator else colors.surfaceContainerLow)
-                                    .clickable {
-                                        onSwitchRequest?.invoke(track.copy(queue = list, queueIndex = idx))
-                                        showQueueSheet = false
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Text(
-                                    text = "${idx + 1}",
-                                    color = if (current) colors.accent else colors.textMuted,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(track.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (track.subtitle.isNotBlank()) {
-                                        Text(track.subtitle, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1)
-                                    }
-                                }
-                                if (current) {
-                                    Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
-                                }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(track.title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (track.subtitle.isNotBlank()) {
+                                Text(track.subtitle, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1)
                             }
                         }
+                        if (current) {
+                            Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                        }
                     }
-                    Spacer(Modifier.height(16.dp))
                 }
             }
+            Spacer(Modifier.height(16.dp))
         }
-        SpeedSelectorBottomSheet()
-        return
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun NativeVideoPlayerStage(
+    controller: PlayerRuntimeController,
+    activity: Activity?,
+    danmakuPrefs: DanmakuPreferencesStore,
+) {
+    val colors = LocalMoviePilotColors.current
+    val hostView = LocalView.current
+    val cfg = LocalConfiguration.current
+    val isLandscape = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE || cfg.screenWidthDp > cfg.screenHeightDp
+    val compactVideoHeight = isLandscape && cfg.screenHeightDp < 460
+
+    val request = controller.request
+    val ui = controller.ui
+    val session = controller.session
+    val audioManager = remember { controller.context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+    var dragSeekDeltaMs by remember { mutableLongStateOf(0L) }
+
+    val subtitleChoices = remember(ui.tracksVersion, controller.exoPlayer, session.mpvSubtitleTracks, controller.isMpvActive) {
+        resolveSubtitleChoices(controller.isMpvActive, controller.exoPlayer, session.mpvSubtitleTracks)
+    }
+    val audioChoices = remember(ui.tracksVersion, controller.exoPlayer, session.mpvAudioTracks, controller.isMpvActive) {
+        resolveAudioChoices(controller.isMpvActive, controller.exoPlayer, session.mpvAudioTracks)
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // Material 3 Expressive 全屏视频播放器
-    // ═══════════════════════════════════════════════════════════════
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
-    var dragSeekDeltaMs by remember { mutableLongStateOf(0L) }
-    val defaultVideoSpeedIdx = speeds.indexOf(1.0f).coerceAtLeast(0)
-
-    val remainingMs = (durationMs - positionMs).coerceAtLeast(0L)
-    val showUpNextCard = !isInPipMode &&
-        hasNextVideoEpisode &&
-        nextVideoEpisode != null &&
-        !upNextCancelled &&
-        durationMs > 10_000L &&
+    val progress = (session.positionMs.toFloat() / session.durationMs.toFloat()).coerceIn(0f, 1f)
+    val remainingMs = (session.durationMs - session.positionMs).coerceAtLeast(0L)
+    val showUpNextCard = !ui.isInPipMode &&
+        controller.hasNextVideoEpisode &&
+        controller.nextVideoEpisode != null &&
+        !session.upNextCancelled &&
+        session.durationMs > 10_000L &&
         (progress >= 0.93f || remainingMs in 1L..3_500L)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(isLocked, speedIndex) {
+            .pointerInput(ui.isLocked, controller.speedIndex) {
                 detectTapGestures(
                     onPress = {
                         try {
                             tryAwaitRelease()
                         } finally {
-                            if (isLongPressBoost) {
-                                isLongPressBoost = false
-                                activeSetSpeed(speeds[speedIndex.coerceIn(0, speeds.lastIndex)])
+                            if (ui.isLongPressBoost) {
+                                ui.isLongPressBoost = false
+                                controller.activeSetSpeed(controller.currentSelectedSpeed)
                             }
                         }
                     },
                     onLongPress = {
-                        if (!isLocked) {
-                            isLongPressBoost = true
+                        if (!ui.isLocked) {
+                            ui.isLongPressBoost = true
                             hostView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                            activeSetSpeed(2.0f)
+                            controller.activeSetSpeed(2.0f)
                         }
                     },
                     onTap = {
-                        controlsVisible = !controlsVisible
-                        if (controlsVisible) bumpInteraction()
+                        ui.controlsVisible = !ui.controlsVisible
+                        if (ui.controlsVisible) ui.bumpInteraction()
                     },
                     onDoubleTap = { offset ->
-                        if (!isLocked) {
+                        if (!ui.isLocked) {
                             val w = size.width.toFloat().coerceAtLeast(1f)
                             when {
                                 offset.x < w * 0.30f -> {
-                                    val target = (activeCurrentPositionMs() - 10_000L).coerceAtLeast(0L)
-                                    activeSeekTo(target)
-                                    hudMessage = "快退 10 秒"
+                                    controller.activeSeekTo((controller.activeCurrentPositionMs() - 10_000L).coerceAtLeast(0L))
+                                    ui.hudMessage = "快退 10 秒"
                                 }
                                 offset.x > w * 0.70f -> {
-                                    val target = (activeCurrentPositionMs() + 10_000L).coerceAtMost(durationMs)
-                                    activeSeekTo(target)
-                                    hudMessage = "快进 10 秒"
+                                    controller.activeSeekTo((controller.activeCurrentPositionMs() + 10_000L).coerceAtMost(session.durationMs))
+                                    ui.hudMessage = "快进 10 秒"
                                 }
                                 else -> {
-                                    if (activeIsPlaying()) {
-                                        activePause()
-                                        hudMessage = "已暂停"
+                                    if (controller.activeIsPlaying()) {
+                                        controller.activePause()
+                                        ui.hudMessage = "已暂停"
                                     } else {
-                                        activePlay()
-                                        hudMessage = "继续播放"
+                                        controller.activePlay()
+                                        ui.hudMessage = "继续播放"
                                     }
                                 }
                             }
-                            bumpInteraction()
+                            ui.bumpInteraction()
                         }
                     },
                 )
             }
             .then(
-                if (!isLocked) {
+                if (!ui.isLocked) {
                     Modifier.pointerInput(Unit) {
                         var startX = 0f
                         var mode = 0
@@ -2793,12 +3119,12 @@ fun NativeMediaPlayerOverlay(
                             },
                             onDragEnd = {
                                 if (mode == 3 && dragSeekDeltaMs != 0L) {
-                                    val target = (activeCurrentPositionMs() + dragSeekDeltaMs).coerceIn(0L, durationMs)
-                                    activeSeekTo(target)
+                                    val target = (controller.activeCurrentPositionMs() + dragSeekDeltaMs).coerceIn(0L, session.durationMs)
+                                    controller.activeSeekTo(target)
                                 }
                                 dragSeekDeltaMs = 0L
                                 mode = 0
-                                bumpInteraction()
+                                ui.bumpInteraction()
                             },
                             onDragCancel = {
                                 dragSeekDeltaMs = 0L
@@ -2823,7 +3149,7 @@ fun NativeMediaPlayerOverlay(
                                         val next = (cur - dragAmount.y / size.height.coerceAtLeast(1) * 1.4f).coerceIn(0.05f, 1.0f)
                                         lp.screenBrightness = next
                                         activity.window.attributes = lp
-                                        hudMessage = "亮度 ${(next * 100).toInt()}%"
+                                        ui.hudMessage = "亮度 ${(next * 100).toInt()}%"
                                     }
                                 }
                                 2 -> {
@@ -2834,15 +3160,15 @@ fun NativeMediaPlayerOverlay(
                                         if (delta != 0) {
                                             val next = (curVol + delta).coerceIn(0, maxVol)
                                             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
-                                            hudMessage = "音量 ${(next * 100 / maxVol)}%"
+                                            ui.hudMessage = "音量 ${(next * 100 / maxVol)}%"
                                         }
                                     }
                                 }
                                 3 -> {
                                     dragSeekDeltaMs += (dragAmount.x * 120f).toLong()
-                                    val preview = (positionMs + dragSeekDeltaMs).coerceIn(0L, durationMs)
+                                    val preview = (session.positionMs + dragSeekDeltaMs).coerceIn(0L, session.durationMs)
                                     val sign = if (dragSeekDeltaMs >= 0) "+" else "-"
-                                    hudMessage = "${formatDurationMs(preview)} (${sign}${abs(dragSeekDeltaMs) / 1000}s)"
+                                    ui.hudMessage = "${formatDurationMs(preview)} (${sign}${abs(dragSeekDeltaMs) / 1000}s)"
                                 }
                             }
                         }
@@ -2852,71 +3178,19 @@ fun NativeMediaPlayerOverlay(
                 },
             ),
     ) {
-        if (isMpvActive) {
-            val activeMpv = mpvEngineHolder
-            if (activeMpv != null) {
-                AndroidView(
-                    factory = { ctx ->
-                        SurfaceView(ctx).apply {
-                            keepScreenOn = true
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                            )
-                            holder.addCallback(activeMpv.createSurfaceCallback())
-                        }
-                    },
-                    update = { _ ->
-                        activeMpv.setResizeMode(resizeModeIndex)
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        } else {
-            val useTexture = playbackPrefs.surfaceType == "texture"
-            AndroidView(
-                factory = { ctx ->
-                    val layoutId = if (useTexture) {
-                        R.layout.mp_player_view_texture
-                    } else {
-                        R.layout.mp_player_view_surface
-                    }
-                    (LayoutInflater.from(ctx).inflate(layoutId, null) as PlayerView).apply {
-                        useController = false
-                        keepScreenOn = true
-                        player = exoPlayer
-                        subtitleView?.setFractionalTextSize(
-                            SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * playbackPrefs.subtitleScale,
-                        )
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                    }
-                },
-                update = { pv ->
-                    if (pv.player !== exoPlayer) pv.player = exoPlayer
-                    pv.resizeMode = resizeModes[resizeModeIndex].first
-                    pv.subtitleView?.setFractionalTextSize(
-                        SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * playbackPrefs.subtitleScale,
-                    )
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+        VideoSurfaceCanvas(controller = controller)
 
-        // 原生透明弹幕渲染层：严格位于视频画布之上、手势与控制栏之下，且完全穿透触摸事件
-        if (request.danmakuEnabled && !isInPipMode) {
+        if (request.danmakuEnabled && !ui.isInPipMode) {
             AndroidView(
                 factory = { ctx ->
                     DanmakuOverlayView(ctx).apply {
                         applyPreferences(danmakuPrefs)
-                        danmakuOverlayRef = this
+                        ui.danmakuOverlayRef = this
                     }
                 },
                 update = { view ->
-                    if (danmakuOverlayRef !== view) {
-                        danmakuOverlayRef = view
+                    if (ui.danmakuOverlayRef !== view) {
+                        ui.danmakuOverlayRef = view
                     }
                     view.applyPreferences(danmakuPrefs)
                 },
@@ -2926,9 +3200,8 @@ fun NativeMediaPlayerOverlay(
 
         val safePlayerInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
 
-        // 长按 2.0x 悬浮加速胶囊 / 续播提示胶囊 / 操作 HUD
-        if (!isInPipMode) {
-            if (isLongPressBoost) {
+        if (!ui.isInPipMode) {
+            if (ui.isLongPressBoost) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -2940,7 +3213,7 @@ fun NativeMediaPlayerOverlay(
                 ) {
                     Text("2.0x 倍速播放中", color = colors.primaryButtonFg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
-            } else if (hudMessage != null) {
+            } else if (ui.hudMessage != null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -2950,10 +3223,18 @@ fun NativeMediaPlayerOverlay(
                         .background(Color.Black.copy(alpha = 0.72f))
                         .padding(horizontal = 16.dp, vertical = 7.dp),
                 ) {
-                    Text(hudMessage.orEmpty(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(ui.hudMessage.orEmpty(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
-            } else if (resumeBannerPositionMs != null) {
+            } else if (session.resumeBannerPositionMs != null) {
                 ResumeFromHistoryBanner(
+                    savedMs = session.resumeBannerPositionMs,
+                    onRestartFromZero = {
+                        controller.activeSeekTo(0L)
+                        controller.localHistoryStore.clearResumePosition(controller.instanceUrl, request.server, request.localResumeId)
+                        session.resumeBannerPositionMs = null
+                        ui.hudMessage = "已从头开始播放"
+                    },
+                    onDismiss = { session.resumeBannerPositionMs = null },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
@@ -2962,21 +3243,20 @@ fun NativeMediaPlayerOverlay(
             }
         }
 
-        // 屏幕锁定/解锁按钮：横竖屏双态均在点击屏幕后可见，确保竖屏锁定后随时可解锁
-        if (!isInPipMode && controlsVisible) {
+        if (!ui.isInPipMode && ui.controlsVisible) {
             Surface(
                 onClick = {
-                    val nextLocked = !isLocked
-                    isLocked = nextLocked
-                    bumpInteraction()
+                    val nextLocked = !ui.isLocked
+                    ui.isLocked = nextLocked
+                    ui.bumpInteraction()
                     if (activity != null) {
                         if (nextLocked) {
-                            preLockOrientation = activity.requestedOrientation
+                            ui.preLockOrientation = activity.requestedOrientation
                             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
-                            hudMessage = "已锁定当前屏幕与方向"
+                            ui.hudMessage = "已锁定当前屏幕与方向"
                         } else {
-                            activity.requestedOrientation = preLockOrientation
-                            hudMessage = "已解除锁定"
+                            activity.requestedOrientation = ui.preLockOrientation
+                            ui.hudMessage = "已解除锁定"
                         }
                     }
                 },
@@ -2990,668 +3270,867 @@ fun NativeMediaPlayerOverlay(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = if (isLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
-                        contentDescription = if (isLocked) "解锁屏幕" else "锁定屏幕",
-                        tint = if (isLocked) colors.accent else Color.White,
+                        imageVector = if (ui.isLocked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                        contentDescription = if (ui.isLocked) "解锁屏幕" else "锁定屏幕",
+                        tint = if (ui.isLocked) colors.accent else Color.White,
                     )
                 }
             }
         }
 
-        if (!isInPipMode && controlsVisible && !isLocked) {
-            // 顶部栏：圆形返回 + 标题 + 外部播放器 + 横竖屏切换 + 画中画
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.72f), Color.Transparent)))
-                    .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                    .padding(horizontal = 16.dp, vertical = if (compactVideoHeight) 8.dp else 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Surface(
-                    onClick = { closeVideoCleanly() },
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.45f),
-                    modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
+        if (!ui.isInPipMode && ui.controlsVisible && !ui.isLocked) {
+            VideoTopBarOverlay(
+                controller = controller,
+                activity = activity,
+                isLandscape = isLandscape,
+                compactVideoHeight = compactVideoHeight,
+                safePlayerInsets = safePlayerInsets,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+
+            VideoCenterTransportOverlay(
+                controller = controller,
+                compactVideoHeight = compactVideoHeight,
+                modifier = Modifier.align(Alignment.Center),
+            )
+
+            VideoBottomControlsOverlay(
+                controller = controller,
+                danmakuPrefs = danmakuPrefs,
+                subtitleChoices = subtitleChoices,
+                compactVideoHeight = compactVideoHeight,
+                safePlayerInsets = safePlayerInsets,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+
+        VideoUpNextCardOverlay(
+            visible = showUpNextCard,
+            nextEpisode = controller.nextVideoEpisode,
+            controlsVisible = ui.controlsVisible,
+            compactVideoHeight = compactVideoHeight,
+            safePlayerInsets = safePlayerInsets,
+            onPlayNextNow = {
+                session.autoAdvancedTriggered = true
+                controller.switchVideoEpisode(request.queueIndex + 1)
+            },
+            onCancelUpNext = { session.upNextCancelled = true },
+            modifier = Modifier.align(Alignment.BottomEnd),
+        )
+    }
+
+    VideoQueueBottomSheet(
+        visible = ui.showQueueSheet,
+        request = request,
+        onSelectEpisode = { idx ->
+            ui.showQueueSheet = false
+            if (idx != request.queueIndex) controller.switchVideoEpisode(idx)
+        },
+        onDismiss = { ui.showQueueSheet = false },
+    )
+    VideoSubtitleSelectorBottomSheet(
+        visible = ui.showSubtitleSheet,
+        choices = subtitleChoices,
+        onSelectChoice = { controller.selectSubtitleChoice(it) },
+        onDismiss = { ui.showSubtitleSheet = false },
+    )
+    VideoAudioTrackSelectorBottomSheet(
+        visible = ui.showAudioTrackSheet,
+        choices = audioChoices,
+        onSelectChoice = { controller.selectAudioChoice(it) },
+        onDismiss = { ui.showAudioTrackSheet = false },
+    )
+    SpeedSelectorBottomSheet(
+        visible = ui.showSpeedSheet,
+        speeds = controller.speeds,
+        selectedIndex = controller.speedIndex,
+        onSelectSpeed = { idx, spd ->
+            controller.speedIndex = idx
+            controller.activeSetSpeed(spd)
+            ui.hudMessage = "倍速：${spd}x"
+            ui.showSpeedSheet = false
+        },
+        onDismiss = { ui.showSpeedSheet = false },
+    )
+    val routeSummary = if (request.server.isNotBlank()) formatPlaybackRouteSummary(session.currentRouteKind) else null
+    EngineSelectorBottomSheet(
+        visible = ui.showEngineSheet && controller.ownsPlayer,
+        activeEngineKind = session.activeEngineKind,
+        routeSummary = routeSummary,
+        onSelectEngine = { kind ->
+            ui.showEngineSheet = false
+            controller.switchVideoEngine(kind)
+        },
+        onDismiss = { ui.showEngineSheet = false },
+    )
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun VideoSurfaceCanvas(controller: PlayerRuntimeController) {
+    val ui = controller.ui
+    val session = controller.session
+    if (controller.isMpvActive) {
+        val activeMpv = session.mpvEngineHolder
+        if (activeMpv != null) {
+            AndroidView(
+                factory = { ctx ->
+                    SurfaceView(ctx).apply {
+                        keepScreenOn = true
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                        holder.addCallback(activeMpv.createSurfaceCallback())
+                    }
+                },
+                update = { _ -> activeMpv.setResizeMode(ui.resizeModeIndex) },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    } else {
+        val useTexture = controller.playbackPrefs.surfaceType == "texture"
+        AndroidView(
+            factory = { ctx ->
+                val layoutId = if (useTexture) R.layout.mp_player_view_texture else R.layout.mp_player_view_surface
+                (LayoutInflater.from(ctx).inflate(layoutId, null) as PlayerView).apply {
+                    useController = false
+                    keepScreenOn = true
+                    player = controller.exoPlayer
+                    subtitleView?.setFractionalTextSize(
+                        SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * controller.playbackPrefs.subtitleScale,
+                    )
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
+                }
+            },
+            update = { pv ->
+                if (pv.player !== controller.exoPlayer) pv.player = controller.exoPlayer
+                pv.resizeMode = VIDEO_RESIZE_MODES[ui.resizeModeIndex].first
+                pv.subtitleView?.setFractionalTextSize(
+                    SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * controller.playbackPrefs.subtitleScale,
+                )
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
+@Composable
+private fun VideoTopBarOverlay(
+    controller: PlayerRuntimeController,
+    activity: Activity?,
+    isLandscape: Boolean,
+    compactVideoHeight: Boolean,
+    safePlayerInsets: WindowInsets,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalMoviePilotColors.current
+    val request = controller.request
+    val ui = controller.ui
+    val session = controller.session
+    val btnSize = if (compactVideoHeight) 38.dp else 42.dp
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.72f), Color.Transparent)))
+            .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+            .padding(horizontal = 16.dp, vertical = if (compactVideoHeight) 8.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Surface(
+            onClick = { controller.closeVideoCleanly() },
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.45f),
+            modifier = Modifier.size(btnSize),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = request.title,
+                color = Color.White,
+                fontSize = if (compactVideoHeight) 14.5.sp else 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (request.subtitle.isNotBlank() && !compactVideoHeight) {
+                Text(
+                    text = request.subtitle,
+                    color = Color.White.copy(alpha = 0.68f),
+                    fontSize = 11.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Surface(
+            onClick = {
+                ui.bumpInteraction()
+                if (activity != null) {
+                    if (isLandscape) {
+                        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        ui.hudMessage = "已切换竖屏"
+                    } else {
+                        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        ui.hudMessage = "已切换全屏横屏"
                     }
                 }
-                Column(modifier = Modifier.weight(1f)) {
+            },
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.45f),
+            modifier = Modifier.size(btnSize),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (isLandscape) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                    contentDescription = if (isLandscape) "退出全屏横屏" else "全屏横屏播放",
+                    tint = Color.White,
+                )
+            }
+        }
+        Surface(
+            onClick = {
+                if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    runCatching {
+                        val params = PictureInPictureParams.Builder()
+                            .setAspectRatio(ui.videoAspectRatio)
+                            .build()
+                        activity.enterPictureInPictureMode(params)
+                    }
+                }
+            },
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.45f),
+            modifier = Modifier.size(btnSize),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
+            }
+        }
+        Box {
+            Surface(
+                onClick = {
+                    ui.bumpInteraction()
+                    ui.showTopMoreMenu = true
+                },
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.45f),
+                modifier = Modifier.size(btnSize),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = "更多播放选项",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = ui.showTopMoreMenu,
+                onDismissRequest = { ui.showTopMoreMenu = false },
+            ) {
+                if (controller.ownsPlayer) {
+                    DropdownMenuItem(
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("切换播放内核", fontWeight = FontWeight.Medium)
+                                Text(session.activeEngineKind.displayName, fontSize = 12.sp, color = colors.textSecondary)
+                            }
+                        },
+                        leadingIcon = { Icon(Icons.Rounded.Memory, contentDescription = null) },
+                        onClick = {
+                            ui.showTopMoreMenu = false
+                            ui.bumpInteraction()
+                            ui.showEngineSheet = true
+                        },
+                    )
+                }
+                val routeSummary = if (request.server.isNotBlank()) formatPlaybackRouteSummary(session.currentRouteKind) else null
+                if (routeSummary != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("播放方式", fontWeight = FontWeight.Medium)
+                                Text(routeSummary, fontSize = 12.sp, color = colors.textSecondary)
+                            }
+                        },
+                        leadingIcon = { Icon(Icons.Rounded.Tune, contentDescription = null) },
+                        enabled = false,
+                        onClick = {},
+                    )
+                }
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("使用外部播放器打开") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null) },
+                    onClick = {
+                        ui.showTopMoreMenu = false
+                        ui.bumpInteraction()
+                        controller.activePause()
+                        val ok = ExternalPlayerLauncher.launchExternalPlayerChooser(
+                            context = controller.context,
+                            streamUrl = request.url,
+                            title = request.title,
+                            isAudio = false,
+                            headers = request.headers,
+                        )
+                        if (!ok) ui.hudMessage = "未找到可用的外部播放器"
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoCenterTransportOverlay(
+    controller: PlayerRuntimeController,
+    compactVideoHeight: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalMoviePilotColors.current
+    val request = controller.request
+    val ui = controller.ui
+    val session = controller.session
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (compactVideoHeight) 14.dp else 18.dp),
+    ) {
+        if (request.queue.size > 1) {
+            Surface(
+                onClick = {
+                    if (controller.hasPrevVideoEpisode) controller.switchVideoEpisode(request.queueIndex - 1)
+                },
+                enabled = controller.hasPrevVideoEpisode,
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = if (controller.hasPrevVideoEpisode) 0.48f else 0.22f),
+                modifier = Modifier.size(if (compactVideoHeight) 42.dp else 46.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Rounded.SkipPrevious,
+                        contentDescription = "上一集",
+                        tint = Color.White.copy(alpha = if (controller.hasPrevVideoEpisode) 1f else 0.38f),
+                        modifier = Modifier.size(if (compactVideoHeight) 22.dp else 24.dp),
+                    )
+                }
+            }
+        }
+
+        Surface(
+            onClick = {
+                ui.bumpInteraction()
+                controller.activeSeekTo((controller.activeCurrentPositionMs() - 10_000L).coerceAtLeast(0L))
+                ui.hudMessage = "快退 10 秒"
+            },
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.48f),
+            modifier = Modifier.size(if (compactVideoHeight) 46.dp else 54.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Replay10, contentDescription = "快退10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 23.dp else 26.dp))
+            }
+        }
+
+        ExpressiveMorphingPlayButton(
+            isPlaying = controller.isPlaying,
+            onClick = {
+                ui.bumpInteraction()
+                if (controller.activeIsPlaying()) controller.activePause() else controller.activePlay()
+            },
+            containerColor = colors.accent,
+            contentColor = colors.primaryButtonFg,
+            width = if (compactVideoHeight) 68.dp else 76.dp,
+            height = if (compactVideoHeight) 58.dp else 68.dp,
+            iconSize = if (compactVideoHeight) 30.dp else 34.dp,
+        )
+
+        Surface(
+            onClick = {
+                ui.bumpInteraction()
+                controller.activeSeekTo((controller.activeCurrentPositionMs() + 10_000L).coerceAtMost(session.durationMs))
+                ui.hudMessage = "快进 10 秒"
+            },
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.48f),
+            modifier = Modifier.size(if (compactVideoHeight) 46.dp else 54.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Forward10, contentDescription = "快进10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 23.dp else 26.dp))
+            }
+        }
+
+        if (request.queue.size > 1) {
+            Surface(
+                onClick = {
+                    if (controller.hasNextVideoEpisode) controller.switchVideoEpisode(request.queueIndex + 1)
+                },
+                enabled = controller.hasNextVideoEpisode,
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = if (controller.hasNextVideoEpisode) 0.48f else 0.22f),
+                modifier = Modifier.size(if (compactVideoHeight) 42.dp else 46.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Rounded.SkipNext,
+                        contentDescription = "下一集",
+                        tint = Color.White.copy(alpha = if (controller.hasNextVideoEpisode) 1f else 0.38f),
+                        modifier = Modifier.size(if (compactVideoHeight) 22.dp else 24.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoBottomControlsOverlay(
+    controller: PlayerRuntimeController,
+    danmakuPrefs: DanmakuPreferencesStore,
+    subtitleChoices: List<ResolvedTrackChoice>,
+    compactVideoHeight: Boolean,
+    safePlayerInsets: WindowInsets,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalMoviePilotColors.current
+    val request = controller.request
+    val ui = controller.ui
+    val session = controller.session
+    val progress = (session.positionMs.toFloat() / session.durationMs.toFloat()).coerceIn(0f, 1f)
+    val displayPositionMs = if (ui.draggingProgress >= 0f) (ui.draggingProgress * session.durationMs).toLong() else session.positionMs
+    val rightDurationLabel = if (ui.showRemainingTime && session.durationMs > 1_000L) {
+        "-${formatDurationMs((session.durationMs - displayPositionMs).coerceAtLeast(0L))}"
+    } else {
+        formatDurationMs(session.durationMs)
+    }
+    val defaultVideoSpeedIdx = controller.speeds.indexOf(1.0f).coerceAtLeast(0)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.80f))))
+            .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+            .padding(horizontal = 20.dp, vertical = if (compactVideoHeight) 8.dp else 14.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compactVideoHeight) 6.dp else 10.dp),
+    ) {
+        if (compactVideoHeight) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 11.5.sp)
+                ExpressiveWavySlider(
+                    value = if (ui.draggingProgress >= 0f) ui.draggingProgress else progress,
+                    onValueChange = {
+                        ui.draggingProgress = it
+                        ui.bumpInteraction()
+                    },
+                    onValueChangeFinished = {
+                        if (ui.draggingProgress >= 0f) {
+                            controller.activeSeekTo((ui.draggingProgress * session.durationMs).toLong())
+                            ui.draggingProgress = -1f
+                            ui.bumpInteraction()
+                        }
+                    },
+                    isPlaying = controller.isPlaying,
+                    activeColor = colors.accent,
+                    inactiveColor = Color.White.copy(alpha = 0.28f),
+                    modifier = Modifier.weight(1f).height(28.dp),
+                )
+                Text(
+                    text = rightDurationLabel,
+                    color = Color.White.copy(alpha = 0.68f),
+                    fontSize = 11.5.sp,
+                    modifier = Modifier.clickable {
+                        ui.showRemainingTime = !ui.showRemainingTime
+                        ui.bumpInteraction()
+                    },
+                )
+            }
+        } else {
+            ExpressiveWavySlider(
+                value = if (ui.draggingProgress >= 0f) ui.draggingProgress else progress,
+                onValueChange = {
+                    ui.draggingProgress = it
+                    ui.bumpInteraction()
+                },
+                onValueChangeFinished = {
+                    if (ui.draggingProgress >= 0f) {
+                        controller.activeSeekTo((ui.draggingProgress * session.durationMs).toLong())
+                        ui.draggingProgress = -1f
+                        ui.bumpInteraction()
+                    }
+                },
+                isPlaying = controller.isPlaying,
+                activeColor = colors.accent,
+                inactiveColor = Color.White.copy(alpha = 0.28f),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 12.sp)
+                Text(
+                    text = rightDurationLabel,
+                    color = Color.White.copy(alpha = 0.68f),
+                    fontSize = 12.sp,
+                    modifier = Modifier.clickable {
+                        ui.showRemainingTime = !ui.showRemainingTime
+                        ui.bumpInteraction()
+                    },
+                )
+            }
+        }
+
+        val dockActions = buildList {
+            if (request.queue.size > 1) {
+                add(
+                    ExpressiveDockAction(
+                        icon = Icons.AutoMirrored.Rounded.FormatListBulleted,
+                        contentDescription = "选集",
+                        active = ui.showQueueSheet,
+                        onClick = {
+                            ui.bumpInteraction()
+                            ui.showQueueSheet = true
+                        },
+                    ),
+                )
+            }
+            if (request.danmakuEnabled) {
+                add(
+                    ExpressiveDockAction(
+                        icon = Icons.Rounded.Comment,
+                        contentDescription = if (ui.danmakuVisible) "关闭弹幕" else "开启弹幕",
+                        active = ui.danmakuVisible,
+                        onClick = {
+                            ui.bumpInteraction()
+                            val nextEnabled = !danmakuPrefs.enabled
+                            danmakuPrefs.updateEnabled(nextEnabled)
+                            ui.danmakuVisible = nextEnabled
+                            ui.danmakuPrefsVersion++
+                            ui.hudMessage = if (nextEnabled) "已开启弹幕" else "已关闭弹幕"
+                        },
+                    ),
+                )
+                add(
+                    ExpressiveDockAction(
+                        icon = Icons.Rounded.Tune,
+                        contentDescription = "弹幕设置",
+                        active = ui.showDanmakuSettingsSheet || ui.showDanmakuMatchSheet,
+                        onClick = {
+                            ui.bumpInteraction()
+                            ui.showDanmakuSettingsSheet = true
+                        },
+                    ),
+                )
+            }
+            add(
+                ExpressiveDockAction(
+                    icon = Icons.Rounded.ClosedCaption,
+                    contentDescription = "字幕",
+                    active = subtitleChoices.any { (it.group != null || it.trackId != null) && it.selected },
+                    onClick = {
+                        ui.bumpInteraction()
+                        ui.showSubtitleSheet = true
+                    },
+                ),
+            )
+            add(
+                ExpressiveDockAction(
+                    icon = Icons.Rounded.GraphicEq,
+                    contentDescription = "音轨",
+                    active = false,
+                    onClick = {
+                        ui.bumpInteraction()
+                        ui.showAudioTrackSheet = true
+                    },
+                ),
+            )
+            add(
+                ExpressiveDockAction(
+                    icon = Icons.Rounded.AspectRatio,
+                    contentDescription = "画面填充",
+                    active = ui.resizeModeIndex != 0,
+                    onClick = {
+                        ui.bumpInteraction()
+                        ui.resizeModeIndex = (ui.resizeModeIndex + 1) % VIDEO_RESIZE_MODES.size
+                        session.mpvEngineHolder?.setResizeMode(ui.resizeModeIndex)
+                        ui.hudMessage = "画面：${VIDEO_RESIZE_MODES[ui.resizeModeIndex].second}"
+                    },
+                ),
+            )
+            add(
+                ExpressiveDockAction(
+                    icon = Icons.Rounded.Speed,
+                    contentDescription = "播放倍速",
+                    active = controller.speedIndex != defaultVideoSpeedIdx,
+                    onClick = {
+                        ui.bumpInteraction()
+                        ui.showSpeedSheet = true
+                    },
+                ),
+            )
+            if (controller.ownsPlayer) {
+                add(
+                    ExpressiveDockAction(
+                        icon = Icons.Rounded.Memory,
+                        contentDescription = "切换播放内核",
+                        active = controller.isMpvActive,
+                        onClick = {
+                            ui.bumpInteraction()
+                            ui.showEngineSheet = true
+                        },
+                    ),
+                )
+            }
+        }
+
+        ExpressiveGroupedActionDock(
+            actions = dockActions,
+            dockColor = Color(0xCC12151E),
+            buttonColor = Color.White.copy(alpha = 0.12f),
+            activeButtonColor = colors.accent,
+            iconColor = Color.White,
+            activeIconColor = colors.primaryButtonFg,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun VideoUpNextCardOverlay(
+    visible: Boolean,
+    nextEpisode: MediaPlaybackRequest?,
+    controlsVisible: Boolean,
+    compactVideoHeight: Boolean,
+    safePlayerInsets: WindowInsets,
+    onPlayNextNow: () -> Unit,
+    onCancelUpNext: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalMoviePilotColors.current
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 2 },
+        exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { it / 2 },
+        modifier = modifier
+            .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.End))
+            .padding(end = 20.dp, bottom = if (controlsVisible) (if (compactVideoHeight) 110.dp else 148.dp) else 28.dp),
+    ) {
+        nextEpisode?.let { nextEp ->
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xE0161A26),
+                shadowElevation = 12.dp,
+                modifier = Modifier
+                    .widthIn(max = 320.dp)
+                    .border(0.9.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp)),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     Text(
-                        text = request.title,
+                        text = "即将播放下一集 · ${nextEp.title}",
                         color = Color.White,
-                        fontSize = if (compactVideoHeight) 14.5.sp else 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (request.subtitle.isNotBlank() && !compactVideoHeight) {
-                        Text(
-                            text = request.subtitle,
-                            color = Color.White.copy(alpha = 0.68f),
-                            fontSize = 11.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                Surface(
-                    onClick = {
-                        bumpInteraction()
-                        if (activity != null) {
-                            if (isLandscape) {
-                                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                hudMessage = "已切换竖屏"
-                            } else {
-                                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                hudMessage = "已切换全屏横屏"
-                            }
-                        }
-                    },
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.45f),
-                    modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (isLandscape) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
-                            contentDescription = if (isLandscape) "退出全屏横屏" else "全屏横屏播放",
-                            tint = Color.White,
-                        )
-                    }
-                }
-                Surface(
-                    onClick = {
-                        if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            runCatching {
-                                val params = PictureInPictureParams.Builder()
-                                    .setAspectRatio(videoAspectRatio)
-                                    .build()
-                                activity.enterPictureInPictureMode(params)
-                            }
-                        }
-                    },
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.45f),
-                    modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.PictureInPictureAlt, contentDescription = "画中画", tint = Color.White)
-                    }
-                }
-                Box {
-                    Surface(
-                        onClick = {
-                            bumpInteraction()
-                            showTopMoreMenu = true
-                        },
-                        shape = CircleShape,
-                        color = Color.Black.copy(alpha = 0.45f),
-                        modifier = Modifier.size(if (compactVideoHeight) 38.dp else 42.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Rounded.MoreVert,
-                                contentDescription = "更多播放选项",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    }
-                    DropdownMenu(
-                        expanded = showTopMoreMenu,
-                        onDismissRequest = { showTopMoreMenu = false },
-                    ) {
-                        if (ownsPlayer && !request.isAudio) {
-                            DropdownMenuItem(
-                                text = {
-                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text("切换播放内核", fontWeight = FontWeight.Medium)
-                                        Text(
-                                            activeEngineKind.displayName,
-                                            fontSize = 12.sp,
-                                            color = colors.textSecondary,
-                                        )
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Rounded.Memory, contentDescription = null)
-                                },
-                                onClick = {
-                                    showTopMoreMenu = false
-                                    bumpInteraction()
-                                    showEngineSheet = true
-                                },
-                            )
-                        }
-                        val routeSummary = if (request.server.isNotBlank()) formatPlaybackRouteSummary(currentRouteKind) else null
-                        if (routeSummary != null) {
-                            DropdownMenuItem(
-                                text = {
-                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text("播放方式", fontWeight = FontWeight.Medium)
-                                        Text(
-                                            routeSummary,
-                                            fontSize = 12.sp,
-                                            color = colors.textSecondary,
-                                        )
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Rounded.Tune, contentDescription = null)
-                                },
-                                enabled = false,
-                                onClick = {},
-                            )
-                        }
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("使用外部播放器打开") },
-                            leadingIcon = {
-                                Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null)
-                            },
-                            onClick = {
-                                showTopMoreMenu = false
-                                bumpInteraction()
-                                activePause()
-                                val ok = ExternalPlayerLauncher.launchExternalPlayerChooser(
-                                    context = context,
-                                    streamUrl = request.url,
-                                    title = request.title,
-                                    isAudio = false,
-                                    headers = request.headers,
-                                )
-                                if (!ok) hudMessage = "未找到可用的外部播放器"
-                            },
-                        )
-                    }
-                }
-            }
-
-            // 中央 Expressive 形变播放/暂停 + 上一集/快退/快进/下一集圆钮
-            Row(
-                modifier = Modifier.align(Alignment.Center),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (compactVideoHeight) 14.dp else 18.dp),
-            ) {
-                if (request.queue.size > 1) {
-                    Surface(
-                        onClick = {
-                            if (hasPrevVideoEpisode) {
-                                switchVideoEpisode(request.queueIndex - 1)
-                            }
-                        },
-                        enabled = hasPrevVideoEpisode,
-                        shape = CircleShape,
-                        color = Color.Black.copy(alpha = if (hasPrevVideoEpisode) 0.48f else 0.22f),
-                        modifier = Modifier.size(if (compactVideoHeight) 42.dp else 46.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Rounded.SkipPrevious,
-                                contentDescription = "上一集",
-                                tint = Color.White.copy(alpha = if (hasPrevVideoEpisode) 1f else 0.38f),
-                                modifier = Modifier.size(if (compactVideoHeight) 22.dp else 24.dp),
-                            )
-                        }
-                    }
-                }
-
-                Surface(
-                    onClick = {
-                        bumpInteraction()
-                        activeSeekTo((activeCurrentPositionMs() - 10_000L).coerceAtLeast(0L))
-                        hudMessage = "快退 10 秒"
-                    },
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.48f),
-                    modifier = Modifier.size(if (compactVideoHeight) 46.dp else 54.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Replay10, contentDescription = "快退10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 23.dp else 26.dp))
-                    }
-                }
-
-                ExpressiveMorphingPlayButton(
-                    isPlaying = isPlaying,
-                    onClick = {
-                        bumpInteraction()
-                        if (activeIsPlaying()) activePause() else activePlay()
-                    },
-                    containerColor = colors.accent,
-                    contentColor = colors.primaryButtonFg,
-                    width = if (compactVideoHeight) 68.dp else 76.dp,
-                    height = if (compactVideoHeight) 58.dp else 68.dp,
-                    iconSize = if (compactVideoHeight) 30.dp else 34.dp,
-                )
-
-                Surface(
-                    onClick = {
-                        bumpInteraction()
-                        activeSeekTo((activeCurrentPositionMs() + 10_000L).coerceAtMost(durationMs))
-                        hudMessage = "快进 10 秒"
-                    },
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.48f),
-                    modifier = Modifier.size(if (compactVideoHeight) 46.dp else 54.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Forward10, contentDescription = "快进10秒", tint = Color.White, modifier = Modifier.size(if (compactVideoHeight) 23.dp else 26.dp))
-                    }
-                }
-
-                if (request.queue.size > 1) {
-                    Surface(
-                        onClick = {
-                            if (hasNextVideoEpisode) {
-                                switchVideoEpisode(request.queueIndex + 1)
-                            }
-                        },
-                        enabled = hasNextVideoEpisode,
-                        shape = CircleShape,
-                        color = Color.Black.copy(alpha = if (hasNextVideoEpisode) 0.48f else 0.22f),
-                        modifier = Modifier.size(if (compactVideoHeight) 42.dp else 46.dp),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Rounded.SkipNext,
-                                contentDescription = "下一集",
-                                tint = Color.White.copy(alpha = if (hasNextVideoEpisode) 1f else 0.38f),
-                                modifier = Modifier.size(if (compactVideoHeight) 22.dp else 24.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 底部波浪进度条 + 连体播控胶囊坞
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.80f))))
-                    .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                    .padding(horizontal = 20.dp, vertical = if (compactVideoHeight) 8.dp else 14.dp),
-                verticalArrangement = Arrangement.spacedBy(if (compactVideoHeight) 6.dp else 10.dp),
-            ) {
-                if (compactVideoHeight) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 11.5.sp)
-                        ExpressiveWavySlider(
-                            value = if (draggingProgress >= 0f) draggingProgress else progress,
-                            onValueChange = {
-                                draggingProgress = it
-                                bumpInteraction()
-                            },
-                            onValueChangeFinished = {
-                                if (draggingProgress >= 0f) {
-                                    activeSeekTo((draggingProgress * durationMs).toLong())
-                                    draggingProgress = -1f
-                                    bumpInteraction()
-                                }
-                            },
-                            isPlaying = isPlaying,
-                            activeColor = colors.accent,
-                            inactiveColor = Color.White.copy(alpha = 0.28f),
-                            modifier = Modifier.weight(1f).height(28.dp),
-                        )
-                        Text(
-                            text = rightDurationLabel,
-                            color = Color.White.copy(alpha = 0.68f),
-                            fontSize = 11.5.sp,
-                            modifier = Modifier.clickable {
-                                showRemainingTime = !showRemainingTime
-                                bumpInteraction()
-                            },
-                        )
-                    }
-                } else {
-                    ExpressiveWavySlider(
-                        value = if (draggingProgress >= 0f) draggingProgress else progress,
-                        onValueChange = {
-                            draggingProgress = it
-                            bumpInteraction()
-                        },
-                        onValueChangeFinished = {
-                            if (draggingProgress >= 0f) {
-                                activeSeekTo((draggingProgress * durationMs).toLong())
-                                draggingProgress = -1f
-                                bumpInteraction()
-                            }
-                        },
-                        isPlaying = isPlaying,
-                        activeColor = colors.accent,
-                        inactiveColor = Color.White.copy(alpha = 0.28f),
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(formatDurationMs(displayPositionMs), color = Color.White.copy(alpha = 0.86f), fontSize = 12.sp)
-                        Text(
-                            text = rightDurationLabel,
-                            color = Color.White.copy(alpha = 0.68f),
-                            fontSize = 12.sp,
-                            modifier = Modifier.clickable {
-                                showRemainingTime = !showRemainingTime
-                                bumpInteraction()
-                            },
-                        )
-                    }
-                }
-
-                val dockActions = buildList {
-                    if (request.queue.size > 1) {
-                        add(
-                            ExpressiveDockAction(
-                                icon = Icons.AutoMirrored.Rounded.FormatListBulleted,
-                                contentDescription = "选集",
-                                active = showQueueSheet,
-                                onClick = {
-                                    bumpInteraction()
-                                    showQueueSheet = true
-                                },
-                            ),
-                        )
-                    }
-                    if (request.danmakuEnabled) {
-                        add(
-                            ExpressiveDockAction(
-                                icon = Icons.Rounded.Comment,
-                                contentDescription = if (danmakuVisible) "关闭弹幕" else "开启弹幕",
-                                active = danmakuVisible,
-                                onClick = {
-                                    bumpInteraction()
-                                    val nextEnabled = !danmakuPrefs.enabled
-                                    danmakuPrefs.updateEnabled(nextEnabled)
-                                    danmakuVisible = nextEnabled
-                                    danmakuPrefsVersion++
-                                    hudMessage = if (nextEnabled) "已开启弹幕" else "已关闭弹幕"
-                                },
-                            ),
-                        )
-                        add(
-                            ExpressiveDockAction(
-                                icon = Icons.Rounded.Tune,
-                                contentDescription = "弹幕设置",
-                                active = showDanmakuSettingsSheet || showDanmakuMatchSheet,
-                                onClick = {
-                                    bumpInteraction()
-                                    showDanmakuSettingsSheet = true
-                                },
-                            ),
-                        )
-                    }
-                    add(
-                        ExpressiveDockAction(
-                            icon = Icons.Rounded.ClosedCaption,
-                            contentDescription = "字幕",
-                            active = subtitleChoices.any { (it.group != null || it.trackId != null) && it.selected },
-                            onClick = {
-                                bumpInteraction()
-                                showSubtitleSheet = true
-                            },
-                        ),
-                    )
-                    add(
-                        ExpressiveDockAction(
-                            icon = Icons.Rounded.GraphicEq,
-                            contentDescription = "音轨",
-                            active = false,
-                            onClick = {
-                                bumpInteraction()
-                                showAudioTrackSheet = true
-                            },
-                        ),
-                    )
-                    add(
-                        ExpressiveDockAction(
-                            icon = Icons.Rounded.AspectRatio,
-                            contentDescription = "画面填充",
-                            active = resizeModeIndex != 0,
-                            onClick = {
-                                bumpInteraction()
-                                resizeModeIndex = (resizeModeIndex + 1) % resizeModes.size
-                                mpvEngineHolder?.setResizeMode(resizeModeIndex)
-                                hudMessage = "画面：${resizeModes[resizeModeIndex].second}"
-                            },
-                        ),
-                    )
-                    add(
-                        ExpressiveDockAction(
-                            icon = Icons.Rounded.Speed,
-                            contentDescription = "播放倍速",
-                            active = speedIndex != defaultVideoSpeedIdx,
-                            onClick = {
-                                bumpInteraction()
-                                showSpeedSheet = true
-                            },
-                        ),
-                    )
-                    if (ownsPlayer) {
-                        add(
-                            ExpressiveDockAction(
-                                icon = Icons.Rounded.Memory,
-                                contentDescription = "切换播放内核",
-                                active = isMpvActive,
-                                onClick = {
-                                    bumpInteraction()
-                                    showEngineSheet = true
-                                },
-                            ),
-                        )
-                    }
-                }
-
-                ExpressiveGroupedActionDock(
-                    actions = dockActions,
-                    dockColor = Color(0xCC12151E),
-                    buttonColor = Color.White.copy(alpha = 0.12f),
-                    activeButtonColor = colors.accent,
-                    iconColor = Color.White,
-                    activeIconColor = colors.primaryButtonFg,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-
-        // 片尾「即将播放下一集」磨砂玻璃卡片（>= 93% 或剩余 <= 3.5 秒自动浮现，支持立即连播与取消）
-        AnimatedVisibility(
-            visible = showUpNextCard,
-            enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 2 },
-            exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { it / 2 },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .windowInsetsPadding(safePlayerInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.End))
-                .padding(end = 20.dp, bottom = if (controlsVisible) (if (compactVideoHeight) 110.dp else 148.dp) else 28.dp),
-        ) {
-            nextVideoEpisode?.let { nextEp ->
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0xE0161A26),
-                    shadowElevation = 12.dp,
-                    modifier = Modifier
-                        .widthIn(max = 320.dp)
-                        .border(0.9.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp)),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            text = "即将播放下一集 · ${nextEp.title}",
-                            color = Color.White,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        Surface(
+                            onClick = onPlayNextNow,
+                            shape = CircleShape,
+                            color = colors.accent,
                         ) {
-                            Surface(
-                                onClick = {
-                                    autoAdvancedTriggered = true
-                                    switchVideoEpisode(request.queueIndex + 1)
-                                },
-                                shape = CircleShape,
-                                color = colors.accent,
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = colors.primaryButtonFg, modifier = Modifier.size(16.dp))
-                                    Text("立即播放", color = colors.primaryButtonFg, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            Surface(
-                                onClick = { upNextCancelled = true },
-                                shape = CircleShape,
-                                color = Color.White.copy(alpha = 0.14f),
-                            ) {
-                                Text(
-                                    text = "取消",
-                                    color = Color.White.copy(alpha = 0.90f),
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
-                                )
+                                Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = colors.primaryButtonFg, modifier = Modifier.size(16.dp))
+                                Text("立即播放", color = colors.primaryButtonFg, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                             }
                         }
-                    }
-                }
-            }
-        }
-    }
-
-    // 视频选集面板
-    if (showQueueSheet && !request.isAudio) {
-        NativeGlassSheet(onDismissRequest = { showQueueSheet = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                val list = request.queue.ifEmpty { listOf(request) }
-                Text(
-                    text = "选集 (${list.size})",
-                    color = colors.textPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    itemsIndexed(list) { idx, ep ->
-                        val current = idx == request.queueIndex
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(if (current) colors.activeIndicator else colors.surfaceContainerLow)
-                                .clickable {
-                                    showQueueSheet = false
-                                    if (!current) {
-                                        switchVideoEpisode(idx)
-                                    }
-                                }
-                                .padding(horizontal = 14.dp, vertical = 13.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        Surface(
+                            onClick = onCancelUpNext,
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.14f),
                         ) {
                             Text(
-                                text = "E%02d".format(idx + 1),
-                                color = if (current) colors.accent else colors.textMuted,
+                                text = "取消",
+                                color = Color.White.copy(alpha = 0.90f),
                                 fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                             )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = ep.title,
-                                    color = colors.textPrimary,
-                                    fontSize = 14.5.sp,
-                                    fontWeight = if (current) FontWeight.Bold else FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                if (ep.subtitle.isNotBlank()) {
-                                    Text(ep.subtitle, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1)
-                                }
-                            }
-                            if (current) {
-                                Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
-                            }
                         }
                     }
                 }
-                Spacer(Modifier.height(14.dp))
             }
         }
     }
+}
 
-    if (showSubtitleSheet) {
-        NativeGlassSheet(onDismissRequest = { showSubtitleSheet = false }) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VideoQueueBottomSheet(
+    visible: Boolean,
+    request: MediaPlaybackRequest,
+    onSelectEpisode: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    val colors = LocalMoviePilotColors.current
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val list = request.queue.ifEmpty { listOf(request) }
+            Text(
+                text = "选集 (${list.size})",
+                color = colors.textPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("选择字幕轨道", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                itemsIndexed(list) { idx, ep ->
+                    val current = idx == request.queueIndex
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (current) colors.activeIndicator else colors.surfaceContainerLow)
+                            .clickable { onSelectEpisode(idx) }
+                            .padding(horizontal = 14.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = "E%02d".format(idx + 1),
+                            color = if (current) colors.accent else colors.textMuted,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = ep.title,
+                                color = colors.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = if (current) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (ep.subtitle.isNotBlank()) {
+                                Text(ep.subtitle, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1)
+                            }
+                        }
+                        if (current) {
+                            Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VideoSubtitleSelectorBottomSheet(
+    visible: Boolean,
+    choices: List<ResolvedTrackChoice>,
+    onSelectChoice: (ResolvedTrackChoice) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    val colors = LocalMoviePilotColors.current
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("选择字幕轨道", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                itemsIndexed(choices) { _, choice ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
+                            .clickable { onSelectChoice(choice) }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(choice.label, color = colors.textPrimary, fontSize = 15.sp, fontWeight = if (choice.selected) FontWeight.Bold else FontWeight.Normal)
+                        if (choice.selected) {
+                            Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VideoAudioTrackSelectorBottomSheet(
+    visible: Boolean,
+    choices: List<ResolvedTrackChoice>,
+    onSelectChoice: (ResolvedTrackChoice) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    val colors = LocalMoviePilotColors.current
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("选择音轨", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            if (choices.isEmpty()) {
+                Text("当前流仅包含默认音轨", color = colors.textSecondary, fontSize = 14.sp)
+            } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(subtitleChoices) { _, choice ->
+                    itemsIndexed(choices) { _, choice ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
-                                .clickable {
-                                    if (isMpvActive) {
-                                        if (choice.trackId == null) {
-                                            mpvEngineHolder?.disableSubtitles()
-                                            activeDisableSubtitles = true
-                                            activePreferredSubtitleLang = null
-                                        } else {
-                                            mpvEngineHolder?.selectSubtitleTrack(choice.trackId)
-                                            activeDisableSubtitles = false
-                                            activePreferredSubtitleLang = choice.language ?: choice.label
-                                        }
-                                        dispatchVideoSync("track_change")
-                                    } else {
-                                        val ep = exoPlayer
-                                        if (ep != null) {
-                                            val builder = ep.trackSelectionParameters.buildUpon()
-                                            if (choice.group == null) {
-                                                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                                                activeDisableSubtitles = true
-                                                activePreferredSubtitleLang = null
-                                            } else {
-                                                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                                                    .setOverrideForType(TrackSelectionOverride(choice.group.mediaTrackGroup, choice.trackIndex))
-                                                activeDisableSubtitles = false
-                                                activePreferredSubtitleLang = choice.language ?: choice.label
-                                            }
-                                            ep.trackSelectionParameters = builder.build()
-                                        }
-                                    }
-                                    tracksVersion++
-                                    hudMessage = "字幕：${choice.label}"
-                                    showSubtitleSheet = false
-                                }
+                                .clickable { onSelectChoice(choice) }
                                 .padding(horizontal = 16.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -3663,129 +4142,155 @@ fun NativeMediaPlayerOverlay(
                         }
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+@Composable
+private fun VideoDanmakuHost(
+    controller: PlayerRuntimeController,
+    danmakuPrefs: DanmakuPreferencesStore,
+) {
+    val request = controller.request
+    val ui = controller.ui
+    val session = controller.session
+    val repository = controller.repository
+    val danmakuScope = rememberCoroutineScope()
+    val danmakuState = remember(request.url, request.itemId) { VideoDanmakuSessionState() }
+
+    suspend fun rebuildTimelineOnWorker(rawJson: String) {
+        val options = danmakuPrefs.toFilterOptions(danmakuState.shiftMs.toLong())
+        val prepared = withContext(Dispatchers.Default) {
+            RustCoreBridge.prepareDanmakuTimeline(rawJson, options)
+        }
+        danmakuState.totalCount = prepared.items.size
+        ui.danmakuOverlayRef?.let { overlay ->
+            overlay.applyPreferences(danmakuPrefs)
+            overlay.loadTimeline(prepared.items, controller.activeCurrentPositionMs())
+            overlay.syncPlayback(
+                positionMs = controller.activeCurrentPositionMs(),
+                playing = controller.activeIsPlaying(),
+                rate = controller.currentSelectedSpeed,
+                inPip = ui.isInPipMode,
+            )
+        }
+    }
+
+    suspend fun loadEpisodeComments(epId: Long, forceRefresh: Boolean = false) {
+        val repo = repository ?: return
+        val res = withContext(Dispatchers.IO) {
+            repo.fetchDanmakuComments(epId, forceRefresh = forceRefresh)
+        }
+        res.onSuccess { payload ->
+            danmakuState.rawJson = payload.rawJson
+            rebuildTimelineOnWorker(payload.rawJson)
+        }
+    }
+
+    LaunchedEffect(request.itemId, request.server, request.danmakuEnabled, repository) {
+        if (!request.danmakuEnabled || repository == null) {
+            ui.danmakuOverlayRef?.stopAndClear()
+            return@LaunchedEffect
+        }
+        val matchRes = withContext(Dispatchers.IO) {
+            repository.matchDanmaku(
+                itemId = request.itemId.ifBlank { null },
+                server = request.server.ifBlank { null },
+                title = request.title.ifBlank { null },
+                seriesName = request.seriesName,
+                seasonNumber = request.seasonNumber,
+                episodeNumber = request.episodeNumber,
+                year = request.year,
+                tmdbId = request.tmdbId,
+                fileName = request.fileName,
+                fileSize = request.fileSize,
+                durationMs = session.durationMs.takeIf { it > 1_000L },
+            )
+        }
+        matchRes.onSuccess { resp ->
+            danmakuState.fromBinding = resp.fromBinding
+            danmakuState.candidates = resp.candidates
+            danmakuState.shiftMs = resp.shiftMs
+            val ep = resp.episode
+            if (resp.matched && ep != null && ep.episodeId > 0L) {
+                danmakuState.episodeId = ep.episodeId
+                danmakuState.animeId = ep.animeId
+                danmakuState.animeTitle = ep.animeTitle
+                danmakuState.episodeTitle = ep.episodeTitle
+                loadEpisodeComments(ep.episodeId, forceRefresh = false)
+            } else {
+                danmakuState.episodeId = null
+                danmakuState.rawJson = null
+                danmakuState.totalCount = 0
+                ui.danmakuOverlayRef?.stopAndClear()
             }
         }
     }
 
-    if (showAudioTrackSheet) {
-        NativeGlassSheet(onDismissRequest = { showAudioTrackSheet = false }) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("选择音轨", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                if (audioChoices.isEmpty()) {
-                    Text("当前流仅包含默认音轨", color = colors.textSecondary, fontSize = 14.sp)
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        itemsIndexed(audioChoices) { _, choice ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(if (choice.selected) colors.activeIndicator else colors.surfaceContainerLow)
-                                    .clickable {
-                                        if (isMpvActive) {
-                                            choice.trackId?.let { id ->
-                                                mpvEngineHolder?.selectAudioTrack(id)
-                                                activePreferredAudioLang = choice.language ?: choice.label
-                                                tracksVersion++
-                                                dispatchVideoSync("track_change")
-                                                hudMessage = "音轨：${choice.label}"
-                                            }
-                                        } else {
-                                            choice.group?.let { grp ->
-                                                exoPlayer?.let { ep ->
-                                                    ep.trackSelectionParameters = ep.trackSelectionParameters
-                                                        .buildUpon()
-                                                        .setOverrideForType(TrackSelectionOverride(grp.mediaTrackGroup, choice.trackIndex))
-                                                        .build()
-                                                    activePreferredAudioLang = choice.language ?: choice.label
-                                                    tracksVersion++
-                                                    hudMessage = "音轨：${choice.label}"
-                                                }
-                                            }
-                                        }
-                                        showAudioTrackSheet = false
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(choice.label, color = colors.textPrimary, fontSize = 15.sp, fontWeight = if (choice.selected) FontWeight.Bold else FontWeight.Normal)
-                                if (choice.selected) {
-                                    Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-            }
+    LaunchedEffect(ui.danmakuPrefsVersion, ui.danmakuVisible, ui.danmakuOverlayRef) {
+        if (!request.danmakuEnabled) return@LaunchedEffect
+        ui.danmakuOverlayRef?.applyPreferences(danmakuPrefs)
+        val raw = danmakuState.rawJson
+        if (!raw.isNullOrBlank()) {
+            rebuildTimelineOnWorker(raw)
         }
     }
 
-    SpeedSelectorBottomSheet()
-    EngineSelectorBottomSheet()
-
-    if (showDanmakuSettingsSheet && !request.isAudio && request.danmakuEnabled) {
+    if (ui.showDanmakuSettingsSheet && request.danmakuEnabled) {
         val matchedSummary = listOfNotNull(
-            danmakuAnimeTitle?.takeIf { it.isNotBlank() },
-            danmakuEpisodeTitle?.takeIf { it.isNotBlank() },
+            danmakuState.animeTitle?.takeIf { it.isNotBlank() },
+            danmakuState.episodeTitle?.takeIf { it.isNotBlank() },
         ).joinToString(" · ")
         DanmakuSettingsBottomSheet(
             prefs = danmakuPrefs,
             matchedSummary = matchedSummary,
-            totalCount = danmakuTotalCount,
-            fromBinding = danmakuFromBinding,
-            shiftMs = danmakuShiftMs,
+            totalCount = danmakuState.totalCount,
+            fromBinding = danmakuState.fromBinding,
+            shiftMs = danmakuState.shiftMs,
             onPreferencesChanged = {
-                danmakuVisible = danmakuPrefs.enabled
-                danmakuPrefsVersion++
+                ui.danmakuVisible = danmakuPrefs.enabled
+                ui.danmakuPrefsVersion++
             },
             onShiftChanged = { nextShift ->
-                danmakuShiftMs = nextShift
-                danmakuPrefsVersion++
+                danmakuState.shiftMs = nextShift
+                ui.danmakuPrefsVersion++
             },
             onSaveShiftToServer = {
-                val repo = repository
-                val epId = danmakuEpisodeId
-                if (repo != null && epId != null && epId > 0L) {
-                    repo.saveDanmakuBinding(
+                val epId = danmakuState.episodeId
+                if (repository != null && epId != null && epId > 0L) {
+                    repository.saveDanmakuBinding(
                         server = request.server.ifBlank { null },
                         itemId = request.itemId.ifBlank { null },
                         tmdbId = request.tmdbId,
                         seasonNumber = request.seasonNumber,
                         episodeNumber = request.episodeNumber,
                         episodeId = epId,
-                        animeId = danmakuAnimeId,
-                        animeTitle = danmakuAnimeTitle.orEmpty(),
-                        episodeTitle = danmakuEpisodeTitle.orEmpty(),
-                        shiftMs = danmakuShiftMs,
+                        animeId = danmakuState.animeId,
+                        animeTitle = danmakuState.animeTitle.orEmpty(),
+                        episodeTitle = danmakuState.episodeTitle.orEmpty(),
+                        shiftMs = danmakuState.shiftMs,
                     ).onSuccess {
-                        danmakuFromBinding = true
+                        danmakuState.fromBinding = true
                     }
                 }
             },
             onOpenManualMatch = {
-                showDanmakuSettingsSheet = false
-                showDanmakuMatchSheet = true
+                ui.showDanmakuSettingsSheet = false
+                ui.showDanmakuMatchSheet = true
             },
             onForceRefresh = {
-                val epId = danmakuEpisodeId
+                val epId = danmakuState.episodeId
                 if (epId != null && epId > 0L) {
-                    loadDanmakuEpisodeComments(epId, forceRefresh = true)
+                    loadEpisodeComments(epId, forceRefresh = true)
                 }
             },
-            onDismiss = { showDanmakuSettingsSheet = false },
+            onDismiss = { ui.showDanmakuSettingsSheet = false },
         )
     }
 
-    if (showDanmakuMatchSheet && !request.isAudio && request.danmakuEnabled && repository != null) {
+    if (ui.showDanmakuMatchSheet && request.danmakuEnabled && repository != null) {
         val initialQuery = remember(request.seriesName, request.title, request.fileName) {
             RustCoreBridge.normalizeDanmakuTitle(
                 request.seriesName?.takeIf { it.isNotBlank() }
@@ -3796,14 +4301,14 @@ fun NativeMediaPlayerOverlay(
         DanmakuManualMatchBottomSheet(
             repository = repository,
             initialKeyword = initialQuery,
-            initialCandidates = danmakuCandidates,
-            fromBinding = danmakuFromBinding,
+            initialCandidates = danmakuState.candidates,
+            fromBinding = danmakuState.fromBinding,
             onSelectEpisode = { cand ->
-                danmakuEpisodeId = cand.episodeId
-                danmakuAnimeId = cand.animeId
-                danmakuAnimeTitle = cand.animeTitle
-                danmakuEpisodeTitle = cand.episodeTitle
-                danmakuShiftMs = cand.shiftMs
+                danmakuState.episodeId = cand.episodeId
+                danmakuState.animeId = cand.animeId
+                danmakuState.animeTitle = cand.animeTitle
+                danmakuState.episodeTitle = cand.episodeTitle
+                danmakuState.shiftMs = cand.shiftMs
                 repository.saveDanmakuBinding(
                     server = request.server.ifBlank { null },
                     itemId = request.itemId.ifBlank { null },
@@ -3816,12 +4321,12 @@ fun NativeMediaPlayerOverlay(
                     episodeTitle = cand.episodeTitle,
                     shiftMs = cand.shiftMs,
                 ).onSuccess {
-                    danmakuFromBinding = true
+                    danmakuState.fromBinding = true
                 }
                 danmakuScope.launch {
-                    loadDanmakuEpisodeComments(cand.episodeId, forceRefresh = false)
+                    loadEpisodeComments(cand.episodeId, forceRefresh = false)
                 }
-                hudMessage = "已切换弹幕：${cand.animeTitle}"
+                ui.hudMessage = "已切换弹幕：${cand.animeTitle}"
             },
             onUnbind = {
                 repository.deleteDanmakuBinding(
@@ -3831,7 +4336,7 @@ fun NativeMediaPlayerOverlay(
                     seasonNumber = request.seasonNumber,
                     episodeNumber = request.episodeNumber,
                 ).onSuccess {
-                    danmakuFromBinding = false
+                    danmakuState.fromBinding = false
                     val reMatch = withContext(Dispatchers.IO) {
                         repository.matchDanmaku(
                             itemId = request.itemId.ifBlank { null },
@@ -3844,30 +4349,30 @@ fun NativeMediaPlayerOverlay(
                             tmdbId = request.tmdbId,
                             fileName = request.fileName,
                             fileSize = request.fileSize,
-                            durationMs = durationMs.takeIf { it > 1_000L },
+                            durationMs = session.durationMs.takeIf { it > 1_000L },
                         )
                     }
                     reMatch.onSuccess { resp ->
-                        danmakuCandidates = resp.candidates
-                        danmakuShiftMs = resp.shiftMs
+                        danmakuState.candidates = resp.candidates
+                        danmakuState.shiftMs = resp.shiftMs
                         val ep = resp.episode
                         if (resp.matched && ep != null && ep.episodeId > 0L) {
-                            danmakuEpisodeId = ep.episodeId
-                            danmakuAnimeId = ep.animeId
-                            danmakuAnimeTitle = ep.animeTitle
-                            danmakuEpisodeTitle = ep.episodeTitle
-                            loadDanmakuEpisodeComments(ep.episodeId, forceRefresh = false)
+                            danmakuState.episodeId = ep.episodeId
+                            danmakuState.animeId = ep.animeId
+                            danmakuState.animeTitle = ep.animeTitle
+                            danmakuState.episodeTitle = ep.episodeTitle
+                            loadEpisodeComments(ep.episodeId, forceRefresh = false)
                         } else {
-                            danmakuEpisodeId = null
-                            danmakuRawJson = null
-                            danmakuTotalCount = 0
-                            danmakuOverlayRef?.stopAndClear()
+                            danmakuState.episodeId = null
+                            danmakuState.rawJson = null
+                            danmakuState.totalCount = 0
+                            ui.danmakuOverlayRef?.stopAndClear()
                         }
                     }
-                    hudMessage = "已解除手动绑定并恢复自动匹配"
+                    ui.hudMessage = "已解除手动绑定并恢复自动匹配"
                 }
             },
-            onDismiss = { showDanmakuMatchSheet = false },
+            onDismiss = { ui.showDanmakuMatchSheet = false },
         )
     }
 }

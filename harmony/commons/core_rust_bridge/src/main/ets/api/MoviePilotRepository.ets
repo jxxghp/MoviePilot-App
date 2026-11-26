@@ -258,6 +258,7 @@ export interface MpStorageFile {
   path: string;
   type: string;
   sizeBytes: number;
+  modifyTime?: number;
   extension: string;
   storage: string;
 }
@@ -2654,6 +2655,7 @@ export class MoviePilotRepository {
         path: strVal(r, 'path'),
         type: strVal(r, 'type', 'file'),
         sizeBytes: Math.round(numVal(r, 'size', 0)),
+        modifyTime: numVal(r, 'modify_time', 0),
         extension: strVal(r, 'extension'),
         storage: strVal(r, 'storage', storage)
       });

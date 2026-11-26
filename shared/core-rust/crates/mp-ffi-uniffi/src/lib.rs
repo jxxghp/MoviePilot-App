@@ -15,10 +15,12 @@ use mp_core_model::{
     generate_pkce_pair as model_generate_pkce_pair,
     merge_cf_access_cookie as model_merge_cf_access_cookie,
     normalize_danmaku_query_title as model_normalize_danmaku_query_title,
+    normalize_oauth_resource_url as model_normalize_oauth_resource_url,
     parse_audio_embedded_metadata as model_parse_audio_embedded_metadata,
     parse_oauth_callback_url as model_parse_oauth_callback_url,
     parse_oauth_server_metadata as model_parse_oauth_server_metadata,
     parse_protected_resource_metadata as model_parse_protected_resource_metadata,
+    parse_protected_resource_metadata_detail as model_parse_protected_resource_metadata_detail,
     prepare_danmaku_timeline_json as model_prepare_danmaku_timeline_json,
 };
 use mp_core_plugin::{
@@ -624,6 +626,22 @@ pub fn parse_protected_resource_metadata_json(json_str: String) -> Result<String
     serde_json::to_string(&urls).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
 }
 
+/// 解析 RFC 9728 Protected Resource Metadata，完整返回 `resource` 与 `authorizationServers` JSON。
+#[uniffi::export]
+pub fn parse_protected_resource_metadata_detail_json(
+    json_str: String,
+) -> Result<String, CoreFfiError> {
+    let detail = model_parse_protected_resource_metadata_detail(&json_str)
+        .map_err(|msg| CoreFfiError::InvalidJson { msg })?;
+    serde_json::to_string(&detail).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 将实例地址规范化为 RFC 8707 `resource` 默认回退值。
+#[uniffi::export]
+pub fn normalize_oauth_resource_url(raw_url: String) -> Option<String> {
+    model_normalize_oauth_resource_url(&raw_url)
+}
+
 /// 解析 RFC 8414 Authorization Server Metadata JSON。
 #[uniffi::export]
 pub fn parse_oauth_server_metadata_json(json_str: String) -> Result<String, CoreFfiError> {
@@ -632,7 +650,7 @@ pub fn parse_oauth_server_metadata_json(json_str: String) -> Result<String, Core
     serde_json::to_string(&meta).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
 }
 
-/// 构造 OAuth 2.0 + PKCE (`S256`) 授权跳转 URL。
+/// 构造 OAuth 2.0 + PKCE (`S256`) + RFC 8707 `resource` 授权跳转 URL。
 #[uniffi::export]
 pub fn build_oauth_authorize_url(
     authorization_endpoint: String,
@@ -641,6 +659,7 @@ pub fn build_oauth_authorize_url(
     code_challenge: String,
     state: String,
     scope: String,
+    resource: Option<String>,
 ) -> Result<String, CoreFfiError> {
     model_build_oauth_authorize_url(
         &authorization_endpoint,
@@ -649,6 +668,7 @@ pub fn build_oauth_authorize_url(
         &code_challenge,
         &state,
         &scope,
+        resource.as_deref(),
     )
     .map_err(|msg| CoreFfiError::InvalidAddress { msg })
 }

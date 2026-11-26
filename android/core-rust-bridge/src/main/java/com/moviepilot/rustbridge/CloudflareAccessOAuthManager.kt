@@ -143,7 +143,10 @@ class CloudflareAccessOAuthManager(
         val origin = normalizedOriginKey(normalized) ?: error("服务地址无效")
 
         val hintUrl = probeResourceMetadataHint(normalized)
-        val serverMeta = discoverServerMetadata(normalized, hintUrl)
+        val (serverMeta, discoveredResource) = discoverServerMetadata(normalized, hintUrl)
+        val resolvedResource = discoveredResource
+            ?: RustCoreBridge.normalizeOAuthResourceUrl(normalized)
+            ?: origin
         val existing = loadSession(normalized)
         val clientId = if (existing != null && existing.issuer == serverMeta.issuer && existing.clientId.isNotBlank()) {
             existing.clientId
@@ -161,6 +164,7 @@ class CloudflareAccessOAuthManager(
             redirectUri = REDIRECT_URI,
             codeChallenge = pkce.codeChallenge,
             state = pkce.state,
+            resource = resolvedResource,
         ).getOrThrow()
 
         val deferred = CompletableDeferred<String>()
@@ -212,23 +216,33 @@ class CloudflareAccessOAuthManager(
     private suspend fun discoverServerMetadata(
         serverUrl: String,
         hintUrl: String?,
-    ): OAuthServerMetadataDto = withContext(Dispatchers.IO) {
+    ): Pair<OAuthServerMetadataDto, String?> = withContext(Dispatchers.IO) {
         val candidates = RustCoreBridge.buildOAuthDiscoveryUrls(serverUrl, hintUrl)
         val authServerUrls = mutableListOf<String>()
+        var discoveredResource: String? = null
 
         for (candidate in candidates) {
             val resp = runCatching { transport.execute(url = candidate, method = "GET") }.getOrNull() ?: continue
             if (resp.status !in 200..299) continue
-            RustCoreBridge.parseOAuthServerMetadata(resp.body).getOrNull()?.let { return@withContext it }
-            RustCoreBridge.parseProtectedResourceMetadata(resp.body).getOrNull()?.forEach { url ->
-                if (url !in authServerUrls) authServerUrls.add(url)
+            RustCoreBridge.parseOAuthServerMetadata(resp.body).getOrNull()?.let {
+                return@withContext it to discoveredResource
+            }
+            RustCoreBridge.parseProtectedResourceMetadataDetail(resp.body).getOrNull()?.let { prm ->
+                if (discoveredResource.isNullOrBlank() && !prm.resource.isNullOrBlank()) {
+                    discoveredResource = prm.resource
+                }
+                prm.authorizationServers.forEach { url ->
+                    if (url !in authServerUrls) authServerUrls.add(url)
+                }
             }
         }
 
         for (asUrl in authServerUrls) {
             val resp = runCatching { transport.execute(url = asUrl, method = "GET") }.getOrNull() ?: continue
             if (resp.status !in 200..299) continue
-            RustCoreBridge.parseOAuthServerMetadata(resp.body).getOrNull()?.let { return@withContext it }
+            RustCoreBridge.parseOAuthServerMetadata(resp.body).getOrNull()?.let {
+                return@withContext it to discoveredResource
+            }
         }
 
         error("未能发现 Cloudflare Access OAuth 元数据，请确认服务已开启 Cloudflare Access OAuth")

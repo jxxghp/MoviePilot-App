@@ -758,11 +758,12 @@ fun MoviePilotRootShell(
 
     fun executeStartPlayback(rawReq: MediaPlaybackRequest, expandOverlay: Boolean = true) {
         scope.launch {
-            val req = resolvePlayableRequest(rawReq)
+            val req = runCatching { resolvePlayableRequest(rawReq) }.getOrNull()
             if (req == null) {
                 snackbarHostState.showSnackbar("暂无法解析「${rawReq.title}」的可播放流")
                 return@launch
             }
+            try {
             if (req.isAudio) {
                 val prevReq = bgAudioRequest
                 val prevPlayer = bgAudioPlayer
@@ -873,6 +874,11 @@ fun MoviePilotRootShell(
                 if (prevOverlay != null && prevOverlay.tempFilePath != req.tempFilePath) {
                     deleteTempFileIfUnused(prevOverlay.tempFilePath, keepPaths = setOf(req.tempFilePath, bgAudioRequest?.tempFilePath))
                 }
+            }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                snackbarHostState.showSnackbar("无法启动播放「${req.title}」：${e.message ?: "播放器初始化失败"}")
             }
         }
     }

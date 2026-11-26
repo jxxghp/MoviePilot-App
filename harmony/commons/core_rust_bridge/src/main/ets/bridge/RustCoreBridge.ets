@@ -42,6 +42,8 @@ export interface NativeCoreModule {
   computePkceS256Challenge?(codeVerifier: string): string;
   buildOauthDiscoveryUrlsJson?(serverUrl: string, resourceMetadataUrl: string): string;
   parseProtectedResourceMetadataJson?(jsonStr: string): string;
+  parseProtectedResourceMetadataDetailJson?(jsonStr: string): string;
+  normalizeOauthResourceUrl?(rawUrl: string): string;
   parseOauthServerMetadataJson?(jsonStr: string): string;
   buildOauthAuthorizeUrl?(
     authorizationEndpoint: string,
@@ -49,7 +51,8 @@ export interface NativeCoreModule {
     redirectUri: string,
     codeChallenge: string,
     state: string,
-    scope: string
+    scope: string,
+    resource: string
   ): string;
   parseOauthCallbackUrlJson?(callbackUrl: string, expectedState: string): string;
   mergeCfAccessCookie?(existingCookieHeader: string, cfToken: string): string;
@@ -79,6 +82,11 @@ export interface PkcePair {
   codeChallenge: string;
   codeChallengeMethod: string;
   state: string;
+}
+
+export interface ProtectedResourceMetadata {
+  resource?: string;
+  authorizationServers: string[];
 }
 
 export interface OAuthServerMetadata {
@@ -1620,8 +1628,49 @@ export class RustCoreBridge {
     return out;
   }
 
+  /** 解析 RFC 9728 Protected Resource Metadata，完整返回 `resource` 与 `authorizationServers`。 */
+  static parseProtectedResourceMetadataDetail(jsonStr: string): ProtectedResourceMetadata {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.parseProtectedResourceMetadataDetailJson) {
+        const raw = RustCoreBridge.nativeLib.parseProtectedResourceMetadataDetailJson(jsonStr);
+        if (raw && raw.length > 0) {
+          return JSON.parse(raw) as ProtectedResourceMetadata;
+        }
+      }
+    } catch {
+      // fallback
+    }
+    try {
+      const obj = JSON.parse(jsonStr) as Record<string, Object>;
+      const rawRes = typeof obj['resource'] === 'string'
+        ? (obj['resource'] as string).trim().split('#')[0].trim()
+        : '';
+      const resource = (rawRes.startsWith('https://') || rawRes.startsWith('http://'))
+        ? rawRes
+        : undefined;
+      const arr = obj['authorization_servers'];
+      if (!Array.isArray(arr)) {
+        return { resource: resource, authorizationServers: [] };
+      }
+      const out: string[] = [];
+      for (let i = 0; i < arr.length; i++) {
+        const s = String(arr[i] ?? '').trim().replace(/\/+$/, '');
+        if (s.startsWith('https://') || s.startsWith('http://')) {
+          out.push(s.includes('/.well-known/') ? s : `${s}/.well-known/oauth-authorization-server`);
+        }
+      }
+      return { resource: resource, authorizationServers: out };
+    } catch {
+      return { authorizationServers: [] };
+    }
+  }
+
   /** 解析 RFC 9728 Protected Resource Metadata 中的 `authorization_servers`。 */
   static parseProtectedResourceMetadata(jsonStr: string): string[] {
+    const detail = RustCoreBridge.parseProtectedResourceMetadataDetail(jsonStr);
+    if (detail.authorizationServers.length > 0) {
+      return detail.authorizationServers;
+    }
     try {
       if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.parseProtectedResourceMetadataJson) {
         const raw = RustCoreBridge.nativeLib.parseProtectedResourceMetadataJson(jsonStr);
@@ -1630,23 +1679,37 @@ export class RustCoreBridge {
         }
       }
     } catch {
-      // fallback
+      // ignore
     }
+    return [];
+  }
+
+  /** 计算实例地址对应的 RFC 8707 `resource` 默认回退值（去除查询串、片段、默认端口及末尾 `/`）。 */
+  static normalizeOAuthResourceUrl(rawUrl: string): string {
     try {
-      const obj = JSON.parse(jsonStr) as Record<string, Object>;
-      const arr = obj['authorization_servers'];
-      if (!Array.isArray(arr)) { return []; }
-      const out: string[] = [];
-      for (let i = 0; i < arr.length; i++) {
-        const s = String(arr[i] ?? '').trim().replace(/\/+$/, '');
-        if (s.startsWith('https://') || s.startsWith('http://')) {
-          out.push(s.includes('/.well-known/') ? s : `${s}/.well-known/oauth-authorization-server`);
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.normalizeOauthResourceUrl) {
+        const norm = RustCoreBridge.nativeLib.normalizeOauthResourceUrl(rawUrl);
+        if (norm && norm.length > 0) {
+          return norm;
         }
       }
-      return out;
     } catch {
-      return [];
+      // fallback
     }
+    const trimmed = (rawUrl ?? '').trim().split('#')[0].split('?')[0].trim();
+    const m = /^(https?):\/\/([^\/]+)(\/.*)?$/i.exec(trimmed);
+    if (!m || !m[1] || !m[2]) {
+      return '';
+    }
+    const scheme = m[1].toLowerCase();
+    let authority = m[2].toLowerCase();
+    if (scheme === 'https' && authority.endsWith(':443')) {
+      authority = authority.substring(0, authority.length - 4);
+    } else if (scheme === 'http' && authority.endsWith(':80')) {
+      authority = authority.substring(0, authority.length - 3);
+    }
+    const pathPart = (m[3] ?? '').replace(/\/+$/, '');
+    return `${scheme}://${authority}${pathPart}`;
   }
 
   /** 解析 RFC 8414 Authorization Server Metadata。 */
@@ -1678,15 +1741,17 @@ export class RustCoreBridge {
     }
   }
 
-  /** 构造标准 OAuth 2.0 + PKCE (`S256`) 授权 URL。 */
+  /** 构造标准 OAuth 2.0 + PKCE (`S256`) + RFC 8707 `resource` 授权 URL。 */
   static buildOAuthAuthorizeUrl(
     authorizationEndpoint: string,
     clientId: string,
     redirectUri: string,
     codeChallenge: string,
     state: string,
-    scope: string = 'openid email profile offline_access'
+    scope: string = 'openid email profile offline_access',
+    resource: string = ''
   ): string {
+    const cleanResource = (resource ?? '').trim().split('#')[0].trim();
     try {
       if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.buildOauthAuthorizeUrl) {
         return RustCoreBridge.nativeLib.buildOauthAuthorizeUrl(
@@ -1695,7 +1760,8 @@ export class RustCoreBridge {
           redirectUri,
           codeChallenge,
           state,
-          scope
+          scope,
+          cleanResource
         );
       }
     } catch {
@@ -1707,6 +1773,9 @@ export class RustCoreBridge {
       `&code_challenge_method=S256&state=${encodeURIComponent(state.trim())}`;
     if (scope.trim().length > 0) {
       url += `&scope=${encodeURIComponent(scope.trim())}`;
+    }
+    if (cleanResource.startsWith('https://') || cleanResource.startsWith('http://')) {
+      url += `&resource=${encodeURIComponent(cleanResource)}`;
     }
     return url;
   }

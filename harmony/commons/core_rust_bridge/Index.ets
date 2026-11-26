@@ -20,6 +20,7 @@ export {
   MpPreparedDanmakuTimeline,
   CloudflareChallengeResult,
   PkcePair,
+  ProtectedResourceMetadata,
   OAuthServerMetadata,
   OAuthCallbackResult,
   AudioEmbeddedMetadataResult

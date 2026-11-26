@@ -37,6 +37,14 @@ pub struct PkcePair {
     pub state: String,
 }
 
+/// RFC 9728 受保护资源元数据（含 RFC 8707 规范化 `resource` 标识与关联 `authorization_servers` 元数据地址列表）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtectedResourceMetadata {
+    pub resource: Option<String>,
+    pub authorization_servers: Vec<String>,
+}
+
 /// RFC 8414 OAuth 授权服务器元数据。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -219,10 +227,16 @@ pub fn build_oauth_discovery_urls(
     urls
 }
 
-/// 解析 RFC 9728 Protected Resource Metadata，返回关联的 `authorization_servers` 元数据地址列表。
-pub fn parse_protected_resource_metadata(json_str: &str) -> Result<Vec<String>, String> {
+/// 解析 RFC 9728 Protected Resource Metadata，完整返回规范化 `resource` 标识与关联的 `authorization_servers` 元数据地址列表。
+pub fn parse_protected_resource_metadata_detail(
+    json_str: &str,
+) -> Result<ProtectedResourceMetadata, String> {
     let value: serde_json::Value = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid resource metadata JSON: {e}"))?;
+    let resource = value
+        .get("resource")
+        .and_then(|v| v.as_str())
+        .and_then(sanitize_resource_indicator);
     let servers = value
         .get("authorization_servers")
         .and_then(|v| v.as_array())
@@ -243,7 +257,33 @@ pub fn parse_protected_resource_metadata(json_str: &str) -> Result<Vec<String>, 
     if out.is_empty() {
         return Err("No valid authorization server URL found".to_string());
     }
-    Ok(out)
+    Ok(ProtectedResourceMetadata {
+        resource,
+        authorization_servers: out,
+    })
+}
+
+/// 解析 RFC 9728 Protected Resource Metadata，返回关联的 `authorization_servers` 元数据地址列表。
+pub fn parse_protected_resource_metadata(json_str: &str) -> Result<Vec<String>, String> {
+    parse_protected_resource_metadata_detail(json_str).map(|d| d.authorization_servers)
+}
+
+/// 将 MoviePilot 实例地址规范化为 RFC 8707 `resource` 默认回退值（去除查询串、片段、默认端口与末尾 `/`）。
+pub fn normalize_oauth_resource_url(raw_url: &str) -> Option<String> {
+    let parsed = Url::parse(raw_url.trim()).ok()?;
+    if !matches!(parsed.scheme(), "https" | "http") {
+        return None;
+    }
+    let host = parsed.host_str()?;
+    let mut out = format!("{}://{}", parsed.scheme(), host.to_ascii_lowercase());
+    if let Some(port) = parsed.port() {
+        out.push_str(&format!(":{port}"));
+    }
+    let clean_path = parsed.path().trim_end_matches('/');
+    if !clean_path.is_empty() {
+        out.push_str(clean_path);
+    }
+    Some(out)
 }
 
 /// 解析 RFC 8414 Authorization Server Metadata 并校验端点协议安全性。
@@ -284,7 +324,7 @@ pub fn parse_oauth_server_metadata(json_str: &str) -> Result<OAuthServerMetadata
     })
 }
 
-/// 构造标准 OAuth 2.0 + PKCE (`S256`) 授权跳转 URL。
+/// 构造标准 OAuth 2.0 + PKCE (`S256`) + RFC 8707 `resource` 授权跳转 URL。
 pub fn build_oauth_authorize_url(
     authorization_endpoint: &str,
     client_id: &str,
@@ -292,6 +332,7 @@ pub fn build_oauth_authorize_url(
     code_challenge: &str,
     state: &str,
     scope: &str,
+    resource: Option<&str>,
 ) -> Result<String, String> {
     let mut url = Url::parse(authorization_endpoint.trim())
         .map_err(|e| format!("Invalid authorization endpoint URL: {e}"))?;
@@ -302,6 +343,13 @@ pub fn build_oauth_authorize_url(
     if clean_client.is_empty() {
         return Err("client_id must not be empty".to_string());
     }
+    let clean_resource = match resource.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(raw) => Some(
+            sanitize_resource_indicator(raw)
+                .ok_or_else(|| format!("Invalid OAuth resource indicator URI: {raw}"))?,
+        ),
+        None => None,
+    };
     let clean_redirect = if redirect_uri.trim().is_empty() {
         DEFAULT_CF_OAUTH_REDIRECT_URI
     } else {
@@ -317,6 +365,9 @@ pub fn build_oauth_authorize_url(
         pairs.append_pair("state", state.trim());
         if !scope.trim().is_empty() {
             pairs.append_pair("scope", scope.trim());
+        }
+        if let Some(res) = clean_resource.as_deref() {
+            pairs.append_pair("resource", res);
         }
     }
     Ok(url.to_string())
@@ -384,6 +435,15 @@ fn is_valid_http_url(raw: &str) -> bool {
     Url::parse(raw.trim())
         .map(|u| matches!(u.scheme(), "https" | "http") && u.host_str().is_some())
         .unwrap_or(false)
+}
+
+/// 校验并清理 RFC 8707 `resource` 标识：要求有效绝对 HTTP(S) URI 且不含 `#fragment`，保留服务端原始末尾斜杠形态以确保精确匹配。
+fn sanitize_resource_indicator(raw: &str) -> Option<String> {
+    let without_fragment = raw.trim().split('#').next()?.trim();
+    if without_fragment.is_empty() || !is_valid_http_url(without_fragment) {
+        return None;
+    }
+    Some(without_fragment.to_string())
 }
 
 fn resolve_relative_url(base_url: &str, candidate: &str) -> String {
@@ -548,15 +608,30 @@ mod tests {
 
     #[test]
     fn parses_metadata_builds_authorize_url_and_validates_callback() {
-        let prm = parse_protected_resource_metadata(
-            r#"{"authorization_servers":["https://team.cloudflareaccess.com/cdn-cgi/access/sso/oauth"]}"#,
+        let prm_detail = parse_protected_resource_metadata_detail(
+            r#"{
+              "resource": "https://moviepilot.example.com",
+              "authorization_servers": ["https://team.cloudflareaccess.com/cdn-cgi/access/sso/oauth"]
+            }"#,
         )
         .unwrap();
         assert_eq!(
-            prm,
+            prm_detail.resource.as_deref(),
+            Some("https://moviepilot.example.com")
+        );
+        assert_eq!(
+            prm_detail.authorization_servers,
             vec![
                 "https://team.cloudflareaccess.com/cdn-cgi/access/sso/oauth/.well-known/oauth-authorization-server"
             ]
+        );
+        assert_eq!(
+            normalize_oauth_resource_url("https://moviepilot.example.com:443/"),
+            Some("https://moviepilot.example.com".to_string())
+        );
+        assert_eq!(
+            normalize_oauth_resource_url("https://moviepilot.example.com:8443/mp/"),
+            Some("https://moviepilot.example.com:8443/mp".to_string())
         );
 
         let meta = parse_oauth_server_metadata(
@@ -576,10 +651,12 @@ mod tests {
             &pkce.code_challenge,
             &pkce.state,
             "openid email profile offline_access",
+            prm_detail.resource.as_deref(),
         )
         .unwrap();
         assert!(auth_url.contains("code_challenge_method=S256"));
         assert!(auth_url.contains("client_id=client-123"));
+        assert!(auth_url.contains("resource=https%3A%2F%2Fmoviepilot.example.com"));
 
         let cb_ok = parse_oauth_callback_url(
             &format!(

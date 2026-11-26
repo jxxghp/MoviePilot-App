@@ -65,7 +65,7 @@ class MpvPlaybackEngine(
     @Volatile private var currentPositionMs: Long = initialStartPositionMs.coerceAtLeast(0L)
     @Volatile private var currentDurationMs: Long = 0L
     @Volatile private var currentSpeed: Float = if (request.isAudio) 1.0f else prefs.defaultSpeed.coerceIn(0.5f, 3.0f)
-    @Volatile private var playbackState: Int = Player.STATE_BUFFERING
+    @Volatile private var enginePlaybackState: Int = Player.STATE_BUFFERING
     @Volatile private var hasLoadedFile: Boolean = false
     @Volatile private var eofObserved: Boolean = false
 
@@ -93,36 +93,40 @@ class MpvPlaybackEngine(
                     Player.COMMAND_GET_METADATA,
                 )
                 .build()
-            val durationUs = if (currentDurationMs > 0L) currentDurationMs * 1000L else androidx.media3.common.C.TIME_UNSET
-            val itemData = MediaItemData.Builder(request.localResumeId.ifBlank { request.url })
+            val durationUs = if (this@MpvPlaybackEngine.currentDurationMs > 0L) {
+                this@MpvPlaybackEngine.currentDurationMs * 1000L
+            } else {
+                androidx.media3.common.C.TIME_UNSET
+            }
+            val itemData = MediaItemData.Builder(this@MpvPlaybackEngine.request.localResumeId.ifBlank { this@MpvPlaybackEngine.request.url })
                 .setMediaItem(bridgeMediaItem)
                 .setMediaMetadata(mediaMeta)
                 .setDurationUs(durationUs)
-                .setIsSeekable(currentDurationMs > 0L)
+                .setIsSeekable(this@MpvPlaybackEngine.currentDurationMs > 0L)
                 .build()
             return State.Builder()
                 .setAvailableCommands(commands)
-                .setPlayWhenReady(!currentPaused, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
-                .setPlaybackState(playbackState)
-                .setPlaybackParameters(PlaybackParameters(currentSpeed))
+                .setPlayWhenReady(!this@MpvPlaybackEngine.currentPaused, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+                .setPlaybackState(this@MpvPlaybackEngine.enginePlaybackState)
+                .setPlaybackParameters(PlaybackParameters(this@MpvPlaybackEngine.currentSpeed))
                 .setPlaylist(listOf(itemData))
                 .setCurrentMediaItemIndex(0)
-                .setContentPositionMs { currentPositionMs }
+                .setContentPositionMs { this@MpvPlaybackEngine.currentPositionMs }
                 .build()
         }
 
         override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
-            if (playWhenReady) play() else pause()
+            if (playWhenReady) this@MpvPlaybackEngine.play() else this@MpvPlaybackEngine.pause()
             return Futures.immediateVoidFuture()
         }
 
         override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
-            seekTo(positionMs.coerceAtLeast(0L))
+            this@MpvPlaybackEngine.seekTo(positionMs.coerceAtLeast(0L))
             return Futures.immediateVoidFuture()
         }
 
         override fun handleSetPlaybackParameters(playbackParameters: PlaybackParameters): ListenableFuture<*> {
-            setSpeed(playbackParameters.speed)
+            this@MpvPlaybackEngine.setSpeed(playbackParameters.speed)
             return Futures.immediateVoidFuture()
         }
     }
@@ -143,7 +147,7 @@ class MpvPlaybackEngine(
                     MPVLib.MPV_EVENT_FILE_LOADED -> {
                         hasLoadedFile = true
                         eofObserved = false
-                        playbackState = Player.STATE_READY
+                        enginePlaybackState = Player.STATE_READY
                         if (pendingSeekMs > 0L) {
                             val target = pendingSeekMs
                             pendingSeekMs = 0L
@@ -164,19 +168,19 @@ class MpvPlaybackEngine(
                         }
                     }
                     MPVLib.MPV_EVENT_PLAYBACK_RESTART -> {
-                        playbackState = Player.STATE_READY
+                        enginePlaybackState = Player.STATE_READY
                         notifySessionAndUi()
                     }
                     MPVLib.MPV_EVENT_END_FILE -> {
                         val nearEnd = currentDurationMs > 3_000L && currentPositionMs >= currentDurationMs - 2_000L
                         if (eofObserved || nearEnd) {
                             currentPlaying = false
-                            playbackState = Player.STATE_ENDED
+                            enginePlaybackState = Player.STATE_ENDED
                             notifySessionAndUi()
                             onEnded()
                         } else if (!hasLoadedFile) {
                             currentPlaying = false
-                            playbackState = Player.STATE_IDLE
+                            enginePlaybackState = Player.STATE_IDLE
                             notifySessionAndUi()
                             onError(-1)
                         }
@@ -215,14 +219,14 @@ class MpvPlaybackEngine(
                 when (property) {
                     "pause" -> {
                         currentPaused = value
-                        currentPlaying = !value && playbackState != Player.STATE_ENDED
+                        currentPlaying = !value && enginePlaybackState != Player.STATE_ENDED
                         notifySessionAndUi()
                     }
                     "paused-for-cache" -> {
-                        if (value && playbackState == Player.STATE_READY) {
-                            playbackState = Player.STATE_BUFFERING
-                        } else if (!value && hasLoadedFile && playbackState == Player.STATE_BUFFERING) {
-                            playbackState = Player.STATE_READY
+                        if (value && enginePlaybackState == Player.STATE_READY) {
+                            enginePlaybackState = Player.STATE_BUFFERING
+                        } else if (!value && hasLoadedFile && enginePlaybackState == Player.STATE_BUFFERING) {
+                            enginePlaybackState = Player.STATE_READY
                         }
                         notifySessionAndUi()
                     }
@@ -230,7 +234,7 @@ class MpvPlaybackEngine(
                         eofObserved = value
                         if (value && hasLoadedFile) {
                             currentPlaying = false
-                            playbackState = Player.STATE_ENDED
+                            enginePlaybackState = Player.STATE_ENDED
                             notifySessionAndUi()
                             onEnded()
                         }
@@ -343,7 +347,7 @@ class MpvPlaybackEngine(
             lower.startsWith("file://") -> Uri.parse(targetUrl).path ?: targetUrl
             else -> targetUrl
         }
-        playbackState = Player.STATE_BUFFERING
+        enginePlaybackState = Player.STATE_BUFFERING
         currentPaused = false
         currentPlaying = true
         MPVLib.setPropertyBoolean("pause", false)

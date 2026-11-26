@@ -1,6 +1,7 @@
 package com.moviepilot.feature.library
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.DriveFileMove
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.AudioFile
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -121,16 +123,37 @@ import com.moviepilot.rustbridge.StorageConfigDto
 import com.moviepilot.rustbridge.StorageFileDto
 import com.moviepilot.rustbridge.TransferHistoryDto
 import com.moviepilot.rustbridge.TransferQueueItemDto
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
+import java.text.SimpleDateFormat
+import java.time.Instant
+import java.util.Date
+import java.util.Locale
+
+private enum class FileSortMode(val label: String, val shortLabel: String) {
+    NAME_ASC("名称（A → Z）", "名称 ↑"),
+    NAME_DESC("名称（Z → A）", "名称 ↓"),
+    TYPE_ASC("类型（按扩展名）", "类型"),
+    SIZE_DESC("大小（从大到小）", "大小 ↓"),
+    SIZE_ASC("大小（从小到大）", "大小 ↑"),
+    TIME_DESC("修改时间（最新优先）", "时间 ↓"),
+    TIME_ASC("修改时间（最早优先）", "时间 ↑"),
+}
+
+private enum class FileFilterMode(val label: String) {
+    ALL("全部项目"),
+    DIRS("仅文件夹"),
+    FILES("仅文件"),
+}
 
 /**
  * Android Material 3 多存储文件管理页面：
- * - 顶部玻璃存储选择器 + 路径面包屑栏 + 原生下拉刷新；
+ * - 顶部玻璃存储选择器 + 路径面包屑栏 + 可视化排序/筛选下拉选择器 + 原生下拉刷新；
  * - 真实对接 `/api/v1/storage/download` 缓存播放远端音视频，右下角 FAB 调用 Android SAF 打开本机任意视频/音频直放；
  * - 每行配备 Android 标准 `⋮` 溢出菜单与长按手动整理操作。
  */
@@ -154,13 +177,26 @@ fun FileManagerScreen(
     var storages by remember { mutableStateOf<List<StorageConfigDto>>(listOf(StorageConfigDto("本地", "local"))) }
     var activeStorage by rememberSaveable { mutableStateOf(initialStorage) }
     var currentPath by rememberSaveable { mutableStateOf(initialPath) }
-    var files by remember { mutableStateOf<List<StorageFileDto>>(emptyList()) }
+    var rawFiles by remember { mutableStateOf<List<StorageFileDto>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var downloadingFileName by remember { mutableStateOf<String?>(null) }
     var showStorageMenu by remember { mutableStateOf(false) }
-    var sortBySize by rememberSaveable { mutableStateOf(false) }
+    var showHeaderSortMenu by remember { mutableStateOf(false) }
+    var showBarSortMenu by remember { mutableStateOf(false) }
+    var sortModeName by rememberSaveable { mutableStateOf(FileSortMode.NAME_ASC.name) }
+    var filterModeName by rememberSaveable { mutableStateOf(FileFilterMode.ALL.name) }
     var actionTarget by remember { mutableStateOf<StorageFileDto?>(null) }
+
+    val sortMode = remember(sortModeName) {
+        runCatching { FileSortMode.valueOf(sortModeName) }.getOrDefault(FileSortMode.NAME_ASC)
+    }
+    val filterMode = remember(filterModeName) {
+        runCatching { FileFilterMode.valueOf(filterModeName) }.getOrDefault(FileFilterMode.ALL)
+    }
+    val files = remember(rawFiles, sortMode, filterMode) {
+        sortAndFilterStorageFiles(rawFiles, sortMode, filterMode)
+    }
 
     // 子目录下拦截返回手势逐级返回父目录，根目录再退出文件管理页
     BackHandler(enabled = currentPath != "/") {
@@ -172,22 +208,29 @@ fun FileManagerScreen(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? ->
         if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
             scope.launch {
                 val request = withContext(Dispatchers.IO) {
-                    LocalMediaMetadataExtractor.buildLocalPlaybackRequest(context, uri)
+                    runCatching {
+                        LocalMediaMetadataExtractor.buildLocalPlaybackRequest(context, uri)
+                    }.getOrNull()
                 }
-                onPlayMedia(request)
+                if (request != null) {
+                    onPlayMedia(request)
+                } else {
+                    snackbar?.showSnackbar("无法读取所选媒体文件，请检查文件权限或格式")
+                }
             }
         }
     }
 
     suspend fun loadFiles() {
-        val fetched = repository.fetchFiles(activeStorage, currentPath)
-        files = if (sortBySize) {
-            fetched.sortedWith(compareBy<StorageFileDto> { it.type != "dir" }.thenByDescending { it.size })
-        } else {
-            fetched
-        }
+        rawFiles = repository.fetchFiles(activeStorage, currentPath)
         isLoading = false
         isRefreshing = false
     }
@@ -195,39 +238,46 @@ fun FileManagerScreen(
     fun playStorageFile(file: StorageFileDto, playableKind: String) {
         scope.launch {
             downloadingFileName = file.name
-            val cacheDir = File(context.cacheDir, "mp_storage_playback").apply { mkdirs() }
-            val safeName = file.name.replace(Regex("[^a-zA-Z0-9._\\-\\u4e00-\\u9fa5]"), "_")
-            val destFile = File(cacheDir, "${file.path.hashCode()}_$safeName")
-            val resolved = repository.resolveStoragePlayback(
-                storage = activeStorage,
-                path = file.path,
-                destFile = destFile,
-                fallbackKind = playableKind,
-            )
-            downloadingFileName = null
-            if (resolved != null) {
-                val lrc = resolved.lyricsUrl?.let { repository.downloadSameOriginText(it) }
-                onPlayMedia(
-                    MediaPlaybackRequest(
-                        url = resolved.url,
-                        title = if (resolved.isStrmDirect) file.name.substringBeforeLast('.').ifBlank { file.name } else file.name,
-                        subtitle = "${file.storage} · ${file.path}",
-                        isAudio = resolved.isAudio,
-                        lyricsLrc = lrc,
-                        headers = resolved.headers,
-                        sameOriginHeaders = resolved.sameOriginHeaders,
-                        streamHeaders = resolved.streamHeaders,
-                        originUrl = resolved.originUrl,
-                        proxyFallbackUrl = resolved.proxyFallbackUrl,
-                        activeRouteKind = resolved.activeRouteKind,
-                        fallbackRoutes = resolved.fallbackRoutes,
-                        itemId = resolved.itemId,
-                        isSessionBound = !resolved.isStrmDirect,
-                        tempFilePath = resolved.tempFilePath,
-                    ),
+            try {
+                val cacheDir = File(context.cacheDir, "mp_storage_playback").apply { mkdirs() }
+                val safeName = file.name.replace(Regex("[^a-zA-Z0-9._\\-\\u4e00-\\u9fa5]"), "_")
+                val destFile = File(cacheDir, "${file.path.hashCode()}_$safeName")
+                val resolved = repository.resolveStoragePlayback(
+                    storage = activeStorage,
+                    path = file.path,
+                    destFile = destFile,
+                    fallbackKind = playableKind,
                 )
-            } else {
-                snackbar?.showSnackbar("无法从存储拉取「${file.name}」，请确认存储权限与网络")
+                if (resolved != null) {
+                    val lrc = resolved.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                    onPlayMedia(
+                        MediaPlaybackRequest(
+                            url = resolved.url,
+                            title = if (resolved.isStrmDirect) file.name.substringBeforeLast('.').ifBlank { file.name } else file.name,
+                            subtitle = "${file.storage} · ${file.path}",
+                            isAudio = resolved.isAudio,
+                            lyricsLrc = lrc,
+                            headers = resolved.headers,
+                            sameOriginHeaders = resolved.sameOriginHeaders,
+                            streamHeaders = resolved.streamHeaders,
+                            originUrl = resolved.originUrl,
+                            proxyFallbackUrl = resolved.proxyFallbackUrl,
+                            activeRouteKind = resolved.activeRouteKind,
+                            fallbackRoutes = resolved.fallbackRoutes,
+                            itemId = resolved.itemId,
+                            isSessionBound = !resolved.isStrmDirect,
+                            tempFilePath = resolved.tempFilePath,
+                        ),
+                    )
+                } else {
+                    snackbar?.showSnackbar("无法从存储拉取「${file.name}」，请确认存储权限与网络")
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (err: Throwable) {
+                snackbar?.showSnackbar("播放失败：${err.localizedMessage ?: file.name}")
+            } finally {
+                downloadingFileName = null
             }
         }
     }
@@ -237,7 +287,7 @@ fun FileManagerScreen(
         if (fetched.isNotEmpty()) storages = fetched
     }
 
-    LaunchedEffect(activeStorage, currentPath, sortBySize) {
+    LaunchedEffect(activeStorage, currentPath) {
         isLoading = true
         loadFiles()
     }
@@ -251,28 +301,39 @@ fun FileManagerScreen(
             subtitle = activeStorageLabel,
             onBack = onBack,
             actions = {
-                ExpressiveHeaderActionButton(
-                    icon = Icons.Rounded.FilterList,
-                    contentDescription = if (sortBySize) "按名称排序" else "按体积排序",
-                    onClick = {
-                        sortBySize = !sortBySize
-                        scope.launch {
-                            snackbar?.showSnackbar(if (sortBySize) "已切换为按文件体积降序" else "已切换为默认目录排序")
-                        }
-                    },
-                )
+                Box {
+                    ExpressiveHeaderActionButton(
+                        icon = Icons.Rounded.FilterList,
+                        contentDescription = "排序与筛选（当前：${sortMode.label}）",
+                        onClick = { showHeaderSortMenu = true },
+                    )
+                    FileSortFilterDropdownMenu(
+                        expanded = showHeaderSortMenu,
+                        sortMode = sortMode,
+                        filterMode = filterMode,
+                        onSelectSort = { mode ->
+                            sortModeName = mode.name
+                            showHeaderSortMenu = false
+                        },
+                        onSelectFilter = { filter ->
+                            filterModeName = filter.name
+                            showHeaderSortMenu = false
+                        },
+                        onDismiss = { showHeaderSortMenu = false },
+                    )
+                }
             },
         ) {
             ProvideSkeletonShimmer {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Spacer(Modifier.height(14.dp))
 
-                    // 顶部玻璃存储选择（带 SMB / 115 / 阿里云盘 / Rclone / 本地 品牌图标）与路径面包屑胶囊
+                    // 顶部玻璃存储选择（带 SMB / 115 / 阿里云盘 / Rclone / 本地 品牌图标）、路径面包屑与可视化排序下拉选择器
                     CinematicPanel(padding = 10.dp, cornerRadius = 20.dp, showsShadow = false, modifier = Modifier.padding(horizontal = margin)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                                 Box {
@@ -321,6 +382,7 @@ fun FileManagerScreen(
 
                                 Box(
                                     modifier = Modifier
+                                        .weight(1f, fill = false)
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(colors.chipFill)
                                         .clickable {
@@ -340,14 +402,71 @@ fun FileManagerScreen(
                                     )
                                 }
                             }
-                            if (isLoading && !isRefreshing) {
-                                NativeSkeletonBlock(
-                                    cornerRadius = 4.dp,
-                                    role = SkeletonSurfaceRole.Bar,
-                                    modifier = Modifier.size(width = 36.dp, height = 13.dp),
-                                )
-                            } else {
-                                Text("${files.size} 项", color = colors.textMuted, fontSize = 12.sp)
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Box {
+                                    val pillActive = sortMode != FileSortMode.NAME_ASC || filterMode != FileFilterMode.ALL
+                                    val pillText = if (filterMode == FileFilterMode.ALL) {
+                                        sortMode.shortLabel
+                                    } else {
+                                        "${sortMode.shortLabel} · ${filterMode.label}"
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (pillActive) colors.accent.copy(alpha = 0.16f) else colors.chipFill)
+                                            .border(
+                                                width = 0.6.dp,
+                                                color = if (pillActive) colors.accent.copy(alpha = 0.40f) else colors.chipBorder,
+                                                shape = RoundedCornerShape(10.dp),
+                                            )
+                                            .clickable { showBarSortMenu = true }
+                                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    ) {
+                                        Text(
+                                            text = pillText,
+                                            color = if (pillActive) colors.accent else colors.textSecondary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                        )
+                                        Icon(
+                                            Icons.Rounded.UnfoldMore,
+                                            contentDescription = "选择排序方式",
+                                            tint = if (pillActive) colors.accent else colors.textMuted,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    }
+                                    FileSortFilterDropdownMenu(
+                                        expanded = showBarSortMenu,
+                                        sortMode = sortMode,
+                                        filterMode = filterMode,
+                                        onSelectSort = { mode ->
+                                            sortModeName = mode.name
+                                            showBarSortMenu = false
+                                        },
+                                        onSelectFilter = { filter ->
+                                            filterModeName = filter.name
+                                            showBarSortMenu = false
+                                        },
+                                        onDismiss = { showBarSortMenu = false },
+                                    )
+                                }
+
+                                if (isLoading && !isRefreshing) {
+                                    NativeSkeletonBlock(
+                                        cornerRadius = 4.dp,
+                                        role = SkeletonSurfaceRole.Bar,
+                                        modifier = Modifier.size(width = 36.dp, height = 13.dp),
+                                    )
+                                } else {
+                                    Text("${files.size} 项", color = colors.textMuted, fontSize = 12.sp, maxLines = 1)
+                                }
                             }
                         }
                     }
@@ -396,88 +515,104 @@ fun FileManagerScreen(
                                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                             ) {
                                                 Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(36.dp))
-                                                Text("当前目录为空", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                                Text("可下拉刷新或切换其他存储目录浏览。", color = colors.textSecondary, fontSize = 12.5.sp, textAlign = TextAlign.Center)
+                                                Text(
+                                                    text = if (rawFiles.isEmpty()) "当前目录为空" else "无符合筛选条件的项目",
+                                                    color = colors.textPrimary,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                                Text(
+                                                    text = if (rawFiles.isEmpty()) "可下拉刷新或切换其他存储目录浏览。" else "可在右上角或路径栏下拉菜单切换筛选条件。",
+                                                    color = colors.textSecondary,
+                                                    fontSize = 12.5.sp,
+                                                    textAlign = TextAlign.Center,
+                                                )
                                             }
                                         }
                                     }
                                 }
-                                items(files, key = { it.path + it.name }) { file ->
-                            val playableKind = remember(file.name, file.extension) {
-                                if (file.type == "dir") null
-                                else RustCoreBridge.detectMediaKind(file.extension ?: file.name, false)
-                            }
-                            var rowMenuExpanded by remember { mutableStateOf(false) }
+                                items(files, key = { it.path + "::" + it.name }) { file ->
+                                    val playableKind = remember(file.name, file.extension) {
+                                        if (file.type == "dir") null
+                                        else RustCoreBridge.detectMediaKind(file.extension ?: file.name, false)
+                                    }
+                                    val subtitleText = remember(file.type, file.extension, file.name, file.size, file.modifyTime) {
+                                        formatStorageItemMeta(file)
+                                    }
+                                    var rowMenuExpanded by remember { mutableStateOf(false) }
 
-                            CinematicPanel(
-                                padding = 14.dp,
-                                cornerRadius = 20.dp,
-                                showsShadow = false,
-                                modifier = Modifier.combinedClickable(
-                                    onClick = {
-                                        if (file.type == "dir") {
-                                            currentPath = file.path
-                                        } else if (playableKind != null) {
-                                            playStorageFile(file, playableKind)
-                                        } else {
-                                            actionTarget = file
-                                        }
-                                    },
-                                    onLongClick = { actionTarget = file },
-                                ),
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    val icon = when {
-                                        file.type == "dir" -> Icons.Rounded.Folder
-                                        playableKind == "video" -> Icons.Rounded.Movie
-                                        playableKind == "audio" -> Icons.Rounded.AudioFile
-                                        else -> Icons.AutoMirrored.Rounded.InsertDriveFile
-                                    }
-                                    Icon(
-                                        icon,
-                                        contentDescription = null,
-                                        tint = if (file.type == "dir") Color(0xFFC8B0FF) else colors.accent,
-                                        modifier = Modifier.size(28.dp),
-                                    )
-                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(file.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(
-                                            text = if (file.type == "dir") "文件夹" else formatFileSize(file.size),
-                                            color = colors.textMuted,
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                    if (playableKind != null) {
-                                        NativeAdaptiveBadge(if (playableKind == "audio") "音频" else "播放", tint = colors.success)
-                                    }
-                                    Box {
-                                        IconButton(onClick = { rowMenuExpanded = true }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Rounded.MoreVert, contentDescription = "更多操作", tint = colors.textMuted, modifier = Modifier.size(18.dp))
-                                        }
-                                        DropdownMenu(expanded = rowMenuExpanded, onDismissRequest = { rowMenuExpanded = false }) {
-                                            if (playableKind != null) {
-                                                DropdownMenuItem(
-                                                    text = { Text("播放媒体") },
-                                                    leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null) },
-                                                    onClick = {
-                                                        rowMenuExpanded = false
-                                                        playStorageFile(file, playableKind)
-                                                    },
+                                    CinematicPanel(
+                                        padding = 14.dp,
+                                        cornerRadius = 20.dp,
+                                        showsShadow = false,
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = {
+                                                if (file.type == "dir") {
+                                                    currentPath = file.path
+                                                } else if (playableKind != null) {
+                                                    playStorageFile(file, playableKind)
+                                                } else {
+                                                    actionTarget = file
+                                                }
+                                            },
+                                            onLongClick = { actionTarget = file },
+                                        ),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            val icon = when {
+                                                file.type == "dir" -> Icons.Rounded.Folder
+                                                playableKind == "video" -> Icons.Rounded.Movie
+                                                playableKind == "audio" -> Icons.Rounded.AudioFile
+                                                else -> Icons.AutoMirrored.Rounded.InsertDriveFile
+                                            }
+                                            Icon(
+                                                icon,
+                                                contentDescription = null,
+                                                tint = if (file.type == "dir") Color(0xFFC8B0FF) else colors.accent,
+                                                modifier = Modifier.size(28.dp),
+                                            )
+                                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                Text(file.name, color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text(
+                                                    text = subtitleText,
+                                                    color = colors.textMuted,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
                                                 )
                                             }
-                                            DropdownMenuItem(
-                                                text = { Text("手动识别整理") },
-                                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, contentDescription = null) },
-                                                onClick = {
-                                                    rowMenuExpanded = false
-                                                    actionTarget = file
-                                                },
-                                            )
+                                            if (playableKind != null) {
+                                                NativeAdaptiveBadge(if (playableKind == "audio") "音频" else "播放", tint = colors.success)
+                                            }
+                                            Box {
+                                                IconButton(onClick = { rowMenuExpanded = true }, modifier = Modifier.size(32.dp)) {
+                                                    Icon(Icons.Rounded.MoreVert, contentDescription = "更多操作", tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                                                }
+                                                DropdownMenu(expanded = rowMenuExpanded, onDismissRequest = { rowMenuExpanded = false }) {
+                                                    if (playableKind != null) {
+                                                        DropdownMenuItem(
+                                                            text = { Text("播放媒体") },
+                                                            leadingIcon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null) },
+                                                            onClick = {
+                                                                rowMenuExpanded = false
+                                                                playStorageFile(file, playableKind)
+                                                            },
+                                                        )
+                                                    }
+                                                    DropdownMenuItem(
+                                                        text = { Text("手动识别整理") },
+                                                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, contentDescription = null) },
+                                                        onClick = {
+                                                            rowMenuExpanded = false
+                                                            actionTarget = file
+                                                        },
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -485,8 +620,6 @@ fun FileManagerScreen(
                         }
                     }
                 }
-                }
-            }
             }
         }
 
@@ -517,6 +650,193 @@ fun FileManagerScreen(
                 scope.launch { snackbar?.showSnackbar(msg) }
             },
         )
+    }
+}
+
+@Composable
+private fun FileSortFilterDropdownMenu(
+    expanded: Boolean,
+    sortMode: FileSortMode,
+    filterMode: FileFilterMode,
+    onSelectSort: (FileSortMode) -> Unit,
+    onSelectFilter: (FileFilterMode) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        Text(
+            text = "排列顺序",
+            color = colors.textMuted,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+        )
+        FileSortMode.entries.forEach { mode ->
+            val selected = mode == sortMode
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = mode.label,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) colors.accent else colors.textPrimary,
+                    )
+                },
+                trailingIcon = if (selected) {
+                    { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
+                } else {
+                    null
+                },
+                onClick = { onSelectSort(mode) },
+            )
+        }
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+        Text(
+            text = "项目筛选",
+            color = colors.textMuted,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+        )
+        FileFilterMode.entries.forEach { filter ->
+            val selected = filter == filterMode
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = filter.label,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (selected) colors.accent else colors.textPrimary,
+                    )
+                },
+                trailingIcon = if (selected) {
+                    { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp)) }
+                } else {
+                    null
+                },
+                onClick = { onSelectFilter(filter) },
+            )
+        }
+    }
+}
+
+private fun normalizedFileExtension(file: StorageFileDto): String {
+    if (file.type == "dir") return ""
+    val fromField = file.extension?.trim()?.trimStart('.')?.takeIf { it.isNotEmpty() }
+    val fromName = file.name.substringAfterLast('.', "").takeIf { it != file.name && it.isNotBlank() }
+    return (fromField ?: fromName).orEmpty().lowercase()
+}
+
+private fun parseModifyEpochSeconds(raw: String): Double? {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return null
+    trimmed.toDoubleOrNull()?.let { num ->
+        return if (num > 10_000_000_000.0) num / 1000.0 else num
+    }
+    return runCatching { Instant.parse(trimmed).epochSecond.toDouble() }.getOrNull()
+}
+
+private fun formatFileModifyTime(raw: String): String? {
+    val epochSec = parseModifyEpochSeconds(raw)
+    if (epochSec != null && epochSec > 0.0) {
+        return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            .format(Date((epochSec * 1000.0).toLong()))
+    }
+    val trimmed = raw.trim()
+    return if (trimmed.isNotEmpty()) trimmed.take(16) else null
+}
+
+private fun formatStorageItemMeta(file: StorageFileDto): String {
+    val modified = formatFileModifyTime(file.modifyTime)
+    if (file.type == "dir") {
+        return listOfNotNull("文件夹", modified).joinToString(" · ")
+    }
+    val ext = normalizedFileExtension(file).uppercase().takeIf { it.isNotEmpty() }
+    return listOfNotNull(ext, formatFileSize(file.size), modified).joinToString(" · ")
+}
+
+private fun naturalCompareIgnoreCase(a: String, b: String): Int {
+    var ia = 0
+    var ib = 0
+    while (ia < a.length && ib < b.length) {
+        val ca = a[ia]
+        val cb = b[ib]
+        if (ca.isDigit() && cb.isDigit()) {
+            var za = ia
+            while (za < a.length && a[za] == '0') za++
+            var ea = za
+            while (ea < a.length && a[ea].isDigit()) ea++
+
+            var zb = ib
+            while (zb < b.length && b[zb] == '0') zb++
+            var eb = zb
+            while (eb < b.length && b[eb].isDigit()) eb++
+
+            val lenDiff = (ea - za) - (eb - zb)
+            if (lenDiff != 0) return lenDiff
+            var k = 0
+            val significantLen = ea - za
+            while (k < significantLen) {
+                val digitDiff = a[za + k] - b[zb + k]
+                if (digitDiff != 0) return digitDiff
+                k++
+            }
+            val rawRunDiff = (ea - ia) - (eb - ib)
+            if (rawRunDiff != 0) return rawRunDiff
+            ia = ea
+            ib = eb
+        } else {
+            val lowerDiff = ca.lowercaseChar() - cb.lowercaseChar()
+            if (lowerDiff != 0) return lowerDiff
+            ia++
+            ib++
+        }
+    }
+    return a.length - b.length
+}
+
+private fun sortAndFilterStorageFiles(
+    files: List<StorageFileDto>,
+    sortMode: FileSortMode,
+    filterMode: FileFilterMode,
+): List<StorageFileDto> {
+    val filtered = when (filterMode) {
+        FileFilterMode.ALL -> files
+        FileFilterMode.DIRS -> files.filter { it.type == "dir" }
+        FileFilterMode.FILES -> files.filter { it.type != "dir" }
+    }
+    return filtered.sortedWith { a, b ->
+        val dirDiff = (if (a.type == "dir") 0 else 1) - (if (b.type == "dir") 0 else 1)
+        if (dirDiff != 0) {
+            dirDiff
+        } else {
+            when (sortMode) {
+                FileSortMode.NAME_ASC -> naturalCompareIgnoreCase(a.name, b.name)
+                FileSortMode.NAME_DESC -> naturalCompareIgnoreCase(b.name, a.name)
+                FileSortMode.TYPE_ASC -> {
+                    val extDiff = naturalCompareIgnoreCase(normalizedFileExtension(a), normalizedFileExtension(b))
+                    if (extDiff != 0) extDiff else naturalCompareIgnoreCase(a.name, b.name)
+                }
+                FileSortMode.SIZE_DESC -> {
+                    val szDiff = b.size.compareTo(a.size)
+                    if (szDiff != 0) szDiff else naturalCompareIgnoreCase(a.name, b.name)
+                }
+                FileSortMode.SIZE_ASC -> {
+                    val szDiff = a.size.compareTo(b.size)
+                    if (szDiff != 0) szDiff else naturalCompareIgnoreCase(a.name, b.name)
+                }
+                FileSortMode.TIME_DESC -> {
+                    val ta = parseModifyEpochSeconds(a.modifyTime)
+                    val tb = parseModifyEpochSeconds(b.modifyTime)
+                    val timeDiff = if (ta != null && tb != null) tb.compareTo(ta) else b.modifyTime.compareTo(a.modifyTime)
+                    if (timeDiff != 0) timeDiff else naturalCompareIgnoreCase(a.name, b.name)
+                }
+                FileSortMode.TIME_ASC -> {
+                    val ta = parseModifyEpochSeconds(a.modifyTime)
+                    val tb = parseModifyEpochSeconds(b.modifyTime)
+                    val timeDiff = if (ta != null && tb != null) ta.compareTo(tb) else a.modifyTime.compareTo(b.modifyTime)
+                    if (timeDiff != 0) timeDiff else naturalCompareIgnoreCase(a.name, b.name)
+                }
+            }
+        }
     }
 }
 

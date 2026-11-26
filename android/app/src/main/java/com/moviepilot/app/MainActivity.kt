@@ -168,15 +168,26 @@ class MainActivity : ComponentActivity() {
             }
             "content", "file" -> {
                 val mimeHint = intent.type
+                if (uri.scheme.equals("content", ignoreCase = true) &&
+                    (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0
+                ) {
+                    runCatching {
+                        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                }
                 lifecycleScope.launch {
                     val extracted = withContext(Dispatchers.IO) {
-                        LocalMediaMetadataExtractor.buildLocalPlaybackRequest(
-                            context = applicationContext,
-                            uri = uri,
-                            mimeHint = mimeHint,
-                        )
+                        runCatching {
+                            LocalMediaMetadataExtractor.buildLocalPlaybackRequest(
+                                context = applicationContext,
+                                uri = uri,
+                                mimeHint = mimeHint,
+                            )
+                        }.getOrNull()
                     }
-                    pendingExternalMedia = extracted
+                    if (extracted != null) {
+                        pendingExternalMedia = extracted
+                    }
                 }
             }
         }

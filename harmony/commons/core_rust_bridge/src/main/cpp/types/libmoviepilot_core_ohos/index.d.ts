@@ -21,4 +21,23 @@ export declare function validatePluginShellAsset(virtualPath: string): string;
 export declare function buildPluginRemoteCacheKeyJson(instanceOrigin: string, pluginId: string, versionOrHash: string): string;
 export declare function normalizePluginRemoteEntryJson(pluginId: string, versionOrHash: string, rawRemoteUrl: string): string;
 export declare function resolvePluginRemoteUpstreamJson(virtualPath: string): string;
+export declare function detectCloudflareAccessChallengeJson(status: number, headersJson: string, body: string, requestUrl: string): string;
+export declare function generatePkcePairJson(extraEntropy: string): string;
+export declare function computePkceS256Challenge(codeVerifier: string): string;
+export declare function buildOauthDiscoveryUrlsJson(serverUrl: string, resourceMetadataUrl: string): string;
+export declare function parseProtectedResourceMetadataJson(jsonStr: string): string;
+export declare function parseProtectedResourceMetadataDetailJson(jsonStr: string): string;
+export declare function normalizeOauthResourceUrl(rawUrl: string): string;
+export declare function parseOauthServerMetadataJson(jsonStr: string): string;
+export declare function buildOauthAuthorizeUrl(
+  authorizationEndpoint: string,
+  clientId: string,
+  redirectUri: string,
+  codeChallenge: string,
+  state: string,
+  scope: string,
+  resource: string
+): string;
+export declare function parseOauthCallbackUrlJson(callbackUrl: string, expectedState: string): string;
+export declare function mergeCfAccessCookie(existingCookieHeader: string, cfToken: string): string;
 export declare function parseAudioEmbeddedMetadataJson(headBase64: string, tailBase64: string): string;
