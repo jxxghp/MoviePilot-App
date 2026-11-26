@@ -22,6 +22,10 @@ struct NativeMediaDetailPage: View {
   @State private var mutatingSeason: Int?
   @State private var isMutatingMovie = false
   @State private var isLaunchingPlayback = false
+  @State private var playableEpisodesBySeason: [Int: [Int: String]] = [:]
+  @State private var existingEpisodesBySeason: [Int: Set<Int>] = [:]
+  @State private var hasLoadedEpisodeExistence = false
+  @State private var selectedSeasonDetail: MediaSeasonSummary?
   @State private var pendingCancelSeason: NativeSeasonCancelTarget?
   @State private var activeFilesTarget: NativeSubscribeFilesTarget?
   @State private var activeEditorTarget: NativeMediaSubscribeEditTarget?
@@ -183,6 +187,41 @@ struct NativeMediaDetailPage: View {
     }
     .navigationBarTitleDisplayMode(.inline)
     .task(id: attempt) { await loadAll(forceRefresh: attempt > 0) }
+    .navigationDestination(
+      isPresented: Binding(
+        get: { selectedSeasonDetail != nil },
+        set: { if !$0 { selectedSeasonDetail = nil } }
+      )
+    ) {
+      if let season = selectedSeasonDetail, let detail {
+        NativeMediaSeasonDetailPage(
+          session: session,
+          identity: identity,
+          seriesDetail: detail,
+          initialSeason: season,
+          seriesItemID: status.itemID,
+          serverName: status.server,
+          initialSubscribed: status.seasons[season.seasonNumber] != nil,
+          initialSubscribeID: subscribedRecordIDs[season.seasonNumber],
+          initialPlayableEpisodeIDs: playableEpisodesBySeason[season.seasonNumber] ?? [:],
+          initialExistingEpisodes: mergedExistingEpisodes(for: season.seasonNumber),
+          onSubscriptionChanged: { isSub, subID in
+            if isSub {
+              status.seasons[season.seasonNumber] = status.seasons[season.seasonNumber] ?? "R"
+              status.subscribed = true
+              if let subID, subID > 0 {
+                subscribedRecordIDs[season.seasonNumber] = subID
+              }
+            } else {
+              status.seasons.removeValue(forKey: season.seasonNumber)
+              subscribedRecordIDs.removeValue(forKey: season.seasonNumber)
+              status.subscribed = !status.seasons.isEmpty
+            }
+            syncDetailCache()
+          }
+        )
+      }
+    }
     .sheet(item: $activeFilesTarget) { target in
       NativeSubscribeFilesSheet(session: session, target: target)
         .nativeAdaptiveSheetSizing()
@@ -502,18 +541,7 @@ struct NativeMediaDetailPage: View {
           Button {
             Task {
               isLaunchingPlayback = true
-              let source = detail.mediaSource ?? identity.source
-              let posterRaw = [detail.posterPath, detail.backdropPath]
-                .compactMap { Self.resolveArtwork($0, source: source) }
-                .first
-              let artworkURL = NativeMediaPlaybackLauncher.proxiedArtworkURL(
-                session: session, raw: posterRaw)
-              let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
-                session: session,
-                itemID: itemID,
-                server: status.server,
-                title: detail.title ?? "播放",
-                artworkURL: artworkURL)
+              let err = await launchPrimaryPlayback(detail: detail, itemID: itemID)
               isLaunchingPlayback = false
               if let err {
                 actionFeedback = NativeDetailActionFeedback(isError: true, message: err)
@@ -917,7 +945,7 @@ struct NativeMediaDetailPage: View {
     }
   }
 
-  /// 单季透色玻璃卡片：2:3 季海报 + 季名/年份/集数 + 独立订阅按钮。
+  /// 单季透色玻璃卡片：2:3 季海报 + 季名/年份/集数 + 入库状态角标 + 独立订阅按钮；点击卡片进入该季媒体与分集详情页。
   private func seasonRow(_ detail: MediaDetailPayload, season: MediaSeasonSummary)
     -> some View
   {
@@ -927,6 +955,8 @@ struct NativeMediaDetailPage: View {
     let poster = [season.posterPath, detail.posterPath]
       .compactMap { Self.resolveArtwork($0, source: source) }
       .first
+    let existingEps = mergedExistingEpisodes(for: season.seasonNumber)
+    let totalCount = season.episodeCount ?? 0
     return CinematicPanel(padding: 12) {
       HStack(alignment: .top, spacing: 12) {
         NativeMediaArtwork(session: session, reference: poster, role: .poster, maximumWidth: 240)
@@ -937,9 +967,16 @@ struct NativeMediaDetailPage: View {
               .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
           }
         VStack(alignment: .leading, spacing: 5) {
-          Text(season.displayTitle)
-            .font(.subheadline.weight(.semibold))
-            .lineLimit(2)
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(season.displayTitle)
+              .font(.subheadline.weight(.semibold))
+              .lineLimit(2)
+            Spacer(minLength: 4)
+            seasonLibraryBadge(existingCount: existingEps.count, totalCount: totalCount)
+            Image(systemName: "chevron.right")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(.secondary)
+          }
           let meta = seasonMetadata(season)
           if !meta.isEmpty {
             Text(meta)
@@ -1030,9 +1067,38 @@ struct NativeMediaDetailPage: View {
             .padding(.top, 2)
           }
         }
-        Spacer(minLength: 0)
+      }
+      .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .onTapGesture {
+        selectedSeasonDetail = season
       }
     }
+    .accessibilityIdentifier("native-media-detail-season-card-\(season.seasonNumber)")
+  }
+
+  /// 分季卡片上的入库状态角标（已入库 / 已入库 X/Y / 未入库）。
+  @ViewBuilder
+  private func seasonLibraryBadge(existingCount: Int, totalCount: Int) -> some View {
+    if existingCount > 0 {
+      if totalCount > 0 && existingCount < totalCount {
+        NativeAdaptiveBadge(
+          "已入库 \(existingCount)/\(totalCount)",
+          tint: NativeTheme.warning
+        )
+      } else {
+        NativeAdaptiveBadge("已入库", tint: NativeTheme.success)
+      }
+    } else if hasLoadedEpisodeExistence {
+      NativeAdaptiveBadge("未入库", tint: NativeTheme.badgeMutedText)
+    }
+  }
+
+  private func mergedExistingEpisodes(for seasonNumber: Int) -> Set<Int> {
+    var result = existingEpisodesBySeason[seasonNumber] ?? []
+    if let playable = playableEpisodesBySeason[seasonNumber] {
+      result.formUnion(playable.keys)
+    }
+    return result
   }
 
   /// 演职员采用 Cinematic 圆形头像横栏，支持 TMDB / 豆瓣 / Bangumi / AniList 推入原生人物详情页。
@@ -1301,6 +1367,14 @@ struct NativeMediaDetailPage: View {
       if !loadedCredits.isEmpty { credits = loadedCredits }
       recommendations = loadedRecommendations
       syncDetailCache()
+
+      if mediaType == "电视剧" {
+        await loadSeriesEpisodeAvailability(
+          loaded,
+          seriesItemID: loadedStatus?.itemID ?? status.itemID,
+          server: loadedStatus?.server ?? status.server
+        )
+      }
     } catch is CancellationError {
       return
     } catch {
@@ -1656,6 +1730,1473 @@ struct NativeMediaDetailPage: View {
     else { return nil }
     return "https://image.tmdb.org/t/p/\(tmdbSize)" + trimmed
   }
+
+  /// 主操作栏播放入口：电影直接播放，电视剧自动定位首个已入库单集并附带同季连续播放队列。
+  private func launchPrimaryPlayback(detail: MediaDetailPayload, itemID: String) async -> String? {
+    let source = detail.mediaSource ?? identity.source
+    let posterRaw = [detail.posterPath, detail.backdropPath]
+      .compactMap { Self.resolveArtwork($0, source: source) }
+      .first
+    let artworkURL = NativeMediaPlaybackLauncher.proxiedArtworkURL(
+      session: session, raw: posterRaw)
+
+    if isTelevision(detail) {
+      if playableEpisodesBySeason.isEmpty {
+        await loadSeriesEpisodeAvailability(
+          detail, seriesItemID: itemID, server: status.server)
+      }
+      let sortedSeasons = playableEpisodesBySeason.keys.sorted { lhs, rhs in
+        if lhs == 0 { return false }
+        if rhs == 0 { return true }
+        return lhs < rhs
+      }
+      if let firstSeason = sortedSeasons.first(where: {
+        !(playableEpisodesBySeason[$0]?.isEmpty ?? true)
+      }),
+        let seasonMap = playableEpisodesBySeason[firstSeason]
+      {
+        let sortedEps = seasonMap.keys.sorted()
+        if let firstEp = sortedEps.first, let epItemID = seasonMap[firstEp] {
+          let seriesTitle = detail.title ?? "播放"
+          let queue = sortedEps.compactMap { epNum -> MediaPlaybackQueueItem? in
+            guard let qid = seasonMap[epNum] else { return nil }
+            let code = String(format: "S%02dE%02d", firstSeason, epNum)
+            return MediaPlaybackQueueItem(
+              itemId: qid,
+              title: "\(seriesTitle) · \(code)",
+              server: status.server,
+              artworkURL: artworkURL?.absoluteString,
+              subtitle: status.server
+            )
+          }
+          let epCode = String(format: "S%02dE%02d", firstSeason, firstEp)
+          return await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
+            session: session,
+            itemID: epItemID,
+            server: status.server,
+            title: "\(seriesTitle) · \(epCode)",
+            artworkURL: artworkURL,
+            queue: queue,
+            queueIndex: 0
+          )
+        }
+      }
+    }
+
+    return await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
+      session: session,
+      itemID: itemID,
+      server: status.server,
+      title: detail.title ?? "播放",
+      artworkURL: artworkURL
+    )
+  }
+
+  /// 拉取电视剧各季已入库单集映射（优先 `GET /api/v1/mediaserver/episodes`，补充 `POST /api/v1/mediaserver/exists_remote`）。
+  private func loadSeriesEpisodeAvailability(
+    _ loaded: MediaDetailPayload,
+    seriesItemID: String?,
+    server: String?
+  ) async {
+    var playableMap: [Int: [Int: String]] = [:]
+    if let seriesItemID, !seriesItemID.isEmpty {
+      var query = [URLQueryItem(name: "itemid", value: seriesItemID)]
+      if let server, !server.isEmpty {
+        query.append(URLQueryItem(name: "server", value: server))
+      }
+      if let epEndpoint = try? APIEndpoint(path: ["mediaserver", "episodes"], query: query),
+        let decoded = try? await session.request(
+          epEndpoint,
+          as: NativePlayableSeriesEpisodesMap.self,
+          requiring: .init(category: .discovery)
+        ).value
+      {
+        playableMap = decoded.seasons
+      }
+    }
+
+    var remoteExists: [Int: Set<Int>] = [:]
+    let resolvedSource = loaded.mediaSource ?? identity.source
+    let resolvedID = loaded.mediaID ?? identity.mediaID
+    var remoteBody: [String: Any] = [
+      "type": "电视剧",
+      "title": loaded.title ?? "",
+    ]
+    if let year = loaded.year, !year.isEmpty { remoteBody["year"] = year }
+    if !resolvedSource.isEmpty, !resolvedID.isEmpty {
+      remoteBody["media_source"] = resolvedSource
+      remoteBody["media_id"] = resolvedID
+    }
+    if let tmdbID = loaded.tmdbID, tmdbID > 0 {
+      remoteBody["tmdbid"] = tmdbID
+    }
+    if let data = try? JSONSerialization.data(withJSONObject: remoteBody),
+      let remoteEp = try? APIEndpoint(
+        path: ["mediaserver", "exists_remote"], method: .post, body: data),
+      let existsResp = try? await session.request(
+        remoteEp,
+        as: NativeRemoteExistingEpisodesMap.self,
+        requiring: .init(category: .discovery)
+      ).value
+    {
+      remoteExists = existsResp.seasons
+    }
+
+    guard !Task.isCancelled else { return }
+    playableEpisodesBySeason = playableMap
+    existingEpisodesBySeason = remoteExists
+    hasLoadedEpisodeExistence = true
+  }
+}
+
+// MARK: - 原生「季媒体与分集详情」页面
+
+/// 点击媒体详情页的任意一季后进入的「季媒体详情页」：展示该季海报、简介、入库与订阅操作，以及带入库状态和单集直放的分集列表。
+@MainActor
+struct NativeMediaSeasonDetailPage: View {
+  let session: NativeSession
+  let identity: NativeMediaIdentity
+  let seriesDetail: MediaDetailPayload
+  let initialSeason: MediaSeasonSummary
+  let seriesItemID: String?
+  let serverName: String?
+  let onSubscriptionChanged: ((_ subscribed: Bool, _ subscribeID: Int?) -> Void)?
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+  @State private var containerWidth: CGFloat = 0
+  @State private var seasonInfo: MediaSeasonSummary
+  @State private var seasonVoteAverage: Double?
+  @State private var episodes: [NativeSeasonEpisodeDTO] = []
+  @State private var playableEpisodeIDs: [Int: String]
+  @State private var existingEpisodes: Set<Int>
+  @State private var resolvedSeriesItemID: String?
+  @State private var resolvedServerName: String?
+  @State private var isSubscribed: Bool
+  @State private var subscribeRecordID: Int?
+  @State private var isLoading = true
+  @State private var loadFailed = false
+  @State private var reloadToken = 0
+  @State private var isMutatingSubscribe = false
+  @State private var playingEpisodeNumber: Int?
+  @State private var synopsisExpanded = false
+  @State private var showUnsubscribeConfirm = false
+  @State private var activeFilesTarget: NativeSubscribeFilesTarget?
+  @State private var activeEditorTarget: NativeMediaSubscribeEditTarget?
+  @State private var feedback: NativeDetailActionFeedback?
+
+  init(
+    session: NativeSession,
+    identity: NativeMediaIdentity,
+    seriesDetail: MediaDetailPayload,
+    initialSeason: MediaSeasonSummary,
+    seriesItemID: String?,
+    serverName: String?,
+    initialSubscribed: Bool,
+    initialSubscribeID: Int?,
+    initialPlayableEpisodeIDs: [Int: String] = [:],
+    initialExistingEpisodes: Set<Int> = [],
+    onSubscriptionChanged: ((_ subscribed: Bool, _ subscribeID: Int?) -> Void)? = nil
+  ) {
+    self.session = session
+    self.identity = identity
+    self.seriesDetail = seriesDetail
+    self.initialSeason = initialSeason
+    self.seriesItemID = seriesItemID
+    self.serverName = serverName
+    self.onSubscriptionChanged = onSubscriptionChanged
+    _seasonInfo = State(initialValue: initialSeason)
+    _playableEpisodeIDs = State(initialValue: initialPlayableEpisodeIDs)
+    _existingEpisodes = State(
+      initialValue: initialExistingEpisodes.union(initialPlayableEpisodeIDs.keys))
+    _resolvedSeriesItemID = State(initialValue: seriesItemID)
+    _resolvedServerName = State(initialValue: serverName)
+    _isSubscribed = State(initialValue: initialSubscribed)
+    _subscribeRecordID = State(initialValue: initialSubscribeID)
+  }
+
+  private var canSubscribe: Bool {
+    session.user.allows(.init(category: .subscribe))
+  }
+
+  private var canSearchResources: Bool {
+    session.user.allows(.init(category: .search))
+  }
+
+  private var seasonNumber: Int {
+    seasonInfo.seasonNumber
+  }
+
+  private var effectiveSource: String {
+    seriesDetail.mediaSource ?? identity.source
+  }
+
+  private var totalExpectedEpisodes: Int {
+    max(seasonInfo.episodeCount ?? 0, episodes.count)
+  }
+
+  private var inLibraryCount: Int {
+    existingEpisodes.union(playableEpisodeIDs.keys).count
+  }
+
+  var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let margin = NativeDeviceLayout.horizontalMargin(for: resolvedWidth)
+    let columnCount = NativeDeviceLayout.cardGridCount(
+      for: resolvedWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+
+    ZStack {
+      CinematicBackground()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          if let feedback {
+            feedbackBanner(feedback)
+          }
+          seasonHeaderCard(resolvedWidth: resolvedWidth)
+          seasonActionBar(resolvedWidth: resolvedWidth)
+          seasonOverviewSection
+          episodesSection(columnCount: columnCount)
+        }
+        .frame(maxWidth: resolvedWidth >= 740 ? 1080 : 860, alignment: .leading)
+        .padding(.horizontal, margin)
+        .padding(.top, 10)
+        .padding(.bottom, 36)
+        .frame(maxWidth: .infinity)
+      }
+      .scrollIndicators(.hidden)
+      .refreshable { await loadSeasonAll() }
+      .modifier(NativeSoftTopScrollEdge())
+      .accessibilityIdentifier("native-season-detail-scroll")
+    }
+    .nativeTrackContainerWidth($containerWidth)
+    .navigationTitle("\(seriesDetail.title ?? "剧集") · \(seasonInfo.displayTitle)")
+    .navigationBarTitleDisplayMode(.inline)
+    .nativeTopNavigationBar()
+    .task(id: reloadToken) {
+      await loadSeasonAll()
+    }
+    .sheet(item: $activeFilesTarget) { target in
+      NativeSubscribeFilesSheet(session: session, target: target)
+        .nativeAdaptiveSheetSizing()
+    }
+    .sheet(item: $activeEditorTarget) { target in
+      NativeSubscribeEditorSheet(
+        session: session, subscribeID: target.subscribeID, title: target.title
+      ) {
+        NativePageDataCache.shared.remove("subscriptions|list", session: session)
+        feedback = NativeDetailActionFeedback(isError: false, message: "本季订阅规则已更新。")
+      }
+      .nativeAdaptiveSheetSizing()
+    }
+    .alert("取消订阅", isPresented: $showUnsubscribeConfirm) {
+      Button("取消订阅", role: .destructive) {
+        Task { await unsubscribeSeason() }
+      }
+      Button("保留", role: .cancel) {}
+    } message: {
+      Text("确认取消《\(seriesDetail.title ?? "该剧集")》\(seasonInfo.displayTitle)的订阅吗？")
+    }
+  }
+
+  // MARK: - 本季媒体信息头卡
+
+  private func seasonHeaderCard(resolvedWidth: CGFloat) -> some View {
+    let posterRef = [seasonInfo.posterPath, seriesDetail.posterPath]
+      .compactMap { NativeMediaDetailPage.resolveArtwork($0, source: effectiveSource) }
+      .first
+    let vote = seasonVoteAverage ?? seriesDetail.voteAverage
+    let genres = seriesDetail.genreNames.prefix(3)
+
+    return CinematicPanel(padding: 16) {
+      HStack(alignment: .top, spacing: 16) {
+        let shape = RoundedRectangle(cornerRadius: 13, style: .continuous)
+        NativeMediaArtwork(
+          session: session, reference: posterRef, role: .poster, maximumWidth: 420
+        )
+        .frame(width: resolvedWidth >= 680 ? 112 : 96, height: resolvedWidth >= 680 ? 168 : 144)
+        .clipShape(shape)
+        .overlay {
+          shape.strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
+        }
+
+        VStack(alignment: .leading, spacing: 8) {
+          if let seriesTitle = seriesDetail.title, !seriesTitle.isEmpty {
+            Text(seriesTitle)
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+
+          Text(seasonInfo.displayTitle)
+            .font(.title3.weight(.bold))
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+            .accessibilityIdentifier("native-season-detail-title")
+
+          HStack(spacing: 8) {
+            if let airDate = seasonInfo.airDate?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !airDate.isEmpty
+            {
+              Text(airDate)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
+            if totalExpectedEpisodes > 0 {
+              Text("共 \(totalExpectedEpisodes) 集")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            }
+            if let vote, vote > 0 {
+              HStack(spacing: 3) {
+                Image(systemName: "star.fill")
+                  .font(.system(size: 10, weight: .bold))
+                  .foregroundStyle(NativeTheme.warning)
+                Text(String(format: "%.1f", vote))
+                  .font(.caption.weight(.bold).monospacedDigit())
+                  .foregroundStyle(NativeTheme.warning)
+              }
+            }
+          }
+
+          seasonLibrarySummaryRow
+
+          if !genres.isEmpty {
+            HStack(spacing: 6) {
+              ForEach(Array(genres), id: \.self) { genre in
+                Text(genre)
+                  .font(.caption2.weight(.medium))
+                  .foregroundStyle(NativeTheme.chipText)
+                  .padding(.horizontal, 8)
+                  .padding(.vertical, 3.5)
+                  .background {
+                    Capsule()
+                      .fill(NativeTheme.chipFill)
+                      .overlay {
+                        Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6)
+                      }
+                  }
+              }
+            }
+          }
+        }
+        Spacer(minLength: 0)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var seasonLibrarySummaryRow: some View {
+    let count = inLibraryCount
+    let total = totalExpectedEpisodes
+    let srvSuffix =
+      (resolvedServerName?.isEmpty == false) ? " · \(resolvedServerName!)" : ""
+    if count > 0 {
+      if total > 0 && count < total {
+        NativeAdaptiveBadge(
+          "部分入库 \(count)/\(total) 集\(srvSuffix)",
+          tint: NativeTheme.warning
+        )
+      } else if total > 0 {
+        NativeAdaptiveBadge(
+          "已入库 \(count)/\(total) 集\(srvSuffix)",
+          tint: NativeTheme.success
+        )
+      } else {
+        NativeAdaptiveBadge(
+          "已入库 \(count) 集\(srvSuffix)",
+          tint: NativeTheme.success
+        )
+      }
+    } else if !isLoading {
+      NativeAdaptiveBadge("未入库", tint: NativeTheme.badgeMutedText)
+    }
+  }
+
+  // MARK: - 本季操作栏
+
+  @ViewBuilder
+  private func seasonActionBar(resolvedWidth: CGFloat) -> some View {
+    let hasPlayable = !playableEpisodeIDs.isEmpty
+    let isWide = resolvedWidth >= 680 && !dynamicTypeSize.isAccessibilitySize
+    let layout =
+      isWide ? AnyLayout(HStackLayout(spacing: 10)) : AnyLayout(VStackLayout(spacing: 10))
+
+    if hasPlayable || canSubscribe || canSearchResources {
+      layout {
+        if hasPlayable {
+          let firstEp = playableEpisodeIDs.keys.sorted().first ?? 1
+          let isStartingFirst = playingEpisodeNumber == firstEp
+          let srvSuffix =
+            (resolvedServerName?.isEmpty == false) ? " · \(resolvedServerName!)" : ""
+          Button {
+            if let targetEp = episodes.first(where: { playableEpisodeIDs[$0.episodeNumber] != nil })
+            {
+              Task { await playEpisode(targetEp) }
+            } else if let firstNum = playableEpisodeIDs.keys.sorted().first {
+              let fallbackEp = NativeSeasonEpisodeDTO(
+                episodeNumber: firstNum,
+                name: "第 \(firstNum) 集",
+                overview: nil,
+                airDate: nil,
+                runtime: nil,
+                stillPath: nil,
+                voteAverage: nil
+              )
+              Task { await playEpisode(fallbackEp) }
+            }
+          } label: {
+            seasonCapsuleLabel(
+              title: isStartingFirst
+                ? "准备播放…" : "播放第 \(firstEp) 集\(srvSuffix)",
+              symbol: "play.fill",
+              prominent: true,
+              accentFilled: false
+            )
+          }
+          .buttonStyle(.plain)
+          .disabled(playingEpisodeNumber != nil)
+          .accessibilityIdentifier("native-season-detail-play")
+        }
+
+        if canSubscribe || canSearchResources {
+          HStack(spacing: 10) {
+            if canSubscribe {
+              Button {
+                if isSubscribed {
+                  showUnsubscribeConfirm = true
+                } else {
+                  Task { await subscribeSeason() }
+                }
+              } label: {
+                seasonCapsuleLabel(
+                  title: isMutatingSubscribe
+                    ? "提交中…" : (isSubscribed ? "本季已订阅" : "订阅本季"),
+                  symbol: isSubscribed ? "checkmark.circle.fill" : "bookmark",
+                  prominent: !hasPlayable && !isSubscribed,
+                  accentFilled: isSubscribed
+                )
+              }
+              .buttonStyle(.plain)
+              .disabled(isMutatingSubscribe)
+              .contextMenu {
+                if isSubscribed {
+                  Button {
+                    openSeasonSubscribeFiles()
+                  } label: {
+                    Label("订阅文件详情", systemImage: "doc.text.magnifyingglass")
+                  }
+                  if let subID = subscribeRecordID, subID > 0 {
+                    Button {
+                      activeEditorTarget = NativeMediaSubscribeEditTarget(
+                        subscribeID: subID,
+                        title:
+                          "\(seriesDetail.title ?? "剧集") S\(String(format: "%02d", seasonNumber))"
+                      )
+                    } label: {
+                      Label("编辑订阅规则", systemImage: "slider.horizontal.3")
+                    }
+                  }
+                  Button(role: .destructive) {
+                    showUnsubscribeConfirm = true
+                  } label: {
+                    Label("取消订阅", systemImage: "trash")
+                  }
+                }
+              }
+              .accessibilityIdentifier("native-season-detail-subscribe")
+
+              if isSubscribed {
+                Button {
+                  openSeasonSubscribeFiles()
+                } label: {
+                  Image(systemName: "doc.text.magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(NativeTheme.success)
+                    .frame(width: 48, height: 48)
+                    .background {
+                      Circle()
+                        .fill(
+                          Color(red: 0.24, green: 0.66, blue: 0.46)
+                            .opacity(colorScheme == .light ? 0.16 : 0.24)
+                        )
+                        .overlay {
+                          Circle()
+                            .strokeBorder(
+                              Color(red: 0.44, green: 0.90, blue: 0.66).opacity(0.36),
+                              lineWidth: 0.7
+                            )
+                        }
+                    }
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("订阅文件详情")
+                .accessibilityIdentifier("native-season-detail-files")
+              }
+            }
+
+            if canSearchResources {
+              NavigationLink {
+                seasonResourceSearchDestination(episode: nil)
+              } label: {
+                seasonCapsuleLabel(
+                  title: "搜索本季资源",
+                  symbol: "magnifyingglass",
+                  prominent: !hasPlayable && !canSubscribe,
+                  accentFilled: false
+                )
+              }
+              .buttonStyle(.plain)
+              .accessibilityIdentifier("native-season-detail-search")
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var seasonOverviewSection: some View {
+    let rawOverview =
+      (seasonInfo.overview?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+        $0.isEmpty ? nil : $0
+      }
+      ?? (seriesDetail.overview?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+        $0.isEmpty ? nil : $0
+      }
+
+    if let overview = rawOverview {
+      CinematicPanel {
+        VStack(alignment: .leading, spacing: 10) {
+          Text("本季简介")
+            .font(.headline)
+            .accessibilityAddTraits(.isHeader)
+          Text(overview)
+            .font(.body)
+            .lineSpacing(5)
+            .foregroundStyle(.primary.opacity(0.84))
+            .lineLimit(synopsisExpanded ? nil : 4)
+          if overview.count > 110 {
+            Button(synopsisExpanded ? "收起简介" : "展开全部") {
+              withAnimation(.easeInOut(duration: 0.2)) { synopsisExpanded.toggle() }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary.opacity(0.75))
+            .buttonStyle(.plain)
+          }
+        }
+      }
+    }
+  }
+
+  // MARK: - 本季分集列表
+
+  @ViewBuilder
+  private func episodesSection(columnCount: Int) -> some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack {
+        Text("本季剧集")
+          .font(.title3.weight(.bold))
+          .accessibilityAddTraits(.isHeader)
+        Spacer()
+        if !episodes.isEmpty {
+          Text(
+            inLibraryCount > 0
+              ? "已入库 \(inLibraryCount) / 共 \(episodes.count) 集"
+              : "共 \(episodes.count) 集"
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+      }
+
+      if isLoading && episodes.isEmpty {
+        NativeSubscriptionsHubSkeletonView(columns: columnCount)
+          .transition(.opacity)
+      } else if loadFailed && episodes.isEmpty {
+        CinematicPanel {
+          VStack(alignment: .leading, spacing: 10) {
+            Label("暂时无法载入本季分集信息", systemImage: "exclamationmark.triangle")
+              .font(.headline)
+            Button("重试") { reloadToken += 1 }
+              .frame(minHeight: 44)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      } else if episodes.isEmpty {
+        CinematicPanel(padding: 24) {
+          VStack(spacing: 8) {
+            Image(systemName: "film.stack")
+              .font(.title2)
+              .foregroundStyle(.secondary)
+            Text("暂无本季分集明细")
+              .font(.headline)
+            Text("数据源尚未提供该季的分集列表。")
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity, minHeight: 120)
+        }
+      } else {
+        let gridColumns = Array(
+          repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
+        LazyVGrid(columns: gridColumns, spacing: 12) {
+          ForEach(episodes) { ep in
+            episodeCard(ep)
+          }
+        }
+      }
+    }
+  }
+
+  private func episodeCard(_ ep: NativeSeasonEpisodeDTO) -> some View {
+    let epItemID = playableEpisodeIDs[ep.episodeNumber]
+    let inLibrary = epItemID != nil || existingEpisodes.contains(ep.episodeNumber)
+    let isPlayable = epItemID != nil
+    let isPlayingThis = playingEpisodeNumber == ep.episodeNumber
+    let stillRef = [
+      ep.stillPath, seriesDetail.backdropPath, seasonInfo.posterPath, seriesDetail.posterPath,
+    ]
+    .compactMap {
+      NativeMediaDetailPage.resolveArtwork($0, source: effectiveSource, tmdbSize: "w780")
+    }
+    .first
+
+    return CinematicPanel(padding: 12) {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .top, spacing: 12) {
+          episodeThumbnail(
+            reference: stillRef,
+            episodeNumber: ep.episodeNumber,
+            runtime: ep.runtime,
+            inLibrary: inLibrary,
+            isPlayable: isPlayable,
+            isLoadingPlay: isPlayingThis
+          )
+          .onTapGesture {
+            guard isPlayable, playingEpisodeNumber == nil else { return }
+            Task { await playEpisode(ep) }
+          }
+
+          VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+              Text("\(ep.episodeNumber). \(ep.displayTitle)")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+              Spacer(minLength: 4)
+              episodeStatusBadge(inLibrary: inLibrary, airDate: ep.airDate)
+            }
+
+            HStack(spacing: 8) {
+              if let airDate = ep.airDate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !airDate.isEmpty
+              {
+                Text(airDate)
+                  .font(.caption.monospacedDigit())
+                  .foregroundStyle(.secondary)
+              }
+              if let vote = ep.voteAverage, vote > 0 {
+                HStack(spacing: 2.5) {
+                  Image(systemName: "star.fill")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(NativeTheme.warning)
+                  Text(String(format: "%.1f", vote))
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(NativeTheme.warning)
+                }
+              }
+            }
+
+            if let overview = ep.overview?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !overview.isEmpty
+            {
+              Text(overview)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+            }
+          }
+        }
+
+        if isPlayable || canSearchResources {
+          HStack(spacing: 8) {
+            if isPlayable {
+              Button {
+                Task { await playEpisode(ep) }
+              } label: {
+                HStack(spacing: 5) {
+                  if isPlayingThis {
+                    ProgressView().controlSize(.mini).tint(.white)
+                  } else {
+                    Image(systemName: "play.fill")
+                      .font(.caption2.weight(.bold))
+                  }
+                  Text(isPlayingThis ? "准备播放…" : "播放本集")
+                    .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 13)
+                .frame(minHeight: 34)
+                .background {
+                  Capsule().fill(appearance.accentColor)
+                }
+                .contentShape(Capsule())
+              }
+              .buttonStyle(.plain)
+              .frame(minHeight: 40)
+              .disabled(playingEpisodeNumber != nil)
+              .accessibilityIdentifier(
+                "native-season-episode-play-\(seasonNumber)-\(ep.episodeNumber)")
+            }
+
+            if canSearchResources && !inLibrary {
+              NavigationLink {
+                seasonResourceSearchDestination(episode: ep.episodeNumber)
+              } label: {
+                HStack(spacing: 4) {
+                  Image(systemName: "magnifyingglass")
+                    .font(.caption2.weight(.semibold))
+                  Text("搜本集")
+                    .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.primary.opacity(0.88))
+                .padding(.horizontal, 12)
+                .frame(minHeight: 34)
+                .background {
+                  Capsule()
+                    .fill(NativeTheme.chipFill)
+                    .overlay { Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.65) }
+                }
+                .contentShape(Capsule())
+              }
+              .buttonStyle(.plain)
+              .frame(minHeight: 40)
+              .accessibilityIdentifier(
+                "native-season-episode-search-\(seasonNumber)-\(ep.episodeNumber)")
+            }
+
+            Spacer(minLength: 0)
+          }
+        }
+      }
+    }
+    .accessibilityIdentifier("native-season-episode-card-\(seasonNumber)-\(ep.episodeNumber)")
+  }
+
+  private func episodeThumbnail(
+    reference: String?,
+    episodeNumber: Int,
+    runtime: Int?,
+    inLibrary: Bool,
+    isPlayable: Bool,
+    isLoadingPlay: Bool
+  ) -> some View {
+    let shape = RoundedRectangle(cornerRadius: 11, style: .continuous)
+    return NativeMediaArtwork(
+      session: session, reference: reference, role: .backdrop, maximumWidth: 480
+    )
+    .frame(width: 136, height: 78)
+    .clipShape(shape)
+    .overlay {
+      shape.strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
+    }
+    .overlay(alignment: .topLeading) {
+      Text(String(format: "E%02d", episodeNumber))
+        .font(.system(size: 10, weight: .bold).monospacedDigit())
+        .foregroundStyle(.white)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2.5)
+        .background { Capsule().fill(.black.opacity(0.68)) }
+        .padding(6)
+    }
+    .overlay(alignment: .bottomTrailing) {
+      if let runtime, runtime > 0 {
+        Text("\(runtime) 分钟")
+          .font(.system(size: 9.5, weight: .medium).monospacedDigit())
+          .foregroundStyle(.white)
+          .padding(.horizontal, 5.5)
+          .padding(.vertical, 2)
+          .background {
+            RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.black.opacity(0.66))
+          }
+          .padding(6)
+      }
+    }
+    .overlay {
+      if isPlayable {
+        ZStack {
+          Circle().fill(.black.opacity(0.46)).frame(width: 32, height: 32)
+          if isLoadingPlay {
+            ProgressView().controlSize(.mini).tint(.white)
+          } else {
+            Image(systemName: "play.fill")
+              .font(.system(size: 12, weight: .bold))
+              .foregroundStyle(.white)
+              .offset(x: 1)
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func episodeStatusBadge(inLibrary: Bool, airDate: String?) -> some View {
+    if inLibrary {
+      NativeAdaptiveBadge("已入库", tint: NativeTheme.success)
+    } else if Self.isFutureAirDate(airDate) {
+      NativeAdaptiveBadge("未开播", tint: NativeTheme.info)
+    } else {
+      NativeAdaptiveBadge("未入库", tint: NativeTheme.badgeMutedText)
+    }
+  }
+
+  private static func isFutureAirDate(_ raw: String?) -> Bool {
+    guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), trimmed.count >= 10
+    else { return false }
+    let prefix = String(trimmed.prefix(10))
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd"
+    guard let air = formatter.date(from: prefix) else { return false }
+    return air > Date()
+  }
+
+  private func seasonCapsuleLabel(
+    title: String,
+    symbol: String,
+    prominent: Bool,
+    accentFilled: Bool
+  ) -> some View {
+    let accent = appearance.accentColor
+    let fg: Color =
+      if prominent {
+        colorScheme == .light ? .white : Color(red: 0.08, green: 0.08, blue: 0.12)
+      } else if accentFilled {
+        Color(red: 0.44, green: 0.90, blue: 0.66)
+      } else {
+        .primary
+      }
+    let fill: Color =
+      if prominent {
+        colorScheme == .light ? accent : .white
+      } else if accentFilled {
+        Color(red: 0.24, green: 0.66, blue: 0.46).opacity(colorScheme == .light ? 0.18 : 0.26)
+      } else {
+        .primary.opacity(colorScheme == .light ? 0.08 : 0.13)
+      }
+    let stroke: Color =
+      if prominent {
+        .clear
+      } else if accentFilled {
+        Color(red: 0.44, green: 0.90, blue: 0.66).opacity(0.36)
+      } else {
+        .primary.opacity(0.20)
+      }
+    return HStack(spacing: 7) {
+      Image(systemName: symbol)
+        .font(.subheadline.weight(.semibold))
+      Text(title)
+        .font(.subheadline.weight(.semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.84)
+    }
+    .foregroundStyle(fg)
+    .padding(.horizontal, 14)
+    .frame(maxWidth: .infinity)
+    .frame(height: 46)
+    .background {
+      Capsule()
+        .fill(fill)
+        .overlay { Capsule().strokeBorder(stroke, lineWidth: 0.7) }
+    }
+    .contentShape(Capsule())
+  }
+
+  @ViewBuilder
+  private func seasonResourceSearchDestination(episode: Int?) -> some View {
+    let baseTitle = seriesDetail.title ?? "作品资源"
+    let resolvedSource =
+      (seriesDetail.mediaSource?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+      ? seriesDetail.mediaSource! : identity.source)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let resolvedID =
+      (seriesDetail.mediaID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+      ? seriesDetail.mediaID! : identity.mediaID)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if let episode {
+      let keyword = "\(baseTitle) \(String(format: "S%02dE%02d", seasonNumber, episode))"
+      NativeResourceSearchPage(
+        session: session,
+        target: .lastResults,
+        initialKeyword: keyword,
+        browseHome: false
+      )
+    } else if !resolvedSource.isEmpty, !resolvedID.isEmpty, resolvedID != "0" {
+      NativeResourceSearchPage(
+        session: session,
+        target: .media(
+          identity: NativeMediaIdentity(
+            source: resolvedSource,
+            mediaID: resolvedID,
+            type: "电视剧"
+          ),
+          title: "\(baseTitle) \(seasonInfo.displayTitle)",
+          season: seasonNumber
+        )
+      )
+    } else {
+      NativeResourceSearchPage(
+        session: session,
+        target: .lastResults,
+        initialKeyword: "\(baseTitle) S\(String(format: "%02d", seasonNumber))",
+        browseHome: false
+      )
+    }
+  }
+
+  private func openSeasonSubscribeFiles() {
+    let baseTitle = seriesDetail.title ?? "订阅文件"
+    activeFilesTarget = NativeSubscribeFilesTarget(
+      subscribeID: subscribeRecordID,
+      mediaLookup: NativeSubscribeMediaLookup(
+        mediaSource: seriesDetail.mediaSource ?? identity.source,
+        mediaID: seriesDetail.mediaID ?? identity.mediaID,
+        type: "电视剧",
+        season: seasonNumber,
+        title: seriesDetail.title,
+        year: seriesDetail.year
+      ),
+      fallbackTitle: "\(baseTitle) S\(String(format: "%02d", seasonNumber))"
+    )
+  }
+
+  private func feedbackBanner(_ feedback: NativeDetailActionFeedback) -> some View {
+    CinematicPanel(padding: 12) {
+      HStack(spacing: 10) {
+        Image(
+          systemName: feedback.isError
+            ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+        )
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
+        Text(feedback.message)
+          .font(.subheadline)
+          .foregroundStyle(.primary.opacity(0.92))
+        Spacer(minLength: 0)
+        Button {
+          self.feedback = nil
+        } label: {
+          Image(systemName: "xmark")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary.opacity(0.65))
+            .frame(minWidth: 36, minHeight: 36)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+  }
+
+  // MARK: - 季集数据加载与播放/订阅交互
+
+  private func resolveTMDBID() -> Int? {
+    if let tid = seriesDetail.tmdbID, tid > 0 { return tid }
+    if effectiveSource.lowercased() == "themoviedb",
+      let parsed = Int(seriesDetail.mediaID ?? identity.mediaID), parsed > 0
+    {
+      return parsed
+    }
+    return nil
+  }
+
+  private func loadSeasonAll() async {
+    isLoading = true
+    loadFailed = false
+    defer { isLoading = false }
+
+    // 1. 若缺少本地媒体库条目 ID，先尝试通过 `GET /api/v1/mediaserver/exists` 定位
+    if resolvedSeriesItemID == nil || resolvedSeriesItemID?.isEmpty == true {
+      var query: [URLQueryItem] = [
+        URLQueryItem(name: "mtype", value: "电视剧"),
+        URLQueryItem(name: "season", value: String(seasonNumber)),
+      ]
+      if let title = seriesDetail.title, !title.isEmpty {
+        query.append(URLQueryItem(name: "title", value: title))
+      }
+      if let year = seriesDetail.year, !year.isEmpty {
+        query.append(URLQueryItem(name: "year", value: year))
+      }
+      let src = seriesDetail.mediaSource ?? identity.source
+      let mid = seriesDetail.mediaID ?? identity.mediaID
+      if !src.isEmpty, !mid.isEmpty {
+        query.append(URLQueryItem(name: "media_source", value: src))
+        query.append(URLQueryItem(name: "media_id", value: mid))
+      }
+      if let existsEp = try? APIEndpoint(path: ["mediaserver", "exists"], query: query),
+        let existsResp = try? await session.request(
+          existsEp,
+          as: NativeMediaServerExistsPayload.self,
+          requiring: .init(category: .discovery)
+        ).value,
+        let foundID = existsResp.item?.id, !foundID.isEmpty
+      {
+        resolvedSeriesItemID = foundID
+        if let srv = existsResp.item?.server, !srv.isEmpty {
+          resolvedServerName = srv
+        }
+      }
+    }
+
+    // 2. 并行拉取本季元信息补全、分集列表与媒体服务器可播放集映射
+    async let seasonMetaTask = fetchSeasonMetadata()
+    async let episodesTask = fetchEpisodesList()
+    async let playableTask = fetchPlayableSeasonEpisodes()
+    async let remoteExistsTask = fetchRemoteSeasonExistence()
+
+    let (enrichedSeason, loadedEpisodes, loadedPlayable, loadedRemoteExists) = await (
+      seasonMetaTask, episodesTask, playableTask, remoteExistsTask
+    )
+    guard !Task.isCancelled else { return }
+
+    if let enrichedSeason {
+      seasonInfo = MediaSeasonSummary(
+        seasonNumber: seasonNumber,
+        name: enrichedSeason.name ?? seasonInfo.name,
+        airDate: enrichedSeason.airDate ?? seasonInfo.airDate,
+        episodeCount: enrichedSeason.episodeCount ?? seasonInfo.episodeCount,
+        overview: (enrichedSeason.overview?.isEmpty == false)
+          ? enrichedSeason.overview : seasonInfo.overview,
+        posterPath: enrichedSeason.posterPath ?? seasonInfo.posterPath
+      )
+      if let vote = enrichedSeason.voteAverage, vote > 0 {
+        seasonVoteAverage = vote
+      }
+    }
+
+    if !loadedPlayable.isEmpty {
+      playableEpisodeIDs = loadedPlayable
+    }
+    var mergedSet = existingEpisodes
+    mergedSet.formUnion(loadedRemoteExists)
+    mergedSet.formUnion(playableEpisodeIDs.keys)
+    existingEpisodes = mergedSet
+
+    if !loadedEpisodes.isEmpty {
+      episodes = loadedEpisodes
+    } else {
+      let maxKnown = max(
+        seasonInfo.episodeCount ?? 0,
+        mergedSet.max() ?? 0
+      )
+      if maxKnown > 0 {
+        episodes = (1...maxKnown).map { num in
+          NativeSeasonEpisodeDTO(
+            episodeNumber: num,
+            name: "第 \(num) 集",
+            overview: nil,
+            airDate: nil,
+            runtime: nil,
+            stillPath: nil,
+            voteAverage: nil
+          )
+        }
+      } else if seasonInfo.overview == nil && playableEpisodeIDs.isEmpty {
+        loadFailed = true
+      }
+    }
+  }
+
+  private func fetchSeasonMetadata() async -> NativeSeasonEnrichedMetaDTO? {
+    let src = seriesDetail.mediaSource ?? identity.source
+    let mid = seriesDetail.mediaID ?? identity.mediaID
+    guard !src.isEmpty, !mid.isEmpty else { return nil }
+    let query = [
+      URLQueryItem(name: "media_source", value: src),
+      URLQueryItem(name: "media_id", value: mid),
+      URLQueryItem(name: "season", value: String(seasonNumber)),
+    ]
+    guard let endpoint = try? APIEndpoint(path: ["media", "seasons"], query: query) else {
+      return nil
+    }
+    return
+      (try? await session.request(
+        endpoint,
+        as: [NativeSeasonEnrichedMetaDTO].self,
+        requiring: .init(category: .discovery)
+      ).value)?.first
+  }
+
+  private func fetchEpisodesList() async -> [NativeSeasonEpisodeDTO] {
+    if let tmdbID = resolveTMDBID(),
+      let ep = try? APIEndpoint(path: ["tmdb", String(tmdbID), String(seasonNumber)]),
+      let list = try? await session.request(
+        ep,
+        as: [NativeSeasonEpisodeDTO].self,
+        requiring: .init(category: .discovery)
+      ).value,
+      !list.isEmpty
+    {
+      return list.sorted { $0.episodeNumber < $1.episodeNumber }
+    }
+
+    if let itemID = resolvedSeriesItemID, !itemID.isEmpty {
+      var metaQuery = [
+        URLQueryItem(name: "itemid", value: itemID),
+        URLQueryItem(name: "season", value: String(seasonNumber)),
+      ]
+      if let srv = resolvedServerName, !srv.isEmpty {
+        metaQuery.append(URLQueryItem(name: "server", value: srv))
+      }
+      if let metaEp = try? APIEndpoint(
+        path: ["mediaserver", "episode-metadata"], query: metaQuery),
+        let list = try? await session.request(
+          metaEp,
+          as: [NativeSeasonEpisodeDTO].self,
+          requiring: .init(category: .discovery)
+        ).value,
+        !list.isEmpty
+      {
+        return list.sorted { $0.episodeNumber < $1.episodeNumber }
+      }
+    }
+    return []
+  }
+
+  private func fetchPlayableSeasonEpisodes() async -> [Int: String] {
+    guard let itemID = resolvedSeriesItemID, !itemID.isEmpty else { return [:] }
+    var query: [URLQueryItem] = []
+    if let srv = resolvedServerName, !srv.isEmpty {
+      query.append(URLQueryItem(name: "server", value: srv))
+    }
+    if let endpoint = try? APIEndpoint(
+      path: ["mediaserver", "episodes", itemID, String(seasonNumber)],
+      query: query
+    ),
+      let map = try? await session.request(
+        endpoint,
+        as: NativePlayableSeasonEpisodesMap.self,
+        requiring: .init(category: .discovery)
+      ).value,
+      !map.episodes.isEmpty
+    {
+      return map.episodes
+    }
+    return [:]
+  }
+
+  private func fetchRemoteSeasonExistence() async -> Set<Int> {
+    let src = seriesDetail.mediaSource ?? identity.source
+    let mid = seriesDetail.mediaID ?? identity.mediaID
+    var body: [String: Any] = [
+      "type": "电视剧",
+      "title": seriesDetail.title ?? "",
+      "season": seasonNumber,
+    ]
+    if let year = seriesDetail.year, !year.isEmpty { body["year"] = year }
+    if !src.isEmpty, !mid.isEmpty {
+      body["media_source"] = src
+      body["media_id"] = mid
+    }
+    if let tmdbID = resolveTMDBID() {
+      body["tmdbid"] = tmdbID
+    }
+    guard let data = try? JSONSerialization.data(withJSONObject: body),
+      let endpoint = try? APIEndpoint(
+        path: ["mediaserver", "exists_remote"], method: .post, body: data),
+      let resp = try? await session.request(
+        endpoint,
+        as: NativeRemoteExistingEpisodesMap.self,
+        requiring: .init(category: .discovery)
+      ).value
+    else { return [] }
+    return resp.seasons[seasonNumber] ?? []
+  }
+
+  /// 播放指定单集，并将本季全部已入库单集组装为连续播放队列。
+  private func playEpisode(_ target: NativeSeasonEpisodeDTO) async {
+    guard let epItemID = playableEpisodeIDs[target.episodeNumber], !epItemID.isEmpty else {
+      feedback = NativeDetailActionFeedback(isError: true, message: "该集暂未在媒体服务器中入库。")
+      return
+    }
+    playingEpisodeNumber = target.episodeNumber
+    defer { playingEpisodeNumber = nil }
+
+    let seriesTitle = seriesDetail.title ?? "剧集"
+    let sortedPlayableNums = playableEpisodeIDs.keys.sorted()
+    let epLookup = Dictionary(uniqueKeysWithValues: episodes.map { ($0.episodeNumber, $0) })
+
+    var queue: [MediaPlaybackQueueItem] = []
+    var targetQueueIndex = 0
+    for (idx, epNum) in sortedPlayableNums.enumerated() {
+      guard let qItemID = playableEpisodeIDs[epNum] else { continue }
+      if epNum == target.episodeNumber {
+        targetQueueIndex = queue.count
+      }
+      let meta = epLookup[epNum]
+      let code = String(format: "S%02dE%02d", seasonNumber, epNum)
+      let qTitle =
+        if let name = meta?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+          "\(seriesTitle) · \(code) · \(name)"
+        } else {
+          "\(seriesTitle) · \(code)"
+        }
+      let artRaw = [meta?.stillPath, seasonInfo.posterPath, seriesDetail.posterPath]
+        .compactMap { NativeMediaDetailPage.resolveArtwork($0, source: effectiveSource) }
+        .first
+      let artProxied = NativeMediaPlaybackLauncher.proxiedArtworkURL(session: session, raw: artRaw)
+      queue.append(
+        MediaPlaybackQueueItem(
+          itemId: qItemID,
+          title: qTitle,
+          server: resolvedServerName,
+          artworkURL: artProxied?.absoluteString,
+          subtitle: resolvedServerName
+        )
+      )
+      _ = idx
+    }
+
+    let code = String(format: "S%02dE%02d", seasonNumber, target.episodeNumber)
+    let fullTitle = "\(seriesTitle) · \(code) · \(target.displayTitle)"
+    let posterRaw = [target.stillPath, seasonInfo.posterPath, seriesDetail.posterPath]
+      .compactMap { NativeMediaDetailPage.resolveArtwork($0, source: effectiveSource) }
+      .first
+    let artworkURL = NativeMediaPlaybackLauncher.proxiedArtworkURL(
+      session: session, raw: posterRaw)
+
+    let err = await NativeMediaPlaybackLauncher.shared.playMediaServerItem(
+      session: session,
+      itemID: epItemID,
+      server: resolvedServerName,
+      title: fullTitle,
+      artworkURL: artworkURL,
+      queue: queue,
+      queueIndex: targetQueueIndex
+    )
+    if let err {
+      feedback = NativeDetailActionFeedback(isError: true, message: err)
+    }
+  }
+
+  private func subscribeSeason() async {
+    guard canSubscribe else { return }
+    isMutatingSubscribe = true
+    defer { isMutatingSubscribe = false }
+    do {
+      let body = try JSONEncoder().encode(
+        NativeSubscribeCreatePayload(
+          name: seriesDetail.title ?? "",
+          type: "电视剧",
+          year: seriesDetail.year ?? "",
+          mediaSource: seriesDetail.mediaSource ?? identity.source,
+          mediaID: seriesDetail.mediaID ?? identity.mediaID,
+          season: seasonNumber
+        )
+      )
+      let endpoint = try APIEndpoint(
+        path: ["subscribe"], method: .post, body: body, trailingSlash: true)
+      let created = try await session.request(
+        endpoint, as: NativeSubscribeCreatedPayload?.self, requiring: .init(category: .subscribe)
+      ).value
+      try Task.checkCancellation()
+      isSubscribed = true
+      if let cid = created?.id, cid > 0 {
+        subscribeRecordID = cid
+      }
+      NativePageDataCache.shared.remove("subscriptions|list", session: session)
+      onSubscriptionChanged?(true, subscribeRecordID)
+      feedback = NativeDetailActionFeedback(
+        isError: false, message: "已添加\(seasonInfo.displayTitle)订阅。")
+    } catch is CancellationError {
+      return
+    } catch {
+      feedback = NativeDetailActionFeedback(isError: true, message: "订阅请求失败，请稍后重试。")
+    }
+  }
+
+  private func unsubscribeSeason() async {
+    guard canSubscribe else { return }
+    isMutatingSubscribe = true
+    defer { isMutatingSubscribe = false }
+    do {
+      let query = [
+        URLQueryItem(name: "media_source", value: seriesDetail.mediaSource ?? identity.source),
+        URLQueryItem(name: "season", value: String(seasonNumber)),
+      ]
+      let endpoint = try APIEndpoint(
+        path: ["subscribe", "media", seriesDetail.mediaID ?? identity.mediaID],
+        method: .delete,
+        query: query
+      )
+      try await session.perform(endpoint, requiring: .init(category: .subscribe))
+      try Task.checkCancellation()
+      isSubscribed = false
+      subscribeRecordID = nil
+      NativePageDataCache.shared.remove("subscriptions|list", session: session)
+      onSubscriptionChanged?(false, nil)
+      feedback = NativeDetailActionFeedback(
+        isError: false, message: "已取消\(seasonInfo.displayTitle)订阅。")
+    } catch is CancellationError {
+      return
+    } catch {
+      feedback = NativeDetailActionFeedback(isError: true, message: "取消订阅失败，请稍后重试。")
+    }
+  }
+}
+
+/// 单季元信息补全投影（`GET /api/v1/media/seasons`）。
+private struct NativeSeasonEnrichedMetaDTO: Decodable, Sendable {
+  let seasonNumber: Int?
+  let name: String?
+  let airDate: String?
+  let episodeCount: Int?
+  let overview: String?
+  let posterPath: String?
+  let voteAverage: Double?
+
+  private enum CodingKeys: String, CodingKey {
+    case seasonNumber = "season_number"
+    case name
+    case airDate = "air_date"
+    case episodeCount = "episode_count"
+    case overview
+    case posterPath = "poster_path"
+    case voteAverage = "vote_average"
+  }
+}
+
+/// 单集信息模型（`GET /api/v1/tmdb/{tmdbid}/{season}` 与 `GET /api/v1/mediaserver/episode-metadata`）。
+struct NativeSeasonEpisodeDTO: Decodable, Sendable, Identifiable {
+  let episodeNumber: Int
+  let name: String?
+  let overview: String?
+  let airDate: String?
+  let runtime: Int?
+  let stillPath: String?
+  let voteAverage: Double?
+
+  var id: Int { episodeNumber }
+
+  var displayTitle: String {
+    if let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {
+      return trimmed
+    }
+    return "第 \(episodeNumber) 集"
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case episodeNumber = "episode_number"
+    case name
+    case overview
+    case airDate = "air_date"
+    case runtime
+    case stillPath = "still_path"
+    case voteAverage = "vote_average"
+  }
+
+  init(
+    episodeNumber: Int,
+    name: String?,
+    overview: String?,
+    airDate: String?,
+    runtime: Int?,
+    stillPath: String?,
+    voteAverage: Double?
+  ) {
+    self.episodeNumber = episodeNumber
+    self.name = name
+    self.overview = overview
+    self.airDate = airDate
+    self.runtime = runtime
+    self.stillPath = stillPath
+    self.voteAverage = voteAverage
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    if let num = try? c.decode(Int.self, forKey: .episodeNumber) {
+      episodeNumber = num
+    } else if let str = try? c.decode(String.self, forKey: .episodeNumber), let num = Int(str) {
+      episodeNumber = num
+    } else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .episodeNumber, in: c, debugDescription: "Invalid episode_number")
+    }
+    name = try? c.decodeIfPresent(String.self, forKey: .name)
+    overview = try? c.decodeIfPresent(String.self, forKey: .overview)
+    airDate = try? c.decodeIfPresent(String.self, forKey: .airDate)
+    runtime = try? c.decodeIfPresent(Int.self, forKey: .runtime)
+    stillPath = try? c.decodeIfPresent(String.self, forKey: .stillPath)
+    voteAverage = try? c.decodeIfPresent(Double.self, forKey: .voteAverage)
+  }
+}
+
+/// `GET /api/v1/mediaserver/episodes?itemid=...` 季->集->条目标识字典解码器。
+private struct NativePlayableSeriesEpisodesMap: Decodable, Sendable {
+  let seasons: [Int: [Int: String]]
+
+  init(from decoder: Decoder) throws {
+    let raw = try [String: [String: String]].init(from: decoder)
+    var parsed: [Int: [Int: String]] = [:]
+    for (sKey, epDict) in raw {
+      guard let sNum = Int(sKey) else { continue }
+      var inner: [Int: String] = [:]
+      for (eKey, itemID) in epDict where !itemID.isEmpty {
+        if let eNum = Int(eKey) {
+          inner[eNum] = itemID
+        }
+      }
+      if !inner.isEmpty {
+        parsed[sNum] = inner
+      }
+    }
+    seasons = parsed
+  }
+}
+
+/// `GET /api/v1/mediaserver/episodes/{itemid}/{season}` 集->条目标识字典解码器。
+private struct NativePlayableSeasonEpisodesMap: Decodable, Sendable {
+  let episodes: [Int: String]
+
+  init(from decoder: Decoder) throws {
+    let raw = try [String: String].init(from: decoder)
+    var parsed: [Int: String] = [:]
+    for (eKey, itemID) in raw where !itemID.isEmpty {
+      if let eNum = Int(eKey) {
+        parsed[eNum] = itemID
+      }
+    }
+    episodes = parsed
+  }
+}
+
+/// `POST /api/v1/mediaserver/exists_remote` 季->已入库集号数组解码器。
+private struct NativeRemoteExistingEpisodesMap: Decodable, Sendable {
+  let seasons: [Int: Set<Int>]
+
+  init(from decoder: Decoder) throws {
+    let raw = try [String: [Int]].init(from: decoder)
+    var parsed: [Int: Set<Int>] = [:]
+    for (sKey, eps) in raw {
+      if let sNum = Int(sKey), !eps.isEmpty {
+        parsed[sNum] = Set(eps)
+      }
+    }
+    seasons = parsed
+  }
+}
+
+/// `GET /api/v1/mediaserver/exists` 本地媒体库条目查询响应。
+private struct NativeMediaServerExistsPayload: Decodable, Sendable {
+  struct ItemRef: Decodable, Sendable {
+    let id: String?
+    let server: String?
+  }
+  let item: ItemRef?
 }
 
 /// 原生人物详情页：展示人物头像、简介与参演作品网格，支持 TMDB / 豆瓣 / Bangumi / AniList，并可继续推入任意影视详情。

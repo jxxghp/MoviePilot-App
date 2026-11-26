@@ -166,6 +166,8 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     } catch MediaPlaybackError.unauthorized {
       session.handleExternalUnauthorized()
       return "登录已过期，请重新登录。"
+    } catch MediaPlaybackError.streamingUnsupported {
+      return "当前存储或后端版本暂不支持在线流式播放，请升级 MoviePilot 后端或检查存储配置。"
     } catch {
       return "无法读取该存储文件的媒体内容，请检查存储挂载状态与权限。"
     }

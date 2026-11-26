@@ -198,7 +198,8 @@ export struct HarmonyLibraryPage {
     const repo = MoviePilotRepository.shared();
 
     try {
-      const shouldTryTicket = cleanStorage === 'local' || (!RustCoreBridge.isStrmPath(displayName) && !RustCoreBridge.isStrmPath(cleanPath));
+      const isStrm = RustCoreBridge.isStrmPath(displayName) || RustCoreBridge.isStrmPath(cleanPath);
+      const shouldTryTicket = cleanStorage === 'local' || !isStrm;
       if (shouldTryTicket) {
         const ticketId = await repo.createStorageStreamTicket(cleanStorage, cleanPath, displayName, kind === 'audio' ? 'audio' : 'video');
         if (ticketId.length > 0) {
@@ -212,7 +213,12 @@ export struct HarmonyLibraryPage {
         }
       }
 
-      this.notice = '正在缓冲下载存储媒体文件…';
+      if (!isStrm) {
+        this.playingStoragePath = '';
+        this.notice = '当前存储或后端版本暂不支持在线流式播放，请升级 MoviePilot 后端或检查存储配置';
+        return;
+      }
+
       const dotIdx = displayName.lastIndexOf('.');
       const ext = dotIdx >= 0 ? displayName.substring(dotIdx) : '';
       const hostCtx = this.getUIContext().getHostContext();
@@ -231,35 +237,23 @@ export struct HarmonyLibraryPage {
       );
       this.playingStoragePath = '';
       if (cachedPath.length > 0) {
-        this.notice = '';
-        if (RustCoreBridge.isStrmPath(displayName) || RustCoreBridge.isStrmPath(cachedPath)) {
-          const strmSpec = resolveLocalStrmFile(cachedPath, true);
-          if (!strmSpec) {
-            this.notice = '无法解析 STRM 文件中的有效播放直链';
-            return;
-          }
-          const stem = displayName.replace(/\.strm$/i, '') || displayName;
-          this.onPlayMedia({
-            url: strmSpec.url,
-            headers: strmSpec.headers,
-            title: stem,
-            subtitle: subLabel,
-            isAudio: strmSpec.mediaKind === 'audio',
-            isSessionBound: false
-          });
+        const strmSpec = resolveLocalStrmFile(cachedPath, true);
+        if (!strmSpec) {
+          this.notice = '无法解析 STRM 文件中的有效播放直链';
           return;
         }
+        this.notice = '';
+        const stem = displayName.replace(/\.strm$/i, '') || displayName;
         this.onPlayMedia({
-          url: cachedPath,
-          fdPath: cachedPath,
-          cleanupTempOnClose: true,
-          title: displayName,
+          url: strmSpec.url,
+          headers: strmSpec.headers,
+          title: stem,
           subtitle: subLabel,
-          isAudio: kind === 'audio',
-          isSessionBound: true
+          isAudio: strmSpec.mediaKind === 'audio',
+          isSessionBound: false
         });
       } else {
-        this.notice = '存储媒体文件下载失败，请检查网络连接或存储配置';
+        this.notice = '读取 STRM 播放链接失败，请检查网络连接或存储配置';
       }
     } catch {
       this.playingStoragePath = '';

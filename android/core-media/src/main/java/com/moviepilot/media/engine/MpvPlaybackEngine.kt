@@ -29,6 +29,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToLong
 
@@ -57,6 +58,7 @@ class MpvPlaybackEngine(
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private val released = AtomicBoolean(false)
+    private val engineId: Long = nextEngineId.incrementAndGet()
     private var attachedSurface: Surface? = null
     private var openContentPfd: ParcelFileDescriptor? = null
 
@@ -161,8 +163,10 @@ class MpvPlaybackEngine(
                         notifySessionAndUi()
                     }
                     MPVLib.MPV_EVENT_VIDEO_RECONFIG -> {
-                        val w = runCatching { MPVLib.getPropertyInt("video-params/w") ?: 0 }.getOrDefault(0)
-                        val h = runCatching { MPVLib.getPropertyInt("video-params/h") ?: 0 }.getOrDefault(0)
+                        val (w, h) = withActiveMpv(0 to 0) {
+                            (MPVLib.getPropertyInt("video-params/w") ?: 0) to
+                                (MPVLib.getPropertyInt("video-params/h") ?: 0)
+                        }
                         if (w > 0 && h > 0) {
                             onVideoSizeChanged(w, h)
                         }
@@ -254,24 +258,6 @@ class MpvPlaybackEngine(
     }
 
     init {
-        synchronized(mpvLifecycleLock) {
-            if (mpvInitialized) {
-                runCatching { MPVLib.destroy() }
-                mpvInitialized = false
-            }
-            MPVLib.create(appContext)
-            configureMpvOptions()
-            MPVLib.init()
-            mpvInitialized = true
-        }
-        MPVLib.addObserver(observer)
-        MPVLib.observeProperty("time-pos", MPVLib.MPV_FORMAT_DOUBLE)
-        MPVLib.observeProperty("duration", MPVLib.MPV_FORMAT_DOUBLE)
-        MPVLib.observeProperty("pause", MPVLib.MPV_FORMAT_FLAG)
-        MPVLib.observeProperty("paused-for-cache", MPVLib.MPV_FORMAT_FLAG)
-        MPVLib.observeProperty("eof-reached", MPVLib.MPV_FORMAT_FLAG)
-        MPVLib.observeProperty("track-list", MPVLib.MPV_FORMAT_STRING)
-
         val mediaMeta = MediaMetadata.Builder()
             .setTitle(request.title)
             .setDisplayTitle(request.title)
@@ -298,7 +284,51 @@ class MpvPlaybackEngine(
             mediaMeta = mediaMeta,
         )
 
-        loadCurrentTarget(request.url)
+        val initOk = synchronized(mpvLifecycleLock) {
+            runCatching {
+                if (mpvInitialized) {
+                    runCatching { MPVLib.destroy() }
+                    mpvInitialized = false
+                    activeEngineId = 0L
+                }
+                MPVLib.create(appContext)
+                configureMpvOptions()
+                MPVLib.init()
+                mpvInitialized = true
+                activeEngineId = engineId
+                MPVLib.addObserver(observer)
+                MPVLib.observeProperty("time-pos", MPVLib.MPV_FORMAT_DOUBLE)
+                MPVLib.observeProperty("duration", MPVLib.MPV_FORMAT_DOUBLE)
+                MPVLib.observeProperty("pause", MPVLib.MPV_FORMAT_FLAG)
+                MPVLib.observeProperty("paused-for-cache", MPVLib.MPV_FORMAT_FLAG)
+                MPVLib.observeProperty("eof-reached", MPVLib.MPV_FORMAT_FLAG)
+                MPVLib.observeProperty("track-list", MPVLib.MPV_FORMAT_STRING)
+                true
+            }.getOrDefault(false)
+        }
+
+        if (initOk) {
+            loadCurrentTarget(request.url)
+        } else {
+            released.set(true)
+            enginePlaybackState = Player.STATE_IDLE
+            mainHandler.post { onError(-2) }
+        }
+    }
+
+    private inline fun <T> withActiveMpv(default: T, block: () -> T): T {
+        if (released.get()) return default
+        return synchronized(mpvLifecycleLock) {
+            if (released.get() || !mpvInitialized || activeEngineId != engineId) {
+                default
+            } else {
+                runCatching(block).getOrDefault(default)
+            }
+        }
+    }
+
+    private inline fun runWithActiveMpv(block: () -> Unit) {
+        withActiveMpv(Unit, block)
     }
 
     private fun configureMpvOptions() {
@@ -350,8 +380,10 @@ class MpvPlaybackEngine(
         enginePlaybackState = Player.STATE_BUFFERING
         currentPaused = false
         currentPlaying = true
-        MPVLib.setPropertyBoolean("pause", false)
-        MPVLib.command(arrayOf("loadfile", playableUri, "replace"))
+        runWithActiveMpv {
+            MPVLib.setPropertyBoolean("pause", false)
+            MPVLib.command(arrayOf("loadfile", playableUri, "replace"))
+        }
     }
 
     private fun ensureLoopbackProxy(initialUrl: String): LoopbackAuthProxy {
@@ -386,7 +418,7 @@ class MpvPlaybackEngine(
             }
             val title = sub.title.ifBlank { sub.language.ifBlank { "外挂字幕 ${idx + 1}" } }
             val lang = sub.language.ifBlank { "und" }
-            runCatching {
+            runWithActiveMpv {
                 MPVLib.command(arrayOf("sub-add", target, "auto", title, lang))
             }
         }
@@ -402,33 +434,60 @@ class MpvPlaybackEngine(
         loadCurrentTarget(url)
     }
 
+    /** 若 `SurfaceView` 的底层表面在注册监听前已创建就绪，立即补挂渲染表面。 */
+    fun attachExistingSurfaceIfReady(holder: SurfaceHolder) {
+        val surface = holder.surface ?: return
+        if (!surface.isValid || released.get() || request.isAudio) return
+        runWithActiveMpv {
+            if (attachedSurface !== surface) {
+                attachedSurface = surface
+                MPVLib.attachSurface(surface)
+                MPVLib.setOptionString("force-window", "yes")
+                MPVLib.setPropertyString("vo", "gpu")
+                MPVLib.setPropertyString("vid", "auto")
+                val frame = holder.surfaceFrame
+                if (frame != null && frame.width() > 0 && frame.height() > 0) {
+                    MPVLib.setPropertyString("android-surface-size", "${frame.width()}x${frame.height()}")
+                }
+            }
+        }
+    }
+
     /** 创建与 `SurfaceView` 绑定的 `SurfaceHolder.Callback`，负责 GPU 表面挂载、尺寸同步与安全解绑。 */
     fun createSurfaceCallback(): SurfaceHolder.Callback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
             if (released.get() || request.isAudio) return
-            attachedSurface = holder.surface
-            MPVLib.attachSurface(holder.surface)
-            MPVLib.setOptionString("force-window", "yes")
-            MPVLib.setPropertyString("vo", "gpu")
-            MPVLib.setPropertyString("vid", "auto")
+            val surface = holder.surface ?: return
+            if (!surface.isValid) return
+            runWithActiveMpv {
+                attachedSurface = surface
+                MPVLib.attachSurface(surface)
+                MPVLib.setOptionString("force-window", "yes")
+                MPVLib.setPropertyString("vo", "gpu")
+                MPVLib.setPropertyString("vid", "auto")
+            }
         }
 
         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             if (released.get() || request.isAudio) return
             if (width > 0 && height > 0) {
-                MPVLib.setPropertyString("android-surface-size", "${width}x${height}")
+                runWithActiveMpv {
+                    MPVLib.setPropertyString("android-surface-size", "${width}x${height}")
+                }
             }
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
             if (released.get() || request.isAudio) return
-            if (attachedSurface === holder.surface) {
-                attachedSurface = null
+            runWithActiveMpv {
+                if (attachedSurface === holder.surface) {
+                    attachedSurface = null
+                }
+                MPVLib.setPropertyString("vid", "no")
+                MPVLib.setPropertyString("vo", "null")
+                MPVLib.setOptionString("force-window", "no")
+                MPVLib.detachSurface()
             }
-            MPVLib.setPropertyString("vid", "no")
-            MPVLib.setPropertyString("vo", "null")
-            MPVLib.setOptionString("force-window", "no")
-            MPVLib.detachSurface()
         }
     }
 
@@ -449,7 +508,7 @@ class MpvPlaybackEngine(
         if (released.get()) return
         currentPaused = false
         currentPlaying = true
-        MPVLib.setPropertyBoolean("pause", false)
+        runWithActiveMpv { MPVLib.setPropertyBoolean("pause", false) }
         notifySessionAndUi()
     }
 
@@ -458,7 +517,7 @@ class MpvPlaybackEngine(
         if (released.get()) return
         currentPaused = true
         currentPlaying = false
-        MPVLib.setPropertyBoolean("pause", true)
+        runWithActiveMpv { MPVLib.setPropertyBoolean("pause", true) }
         notifySessionAndUi()
     }
 
@@ -468,7 +527,7 @@ class MpvPlaybackEngine(
         val clamped = targetMs.coerceAtLeast(0L)
         currentPositionMs = clamped
         val seconds = "%.3f".format(clamped / 1000.0)
-        MPVLib.command(arrayOf("seek", seconds, "absolute", "exact"))
+        runWithActiveMpv { MPVLib.command(arrayOf("seek", seconds, "absolute", "exact")) }
         notifySessionAndUi()
     }
 
@@ -477,25 +536,27 @@ class MpvPlaybackEngine(
         if (released.get()) return
         val clamped = speed.coerceIn(0.25f, 3.0f)
         currentSpeed = clamped
-        MPVLib.setPropertyDouble("speed", clamped.toDouble())
+        runWithActiveMpv { MPVLib.setPropertyDouble("speed", clamped.toDouble()) }
         notifySessionAndUi()
     }
 
     /** 设置视频画面比例模式（`0` = 自适应，`1` = 铺满裁剪，`2` = 拉伸填充）。 */
     fun setResizeMode(modeIndex: Int) {
         if (released.get() || request.isAudio) return
-        when (modeIndex) {
-            1 -> {
-                MPVLib.setPropertyDouble("panscan", 1.0)
-                MPVLib.setPropertyString("keepaspect", "yes")
-            }
-            2 -> {
-                MPVLib.setPropertyDouble("panscan", 0.0)
-                MPVLib.setPropertyString("keepaspect", "no")
-            }
-            else -> {
-                MPVLib.setPropertyDouble("panscan", 0.0)
-                MPVLib.setPropertyString("keepaspect", "yes")
+        runWithActiveMpv {
+            when (modeIndex) {
+                1 -> {
+                    MPVLib.setPropertyDouble("panscan", 1.0)
+                    MPVLib.setPropertyString("keepaspect", "yes")
+                }
+                2 -> {
+                    MPVLib.setPropertyDouble("panscan", 0.0)
+                    MPVLib.setPropertyString("keepaspect", "no")
+                }
+                else -> {
+                    MPVLib.setPropertyDouble("panscan", 0.0)
+                    MPVLib.setPropertyString("keepaspect", "yes")
+                }
             }
         }
     }
@@ -503,28 +564,28 @@ class MpvPlaybackEngine(
     /** 切换内嵌/外挂音轨（传轨道数字 ID）。 */
     fun selectAudioTrack(trackId: String) {
         if (released.get()) return
-        MPVLib.setPropertyString("aid", trackId)
+        runWithActiveMpv { MPVLib.setPropertyString("aid", trackId) }
         refreshTracksNow()
     }
 
     /** 切换内嵌/外挂字幕轨道（传轨道数字 ID）。 */
     fun selectSubtitleTrack(trackId: String) {
         if (released.get()) return
-        MPVLib.setPropertyString("sid", trackId)
+        runWithActiveMpv { MPVLib.setPropertyString("sid", trackId) }
         refreshTracksNow()
     }
 
     /** 关闭所有字幕显示。 */
     fun disableSubtitles() {
         if (released.get()) return
-        MPVLib.setPropertyString("sid", "no")
+        runWithActiveMpv { MPVLib.setPropertyString("sid", "no") }
         refreshTracksNow()
     }
 
     /** 主动刷新轨道列表。 */
     fun refreshTracksNow() {
         if (released.get()) return
-        val raw = runCatching { MPVLib.getPropertyString("track-list") }.getOrNull() ?: return
+        val raw = withActiveMpv<String?>(null) { MPVLib.getPropertyString("track-list") } ?: return
         parseAndDispatchTracks(raw)
     }
 
@@ -555,10 +616,9 @@ class MpvPlaybackEngine(
         runCatching { mpvSessionPlayer.notifyStateChanged() }
     }
 
-    /** 异步安全销毁 `libmpv` 与本地环回代理，避免主线程等待渲染/解码线程退出。 */
+    /** 异步安全销毁 `libmpv` 与本地环回代理，通过代际号隔离防止新实例被旧异步销毁误伤（ABA 竞态保护）。 */
     fun release() {
         if (!released.compareAndSet(false, true)) return
-        runCatching { MPVLib.removeObserver(observer) }
         val proxyToClose = loopbackProxy
         loopbackProxy = null
         val pfdToClose = openContentPfd
@@ -566,12 +626,15 @@ class MpvPlaybackEngine(
         // 先关闭本地环回代理以立即中断起播期挂起的网络读阻塞，确保后续 MPVLib.destroy() 毫秒级返回不死锁
         runCatching { proxyToClose?.close() }
         synchronized(mpvLifecycleLock) {
-            if (mpvInitialized && attachedSurface != null) {
-                attachedSurface = null
-                runCatching {
-                    MPVLib.setPropertyString("vid", "no")
-                    MPVLib.setPropertyString("vo", "null")
-                    MPVLib.detachSurface()
+            if (mpvInitialized && activeEngineId == engineId) {
+                runCatching { MPVLib.removeObserver(observer) }
+                if (attachedSurface != null) {
+                    attachedSurface = null
+                    runCatching {
+                        MPVLib.setPropertyString("vid", "no")
+                        MPVLib.setPropertyString("vo", "null")
+                        MPVLib.detachSurface()
+                    }
                 }
             } else {
                 attachedSurface = null
@@ -579,10 +642,11 @@ class MpvPlaybackEngine(
         }
         teardownExecutor.execute {
             synchronized(mpvLifecycleLock) {
-                if (mpvInitialized) {
+                if (mpvInitialized && activeEngineId == engineId) {
                     runCatching { MPVLib.command(arrayOf("stop")) }
                     runCatching { MPVLib.destroy() }
                     mpvInitialized = false
+                    activeEngineId = 0L
                 }
             }
             runCatching { pfdToClose?.close() }
@@ -591,7 +655,9 @@ class MpvPlaybackEngine(
 
     companion object {
         private val mpvLifecycleLock = Any()
+        private val nextEngineId = AtomicLong(0L)
         @Volatile private var mpvInitialized: Boolean = false
+        @Volatile private var activeEngineId: Long = 0L
         private val teardownExecutor = Executors.newSingleThreadExecutor { r ->
             Thread(r, "mp-mpv-teardown").apply { isDaemon = true }
         }

@@ -193,11 +193,14 @@
     <string name="mp_5e8c6fba" formatted="false">%1$s\nSaved credentials, sign-in status and web data for this server will be removed.</string>
     <string name="mp_5ea60e8a" formatted="false">Live Session Sync</string>
     <string name="mp_5f83e7f6" formatted="false">Basic</string>
+    <string name="mp_5fc0ca7e" formatted="false">Completed subscription history will be displayed here</string>
+    <string name="mp_6113c5ff" formatted="false">Resubscribe</string>
     <string name="mp_613305fc" formatted="false">Font Size</string>
     <string name="mp_637471eb" formatted="false">Administrator created. Please sign in.</string>
     <string name="mp_63f6267b" formatted="false">Subscribe &amp; Search</string>
     <string name="mp_6403cfdd" formatted="false">Sign in with a passkey</string>
     <string name="mp_64b9a5e8" formatted="false">Search by title</string>
+    <string name="mp_64cb8804" formatted="false">Subscription History</string>
     <string name="mp_64f2b4a7" formatted="false">Unable to load subtitles. Select another track or check the server connection.</string>
     <string name="mp_65a876f5" formatted="false">Invalid notification server response.</string>
     <string name="mp_65ae053f" formatted="false">Last updated</string>
@@ -376,6 +379,7 @@
     <string name="mp_bde0b46a" formatted="false">Passwords are stored securely on this device only. Verification codes are never saved.</string>
     <string name="mp_be577c3b" formatted="false">Auto (Recommended)</string>
     <string name="mp_be7f8395" formatted="false">Remember credentials</string>
+    <string name="mp_bea9e8d4" formatted="false">Delete Subscription History</string>
     <string name="mp_bfc04721" formatted="false">Your password is only used once to obtain a token and is never stored.</string>
     <string name="mp_c023e8d2" formatted="false">To Simplified</string>
     <string name="mp_c02c99e7" formatted="false">To Traditional</string>
@@ -392,6 +396,7 @@
     <string name="mp_c753c38b" formatted="false">Reopen</string>
     <string name="mp_c75c40a9" formatted="false">Unsupported settings component</string>
     <string name="mp_c773293d" formatted="false">System notifications are disabled. Allow them in Settings.</string>
+    <string name="mp_c834c49b" formatted="false">No completed subscriptions</string>
     <string name="mp_c839a8ff" formatted="false">Password</string>
     <string name="mp_c9704212" formatted="false">Hide password</string>
     <string name="mp_c9ca330f" formatted="false">Library</string>

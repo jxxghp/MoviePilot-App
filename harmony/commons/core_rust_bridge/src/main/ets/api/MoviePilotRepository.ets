@@ -197,6 +197,7 @@ export interface MpSubscribeItem {
   customWords?: string;
   searchImdbid?: boolean;
   interval?: number;
+  date?: string;
   rawJson?: string;
 }
 
@@ -1842,20 +1843,55 @@ export class MoviePilotRepository {
     if (!cleanTmdb) { return []; }
     const resp = await this.get(['tmdb', 'seasons', cleanTmdb]);
     if (resp.status !== 200) { return []; }
-    const arr = unwrapArray(parseJsonSafe(resp.body));
+    return this.parseSeasonInfoArray(unwrapArray(parseJsonSafe(resp.body)));
+  }
+
+  /** 按任意数据源身份拉取剧集全部季信息（优先 TMDB，回落 `/api/v1/media/seasons`）。 */
+  async fetchMediaSeasonsForItem(item: MpMediaItem): Promise<MpSeasonInfo[]> {
+    if (item.tmdbId && item.tmdbId.trim().length > 0) {
+      const tmdbList = await this.fetchMediaSeasons(item.tmdbId);
+      if (tmdbList.length > 0) { return tmdbList; }
+    }
+    const resolved = this.resolveCanonicalMediaIdentity(item);
+    const q: Record<string, string> = {};
+    if (resolved.mediaSource.length > 0 && resolved.rawMediaId.length > 0) {
+      q['media_source'] = resolved.mediaSource;
+      q['media_id'] = resolved.rawMediaId;
+    } else if (item.title.trim().length > 0) {
+      q['title'] = item.title.trim();
+      if (item.year.trim().length > 0) {
+        q['year'] = item.year.trim();
+      }
+    } else {
+      return [];
+    }
+    const resp = await this.get(['media', 'seasons'], q);
+    if (resp.status !== 200) { return []; }
+    return this.parseSeasonInfoArray(unwrapArray(parseJsonSafe(resp.body)));
+  }
+
+  private parseSeasonInfoArray(arr: Object[]): MpSeasonInfo[] {
     const out: MpSeasonInfo[] = [];
     for (let i = 0; i < arr.length; i++) {
       const r = asRec(arr[i]);
       if (!r) { continue; }
+      const sn = Math.round(numVal(r, 'season_number', i + 1));
+      if (sn < 0) { continue; }
+      const fallbackName = sn === 0 ? '特别篇' : `第 ${sn} 季`;
       out.push({
-        seasonNumber: numVal(r, 'season_number', i + 1),
-        name: strVal(r, 'name', `第 ${i + 1} 季`),
-        episodeCount: numVal(r, 'episode_count', 0),
+        seasonNumber: sn,
+        name: strVal(r, 'name', fallbackName) || fallbackName,
+        episodeCount: Math.round(numVal(r, 'episode_count', 0)),
         airDate: strVal(r, 'air_date'),
         posterUrl: this.resolveImageUrl(strVal(r, 'poster_path')),
         overview: strVal(r, 'overview')
       });
     }
+    out.sort((a: MpSeasonInfo, b: MpSeasonInfo) => {
+      if (a.seasonNumber === 0 && b.seasonNumber !== 0) { return 1; }
+      if (b.seasonNumber === 0 && a.seasonNumber !== 0) { return -1; }
+      return a.seasonNumber - b.seasonNumber;
+    });
     return out;
   }
 
@@ -1871,23 +1907,159 @@ export class MoviePilotRepository {
     }
     const resp = await this.get(['tmdb', cleanTmdb, String(Math.max(0, Math.round(seasonNumber)))], q);
     if (resp.status !== 200) { return []; }
-    const arr = unwrapArray(parseJsonSafe(resp.body));
+    return this.parseEpisodeInfoArray(unwrapArray(parseJsonSafe(resp.body)), cleanTmdb, seasonNumber);
+  }
+
+  /** 智能拉取指定季分集元数据（优先 TMDB，回落已入库条目的 `/api/v1/mediaserver/episode-metadata`）。 */
+  async fetchSeasonEpisodesSmart(
+    item: MpMediaItem,
+    seasonNumber: number,
+    seriesItemId: string = '',
+    server: string = ''
+  ): Promise<MpTmdbEpisodeItem[]> {
+    if (item.tmdbId && item.tmdbId.trim().length > 0) {
+      const eps = await this.fetchTmdbSeasonEpisodes(item.tmdbId, seasonNumber);
+      if (eps.length > 0) { return eps; }
+    }
+    const sid = seriesItemId.trim();
+    if (sid.length > 0) {
+      const q: Record<string, string> = {};
+      q['itemid'] = sid;
+      q['season'] = String(Math.max(0, Math.round(seasonNumber)));
+      if (server.trim().length > 0) {
+        q['server'] = server.trim();
+      }
+      const resp = await this.get(['mediaserver', 'episode-metadata'], q);
+      if (resp.status === 200) {
+        const parsed = this.parseEpisodeInfoArray(unwrapArray(parseJsonSafe(resp.body)), sid, seasonNumber);
+        if (parsed.length > 0) { return parsed; }
+      }
+    }
+    return [];
+  }
+
+  private parseEpisodeInfoArray(arr: Object[], keySeed: string, seasonNumber: number): MpTmdbEpisodeItem[] {
     const out: MpTmdbEpisodeItem[] = [];
     for (let i = 0; i < arr.length; i++) {
       const r = asRec(arr[i]);
       if (!r) { continue; }
       const epNo = Math.round(numVal(r, 'episode_number', i + 1));
       out.push({
-        id: strVal(r, 'id', `${cleanTmdb}_${seasonNumber}_${epNo}`),
+        id: strVal(r, 'id', `${keySeed}_${seasonNumber}_${epNo}`),
         seasonNumber: Math.round(numVal(r, 'season_number', seasonNumber)),
         episodeNumber: epNo,
-        title: strVal(r, 'name', `第 ${epNo} 集`),
+        title: strVal(r, 'name', `第 ${epNo} 集`) || `第 ${epNo} 集`,
         overview: strVal(r, 'overview'),
         airDate: strVal(r, 'air_date'),
         runtimeMinutes: Math.round(numVal(r, 'runtime', 0)),
         vote: numVal(r, 'vote_average', 0),
         stillUrl: this.resolveImageUrl(strVal(r, 'still_path'))
       });
+    }
+    out.sort((a: MpTmdbEpisodeItem, b: MpTmdbEpisodeItem) => a.episodeNumber - b.episodeNumber);
+    return out;
+  }
+
+  /** 查询已入库电视剧各季可播放单集映射（`GET /api/v1/mediaserver/episodes?itemid=...`）。 */
+  async fetchPlayableSeriesEpisodes(seriesItemId: string, server: string = ''): Promise<Record<string, Record<string, string>>> {
+    const sid = seriesItemId.trim();
+    const out: Record<string, Record<string, string>> = {};
+    if (!sid) { return out; }
+    const q: Record<string, string> = {};
+    q['itemid'] = sid;
+    if (server.trim().length > 0) {
+      q['server'] = server.trim();
+    }
+    const resp = await this.get(['mediaserver', 'episodes'], q);
+    if (resp.status < 200 || resp.status >= 300) { return out; }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    if (!root) { return out; }
+    const seasonKeys = Object.keys(root);
+    for (let i = 0; i < seasonKeys.length; i++) {
+      const sKey = seasonKeys[i];
+      const epRec = asRec(root[sKey]);
+      if (!epRec) { continue; }
+      const inner: Record<string, string> = {};
+      const epKeys = Object.keys(epRec);
+      let count = 0;
+      for (let j = 0; j < epKeys.length; j++) {
+        const eKey = epKeys[j];
+        const epId = String(epRec[eKey] ?? '').trim();
+        if (epId.length > 0 && epId !== 'null') {
+          inner[eKey] = epId;
+          count += 1;
+        }
+      }
+      if (count > 0) {
+        out[sKey] = inner;
+      }
+    }
+    return out;
+  }
+
+  /** 查询指定季的可播放单集映射（`GET /api/v1/mediaserver/episodes/{itemid}/{season}`）。 */
+  async fetchPlayableSeasonEpisodes(seriesItemId: string, seasonNumber: number, server: string = ''): Promise<Record<string, string>> {
+    const sid = seriesItemId.trim();
+    const out: Record<string, string> = {};
+    if (!sid) { return out; }
+    const q: Record<string, string> = {};
+    if (server.trim().length > 0) {
+      q['server'] = server.trim();
+    }
+    const resp = await this.get(['mediaserver', 'episodes', sid, String(Math.max(0, Math.round(seasonNumber)))], q);
+    if (resp.status < 200 || resp.status >= 300) { return out; }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    if (!root) { return out; }
+    const epKeys = Object.keys(root);
+    for (let i = 0; i < epKeys.length; i++) {
+      const eKey = epKeys[i];
+      const epId = String(root[eKey] ?? '').trim();
+      if (epId.length > 0 && epId !== 'null') {
+        out[eKey] = epId;
+      }
+    }
+    return out;
+  }
+
+  /** 查询远程媒体服务器已入库的季集编号（`POST /api/v1/mediaserver/exists_remote`）。 */
+  async fetchRemoteExistingEpisodes(item: MpMediaItem, seasonNumber?: number): Promise<Record<string, number[]>> {
+    const out: Record<string, number[]> = {};
+    const resolved = this.resolveCanonicalMediaIdentity(item);
+    const payload: Record<string, Object> = {};
+    payload['type'] = '电视剧';
+    payload['title'] = item.title.trim();
+    if (item.year.trim().length > 0) {
+      payload['year'] = item.year.trim();
+    }
+    if (seasonNumber !== undefined && seasonNumber >= 0) {
+      payload['season'] = Math.round(seasonNumber);
+    }
+    if (resolved.mediaSource.length > 0 && resolved.rawMediaId.length > 0) {
+      payload['media_source'] = resolved.mediaSource;
+      payload['media_id'] = resolved.rawMediaId;
+    }
+    const cleanTmdb = Number(stripKnownMediaPrefix(item.tmdbId));
+    if (Number.isFinite(cleanTmdb) && cleanTmdb > 0) {
+      payload['tmdbid'] = Math.round(cleanTmdb);
+    }
+    const resp = await this.postJson(['mediaserver', 'exists_remote'], JSON.stringify(payload));
+    if (resp.status < 200 || resp.status >= 300) { return out; }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    if (!root) { return out; }
+    const sKeys = Object.keys(root);
+    for (let i = 0; i < sKeys.length; i++) {
+      const sKey = sKeys[i];
+      const arr = asArr(root[sKey]);
+      const nums: number[] = [];
+      for (let j = 0; j < arr.length; j++) {
+        const n = Number(arr[j]);
+        if (Number.isFinite(n) && n > 0) {
+          nums.push(Math.round(n));
+        }
+      }
+      if (nums.length > 0) {
+        out[sKey] = nums;
+      }
     }
     return out;
   }
@@ -2351,6 +2523,7 @@ export class MoviePilotRepository {
       customWords: strVal(r, 'custom_words'),
       searchImdbid: boolVal(r, 'search_imdbid', false),
       interval: numVal(r, 'interval', numVal(r, 'search_interval', 0)),
+      date: strVal(r, 'date'),
       rawJson: JSON.stringify(r)
     };
   }
@@ -4681,6 +4854,109 @@ export class MoviePilotRepository {
   async deleteSubscribe(subId: number): Promise<boolean> {
     const resp = await this.deleteReq(['subscribe', String(subId)]);
     return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 分页拉取订阅历史记录（`GET /api/v1/subscribe/history/{mtype}?page=&count=`）。 */
+  async fetchSubscribeHistory(mtype: string = '电影', page: number = 1, count: number = 30): Promise<MpSubscribeItem[]> {
+    const normalizedType = mtype.trim().length > 0 ? mtype.trim() : '电影';
+    const q: Record<string, string> = {};
+    q['page'] = String(Math.max(1, Math.round(page)));
+    q['count'] = String(Math.max(1, Math.round(count)));
+    const resp = await this.get(['subscribe', 'history', normalizedType], q);
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpSubscribeItem[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const parsed = this.parseSubscribeRecord(asRec(arr[i]));
+      if (parsed) { out.push(parsed); }
+    }
+    return out;
+  }
+
+  /** 删除单条订阅历史记录（`DELETE /api/v1/subscribe/history/{history_id}`）。 */
+  async deleteSubscribeHistory(historyId: number): Promise<boolean> {
+    if (!Number.isFinite(historyId) || historyId <= 0) { return false; }
+    const resp = await this.deleteReq(['subscribe', 'history', String(Math.round(historyId))]);
+    if (resp.status < 200 || resp.status >= 300) { return false; }
+    const parsed = asRec(parseJsonSafe(resp.body));
+    if (parsed && parsed['success'] !== undefined) {
+      return boolVal(parsed, 'success', true);
+    }
+    return true;
+  }
+
+  /** 从订阅历史记录重新发起订阅（`POST /api/v1/subscribe/`），剔除只读字段并保留原规则配置。 */
+  async reSubscribeFromHistory(sub: MpSubscribeItem, fallbackType: string = '电影'): Promise<MpSubscribeMutationResult> {
+    const excludedKeys: string[] = [
+      'id', 'tmdbid', 'doubanid', 'bangumiid', 'mediaid',
+      'poster', 'backdrop', 'vote', 'description', 'lack_episode',
+      'completed_episode', 'completed_tracks', 'note', 'state', 'last_update',
+      'username', 'current_priority', 'episode_priority', 'date',
+      'current_audio_format', 'current_bitrate', 'current_bit_depth', 'current_sample_rate',
+      'classification_rule_id', 'classification_policy_revision', 'classification_source',
+      'execution_status', 'last_search'
+    ];
+    let rawRec: Record<string, Object> | null = null;
+    if (sub.rawJson && sub.rawJson.length > 2) {
+      rawRec = asRec(parseJsonSafe(sub.rawJson));
+    }
+    const cleanPayload: Record<string, Object> = {};
+    if (rawRec) {
+      const keys = Object.keys(rawRec);
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        if (excludedKeys.indexOf(k) >= 0) { continue; }
+        const val = rawRec[k];
+        if (val === undefined || val === null) { continue; }
+        if (k === 'search_interval' && Number(val) <= 0) { continue; }
+        cleanPayload[k] = val;
+      }
+    }
+    const resolvedType = (sub.type && sub.type.trim().length > 0) ? sub.type.trim() : fallbackType;
+    cleanPayload['name'] = sub.name.trim();
+    cleanPayload['type'] = resolvedType;
+    if (sub.year && sub.year.trim().length > 0) {
+      cleanPayload['year'] = sub.year.trim();
+    }
+    if (resolvedType === '电视剧' && sub.season > 0) {
+      cleanPayload['season'] = Math.round(sub.season);
+    }
+    const existingSource = String(cleanPayload['media_source'] ?? '').trim();
+    const existingMid = String(cleanPayload['media_id'] ?? '').trim();
+    if (existingSource.length === 0 || existingMid.length === 0) {
+      if (rawRec) {
+        const tmdb = numVal(rawRec, 'tmdbid', 0);
+        const douban = strVal(rawRec, 'doubanid').trim();
+        const bangumi = numVal(rawRec, 'bangumiid', 0);
+        if (tmdb > 0) {
+          cleanPayload['media_source'] = 'themoviedb';
+          cleanPayload['media_id'] = String(Math.round(tmdb));
+        } else if (douban.length > 0) {
+          cleanPayload['media_source'] = 'douban';
+          cleanPayload['media_id'] = douban;
+        } else if (bangumi > 0) {
+          cleanPayload['media_source'] = 'bangumi';
+          cleanPayload['media_id'] = String(Math.round(bangumi));
+        }
+      }
+    }
+
+    const resp = await this.postJson(['subscribe'], JSON.stringify(cleanPayload), true);
+    const parsed = asRec(parseJsonSafe(resp.body));
+    const ok = resp.status >= 200 && resp.status < 300 && parsed !== null && boolVal(parsed, 'success', false) === true;
+    const dataRec = parsed ? asRec(parsed['data']) : null;
+    const subId = numVal(dataRec, 'id', 0);
+    const msg = strVal(parsed, 'message');
+    if (ok) {
+      this.invalidateSubscriptionsCache();
+    }
+    return {
+      ok: ok,
+      message: msg.length > 0 ? msg : (ok ? `已重新订阅「${sub.name}」` : '重新订阅失败，请稍后重试'),
+      id: subId
+    };
   }
 
   /** 获取用户优先级规则组列表。 */

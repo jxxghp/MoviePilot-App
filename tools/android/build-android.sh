@@ -42,6 +42,17 @@ if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" && -z "${ANDROID_KEYSTORE_PATH:-}" ]]; t
   fi
   printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$TEMP_KEYSTORE"
   export ANDROID_KEYSTORE_PATH="$TEMP_KEYSTORE"
+elif [[ -z "${ANDROID_KEYSTORE_PATH:-}" && -f "$HOME/.android/moviepilot-release.env" ]]; then
+  # 本地维护者机器存在正式签名环境时自动加载，确保本地构建与 GitHub Release 证书永久一致
+  # shellcheck disable=SC1091
+  source "$HOME/.android/moviepilot-release.env"
+fi
+
+if [[ "${REQUIRE_RELEASE_SIGNING:-0}" == "1" ]]; then
+  if [[ -z "${ANDROID_KEYSTORE_PATH:-}" || ! -f "${ANDROID_KEYSTORE_PATH}" || -z "${ANDROID_KEYSTORE_PASSWORD:-}" || -z "${ANDROID_KEY_ALIAS:-}" || -z "${ANDROID_KEY_PASSWORD:-}" ]]; then
+    echo "正式发版必须提供完整的 ANDROID_KEYSTORE_* 签名密钥配置，严禁回退临时 Debug 证书。" >&2
+    exit 1
+  fi
 fi
 
 python3 "$ROOT/tools/sync-all.py" --check
@@ -66,7 +77,11 @@ build_variant_apk() {
   fi
   local apk_dst="$OUT_DIR/$dst_name"
   cp "$apk_src" "$apk_dst"
-  python3 "$ROOT/tools/android/verify-apk.py" "$apk_dst" --version "$VERSION" --abis "$csv_abis"
+  local extra_verify_args=()
+  if [[ "${REQUIRE_RELEASE_SIGNING:-0}" == "1" ]]; then
+    extra_verify_args+=(--require-release-cert)
+  fi
+  python3 "$ROOT/tools/android/verify-apk.py" "$apk_dst" --version "$VERSION" --abis "$csv_abis" "${extra_verify_args[@]}"
   echo "Android APK 构建与校验通过：$apk_dst"
 }
 

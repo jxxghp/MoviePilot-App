@@ -3373,20 +3373,26 @@ private fun VideoSurfaceCanvas(controller: PlayerRuntimeController) {
     if (controller.isMpvActive) {
         val activeMpv = session.mpvEngineHolder
         if (activeMpv != null) {
-            AndroidView(
-                factory = { ctx ->
-                    SurfaceView(ctx).apply {
-                        keepScreenOn = true
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                        holder.addCallback(activeMpv.createSurfaceCallback())
-                    }
-                },
-                update = { _ -> activeMpv.setResizeMode(ui.resizeModeIndex) },
-                modifier = Modifier.fillMaxSize(),
-            )
+            androidx.compose.runtime.key(activeMpv) {
+                AndroidView(
+                    factory = { ctx ->
+                        SurfaceView(ctx).apply {
+                            keepScreenOn = true
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            )
+                            holder.addCallback(activeMpv.createSurfaceCallback())
+                            activeMpv.attachExistingSurfaceIfReady(holder)
+                        }
+                    },
+                    update = { sv ->
+                        activeMpv.attachExistingSurfaceIfReady(sv.holder)
+                        activeMpv.setResizeMode(ui.resizeModeIndex)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     } else {
         val useTexture = controller.playbackPrefs.surfaceType == "texture"

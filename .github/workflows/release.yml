@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: '需要同版本重建或发布的 Release 标签（如 v2.0.4）'
+        description: '需要同版本重建或发布的 Release 标签（如 v2.0.5）'
         required: true
         type: string
-        default: v2.0.4
+        default: v2.0.5
       rebuild_existing:
         description: '若该标签 Release 已存在，确认覆盖更新其三端安装包与校验文件'
         required: true
@@ -132,6 +132,7 @@ jobs:
       - name: Build and verify Android Release APKs (arm64-v8a & universal)
         env:
           BUILD_UNIVERSAL: '1'
+          REQUIRE_RELEASE_SIGNING: '1'
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}

@@ -193,11 +193,14 @@
     <string name="mp_5e8c6fba" formatted="false">%1$s\n将清除此服务保存的账号密码、登录状态和网页数据。</string>
     <string name="mp_5ea60e8a" formatted="false">实时会话同步</string>
     <string name="mp_5f83e7f6" formatted="false">基础</string>
+    <string name="mp_5fc0ca7e" formatted="false">完成的订阅会显示在这里</string>
+    <string name="mp_6113c5ff" formatted="false">重新订阅</string>
     <string name="mp_613305fc" formatted="false">字号大小</string>
     <string name="mp_637471eb" formatted="false">管理员已创建，请登录。</string>
     <string name="mp_63f6267b" formatted="false">订阅与搜索</string>
     <string name="mp_6403cfdd" formatted="false">使用通行密钥登录</string>
     <string name="mp_64b9a5e8" formatted="false">输入作品名搜索弹幕</string>
+    <string name="mp_64cb8804" formatted="false">订阅历史</string>
     <string name="mp_64f2b4a7" formatted="false">字幕读取失败，请选择其他字幕或检查后台连接。</string>
     <string name="mp_65a876f5" formatted="false">通知服务响应无效。</string>
     <string name="mp_65ae053f" formatted="false">上次采样</string>
@@ -376,6 +379,7 @@
     <string name="mp_bde0b46a" formatted="false">密码仅在本机安全保存，验证码不会保存。</string>
     <string name="mp_be577c3b" formatted="false">自动选择（推荐）</string>
     <string name="mp_be7f8395" formatted="false">记住账号密码</string>
+    <string name="mp_bea9e8d4" formatted="false">删除订阅历史</string>
     <string name="mp_bfc04721" formatted="false">密码仅用于一次性换取访问令牌，不会保存明文密码。</string>
     <string name="mp_c023e8d2" formatted="false">转简体</string>
     <string name="mp_c02c99e7" formatted="false">转繁体</string>
@@ -392,6 +396,7 @@
     <string name="mp_c753c38b" formatted="false">重新打开</string>
     <string name="mp_c75c40a9" formatted="false">暂不支持的配置组件</string>
     <string name="mp_c773293d" formatted="false">系统通知未开启，可前往设置允许通知。</string>
+    <string name="mp_c834c49b" formatted="false">没有已完成的订阅</string>
     <string name="mp_c839a8ff" formatted="false">密码</string>
     <string name="mp_c9704212" formatted="false">隐藏密码</string>
     <string name="mp_c9ca330f" formatted="false">媒体库</string>

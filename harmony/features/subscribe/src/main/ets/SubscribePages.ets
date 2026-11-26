@@ -66,9 +66,11 @@ export struct HarmonySubscriptionsPage {
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
+  @StorageProp('mp_subscriptions_refresh_rev') @Watch('onSubscriptionsRefreshRevChanged') subscriptionsRefreshRev: number = 0;
   @Prop showBack: boolean = false;
   @Prop initialTitle: string = '订阅';
-  @Prop initialMode: string = 'mine'; // 'mine' | 'square' | 'calendar'
+  @Prop initialMode: string = 'mine'; // 'mine' | 'square' | 'calendar' | 'history'
+  @Prop initialHistoryType: string = '电影';
   @State private mainTabIndex: number = 0;
   @State private squareModeIndex: number = 0; // 0: 热门电影, 1: 热门剧集, 2: 社区分享
   @State private filter: string = '全部';
@@ -82,6 +84,19 @@ export struct HarmonySubscriptionsPage {
   @State private shares: MpSubscribeShareItem[] = [];
   @State private forkingShareId: number = -1;
   @State private feedbackMsg: string = '';
+
+  // 订阅历史状态（对齐 Web SubscribeHistoryDialog）
+  @State private historyTypeIndex: number = 0; // 0: 电影, 1: 电视剧, 2: 音乐
+  @State private historyItems: MpSubscribeItem[] = [];
+  @State private historyPage: number = 1;
+  @State private historyHasMore: boolean = false;
+  @State private loadingHistory: boolean = false;
+  @State private loadingMoreHistory: boolean = false;
+  @State private historyLoadFailed: boolean = false;
+  @State private historyGeneration: number = 0;
+  @State private reSubscribingId: number = -1;
+  @State private confirmDeleteHistorySub: MpSubscribeItem | null = null;
+  @State private showHistoryDeleteConfirm: boolean = false;
 
   // 编辑弹窗全量状态
   @State private showEditor: boolean = false;
@@ -127,6 +142,9 @@ export struct HarmonySubscriptionsPage {
   @State private filesStatusFilter: string = '全部'; // '全部' | '已入库' | '已下载' | '待入库'
 
   onBack: () => void = () => {};
+  onOpenCalendar: () => void = () => {};
+  onOpenSquare: () => void = () => {};
+  onOpenHistory: (mtype: string) => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
   onPlayServerItem: (itemId: string, server: string, title: string) => void = () => {};
   onPlayStorageFile: (storage: string, filePath: string, title: string) => void = () => {};
@@ -135,10 +153,130 @@ export struct HarmonySubscriptionsPage {
     if (this.initialMode === 'square') {
       this.mainTabIndex = 1;
       this.loadSquareIfNeeded();
-    } else if (this.initialMode === 'calendar') {
+      return;
+    }
+    if (this.initialMode === 'calendar') {
       this.loadCalendar();
+      this.loadSubscriptions();
+      return;
+    }
+    if (this.initialMode === 'history') {
+      if (this.initialHistoryType === '电视剧') {
+        this.historyTypeIndex = 1;
+      } else if (this.initialHistoryType === '音乐') {
+        this.historyTypeIndex = 2;
+      } else {
+        this.historyTypeIndex = 0;
+      }
+      this.reloadHistoryFirstPage();
+      return;
     }
     this.loadSubscriptions();
+  }
+
+  private onSubscriptionsRefreshRevChanged(): void {
+    if (this.initialMode === 'mine') {
+      this.loadSubscriptions();
+    }
+  }
+
+  private currentHistoryMediaType(): string {
+    if (this.historyTypeIndex === 1) { return '电视剧'; }
+    if (this.historyTypeIndex === 2) { return '音乐'; }
+    return '电影';
+  }
+
+  private async reloadHistoryFirstPage(): Promise<void> {
+    this.historyGeneration += 1;
+    const gen = this.historyGeneration;
+    const mtype = this.currentHistoryMediaType();
+    this.loadingHistory = true;
+    this.loadingMoreHistory = false;
+    this.historyLoadFailed = false;
+    this.historyPage = 1;
+    try {
+      const loaded = await MoviePilotRepository.shared().fetchSubscribeHistory(mtype, 1, 30);
+      if (gen !== this.historyGeneration) { return; }
+      this.historyItems = loaded;
+      this.historyPage = 2;
+      this.historyHasMore = loaded.length >= 30;
+    } catch {
+      if (gen !== this.historyGeneration) { return; }
+      this.historyItems = [];
+      this.historyHasMore = false;
+      this.historyLoadFailed = true;
+    }
+    if (gen === this.historyGeneration) {
+      this.loadingHistory = false;
+    }
+  }
+
+  private async loadMoreHistoryIfNeeded(): Promise<void> {
+    if (!this.historyHasMore || this.loadingHistory || this.loadingMoreHistory) {
+      return;
+    }
+    const gen = this.historyGeneration;
+    const mtype = this.currentHistoryMediaType();
+    const targetPage = this.historyPage;
+    this.loadingMoreHistory = true;
+    try {
+      const pageItems = await MoviePilotRepository.shared().fetchSubscribeHistory(mtype, targetPage, 30);
+      if (gen !== this.historyGeneration) { return; }
+      if (pageItems.length === 0) {
+        this.historyHasMore = false;
+      } else {
+        const merged: MpSubscribeItem[] = [];
+        const seenIds: number[] = [];
+        for (let i = 0; i < this.historyItems.length; i++) {
+          merged.push(this.historyItems[i]);
+          seenIds.push(this.historyItems[i].id);
+        }
+        let added = 0;
+        for (let j = 0; j < pageItems.length; j++) {
+          if (seenIds.indexOf(pageItems[j].id) < 0) {
+            merged.push(pageItems[j]);
+            seenIds.push(pageItems[j].id);
+            added += 1;
+          }
+        }
+        this.historyItems = merged;
+        this.historyPage = targetPage + 1;
+        this.historyHasMore = pageItems.length >= 30 && added > 0;
+      }
+    } catch {
+      // 保留已有分页记录，继续上滑或点击刷新可重试
+    }
+    if (gen === this.historyGeneration) {
+      this.loadingMoreHistory = false;
+    }
+  }
+
+  private async handleReSubscribeHistory(sub: MpSubscribeItem): Promise<void> {
+    if (this.reSubscribingId !== -1) { return; }
+    this.reSubscribingId = sub.id;
+    const res = await MoviePilotRepository.shared().reSubscribeFromHistory(sub, this.currentHistoryMediaType());
+    this.reSubscribingId = -1;
+    this.feedbackMsg = res.message;
+    if (res.ok) {
+      const nextRev = (AppStorage.get<number>('mp_subscriptions_refresh_rev') ?? 0) + 1;
+      AppStorage.setOrCreate('mp_subscriptions_refresh_rev', nextRev);
+    }
+  }
+
+  private async confirmDeleteHistoryAction(): Promise<void> {
+    const target = this.confirmDeleteHistorySub;
+    this.showHistoryDeleteConfirm = false;
+    this.confirmDeleteHistorySub = null;
+    if (!target) { return; }
+    const ok = await MoviePilotRepository.shared().deleteSubscribeHistory(target.id);
+    if (ok) {
+      this.historyItems = this.historyItems.filter((it: MpSubscribeItem) => it.id !== target.id);
+      this.historyGeneration += 1;
+      this.historyPage = Math.floor(this.historyItems.length / 30) + 1;
+      this.feedbackMsg = `已删除「${target.name}」的订阅历史记录`;
+    } else {
+      this.feedbackMsg = '删除订阅历史失败，请稍后重试';
+    }
   }
 
   private async loadSubscriptions(): Promise<void> {
@@ -411,6 +549,8 @@ export struct HarmonySubscriptionsPage {
     this.forkingShareId = -1;
     this.feedbackMsg = ok ? `已复用订阅「${sh.shareTitle || sh.name}」` : '复用订阅失败，请稍后重试';
     if (ok) {
+      const nextRev = (AppStorage.get<number>('mp_subscriptions_refresh_rev') ?? 0) + 1;
+      AppStorage.setOrCreate('mp_subscriptions_refresh_rev', nextRev);
       await this.loadSubscriptions();
       this.shares = await MoviePilotRepository.shared().fetchSubscribeShares();
     }
@@ -1562,6 +1702,233 @@ export struct HarmonySubscriptionsPage {
     }
   }
 
+  @Builder
+  subscribeHistoryBuilder() {
+    Column({ space: 10 }) {
+      Column() {
+        HarmonySegmentedSwitch({
+          options: ['电影', '电视剧', '音乐'],
+          selectedIndex: this.historyTypeIndex,
+          onSelect: (idx: number) => {
+            if (this.historyTypeIndex !== idx) {
+              this.historyTypeIndex = idx;
+              this.reloadHistoryFirstPage();
+            }
+          }
+        })
+      }
+      .padding({ left: 16, right: 16, top: 2 })
+
+      if (this.loadingHistory && this.historyItems.length === 0) {
+        HarmonyPosterRowCardGridSkeleton({
+          variant: 'subscribe',
+          fillViewport: true,
+          bottomPadding: 44
+        })
+      } else if (this.historyLoadFailed && this.historyItems.length === 0) {
+        Column({ space: 10 }) {
+          SymbolGlyph($r('sys.symbol.clock')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+          Text('暂时无法载入订阅历史').fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+          Text('请检查网络连接或点击重试').fontSize(12.5).fontColor(mpSecondaryText(this.isDark))
+          NativeAdaptivePill({
+            title: '重试',
+            selected: true,
+            onTap: () => { this.reloadHistoryFirstPage(); }
+          })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.historyItems.length === 0) {
+        Column({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.clock')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+          Text('没有已完成的订阅').fontSize(15).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+          Text('完成的订阅会显示在这里').fontSize(12.5).fontColor(mpSecondaryText(this.isDark))
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else {
+        Grid() {
+          ForEach(this.historyItems, (sub: MpSubscribeItem) => {
+            GridItem() {
+              Column() {
+                CinematicPanel({ panelPadding: 13, cornerRadius: 18, interactive: true }) {
+                  Row({ space: 12 }) {
+                    Column() {
+                      if (sub.posterUrl.length > 0) {
+                        MpRemoteImage({
+                          src: sub.posterUrl,
+                          imgWidth: 68,
+                          imgHeight: sub.type === '音乐' ? 68 : 102,
+                          imgRadius: 11,
+                          placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                        })
+                      } else {
+                        Column()
+                          .width(68)
+                          .height(sub.type === '音乐' ? 68 : 102)
+                          .borderRadius(11)
+                          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      }
+                    }
+
+                    Column({ space: 6 }) {
+                      Row({ space: 8 }) {
+                        Text(sub.name)
+                          .fontSize(15.5)
+                          .fontWeight(FontWeight.Bold)
+                          .fontColor(mpPrimaryText(this.isDark))
+                          .maxLines(2)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .layoutWeight(1)
+                        if (sub.type === '电视剧' && sub.season > 0) {
+                          NativeAdaptiveBadge({
+                            text: `第 ${sub.season} 季`,
+                            tintHex: this.accentHex
+                          })
+                        }
+                      }
+                      .width('100%')
+
+                      Row({ space: 6 }) {
+                        Text(`${sub.date && sub.date.length > 0 ? sub.date : ''}${(sub.date && sub.date.length > 0 && sub.year.length > 0) ? ' · ' : ''}${sub.year}`)
+                          .fontSize(12)
+                          .fontColor(mpSecondaryText(this.isDark))
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        if (sub.vote > 0) {
+                          Text(`★ ${sub.vote.toFixed(1)}`)
+                            .fontSize(12)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor('#F2B830')
+                        }
+                      }
+                      .width('100%')
+
+                      if (sub.description && sub.description.length > 0) {
+                        Text(sub.description)
+                          .fontSize(12)
+                          .fontColor(mpSecondaryText(this.isDark))
+                          .maxLines(2)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .width('100%')
+                      }
+
+                      Row({ space: 8 }) {
+                        Row({ space: 5 }) {
+                          SymbolGlyph($r('sys.symbol.arrow_clockwise'))
+                            .fontSize(12)
+                            .fontColor([this.accentHex])
+                          Text(this.reSubscribingId === sub.id ? '重新订阅中…' : '重新订阅')
+                            .fontSize(12)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(mpPrimaryText(this.isDark))
+                        }
+                        .padding({ left: 11, right: 12, top: 6, bottom: 6 })
+                        .borderRadius(16)
+                        .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '26' : '16'))
+                        .opacity(this.reSubscribingId !== -1 ? 0.6 : 1)
+                        .accessibilityText(`重新订阅 ${sub.name}`)
+                        .onClick(() => {
+                          this.handleReSubscribeHistory(sub);
+                        })
+
+                        Blank().layoutWeight(1)
+
+                        Button({ type: ButtonType.Circle }) {
+                          SymbolGlyph($r('sys.symbol.trash'))
+                            .fontSize(15)
+                            .fontColor(['#FF453A'])
+                        }
+                        .width(34)
+                        .height(34)
+                        .backgroundColor(HarmonyAppearanceStore.withAlpha('#FF453A', this.isDark ? '26' : '16'))
+                        .accessibilityText(`删除订阅历史 ${sub.name}`)
+                        .onClick(() => {
+                          this.confirmDeleteHistorySub = sub;
+                          this.showHistoryDeleteConfirm = true;
+                        })
+                      }
+                      .width('100%')
+                      .padding({ top: 2 })
+                    }
+                    .alignItems(HorizontalAlign.Start)
+                    .layoutWeight(1)
+                  }
+                  .width('100%')
+                }
+              }
+              .width('100%')
+              .onClick(() => {
+                if (sub.type !== '音乐') {
+                  this.openSubMediaDetail(sub);
+                }
+              })
+            }
+          }, (sub: MpSubscribeItem) => `hist_${this.historyTypeIndex}_${sub.id}`)
+        }
+        .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+        .columnsGap(12)
+        .rowsGap(12)
+        .padding({ left: 16, right: 16, top: 4, bottom: 44 })
+        .scrollBar(BarState.Off)
+        .layoutWeight(1)
+        .onReachEnd(() => {
+          this.loadMoreHistoryIfNeeded();
+        })
+      }
+    }
+    .width('100%')
+    .layoutWeight(1)
+  }
+
+  @Builder
+  historyDeleteConfirmSheetBuilder() {
+    Column({ space: 16 }) {
+      HarmonySheetHeader({
+        title: '删除订阅历史',
+        cancelText: '关闭',
+        onCancel: () => {
+          this.showHistoryDeleteConfirm = false;
+          this.confirmDeleteHistorySub = null;
+        }
+      })
+
+      Text(`确认删除「${this.confirmDeleteHistorySub ? this.confirmDeleteHistorySub.name : ''}」的订阅历史记录吗？`)
+        .fontSize(14)
+        .fontColor(mpSecondaryText(this.isDark))
+        .width('100%')
+
+      Row({ space: 12 }) {
+        Button('取消')
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(14)
+          .fontColor(mpPrimaryText(this.isDark))
+          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+          .onClick(() => {
+            this.showHistoryDeleteConfirm = false;
+            this.confirmDeleteHistorySub = null;
+          })
+
+        Button('删除')
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(14)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Color.White)
+          .backgroundColor('#FF453A')
+          .onClick(() => {
+            this.confirmDeleteHistoryAction();
+          })
+      }
+      .width('100%')
+    }
+    .padding({ left: 20, right: 20, top: 14, bottom: 28 })
+    .width('100%')
+  }
+
   build() {
     Column({ space: 10 }) {
       if (this.showBack) {
@@ -1572,19 +1939,42 @@ export struct HarmonySubscriptionsPage {
               : `追剧日历 (${this.calendarItems.length > 0 ? this.calendarItems.length : this.calendarFallbackTvItems().length})`)
             : (this.initialMode === 'square'
               ? '订阅广场'
-              : (this.loading && this.items.length === 0 ? this.initialTitle : `${this.initialTitle} (${this.items.length})`)),
-          trailingSymbol: this.initialMode === 'calendar' ? 'sys.symbol.arrow_clockwise' : '',
-          trailingAccessibility: this.initialMode === 'calendar' ? '刷新日历' : '',
+              : (this.initialMode === 'history'
+                ? '订阅历史'
+                : (this.loading && this.items.length === 0 ? this.initialTitle : `${this.initialTitle} (${this.items.length})`))),
+          trailingSymbol: (this.initialMode === 'calendar' || this.initialMode === 'history') ? 'sys.symbol.arrow_clockwise' : '',
+          trailingAccessibility: this.initialMode === 'calendar'
+            ? '刷新日历'
+            : (this.initialMode === 'history' ? '刷新订阅历史' : ''),
           onBack: () => this.onBack(),
           onTrailingClick: () => {
             if (this.initialMode === 'calendar') {
               this.loadCalendar();
+            } else if (this.initialMode === 'history') {
+              this.reloadHistoryFirstPage();
             }
           }
         })
       } else {
         HarmonyPageHeader({
-          title: '订阅'
+          title: '订阅',
+          centerTitle: true,
+          leadingPrimarySymbol: 'sys.symbol.calendar',
+          leadingPrimaryAccessibility: '追剧日历',
+          leadingSecondarySymbol: 'sys.symbol.flame',
+          leadingSecondaryAccessibility: '订阅广场',
+          primarySymbol: 'sys.symbol.clock',
+          primaryAccessibility: '订阅历史',
+          onLeadingPrimaryClick: () => {
+            this.onOpenCalendar();
+          },
+          onLeadingSecondaryClick: () => {
+            this.onOpenSquare();
+          },
+          onPrimaryClick: () => {
+            const ht = (this.filter === '电视剧' || this.filter === '音乐') ? this.filter : '电影';
+            this.onOpenHistory(ht);
+          }
         })
       }
 
@@ -1598,25 +1988,9 @@ export struct HarmonySubscriptionsPage {
 
       if (this.initialMode === 'calendar') {
         this.calendarListBuilder()
+      } else if (this.initialMode === 'history') {
+        this.subscribeHistoryBuilder()
       } else {
-        if (!this.showBack) {
-          HarmonyPillTabBar({
-            tabs: [
-              this.loading && this.items.length === 0 ? '我的订阅' : `我的订阅 (${this.items.length})`,
-              '订阅广场',
-              '追剧日历'
-            ],
-            selectedIndex: this.mainTabIndex,
-            onSelect: (idx: number) => {
-              this.mainTabIndex = idx;
-              if (idx === 1) {
-                this.loadSquareIfNeeded();
-              } else if (idx === 2) {
-                this.loadCalendar();
-              }
-            }
-          })
-        }
 
         if (this.mainTabIndex === 0) {
           Scroll() {
@@ -1995,6 +2369,16 @@ export struct HarmonySubscriptionsPage {
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showForkConfirm, this.forkConfirmSheetBuilder(), {
+        detents: (this.windowHeightVp > 0 && this.windowHeightVp < 500)
+          ? [SheetSize.LARGE]
+          : [SheetSize.FIT_CONTENT, SheetSize.MEDIUM],
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
+        blurStyle: BlurStyle.COMPONENT_REGULAR,
+        dragBar: true,
+        showClose: false,
+        backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+      })
+      Blank().width(0).height(0).bindSheet($$this.showHistoryDeleteConfirm, this.historyDeleteConfirmSheetBuilder(), {
         detents: (this.windowHeightVp > 0 && this.windowHeightVp < 500)
           ? [SheetSize.LARGE]
           : [SheetSize.FIT_CONTENT, SheetSize.MEDIUM],

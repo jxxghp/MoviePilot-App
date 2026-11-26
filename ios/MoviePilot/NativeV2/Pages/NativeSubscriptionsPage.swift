@@ -4,7 +4,7 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
-/// 原生「订阅」旗舰主页面：顶部呈现追剧全景英雄卡、分类与状态排序过滤、离散胶片刻度进度及三键快捷操控，右上角提供追剧日历与订阅广场图标入口。
+/// 原生「订阅」旗舰主页面：顶部呈现追剧全景英雄卡、分类与状态排序过滤、离散胶片刻度进度及三键快捷操控，左上角提供追剧日历与订阅广场入口，右上角提供订阅历史入口。
 @MainActor
 struct NativeSubscriptionsPage: View {
   /// 订阅列表的分类筛选维度。
@@ -81,7 +81,7 @@ struct NativeSubscriptionsPage: View {
     }
   }
 
-  /// 主体使用连续渐变底色，直接呈现我的订阅全景列表，右上角通过图标进入追剧日历与订阅广场。
+  /// 主体使用连续渐变底色，直接呈现我的订阅全景列表，左上角通过图标进入追剧日历与订阅广场，右上角进入订阅历史。
   var body: some View {
     let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
     let margin = NativeDeviceLayout.horizontalMargin(for: resolvedWidth)
@@ -94,7 +94,7 @@ struct NativeSubscriptionsPage: View {
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
     .toolbar {
-      ToolbarItemGroup(placement: .topBarTrailing) {
+      ToolbarItemGroup(placement: .topBarLeading) {
         NavigationLink {
           NativeCalendarPage(session: session)
         } label: {
@@ -118,6 +118,24 @@ struct NativeSubscriptionsPage: View {
         .tint(.primary)
         .accessibilityLabel(L10n.text("订阅广场"))
         .accessibilityIdentifier("native-subscriptions-community")
+      }
+
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        NavigationLink {
+          NativeSubscribeHistoryPage(
+            session: session,
+            initialType: historyInitialType,
+            onReSubscribed: {
+              NativePageDataCache.shared.remove("subscriptions|list", session: session)
+              attempt += 1
+            }
+          )
+        } label: {
+          Image(systemName: "clock.arrow.circlepath")
+        }
+        .tint(.primary)
+        .accessibilityLabel(L10n.text("订阅历史"))
+        .accessibilityIdentifier("native-subscriptions-history")
       }
     }
     .onAppear {
@@ -175,6 +193,15 @@ struct NativeSubscriptionsPage: View {
     if let targetFilter = requestedFilter {
       filter = targetFilter
       requestedFilter = nil
+    }
+  }
+
+  /// 根据当前分类筛选推导订阅历史默认选中的媒体类型。
+  private var historyInitialType: NativeSubscribeHistoryPage.MediaType {
+    switch filter {
+    case .tv: .tv
+    case .music: .music
+    case .all, .movie: .movie
     }
   }
 
@@ -1209,5 +1236,774 @@ private struct NativeSubscribeItem: Decodable, Sendable, Identifiable {
     case episodePriority = "episode_priority"
     case totalTracks = "total_tracks"
     case completedTracks = "completed_tracks"
+  }
+}
+
+// MARK: - 原生「订阅历史」页面
+
+/// 原生「订阅历史」页面：对齐 Web `SubscribeHistoryDialog`，按「电影 / 电视剧 / 音乐」分页浏览已完成订阅记录，支持查看详情、重新订阅与删除记录。
+@MainActor
+struct NativeSubscribeHistoryPage: View {
+  /// 后端 `GET /api/v1/subscribe/history/{mtype}` 支持的媒体类型分类。
+  enum MediaType: String, CaseIterable, Identifiable, Hashable {
+    case movie = "电影"
+    case tv = "电视剧"
+    case music = "音乐"
+
+    var id: String { rawValue }
+  }
+
+  let session: NativeSession
+  let onReSubscribed: (() -> Void)?
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+  @State private var containerWidth: CGFloat = 0
+  @State private var selectedType: MediaType
+  @State private var items: [NativeSubscribeHistoryItem] = []
+  @State private var currentPage = 1
+  @State private var hasMore = false
+  @State private var isLoading = true
+  @State private var isLoadingMore = false
+  @State private var loadFailed = false
+  @State private var reloadToken = 0
+  @State private var loadGeneration = 0
+  @State private var reSubscribingID: Int?
+  @State private var deletingID: Int?
+  @State private var pendingDelete: NativeSubscribeHistoryItem?
+  @State private var detailDestination: NativeMediaIdentity?
+  @State private var feedback: NativeSubscribeFeedback?
+
+  private let pageSize = 30
+
+  init(
+    session: NativeSession,
+    initialType: MediaType = .movie,
+    onReSubscribed: (() -> Void)? = nil
+  ) {
+    self.session = session
+    self.onReSubscribed = onReSubscribed
+    _selectedType = State(initialValue: initialType)
+  }
+
+  var body: some View {
+    let resolvedWidth = NativeDeviceLayout.resolvedContainerWidth(containerWidth)
+    let margin = NativeDeviceLayout.horizontalMargin(for: resolvedWidth)
+    let columnCount = NativeDeviceLayout.cardGridCount(
+      for: resolvedWidth, isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
+    ZStack {
+      CinematicBackground()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 14) {
+          typeSwitcher
+          if let feedback {
+            historyFeedbackBanner(feedback)
+          }
+          if isLoading && items.isEmpty {
+            NativeSubscriptionsHubSkeletonView(columns: columnCount)
+              .transition(.opacity)
+          } else if loadFailed && items.isEmpty {
+            failureCard
+          } else if items.isEmpty {
+            emptyCard
+          } else {
+            let gridColumns = Array(
+              repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: columnCount)
+            LazyVGrid(columns: gridColumns, spacing: 12) {
+              ForEach(items) { item in
+                historyCard(item)
+                  .onAppear {
+                    if item.id == items.last?.id {
+                      Task { await loadMoreIfNeeded() }
+                    }
+                  }
+              }
+            }
+            if isLoadingMore {
+              HStack {
+                Spacer()
+                ProgressView()
+                  .controlSize(.small)
+                  .padding(.vertical, 8)
+                Spacer()
+              }
+            }
+          }
+        }
+        .frame(maxWidth: resolvedWidth >= 740 ? 1180 : 860, alignment: .leading)
+        .padding(.horizontal, margin)
+        .padding(.top, 8)
+        .padding(.bottom, 34)
+        .frame(maxWidth: .infinity)
+      }
+      .scrollIndicators(.hidden)
+      .refreshable { await reloadFromFirstPage() }
+      .modifier(NativeSoftTopScrollEdge())
+      .accessibilityIdentifier("native-subscribe-history-scroll")
+    }
+    .nativeTrackContainerWidth($containerWidth)
+    .navigationTitle(L10n.text("订阅历史"))
+    .navigationBarTitleDisplayMode(.inline)
+    .nativeTopNavigationBar()
+    .task(id: "\(selectedType.rawValue)|\(reloadToken)") {
+      await reloadFromFirstPage()
+    }
+    .navigationDestination(
+      isPresented: Binding(
+        get: { detailDestination != nil },
+        set: { if !$0 { detailDestination = nil } }
+      )
+    ) {
+      if let identity = detailDestination {
+        NativeMediaDetailPage(session: session, identity: identity)
+      }
+    }
+    .alert(
+      L10n.text("删除订阅历史"),
+      isPresented: Binding(
+        get: { pendingDelete != nil },
+        set: { if !$0 { pendingDelete = nil } }
+      ),
+      presenting: pendingDelete
+    ) { item in
+      Button(L10n.text("删除"), role: .destructive) {
+        Task { await deleteHistoryItem(item) }
+      }
+      Button(L10n.text("取消"), role: .cancel) {}
+    } message: { item in
+      Text("确认删除「\(item.displayTitle)」的订阅历史记录吗？")
+    }
+  }
+
+  /// 顶部媒体类型胶囊切换栏（电影 / 电视剧 / 音乐）。
+  private var typeSwitcher: some View {
+    HStack(spacing: 8) {
+      ForEach(MediaType.allCases) { option in
+        let selected = selectedType == option
+        Button {
+          guard selectedType != option else { return }
+          withAnimation(.easeOut(duration: 0.18)) {
+            selectedType = option
+          }
+        } label: {
+          Text(L10n.text(option.rawValue))
+            .font(.subheadline.weight(selected ? .semibold : .medium))
+            .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.78))
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .background {
+              Capsule()
+                .fill(
+                  selected
+                    ? appearance.accentColor.opacity(colorScheme == .light ? 0.16 : 0.24)
+                    : NativeTheme.chipFill
+                )
+                .overlay {
+                  Capsule()
+                    .strokeBorder(
+                      selected ? appearance.accentColor.opacity(0.45) : NativeTheme.chipBorder,
+                      lineWidth: 0.7
+                    )
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 44)
+        .accessibilityIdentifier("native-subscribe-history-tab-\(option.rawValue)")
+      }
+    }
+  }
+
+  /// 单条订阅历史卡片：海报（音乐 1:1 / 影视 2:3）、标题与季号、完成时间、简介及「重新订阅 / 删除」动作。
+  private func historyCard(_ item: NativeSubscribeHistoryItem) -> some View {
+    let poster = NativeMediaDetailPage.resolveArtwork(
+      item.poster, source: item.mediaSource ?? "themoviedb")
+    let isReSubscribing = reSubscribingID == item.id
+    let isDeleting = deletingID == item.id
+    let isBusy = reSubscribingID != nil || deletingID != nil
+
+    return CinematicPanel(padding: 13) {
+      HStack(alignment: .top, spacing: 13) {
+        historyArtwork(poster, isMusic: item.isMusic, vote: item.vote)
+
+        VStack(alignment: .leading, spacing: 6) {
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(item.name)
+              .font(.headline)
+              .foregroundStyle(.primary)
+              .lineLimit(2)
+              .multilineTextAlignment(.leading)
+
+            if let seasonLabel = item.seasonLabel {
+              NativeAdaptiveBadge(seasonLabel, tint: appearance.accentColor)
+            }
+            Spacer(minLength: 0)
+          }
+
+          let metaLine = item.metadataSummary
+          if !metaLine.isEmpty {
+            Text(metaLine)
+              .font(.caption.monospacedDigit())
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+
+          if let desc = item.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !desc.isEmpty
+          {
+            Text(desc)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(2)
+              .multilineTextAlignment(.leading)
+          }
+
+          HStack(spacing: 8) {
+            Button {
+              Task { await reSubscribe(item) }
+            } label: {
+              HStack(spacing: 5) {
+                if isReSubscribing {
+                  ProgressView().controlSize(.mini).tint(.primary)
+                } else {
+                  Image(systemName: "arrow.clockwise")
+                    .font(.caption2.weight(.semibold))
+                }
+                Text(L10n.text("重新订阅"))
+                  .font(.caption.weight(.semibold))
+                  .lineLimit(1)
+              }
+              .foregroundStyle(.primary.opacity(0.94))
+              .padding(.horizontal, 12)
+              .frame(minHeight: 34)
+              .background {
+                Capsule()
+                  .fill(appearance.accentColor.opacity(colorScheme == .light ? 0.16 : 0.22))
+                  .overlay {
+                    Capsule()
+                      .strokeBorder(appearance.accentColor.opacity(0.42), lineWidth: 0.65)
+                  }
+              }
+              .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .frame(minHeight: 44)
+            .disabled(isBusy)
+            .accessibilityLabel("\(L10n.text("重新订阅")) \(item.displayTitle)")
+            .accessibilityIdentifier("native-subscribe-history-resubscribe-\(item.id)")
+
+            Spacer(minLength: 4)
+
+            Button(role: .destructive) {
+              pendingDelete = item
+            } label: {
+              Group {
+                if isDeleting {
+                  ProgressView().controlSize(.mini).tint(NativeTheme.danger)
+                } else {
+                  Image(systemName: "trash")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(NativeTheme.danger)
+                }
+              }
+              .frame(width: 34, height: 34)
+              .background {
+                Circle()
+                  .fill(NativeTheme.danger.opacity(colorScheme == .light ? 0.11 : 0.16))
+              }
+              .frame(minWidth: 44, minHeight: 44)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isBusy)
+            .accessibilityLabel("\(L10n.text("删除订阅历史")) \(item.displayTitle)")
+            .accessibilityIdentifier("native-subscribe-history-delete-\(item.id)")
+          }
+          .padding(.top, 2)
+        }
+      }
+      .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .onTapGesture {
+        if let identity = item.detailIdentity {
+          detailDestination = identity
+        }
+      }
+    }
+    .accessibilityIdentifier("native-subscribe-history-card-\(item.id)")
+  }
+
+  /// 历史封面（音乐 68×68pt 正方形，电影/电视剧 68×102pt 竖版海报）。
+  private func historyArtwork(_ reference: String?, isMusic: Bool, vote: Double?) -> some View {
+    let width: CGFloat = 68
+    let height: CGFloat = isMusic ? 68 : 102
+    let shape = RoundedRectangle(cornerRadius: 11, style: .continuous)
+    return NativeMediaArtwork(
+      session: session, reference: reference, role: .poster, maximumWidth: 360
+    )
+    .frame(width: width, height: height)
+    .clipShape(shape)
+    .overlay {
+      shape.strokeBorder(.primary.opacity(0.14), lineWidth: 0.6)
+    }
+    .overlay(alignment: .bottomLeading) {
+      if let vote, vote > 0 {
+        HStack(spacing: 2) {
+          Image(systemName: "star.fill")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(.yellow)
+          Text(String(format: "%.1f", vote))
+            .font(.system(size: 9.5, weight: .bold).monospacedDigit())
+            .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background { Capsule().fill(.black.opacity(0.68)) }
+        .padding(4)
+      }
+    }
+  }
+
+  private func historyFeedbackBanner(_ feedback: NativeSubscribeFeedback) -> some View {
+    CinematicPanel(padding: 11) {
+      HStack(spacing: 10) {
+        Image(
+          systemName: feedback.isError
+            ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+        )
+        .foregroundStyle(feedback.isError ? .orange : NativeTheme.success)
+        Text(feedback.message)
+          .font(.subheadline)
+          .foregroundStyle(.primary.opacity(0.92))
+        Spacer(minLength: 0)
+        Button {
+          self.feedback = nil
+        } label: {
+          Image(systemName: "xmark")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.primary.opacity(0.65))
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.text("关闭"))
+      }
+    }
+    .accessibilityIdentifier("native-subscribe-history-feedback")
+  }
+
+  private var emptyCard: some View {
+    CinematicPanel(padding: 28) {
+      VStack(spacing: 12) {
+        Image(systemName: "clock.arrow.circlepath")
+          .font(.system(size: 32, weight: .medium))
+          .foregroundStyle(.secondary)
+        Text(L10n.text("没有已完成的订阅"))
+          .font(.headline)
+          .foregroundStyle(.primary)
+        Text(L10n.text("完成的订阅会显示在这里"))
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+      }
+      .frame(maxWidth: .infinity, minHeight: 170)
+    }
+    .accessibilityIdentifier("native-subscribe-history-empty")
+  }
+
+  private var failureCard: some View {
+    CinematicPanel {
+      VStack(alignment: .leading, spacing: 10) {
+        Label("暂时无法载入订阅历史", systemImage: "exclamationmark.triangle")
+          .font(.headline)
+        Button(L10n.text("重试")) { reloadToken += 1 }
+          .frame(minHeight: 44)
+          .accessibilityIdentifier("native-subscribe-history-retry")
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  // MARK: - 订阅历史 API 请求
+
+  private func reloadFromFirstPage() async {
+    loadGeneration += 1
+    let generation = loadGeneration
+    let targetType = selectedType
+    isLoading = true
+    isLoadingMore = false
+    loadFailed = false
+    currentPage = 1
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["subscribe", "history", targetType.rawValue],
+        query: [
+          URLQueryItem(name: "page", value: "1"),
+          URLQueryItem(name: "count", value: String(pageSize)),
+        ]
+      )
+      let result = try await session.request(
+        endpoint,
+        as: [NativeSubscribeHistoryItem].self,
+        requiring: .init(category: .subscribe)
+      )
+      try Task.checkCancellation()
+      guard generation == loadGeneration else { return }
+      items = result.value
+      currentPage = 2
+      if let total = result.collection.totalCount {
+        hasMore = items.count < total && !result.value.isEmpty
+      } else {
+        hasMore = result.value.count >= pageSize
+      }
+      isLoading = false
+    } catch is CancellationError {
+      return
+    } catch {
+      guard generation == loadGeneration else { return }
+      items = []
+      hasMore = false
+      loadFailed = true
+      isLoading = false
+    }
+  }
+
+  private func loadMoreIfNeeded() async {
+    guard hasMore, !isLoading, !isLoadingMore else { return }
+    let generation = loadGeneration
+    let targetType = selectedType
+    let nextPage = currentPage
+    isLoadingMore = true
+    defer {
+      if generation == loadGeneration { isLoadingMore = false }
+    }
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["subscribe", "history", targetType.rawValue],
+        query: [
+          URLQueryItem(name: "page", value: String(nextPage)),
+          URLQueryItem(name: "count", value: String(pageSize)),
+        ]
+      )
+      let result = try await session.request(
+        endpoint,
+        as: [NativeSubscribeHistoryItem].self,
+        requiring: .init(category: .subscribe)
+      )
+      try Task.checkCancellation()
+      guard generation == loadGeneration else { return }
+      if result.value.isEmpty {
+        hasMore = false
+        return
+      }
+      let existingIDs = Set(items.map(\.id))
+      let appended = result.value.filter { !existingIDs.contains($0.id) }
+      items.append(contentsOf: appended)
+      currentPage = nextPage + 1
+      if let total = result.collection.totalCount {
+        hasMore = items.count < total && !appended.isEmpty
+      } else {
+        hasMore = result.value.count >= pageSize
+      }
+    } catch {
+      // 加载下一页失败时保留已展示数据，上滑或下拉可继续重试。
+    }
+  }
+
+  /// 对齐 Web `reSubscribe`：将历史订阅配置提交至 `POST /api/v1/subscribe/`。
+  private func reSubscribe(_ item: NativeSubscribeHistoryItem) async {
+    reSubscribingID = item.id
+    defer { reSubscribingID = nil }
+    do {
+      let payload = item.reSubscribeWritePayload(fallbackType: selectedType.rawValue)
+      let body = try JSONSerialization.data(withJSONObject: payload)
+      let endpoint = try APIEndpoint(
+        path: ["subscribe"], method: .post, body: body, trailingSlash: true)
+      try await session.perform(endpoint, requiring: .init(category: .subscribe))
+      try Task.checkCancellation()
+      NativePageDataCache.shared.remove("subscriptions|list", session: session)
+      onReSubscribed?()
+      feedback = NativeSubscribeFeedback(
+        isError: false, message: "已重新订阅「\(item.displayTitle)」。")
+    } catch is CancellationError {
+      return
+    } catch {
+      feedback = NativeSubscribeFeedback(
+        isError: true, message: "重新订阅失败，请稍后重试。")
+    }
+  }
+
+  /// 删除单条订阅历史（`DELETE /api/v1/subscribe/history/{history_id}`）。
+  private func deleteHistoryItem(_ item: NativeSubscribeHistoryItem) async {
+    deletingID = item.id
+    defer { deletingID = nil }
+    do {
+      let endpoint = try APIEndpoint(
+        path: ["subscribe", "history", String(item.id)], method: .delete)
+      try await session.perform(endpoint, requiring: .init(category: .subscribe))
+      try Task.checkCancellation()
+      items.removeAll { $0.id == item.id }
+      loadGeneration += 1
+      currentPage = (items.count / pageSize) + 1
+      feedback = NativeSubscribeFeedback(
+        isError: false, message: "已删除「\(item.displayTitle)」的订阅历史记录。")
+    } catch is CancellationError {
+      return
+    } catch {
+      feedback = NativeSubscribeFeedback(
+        isError: true, message: "删除订阅历史失败，请稍后重试。")
+    }
+  }
+}
+
+/// `GET /api/v1/subscribe/history/{mtype}` 单条订阅历史模型（保留重订阅所需规则字段）。
+private struct NativeSubscribeHistoryItem: Decodable, Sendable, Identifiable {
+  let id: Int
+  let name: String
+  let year: String?
+  let type: String?
+  let musicType: String?
+  let totalTracks: Int?
+  let season: Int?
+  let poster: String?
+  let vote: Double?
+  let description: String?
+  let date: String?
+  let mediaSource: String?
+  let mediaID: String?
+  let tmdbID: Int?
+  let doubanID: String?
+  let bangumiID: Int?
+  let totalEpisode: Int?
+  let startEpisode: Int?
+  let quality: String?
+  let resolution: String?
+  let effect: String?
+  let audioQuality: String?
+  let audioFormat: String?
+  let minBitrate: Int?
+  let minBitDepth: Int?
+  let minSampleRate: Int?
+  let bestVersion: Int?
+  let bestVersionFull: Int?
+  let sites: [Int]?
+  let filterGroups: [String]?
+  let downloader: String?
+  let savePath: String?
+  let keyword: String?
+  let filter: String?
+  let include: String?
+  let exclude: String?
+  let customWords: String?
+  let episodeGroup: String?
+  let mediaCategory: String?
+  let mediaCategoryID: String?
+  let searchImdbID: Int?
+  let searchInterval: Int?
+
+  var isMusic: Bool { type == "音乐" }
+
+  var seasonLabel: String? {
+    guard type == "电视剧", let season, season > 0 else { return nil }
+    return "第 \(season) 季"
+  }
+
+  var displayTitle: String {
+    if let seasonLabel {
+      return "\(name) \(seasonLabel)"
+    }
+    return name
+  }
+
+  var metadataSummary: String {
+    var parts: [String] = []
+    if let date = date?.trimmingCharacters(in: .whitespacesAndNewlines), !date.isEmpty {
+      parts.append(date)
+    }
+    if let year = year?.trimmingCharacters(in: .whitespacesAndNewlines), !year.isEmpty {
+      parts.append(year)
+    }
+    return parts.joined(separator: " · ")
+  }
+
+  var detailIdentity: NativeMediaIdentity? {
+    let resolvedType = type ?? "电影"
+    guard ["电影", "电视剧"].contains(resolvedType) else { return nil }
+    if let source = mediaSource, !source.isEmpty, let mediaID, !mediaID.isEmpty {
+      return NativeMediaIdentity(
+        source: source,
+        mediaID: mediaID,
+        type: resolvedType,
+        seedTitle: name,
+        seedPoster: poster
+      )
+    }
+    if let tmdbID, tmdbID > 0 {
+      return NativeMediaIdentity(
+        source: "themoviedb",
+        mediaID: String(tmdbID),
+        type: resolvedType,
+        seedTitle: name,
+        seedPoster: poster
+      )
+    }
+    if let doubanID, !doubanID.isEmpty {
+      return NativeMediaIdentity(
+        source: "douban",
+        mediaID: doubanID,
+        type: resolvedType,
+        seedTitle: name,
+        seedPoster: poster
+      )
+    }
+    return nil
+  }
+
+  /// 构造 `POST /api/v1/subscribe/` 重订阅写入字典，剔除只读运行字段并完整保留原订阅规则。
+  func reSubscribeWritePayload(fallbackType: String) -> [String: Any] {
+    let resolvedType =
+      (type?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+        $0.isEmpty ? nil : $0
+      } ?? fallbackType
+    var payload: [String: Any] = [
+      "name": name,
+      "type": resolvedType,
+    ]
+    if let year = year?.trimmingCharacters(in: .whitespacesAndNewlines), !year.isEmpty {
+      payload["year"] = year
+    }
+    if let source = mediaSource?.trimmingCharacters(in: .whitespacesAndNewlines), !source.isEmpty,
+      let mid = mediaID?.trimmingCharacters(in: .whitespacesAndNewlines), !mid.isEmpty
+    {
+      payload["media_source"] = source
+      payload["media_id"] = mid
+    } else if let tmdbID, tmdbID > 0 {
+      payload["media_source"] = "themoviedb"
+      payload["media_id"] = String(tmdbID)
+    } else if let doubanID = doubanID?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !doubanID.isEmpty
+    {
+      payload["media_source"] = "douban"
+      payload["media_id"] = doubanID
+    } else if let bangumiID, bangumiID > 0 {
+      payload["media_source"] = "bangumi"
+      payload["media_id"] = String(bangumiID)
+    }
+    if resolvedType == "电视剧", let season, season > 0 {
+      payload["season"] = season
+    }
+    if let musicType, !musicType.isEmpty { payload["music_type"] = musicType }
+    if let totalTracks, totalTracks > 0 { payload["total_tracks"] = totalTracks }
+    if let totalEpisode, totalEpisode > 0 { payload["total_episode"] = totalEpisode }
+    if let startEpisode, startEpisode > 0 { payload["start_episode"] = startEpisode }
+    if let quality, !quality.isEmpty { payload["quality"] = quality }
+    if let resolution, !resolution.isEmpty { payload["resolution"] = resolution }
+    if let effect, !effect.isEmpty { payload["effect"] = effect }
+    if let audioQuality, !audioQuality.isEmpty { payload["audio_quality"] = audioQuality }
+    if let audioFormat, !audioFormat.isEmpty { payload["audio_format"] = audioFormat }
+    if let minBitrate, minBitrate > 0 { payload["min_bitrate"] = minBitrate }
+    if let minBitDepth, minBitDepth > 0 { payload["min_bit_depth"] = minBitDepth }
+    if let minSampleRate, minSampleRate > 0 { payload["min_sample_rate"] = minSampleRate }
+    if let bestVersion { payload["best_version"] = bestVersion }
+    if let bestVersionFull { payload["best_version_full"] = bestVersionFull }
+    if let sites, !sites.isEmpty { payload["sites"] = sites }
+    if let filterGroups, !filterGroups.isEmpty { payload["filter_groups"] = filterGroups }
+    if let downloader, !downloader.isEmpty { payload["downloader"] = downloader }
+    if let savePath, !savePath.isEmpty { payload["save_path"] = savePath }
+    if let keyword, !keyword.isEmpty { payload["keyword"] = keyword }
+    if let filter, !filter.isEmpty { payload["filter"] = filter }
+    if let include, !include.isEmpty { payload["include"] = include }
+    if let exclude, !exclude.isEmpty { payload["exclude"] = exclude }
+    if let customWords, !customWords.isEmpty { payload["custom_words"] = customWords }
+    if let episodeGroup, !episodeGroup.isEmpty { payload["episode_group"] = episodeGroup }
+    if let mediaCategory, !mediaCategory.isEmpty { payload["media_category"] = mediaCategory }
+    if let mediaCategoryID, !mediaCategoryID.isEmpty {
+      payload["media_category_id"] = mediaCategoryID
+    }
+    if let searchImdbID { payload["search_imdbid"] = searchImdbID }
+    if let searchInterval, searchInterval > 0 { payload["search_interval"] = searchInterval }
+    return payload
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, name, year, type, season, poster, vote, description, date, sites, downloader
+    case quality, resolution, effect, keyword, filter, include, exclude
+    case musicType = "music_type"
+    case totalTracks = "total_tracks"
+    case mediaSource = "media_source"
+    case mediaID = "media_id"
+    case tmdbID = "tmdbid"
+    case doubanID = "doubanid"
+    case bangumiID = "bangumiid"
+    case totalEpisode = "total_episode"
+    case startEpisode = "start_episode"
+    case audioQuality = "audio_quality"
+    case audioFormat = "audio_format"
+    case minBitrate = "min_bitrate"
+    case minBitDepth = "min_bit_depth"
+    case minSampleRate = "min_sample_rate"
+    case bestVersion = "best_version"
+    case bestVersionFull = "best_version_full"
+    case filterGroups = "filter_groups"
+    case savePath = "save_path"
+    case customWords = "custom_words"
+    case episodeGroup = "episode_group"
+    case mediaCategory = "media_category"
+    case mediaCategoryID = "media_category_id"
+    case searchImdbID = "search_imdbid"
+    case searchInterval = "search_interval"
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(Int.self, forKey: .id)
+    name = (try? c.decode(String.self, forKey: .name)) ?? ""
+    year = try? c.decodeIfPresent(String.self, forKey: .year)
+    type = try? c.decodeIfPresent(String.self, forKey: .type)
+    musicType = try? c.decodeIfPresent(String.self, forKey: .musicType)
+    totalTracks = try? c.decodeIfPresent(Int.self, forKey: .totalTracks)
+    season = try? c.decodeIfPresent(Int.self, forKey: .season)
+    poster = try? c.decodeIfPresent(String.self, forKey: .poster)
+    vote = try? c.decodeIfPresent(Double.self, forKey: .vote)
+    description = try? c.decodeIfPresent(String.self, forKey: .description)
+    date = try? c.decodeIfPresent(String.self, forKey: .date)
+    mediaSource = try? c.decodeIfPresent(String.self, forKey: .mediaSource)
+    mediaID = try? c.decodeIfPresent(String.self, forKey: .mediaID)
+    tmdbID = try? c.decodeIfPresent(Int.self, forKey: .tmdbID)
+    doubanID = try? c.decodeIfPresent(String.self, forKey: .doubanID)
+    bangumiID = try? c.decodeIfPresent(Int.self, forKey: .bangumiID)
+    totalEpisode = try? c.decodeIfPresent(Int.self, forKey: .totalEpisode)
+    startEpisode = try? c.decodeIfPresent(Int.self, forKey: .startEpisode)
+    quality = try? c.decodeIfPresent(String.self, forKey: .quality)
+    resolution = try? c.decodeIfPresent(String.self, forKey: .resolution)
+    effect = try? c.decodeIfPresent(String.self, forKey: .effect)
+    audioQuality = try? c.decodeIfPresent(String.self, forKey: .audioQuality)
+    audioFormat = try? c.decodeIfPresent(String.self, forKey: .audioFormat)
+    minBitrate = try? c.decodeIfPresent(Int.self, forKey: .minBitrate)
+    minBitDepth = try? c.decodeIfPresent(Int.self, forKey: .minBitDepth)
+    minSampleRate = try? c.decodeIfPresent(Int.self, forKey: .minSampleRate)
+    bestVersion =
+      (try? c.decodeIfPresent(Int.self, forKey: .bestVersion))
+      ?? ((try? c.decodeIfPresent(Bool.self, forKey: .bestVersion)).map { $0 ? 1 : 0 })
+    bestVersionFull =
+      (try? c.decodeIfPresent(Int.self, forKey: .bestVersionFull))
+      ?? ((try? c.decodeIfPresent(Bool.self, forKey: .bestVersionFull)).map { $0 ? 1 : 0 })
+    sites = try? c.decodeIfPresent([Int].self, forKey: .sites)
+    filterGroups = try? c.decodeIfPresent([String].self, forKey: .filterGroups)
+    downloader = try? c.decodeIfPresent(String.self, forKey: .downloader)
+    savePath = try? c.decodeIfPresent(String.self, forKey: .savePath)
+    keyword = try? c.decodeIfPresent(String.self, forKey: .keyword)
+    filter = try? c.decodeIfPresent(String.self, forKey: .filter)
+    include = try? c.decodeIfPresent(String.self, forKey: .include)
+    exclude = try? c.decodeIfPresent(String.self, forKey: .exclude)
+    customWords = try? c.decodeIfPresent(String.self, forKey: .customWords)
+    episodeGroup = try? c.decodeIfPresent(String.self, forKey: .episodeGroup)
+    mediaCategory = try? c.decodeIfPresent(String.self, forKey: .mediaCategory)
+    mediaCategoryID = try? c.decodeIfPresent(String.self, forKey: .mediaCategoryID)
+    searchImdbID =
+      (try? c.decodeIfPresent(Int.self, forKey: .searchImdbID))
+      ?? ((try? c.decodeIfPresent(Bool.self, forKey: .searchImdbID)).map { $0 ? 1 : 0 })
+    searchInterval = try? c.decodeIfPresent(Int.self, forKey: .searchInterval)
   }
 }

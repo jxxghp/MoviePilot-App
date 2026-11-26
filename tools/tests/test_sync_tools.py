@@ -62,6 +62,44 @@ class SyncToolsTests(unittest.TestCase):
             ref_sub = {r for r in refs if r.startswith(sub + "/")}
             self.assertEqual(ref_sub, on_disk, f"{sub} 截图引用与磁盘文件不一致")
 
+    def test_verify_apk_rejects_debug_cert_when_release_cert_required(self):
+        import tempfile
+        import zipfile
+
+        apk_spec = importlib.util.spec_from_file_location(
+            "verify_apk", ROOT / "tools/android/verify-apk.py"
+        )
+        verify_apk_mod = importlib.util.module_from_spec(apk_spec)
+        assert apk_spec and apk_spec.loader
+        apk_spec.loader.exec_module(verify_apk_mod)
+
+        def build_synthetic_apk(target_path: Path, cert_cn: bytes) -> None:
+            with zipfile.ZipFile(target_path, "w") as zf:
+                zf.writestr("AndroidManifest.xml", b"manifest\x002.0.5\x00")
+                zf.writestr("classes.dex", b"dex\n039\x00")
+                zf.writestr("lib/arm64-v8a/libmoviepilot_core.so", b"\x7fELF")
+                for idx in range(73):
+                    zf.writestr(f"assets/community_medals/m_{idx}.svg", b"<svg/>")
+                for idx in range(36):
+                    zf.writestr(f"res/drawable/logo_brand_{idx}.png", b"png")
+                zf.writestr("META-INF/CERT.RSA", b"CERT:" + cert_cn)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            debug_apk = Path(tmp) / "debug-signed.apk"
+            release_apk = Path(tmp) / "release-signed.apk"
+            build_synthetic_apk(debug_apk, b"CN=Android Debug,O=Android,C=US")
+            build_synthetic_apk(release_apk, b"CN=MoviePilot,OU=Mobile,O=MoviePilot,C=CN")
+
+            # 普通 CI 门禁允许无密钥回退验证打包结构
+            report_ci = verify_apk_mod.verify_apk(debug_apk, "2.0.5", ["arm64-v8a"], False)
+            self.assertEqual(report_ci["abis"], ["arm64-v8a"])
+
+            # 正式发版门禁必须拒绝 Android Debug 临时证书，放行固定发布证书
+            with self.assertRaises(ValueError):
+                verify_apk_mod.verify_apk(debug_apk, "2.0.5", ["arm64-v8a"], True)
+            report_rel = verify_apk_mod.verify_apk(release_apk, "2.0.5", ["arm64-v8a"], True)
+            self.assertEqual(report_rel["expectedVersion"], "2.0.5")
+
 
 if __name__ == "__main__":
     unittest.main()

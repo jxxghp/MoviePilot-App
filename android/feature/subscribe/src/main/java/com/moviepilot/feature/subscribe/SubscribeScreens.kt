@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.OpenInBrowser
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.UnfoldMore
@@ -73,6 +75,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -156,6 +159,7 @@ fun SubscriptionsScreen(
     onBack: (() -> Unit)? = null,
     onOpenCalendar: () -> Unit,
     onOpenCommunity: () -> Unit,
+    onOpenSubscribeHistory: (initialType: String) -> Unit = {},
     onOpenMedia: (MediaCardItem) -> Unit = {},
     onPlayMedia: ((MediaPlaybackRequest) -> Unit)? = null,
     onOpenServerItem: ((itemId: String, server: String, fallbackTitle: String) -> Unit)? = null,
@@ -172,7 +176,6 @@ fun SubscriptionsScreen(
     var selectedCategory by rememberSaveable(initialCategory) {
         mutableStateOf(if (initialCategory in filterKeys) initialCategory!! else "all")
     }
-    val rootPagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
     val initialCached = remember { repository.cachedSubscriptions }
     val cardCols = AdaptiveDeviceLayout.cardGridColumns()
@@ -214,258 +217,258 @@ fun SubscriptionsScreen(
     ExpressiveTintedScaffold(
         title = if (onBack == null) "订阅" else "我的订阅",
         onBack = onBack,
-        actions = {
+        centerTitle = true,
+        leadingActions = {
             ExpressiveHeaderActionButton(
                 icon = Icons.Rounded.CalendarMonth,
                 contentDescription = "追剧日历",
                 onClick = onOpenCalendar,
             )
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.LocalFireDepartment,
+                contentDescription = "订阅广场",
+                onClick = onOpenCommunity,
+            )
         },
-        headerExtra = {
-            val myTabTitle = if (isLoading && items.isEmpty()) "我的订阅" else "我的订阅 (${items.size})"
-            ExpressivePillTabRow(
-                tabs = listOf(myTabTitle, "订阅广场"),
-                selectedIndex = rootPagerState.currentPage,
-                onSelect = { idx -> scope.launch { rootPagerState.animateScrollToPage(idx) } },
-                onTintedHeader = true,
+        actions = {
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.History,
+                contentDescription = "订阅历史",
+                onClick = {
+                    val mtype = when (selectedCategory) {
+                        "tv" -> "电视剧"
+                        "music" -> "音乐"
+                        else -> "电影"
+                    }
+                    onOpenSubscribeHistory(mtype)
+                },
             )
         },
     ) {
-        HorizontalPager(state = rootPagerState, modifier = Modifier.fillMaxSize()) { rootIdx ->
-            if (rootIdx == 1) {
-                SubscribeCommunityContent(
-                    repository = repository,
-                    onOpenMedia = onOpenMedia,
-                    bottomPadding = bottomOverlayInset + 20.dp,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                val movieCnt = items.count { it.type == "电影" }
-                val tvCnt = items.count { it.type == "电视剧" }
-                val musicCnt = items.count { it.type == "音乐" }
-                val showCounts = !isLoading || items.isNotEmpty()
-                val filterChips = listOf(
-                    "all" to if (showCounts) "全部 ${items.size}" else "全部",
-                    "movie" to if (showCounts) "电影 $movieCnt" else "电影",
-                    "tv" to if (showCounts) "电视剧 $tvCnt" else "电视剧",
-                    "music" to if (showCounts) "音乐 $musicCnt" else "音乐",
-                )
-                val filtered = remember(items, selectedCategory) {
-                    when (selectedCategory) {
-                        "movie" -> items.filter { it.type == "电影" }
-                        "tv" -> items.filter { it.type == "电视剧" }
-                        "music" -> items.filter { it.type == "音乐" }
-                        else -> items
-                    }
+        val movieCnt = items.count { it.type == "电影" }
+        val tvCnt = items.count { it.type == "电视剧" }
+        val musicCnt = items.count { it.type == "音乐" }
+        val showCounts = !isLoading || items.isNotEmpty()
+        val filterChips = listOf(
+            "all" to if (showCounts) "全部 ${items.size}" else "全部",
+            "movie" to if (showCounts) "电影 $movieCnt" else "电影",
+            "tv" to if (showCounts) "电视剧 $tvCnt" else "电视剧",
+            "music" to if (showCounts) "音乐 $musicCnt" else "音乐",
+        )
+        val filtered = remember(items, selectedCategory) {
+            when (selectedCategory) {
+                "movie" -> items.filter { it.type == "电影" }
+                "tv" -> items.filter { it.type == "电视剧" }
+                "music" -> items.filter { it.type == "音乐" }
+                else -> items
+            }
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = margin, vertical = if (compactHeight) 6.dp else 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(filterChips) { (key, label) ->
+                    NativeAdaptivePill(
+                        title = label,
+                        selected = selectedCategory == key,
+                        onClick = { selectedCategory = key },
+                    )
                 }
+            }
 
-                Column(modifier = Modifier.fillMaxSize()) {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = margin, vertical = if (compactHeight) 6.dp else 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    isRefreshing = true
+                    scope.launch { loadSubs(forceRefresh = true) }
+                },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) {
+                if (isLoading && items.isEmpty()) {
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.PosterRow,
+                        count = 5,
+                        columns = cardCols,
+                        contentPadding = PaddingValues(
+                            start = margin,
+                            end = margin,
+                            bottom = bottomOverlayInset + 20.dp,
+                        ),
+                    )
+                } else if (filtered.isEmpty()) {
+                    LazyColumn(
+                        contentPadding = PaddingValues(
+                            start = margin,
+                            end = margin,
+                            top = 8.dp,
+                            bottom = bottomOverlayInset + 20.dp,
+                        ),
+                        modifier = Modifier.fillMaxSize(),
                     ) {
-                        items(filterChips) { (key, label) ->
-                            NativeAdaptivePill(
-                                title = label,
-                                selected = selectedCategory == key,
-                                onClick = { selectedCategory = key },
-                            )
-                        }
-                    }
-
-                    PullToRefreshBox(
-                        isRefreshing = isRefreshing,
-                        onRefresh = {
-                            isRefreshing = true
-                            scope.launch { loadSubs(forceRefresh = true) }
-                        },
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                    ) {
-                        if (isLoading && items.isEmpty()) {
-                            NativeCardListSkeleton(
-                                style = SkeletonCardStyle.PosterRow,
-                                count = 5,
-                                columns = cardCols,
-                                contentPadding = PaddingValues(
-                                    start = margin,
-                                    end = margin,
-                                    bottom = bottomOverlayInset + 20.dp,
-                                ),
-                            )
-                        } else if (filtered.isEmpty()) {
-                            LazyColumn(
-                                contentPadding = PaddingValues(
-                                    start = margin,
-                                    end = margin,
-                                    top = 8.dp,
-                                    bottom = bottomOverlayInset + 20.dp,
-                                ),
-                                modifier = Modifier.fillMaxSize(),
-                            ) {
-                                item {
-                                    CinematicPanel(padding = 24.dp, showsShadow = false) {
-                                        Column(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        ) {
-                                            Icon(Icons.Rounded.VideoLibrary, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(36.dp))
-                                            Text("当前分类暂无订阅条目", color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
-                                            Text("可点击底栏「搜索」添加影视剧，或切换至「订阅广场」发现热门分享。", color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
-                                        }
-                                    }
+                        item {
+                            CinematicPanel(padding = 24.dp, showsShadow = false) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Icon(Icons.Rounded.VideoLibrary, contentDescription = null, tint = colors.textMuted, modifier = Modifier.size(36.dp))
+                                    Text("当前分类暂无订阅条目", color = colors.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
+                                    Text("可点击底栏「搜索」添加影视剧，或点击左上角「订阅广场」发现热门分享。", color = colors.textSecondary, fontSize = 13.sp, textAlign = TextAlign.Center)
                                 }
                             }
-                        } else {
-                        LazyColumn(
-                            state = listState,
-                            contentPadding = PaddingValues(
-                                start = margin,
-                                end = margin,
-                                bottom = bottomOverlayInset + 20.dp,
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            items(filtered, key = { "${selectedCategory}-${it.id}-${it.name}" }) { sub ->
-                        val progress = remember(sub.totalEpisode, sub.lackEpisode) {
-                            RustCoreBridge.subscribeProgress(sub.totalEpisode, sub.lackEpisode)
                         }
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(
+                            start = margin,
+                            end = margin,
+                            bottom = bottomOverlayInset + 20.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(filtered, key = { "${selectedCategory}-${it.id}-${it.name}" }) { sub ->
+                            val progress = remember(sub.totalEpisode, sub.lackEpisode) {
+                                RustCoreBridge.subscribeProgress(sub.totalEpisode, sub.lackEpisode)
+                            }
 
-                        CinematicPanel(
-                            padding = 14.dp,
-                            modifier = Modifier.clickable { viewingFilesItem = sub },
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                            CinematicPanel(
+                                padding = 14.dp,
+                                modifier = Modifier.clickable { viewingFilesItem = sub },
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(72.dp)
-                                        .height(106.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Brush.linearGradient(listOf(colors.accent.copy(alpha = 0.35f), Color(0xFF28203A)))),
-                                    contentAlignment = Alignment.Center,
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    if (!sub.poster.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = sub.poster,
-                                            contentDescription = sub.name,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    } else {
-                                        Text(sub.name.take(2), color = Color.White, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
+                                    Box(
+                                        modifier = Modifier
+                                            .width(72.dp)
+                                            .height(106.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Brush.linearGradient(listOf(colors.accent.copy(alpha = 0.35f), Color(0xFF28203A)))),
+                                        contentAlignment = Alignment.Center,
                                     ) {
-                                        val title = if (sub.season != null && sub.type == "电视剧") {
-                                            "${sub.name} S%02d".format(sub.season)
+                                        if (!sub.poster.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = sub.poster,
+                                                contentDescription = sub.name,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
                                         } else {
-                                            sub.name
+                                            Text(sub.name.take(2), color = Color.White, fontWeight = FontWeight.Bold)
                                         }
-                                        Text(
-                                            text = title,
-                                            color = colors.textPrimary,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Spacer(Modifier.width(8.dp))
-                                        NativeAdaptiveBadge(
-                                            text = if (sub.state == "S") "已暂停" else "订阅中",
-                                            tint = if (sub.state == "S") colors.warning else colors.success,
-                                        )
                                     }
 
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(
-                                            text = listOfNotNull(sub.year.takeIf(String::isNotBlank), sub.type).joinToString(" · "),
-                                            color = colors.textSecondary,
-                                            fontSize = 13.sp,
-                                        )
-                                        if (sub.vote > 0.0) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFFC845), modifier = Modifier.size(13.dp))
-                                                Text(" ${String.format("%.1f", sub.vote)}", color = colors.warning, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            val title = if (sub.season != null && sub.type == "电视剧") {
+                                                "${sub.name} S%02d".format(sub.season)
+                                            } else {
+                                                sub.name
+                                            }
+                                            Text(
+                                                text = title,
+                                                color = colors.textPrimary,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            NativeAdaptiveBadge(
+                                                text = if (sub.state == "S") "已暂停" else "订阅中",
+                                                tint = if (sub.state == "S") colors.warning else colors.success,
+                                            )
+                                        }
+
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text(
+                                                text = listOfNotNull(sub.year.takeIf(String::isNotBlank), sub.type).joinToString(" · "),
+                                                color = colors.textSecondary,
+                                                fontSize = 13.sp,
+                                            )
+                                            if (sub.vote > 0.0) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFFC845), modifier = Modifier.size(13.dp))
+                                                    Text(" ${String.format("%.1f", sub.vote)}", color = colors.warning, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                                }
+                                            }
+                                        }
+
+                                        if (sub.type == "电视剧" && sub.totalEpisode > 0) {
+                                            Text("已更新 ${progress.completed} / ${progress.total} 集", color = colors.textSecondary, fontSize = 12.sp)
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(4.dp)
+                                                    .clip(CircleShape)
+                                                    .background(colors.chipFill),
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth(progress.ratio.toFloat().coerceIn(0.03f, 1f))
+                                                        .height(4.dp)
+                                                        .clip(CircleShape)
+                                                        .background(colors.accent),
+                                                )
+                                            }
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            NativeAdaptivePill(
+                                                title = if (sub.state == "S") "恢复" else "暂停",
+                                                selected = false,
+                                                icon = if (sub.state == "S") Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                                                onClick = { toggleSubWithUndo(sub) },
+                                            )
+                                            NativeAdaptivePill(
+                                                title = "文件",
+                                                selected = false,
+                                                icon = Icons.Rounded.FolderOpen,
+                                                onClick = { viewingFilesItem = sub },
+                                            )
+                                            NativeAdaptivePill(
+                                                title = "编辑",
+                                                selected = false,
+                                                icon = Icons.Rounded.Edit,
+                                                onClick = { editingItem = sub },
+                                            )
+                                            Spacer(Modifier.weight(1f))
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(34.dp)
+                                                    .clip(CircleShape)
+                                                    .background(colors.danger.copy(alpha = if (colors.isDark) 0.16f else 0.11f))
+                                                    .clickable { confirmDeleteItem = sub },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.Delete,
+                                                    contentDescription = "删除订阅",
+                                                    tint = colors.danger,
+                                                    modifier = Modifier.size(17.dp),
+                                                )
                                             }
                                         }
                                     }
-
-                                    if (sub.type == "电视剧" && sub.totalEpisode > 0) {
-                                        Text("已更新 ${progress.completed} / ${progress.total} 集", color = colors.textSecondary, fontSize = 12.sp)
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(4.dp)
-                                                .clip(CircleShape)
-                                                .background(colors.chipFill),
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth(progress.ratio.toFloat().coerceIn(0.03f, 1f))
-                                                    .height(4.dp)
-                                                    .clip(CircleShape)
-                                                    .background(colors.accent),
-                                            )
-                                        }
-                                    }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        NativeAdaptivePill(
-                                            title = if (sub.state == "S") "恢复" else "暂停",
-                                            selected = false,
-                                            icon = if (sub.state == "S") Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                                            onClick = { toggleSubWithUndo(sub) },
-                                        )
-                                        NativeAdaptivePill(
-                                            title = "文件",
-                                            selected = false,
-                                            icon = Icons.Rounded.FolderOpen,
-                                            onClick = { viewingFilesItem = sub },
-                                        )
-                                        NativeAdaptivePill(
-                                            title = "编辑",
-                                            selected = false,
-                                            icon = Icons.Rounded.Edit,
-                                            onClick = { editingItem = sub },
-                                        )
-                                        Spacer(Modifier.weight(1f))
-                                        Box(
-                                            modifier = Modifier
-                                                .size(34.dp)
-                                                .clip(CircleShape)
-                                                .background(colors.danger.copy(alpha = if (colors.isDark) 0.16f else 0.11f))
-                                                .clickable { confirmDeleteItem = sub },
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Icon(
-                                                Icons.Rounded.Delete,
-                                                contentDescription = "删除订阅",
-                                                tint = colors.danger,
-                                                modifier = Modifier.size(17.dp),
-                                            )
-                                        }
-                                    }
                                 }
                             }
-                        }
-                    }
-                        }
                         }
                     }
                 }
@@ -2065,6 +2068,7 @@ private fun SubscribeProgressStatCard(
     }
 }
 
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DownloadFileEntryCard(
@@ -2156,6 +2160,7 @@ private fun DownloadFileEntryCard(
         }
     }
 }
+
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -2360,4 +2365,487 @@ private fun LibraryFileEntryCard(
             }
         }
     }
+}
+
+// ==================== 订阅历史（对齐 Web SubscribeHistoryDialog） ====================
+
+private val SUBSCRIBE_HISTORY_TYPES = listOf("电影", "电视剧", "音乐")
+private const val SUBSCRIBE_HISTORY_PAGE_SIZE = 30
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SubscribeHistoryScreen(
+    repository: MoviePilotRepository,
+    initialType: String = "电影",
+    onBack: () -> Unit,
+    onOpenMedia: (MediaCardItem) -> Unit = {},
+) {
+    val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
+    val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val cardCols = AdaptiveDeviceLayout.cardGridColumns()
+    val scope = rememberCoroutineScope()
+    val snackbar = LocalSnackbarHostState.current
+
+    var selectedType by rememberSaveable(initialType) {
+        mutableStateOf(if (initialType in SUBSCRIBE_HISTORY_TYPES) initialType else "电影")
+    }
+    var items by remember { mutableStateOf<List<SubscribeItemDto>>(emptyList()) }
+    var currentPage by remember { mutableIntStateOf(1) }
+    var hasMore by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var isLoadingMore by remember { mutableStateOf(false) }
+    var loadFailed by remember { mutableStateOf(false) }
+    var reloadTrigger by remember { mutableIntStateOf(0) }
+    var generation by remember { mutableIntStateOf(0) }
+    var reSubscribingId by remember { mutableIntStateOf(-1) }
+    var confirmDeleteItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
+
+    suspend fun loadFirstPage(targetType: String, showSkeleton: Boolean) {
+        generation += 1
+        val myGen = generation
+        if (showSkeleton) isLoading = true
+        isLoadingMore = false
+        loadFailed = false
+        val result = repository.fetchSubscribeHistory(
+            mtype = targetType,
+            page = 1,
+            count = SUBSCRIBE_HISTORY_PAGE_SIZE,
+        )
+        if (myGen != generation) return
+        result.fold(
+            onSuccess = { loaded ->
+                items = loaded
+                currentPage = 2
+                hasMore = loaded.size >= SUBSCRIBE_HISTORY_PAGE_SIZE
+                loadFailed = false
+            },
+            onFailure = {
+                if (items.isEmpty()) loadFailed = true
+            },
+        )
+        isLoading = false
+        isRefreshing = false
+    }
+
+    suspend fun loadNextPageIfNeeded() {
+        if (!hasMore || isLoading || isLoadingMore) return
+        val myGen = generation
+        val targetType = selectedType
+        val targetPage = currentPage
+        isLoadingMore = true
+        val result = repository.fetchSubscribeHistory(
+            mtype = targetType,
+            page = targetPage,
+            count = SUBSCRIBE_HISTORY_PAGE_SIZE,
+        )
+        if (myGen != generation) return
+        result.onSuccess { pageItems ->
+            if (pageItems.isEmpty()) {
+                hasMore = false
+            } else {
+                val existingIds = items.asSequence().map { it.id }.toHashSet()
+                val appended = pageItems.filter { it.id !in existingIds }
+                items = items + appended
+                currentPage = targetPage + 1
+                hasMore = pageItems.size >= SUBSCRIBE_HISTORY_PAGE_SIZE && appended.isNotEmpty()
+            }
+        }
+        isLoadingMore = false
+    }
+
+    LaunchedEffect(selectedType, reloadTrigger) {
+        items = emptyList()
+        loadFirstPage(targetType = selectedType, showSkeleton = true)
+    }
+
+    ExpressiveTintedScaffold(
+        title = "订阅历史",
+        onBack = onBack,
+        actions = {
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.Refresh,
+                contentDescription = "刷新订阅历史",
+                onClick = { reloadTrigger += 1 },
+            )
+        },
+        headerExtra = {
+            ExpressivePillTabRow(
+                tabs = SUBSCRIBE_HISTORY_TYPES,
+                selectedIndex = SUBSCRIBE_HISTORY_TYPES.indexOf(selectedType).coerceAtLeast(0),
+                onSelect = { idx -> selectedType = SUBSCRIBE_HISTORY_TYPES[idx] },
+                onTintedHeader = true,
+            )
+        },
+    ) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                scope.launch { loadFirstPage(targetType = selectedType, showSkeleton = false) }
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            when {
+                isLoading && items.isEmpty() -> {
+                    NativeCardListSkeleton(
+                        style = SkeletonCardStyle.PosterRow,
+                        count = 5,
+                        columns = cardCols,
+                        contentPadding = PaddingValues(
+                            start = margin,
+                            end = margin,
+                            top = 12.dp,
+                            bottom = bottomOverlayInset + 20.dp,
+                        ),
+                    )
+                }
+
+                loadFailed && items.isEmpty() -> {
+                    SubscribeHistoryStatusList(
+                        margin = margin,
+                        bottomPadding = bottomOverlayInset + 20.dp,
+                        headline = "暂时无法载入订阅历史",
+                        description = "请检查网络连接或稍后重试。",
+                        retryLabel = "重试",
+                        onRetry = { reloadTrigger += 1 },
+                    )
+                }
+
+                items.isEmpty() -> {
+                    SubscribeHistoryStatusList(
+                        margin = margin,
+                        bottomPadding = bottomOverlayInset + 20.dp,
+                        headline = "没有已完成的订阅",
+                        description = "完成的订阅会显示在这里",
+                    )
+                }
+
+                else -> {
+                    LazyColumn(
+                        contentPadding = PaddingValues(
+                            start = margin,
+                            end = margin,
+                            top = 12.dp,
+                            bottom = bottomOverlayInset + 24.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(items, key = { "${selectedType}-${it.id}" }) { sub ->
+                            if (sub.id == items.lastOrNull()?.id && hasMore) {
+                                LaunchedEffect(sub.id, items.size) {
+                                    loadNextPageIfNeeded()
+                                }
+                            }
+                            SubscribeHistoryItemCard(
+                                item = sub,
+                                isReSubscribing = reSubscribingId == sub.id,
+                                busy = reSubscribingId != -1,
+                                onOpenDetail = {
+                                    sub.toHistoryMediaCardOrNull()?.let(onOpenMedia)
+                                },
+                                onReSubscribe = {
+                                    if (reSubscribingId != -1) return@SubscribeHistoryItemCard
+                                    reSubscribingId = sub.id
+                                    scope.launch {
+                                        val (ok, msg) = repository.reSubscribeFromHistory(
+                                            item = sub,
+                                            fallbackType = selectedType,
+                                        )
+                                        reSubscribingId = -1
+                                        snackbar?.showSnackbar(msg)
+                                    }
+                                },
+                                onDelete = { confirmDeleteItem = sub },
+                            )
+                        }
+                        if (isLoadingMore) {
+                            item(key = "history-loading-more") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text("正在加载更多…", color = colors.textSecondary, fontSize = 12.5.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    confirmDeleteItem?.let { target ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteItem = null },
+            title = { Text("删除订阅历史") },
+            text = { Text("确认删除「${target.historyDisplayTitle()}」的订阅历史记录吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteItem = null
+                        scope.launch {
+                            val ok = repository.deleteSubscribeHistory(target.id)
+                            if (ok) {
+                                items = items.filterNot { it.id == target.id }
+                                generation += 1
+                                currentPage = (items.size / SUBSCRIBE_HISTORY_PAGE_SIZE) + 1
+                                snackbar?.showSnackbar("已删除「${target.historyDisplayTitle()}」的订阅历史记录")
+                            } else {
+                                snackbar?.showSnackbar("删除订阅历史失败，请稍后重试")
+                            }
+                        }
+                    },
+                ) {
+                    Text("删除", color = colors.danger, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteItem = null }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun SubscribeHistoryStatusList(
+    margin: androidx.compose.ui.unit.Dp,
+    bottomPadding: androidx.compose.ui.unit.Dp,
+    headline: String,
+    description: String,
+    retryLabel: String? = null,
+    onRetry: (() -> Unit)? = null,
+) {
+    val colors = LocalMoviePilotColors.current
+    LazyColumn(
+        contentPadding = PaddingValues(
+            start = margin,
+            end = margin,
+            top = 12.dp,
+            bottom = bottomPadding,
+        ),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        item {
+            CinematicPanel(padding = 28.dp, showsShadow = false) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.History,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(36.dp),
+                    )
+                    Text(
+                        text = headline,
+                        color = colors.textPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = description,
+                        color = colors.textSecondary,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                    if (retryLabel != null && onRetry != null) {
+                        NativeAdaptivePill(
+                            title = retryLabel,
+                            selected = true,
+                            icon = Icons.Rounded.Refresh,
+                            tint = colors.accent,
+                            onClick = onRetry,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubscribeHistoryItemCard(
+    item: SubscribeItemDto,
+    isReSubscribing: Boolean,
+    busy: Boolean,
+    onOpenDetail: () -> Unit,
+    onReSubscribe: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val isMusic = item.type == "音乐"
+    val canOpenDetail = item.toHistoryMediaCardOrNull() != null
+
+    CinematicPanel(
+        padding = 14.dp,
+        modifier = if (canOpenDetail) Modifier.clickable(onClick = onOpenDetail) else Modifier,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(68.dp)
+                    .height(if (isMusic) 68.dp else 102.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(Brush.linearGradient(listOf(colors.accent.copy(alpha = 0.32f), Color(0xFF28203A)))),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!item.poster.isNullOrBlank()) {
+                    AsyncImage(
+                        model = item.poster,
+                        contentDescription = item.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Text(item.name.take(2), color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = item.name,
+                        color = colors.textPrimary,
+                        fontSize = 15.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (item.type == "电视剧" && (item.season ?: 0) > 0) {
+                        NativeAdaptiveBadge(
+                            text = "第 ${item.season} 季",
+                            tint = colors.accent,
+                        )
+                    }
+                }
+
+                val metaText = listOfNotNull(
+                    item.date.takeIf(String::isNotBlank),
+                    item.year.takeIf(String::isNotBlank),
+                ).joinToString(" · ")
+                if (metaText.isNotBlank() || item.vote > 0.0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (metaText.isNotBlank()) {
+                            Text(
+                                text = metaText,
+                                color = colors.textSecondary,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (item.vote > 0.0) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Rounded.Star,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFC845),
+                                    modifier = Modifier.size(12.dp),
+                                )
+                                Text(
+                                    text = " ${String.format("%.1f", item.vote)}",
+                                    color = colors.warning,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (item.description.isNotBlank()) {
+                    Text(
+                        text = item.description,
+                        color = colors.textSecondary,
+                        fontSize = 12.5.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    NativeAdaptivePill(
+                        title = if (isReSubscribing) "重新订阅中…" else "重新订阅",
+                        selected = false,
+                        icon = Icons.Rounded.Replay,
+                        tint = colors.accent,
+                        onClick = { if (!busy) onReSubscribe() },
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Box(
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(colors.danger.copy(alpha = if (colors.isDark) 0.16f else 0.11f))
+                            .clickable(enabled = !busy, onClick = onDelete),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = "删除订阅历史",
+                            tint = colors.danger,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun SubscribeItemDto.historyDisplayTitle(): String =
+    if (type == "电视剧" && (season ?: 0) > 0) "$name 第 $season 季" else name
+
+private fun SubscribeItemDto.toHistoryMediaCardOrNull(): MediaCardItem? {
+    if (type == "音乐") return null
+    val rawId = mediaId.trim()
+    if (rawId.isEmpty()) return null
+    val src = mediaSource.ifBlank { "themoviedb" }
+    val tmdb = if (src == "themoviedb" || src == "tmdb") rawId.removePrefix("tmdb:").toIntOrNull() else null
+    val douban = if (src == "douban") rawId.removePrefix("douban:") else null
+    val bangumi = if (src == "bangumi") rawId.removePrefix("bangumi:").toIntOrNull() else null
+    return MediaCardItem(
+        title = name,
+        year = year,
+        type = type.ifBlank { "电影" },
+        overview = description,
+        posterPath = poster,
+        backdropPath = backdrop ?: poster,
+        voteAverage = vote,
+        source = src,
+        tmdbId = tmdb,
+        doubanId = douban,
+        bangumiId = bangumi,
+        mediaId = rawId,
+        season = season,
+    )
 }

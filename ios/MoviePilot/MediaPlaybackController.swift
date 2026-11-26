@@ -681,8 +681,9 @@ final class MediaPlaybackClient {
   }
 
   /// 加载本地或云盘存储音视频播放清单：
-  /// - 所有非 `.strm` 存储文件均优先通过 `stream-ticket` + `stream-info` 获取 HTTP Range 流地址与同名 LRC 歌词，实现边加载边播放；
-  /// - 仅当 `.strm` 指针文件、存储不支持 Range 流式读取或旧版后端无票据能力时，回退至 `POST /api/v1/storage/download` 缓存临时文件播放。
+  /// - 所有非 `.strm` 音视频文件严格通过 `stream-ticket` + `stream-info` 获取 HTTP Range 流地址与同名 LRC 歌词，边加载边播放，
+  ///   严禁回退 `POST /api/v1/storage/download` 下载整部媒体文件（避免在服务端 `TEMP_PATH` 与本机临时目录产生大体积副本）；
+  /// - 仅远端 `.strm` 轻量文本指针文件（`<= 64 KB`）在无流票据时读取直链。
   func loadStorageFileManifest(
     storage: String, path: String, fileName: String, isAudio: Bool
   ) async throws -> MediaPlaybackManifest {
@@ -691,10 +692,10 @@ final class MediaPlaybackClient {
       (fileName as NSString).pathExtension.isEmpty
       ? (path as NSString).pathExtension
       : (fileName as NSString).pathExtension
+    let isStrm = PlayableMediaFormat.isStrmExtension(extForTicket)
     let shouldTryStreamTicket =
       !normalizedStorage.isEmpty
-      && (normalizedStorage.lowercased() == "local"
-        || !PlayableMediaFormat.isStrmExtension(extForTicket))
+      && (normalizedStorage.lowercased() == "local" || !isStrm)
     if shouldTryStreamTicket {
       if let ticketId = try await createStorageStreamTicket(
         storage: normalizedStorage, path: path, fileName: fileName, isAudio: isAudio)
@@ -706,9 +707,15 @@ final class MediaPlaybackClient {
         } catch MediaPlaybackError.unauthorized {
           throw MediaPlaybackError.unauthorized
         } catch {
-          // 票据拉流失败时平滑降级到兼容下载路径
+          if !isStrm {
+            throw MediaPlaybackError.streamingUnsupported
+          }
         }
+      } else if !isStrm {
+        throw MediaPlaybackError.streamingUnsupported
       }
+    } else if !isStrm {
+      throw MediaPlaybackError.streamingUnsupported
     }
 
     let url = endpoint(["api", "v1", "storage", "download"])
@@ -726,61 +733,49 @@ final class MediaPlaybackClient {
     request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
     CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: address)
     request.httpBody = try JSONEncoder().encode(payload)
-    let (tempURL, response) = try await session.download(for: request)
+    let (bytes, response) = try await session.bytes(for: request)
     guard let response = response as? HTTPURLResponse else {
       throw MediaPlaybackError.unavailable
     }
     if response.statusCode == 401 {
-      try? FileManager.default.removeItem(at: tempURL)
       throw MediaPlaybackError.unauthorized
     }
     if response.statusCode == 403 {
-      let sample = (try? Data(contentsOf: tempURL, options: .mappedIfSafe).prefix(4_096)) ?? Data()
-      try? FileManager.default.removeItem(at: tempURL)
-      if APIClient.isTokenInvalidForbiddenBody(Data(sample)) {
+      var sample = Data()
+      for try await byte in bytes.prefix(4_096) {
+        sample.append(byte)
+      }
+      if APIClient.isTokenInvalidForbiddenBody(sample) {
         throw MediaPlaybackError.unauthorized
       }
       throw MediaPlaybackError.unavailable
     }
     guard response.statusCode == 200 else {
-      try? FileManager.default.removeItem(at: tempURL)
       throw MediaPlaybackError.unavailable
     }
-    let resolvedExt = ext.isEmpty ? (path as NSString).pathExtension : ext
-    if PlayableMediaFormat.isStrmExtension(resolvedExt) {
-      defer { try? FileManager.default.removeItem(at: tempURL) }
-      guard
-        let strmData = try? Data(contentsOf: tempURL, options: .mappedIfSafe),
-        let spec = PlayableMediaFormat.parseStrmData(strmData, fallbackFileName: fileName)
-      else {
+    if response.expectedContentLength > 65_536 {
+      throw MediaPlaybackError.unavailable
+    }
+    var strmData = Data()
+    strmData.reserveCapacity(1_024)
+    for try await byte in bytes {
+      strmData.append(byte)
+      if strmData.count > 65_536 {
         throw MediaPlaybackError.unavailable
       }
-      let cleanTitle = (fileName as NSString).deletingPathExtension
-      return MediaPlaybackManifest(
-        itemId: "file:\(storage):\(path)",
-        server: nil,
-        title: cleanTitle.isEmpty ? fileName : cleanTitle,
-        contentUrl: spec.url,
-        strmUrl: spec.url,
-        customHeaders: spec.headers,
-        mediaType: spec.kind.rawValue,
-        artist: nil,
-        album: nil,
-        subtitles: [],
-        lyricsUrl: nil
-      )
     }
-    let destination = FileManager.default.temporaryDirectory
-      .appendingPathComponent("moviepilot-play-\(UUID().uuidString)")
-      .appendingPathExtension(resolvedExt.isEmpty ? (isAudio ? "mp3" : "mp4") : resolvedExt)
-    try? FileManager.default.removeItem(at: destination)
-    try FileManager.default.moveItem(at: tempURL, to: destination)
+    guard let spec = PlayableMediaFormat.parseStrmData(strmData, fallbackFileName: fileName) else {
+      throw MediaPlaybackError.unavailable
+    }
+    let cleanTitle = (fileName as NSString).deletingPathExtension
     return MediaPlaybackManifest(
       itemId: "file:\(storage):\(path)",
       server: nil,
-      title: fileName,
-      contentUrl: destination,
-      mediaType: isAudio ? "audio" : "video",
+      title: cleanTitle.isEmpty ? fileName : cleanTitle,
+      contentUrl: spec.url,
+      strmUrl: spec.url,
+      customHeaders: spec.headers,
+      mediaType: spec.kind.rawValue,
       artist: nil,
       album: nil,
       subtitles: [],
@@ -926,6 +921,7 @@ final class MediaPlaybackClient {
 enum MediaPlaybackError: LocalizedError {
   case unavailable
   case unauthorized
+  case streamingUnsupported
   case subtitleUnavailable
   case lyricsUnavailable
   case artworkUnavailable
@@ -935,6 +931,8 @@ enum MediaPlaybackError: LocalizedError {
     switch self {
     case .unavailable: L10n.text("无法读取播放信息，请确认影片仍在媒体库中并检查后台连接。")
     case .unauthorized: L10n.text("登录已过期，请重新登录。")
+    case .streamingUnsupported:
+      L10n.text("当前存储或后端版本暂不支持在线流式播放，请升级 MoviePilot 后端或检查存储配置。")
     case .subtitleUnavailable: L10n.text("字幕读取失败，请选择其他字幕或检查后台连接。")
     case .lyricsUnavailable: L10n.text("无法读取本地歌词。")
     case .artworkUnavailable: L10n.text("无法读取专辑封面。")

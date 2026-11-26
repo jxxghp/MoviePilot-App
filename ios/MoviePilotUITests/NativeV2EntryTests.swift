@@ -3472,6 +3472,7 @@ final class NativeV2EntryTests: XCTestCase {
       "native-user-editor-save", "native-user-editor-cancel",
       "native-more-settings-btn",
       "native-subscriptions-community", "native-subscriptions-calendar",
+      "native-subscriptions-history",
     ].contains(element.identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
       return app.windows.firstMatch.frame.contains(

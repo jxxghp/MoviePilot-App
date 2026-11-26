@@ -2855,6 +2855,31 @@
       "zh-Hans": "无法加载当前媒体流，请检查网络连接或在右上角菜单中切换播放内核重试。",
       "zh-Hant": "無法載入目前媒體串流，請檢查網路連線或在右上角選單中切換播放核心重試。",
       "en": "Unable to load media stream. Check your network connection or switch the playback engine in the top-right menu."
+    },
+    "订阅历史": {
+      "zh-Hans": "订阅历史",
+      "zh-Hant": "訂閱歷史",
+      "en": "Subscription History"
+    },
+    "重新订阅": {
+      "zh-Hans": "重新订阅",
+      "zh-Hant": "重新訂閱",
+      "en": "Resubscribe"
+    },
+    "没有已完成的订阅": {
+      "zh-Hans": "没有已完成的订阅",
+      "zh-Hant": "沒有已完成的訂閱",
+      "en": "No completed subscriptions"
+    },
+    "完成的订阅会显示在这里": {
+      "zh-Hans": "完成的订阅会显示在这里",
+      "zh-Hant": "完成的訂閱會顯示在這裡",
+      "en": "Completed subscription history will be displayed here"
+    },
+    "删除订阅历史": {
+      "zh-Hans": "删除订阅历史",
+      "zh-Hant": "刪除訂閱歷史",
+      "en": "Delete Subscription History"
     }
   }
 }

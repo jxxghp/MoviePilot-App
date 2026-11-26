@@ -81,6 +81,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -135,6 +136,8 @@ fun ExpressiveTintedScaffold(
     title: String,
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
+    leadingActions: (@Composable RowScope.() -> Unit)? = null,
+    centerTitle: Boolean = false,
     actions: (@Composable RowScope.() -> Unit)? = null,
     headerExtra: (@Composable ColumnScope.() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -163,75 +166,148 @@ fun ExpressiveTintedScaffold(
                 ),
             verticalArrangement = Arrangement.spacedBy(if (compactHeight) 6.dp else 12.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = if (onBack != null) 12.dp else 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (onBack != null) {
-                    ExpressiveHeaderActionButton(
-                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "返回上一级",
-                        onClick = onBack,
-                    )
-                }
-                if (compactHeight) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            if (centerTitle) {
+                val hasLeftCluster = onBack != null || leadingActions != null
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = if (hasLeftCluster) 14.dp else 20.dp),
+                ) {
+                    if (hasLeftCluster) {
+                        Row(
+                            modifier = Modifier.align(Alignment.CenterStart),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (onBack != null) {
+                                ExpressiveHeaderActionButton(
+                                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "返回上一级",
+                                    onClick = onBack,
+                                )
+                            }
+                            if (leadingActions != null) {
+                                leadingActions()
+                            }
+                        }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(horizontal = if (onBack != null && leadingActions != null) 136.dp else 104.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         Text(
                             text = title,
                             color = colors.headerTitle,
-                            style = MaterialTheme.typography.titleLarge,
+                            style = if (compactHeight) {
+                                MaterialTheme.typography.titleLarge
+                            } else {
+                                MaterialTheme.typography.headlineMedium
+                            },
+                            textAlign = TextAlign.Center,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
                         )
-                        if (!subtitle.isNullOrBlank()) {
+                        if (!subtitle.isNullOrBlank() && !compactHeight) {
                             Text(
                                 text = subtitle,
                                 color = colors.headerTitle.copy(alpha = 0.72f),
                                 style = MaterialTheme.typography.bodySmall,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (actions != null) {
+                        Row(
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = actions,
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = if (onBack != null || leadingActions != null) 12.dp else 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (onBack != null) {
+                        ExpressiveHeaderActionButton(
+                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "返回上一级",
+                            onClick = onBack,
+                        )
+                    }
+                    if (leadingActions != null) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = leadingActions,
+                        )
+                    }
+                    if (compactHeight) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = title,
+                                color = colors.headerTitle,
+                                style = MaterialTheme.typography.titleLarge,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false),
                             )
+                            if (!subtitle.isNullOrBlank()) {
+                                Text(
+                                    text = subtitle,
+                                    color = colors.headerTitle.copy(alpha = 0.72f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                            }
                         }
-                    }
-                } else {
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            text = title,
-                            color = colors.headerTitle,
-                            style = if (onBack == null) {
-                                MaterialTheme.typography.headlineLarge
-                            } else {
-                                MaterialTheme.typography.headlineMedium
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (!subtitle.isNullOrBlank()) {
+                    } else {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = subtitle,
-                                color = colors.headerTitle.copy(alpha = 0.72f),
-                                style = MaterialTheme.typography.bodySmall,
+                                text = title,
+                                color = colors.headerTitle,
+                                style = if (onBack == null) {
+                                    MaterialTheme.typography.headlineLarge
+                                } else {
+                                    MaterialTheme.typography.headlineMedium
+                                },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            if (!subtitle.isNullOrBlank()) {
+                                Text(
+                                    text = subtitle,
+                                    color = colors.headerTitle.copy(alpha = 0.72f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
-                }
-                if (actions != null) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        content = actions,
-                    )
+                    if (actions != null) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = actions,
+                        )
+                    }
                 }
             }
             if (headerExtra != null) {

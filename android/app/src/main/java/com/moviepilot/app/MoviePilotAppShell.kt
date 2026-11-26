@@ -105,6 +105,7 @@ import com.moviepilot.feature.download.ResourceSearchScreen
 import com.moviepilot.feature.library.FileManagerScreen
 import com.moviepilot.feature.library.TransferHistoryScreen
 import com.moviepilot.feature.media.MediaDetailScreen
+import com.moviepilot.feature.media.MediaSeasonDetailScreen
 import com.moviepilot.feature.media.MediaServerDetailScreen
 import com.moviepilot.feature.media.PersonDetailScreen
 import com.moviepilot.feature.settings.AppearanceSettingsScreen
@@ -122,6 +123,7 @@ import com.moviepilot.feature.settings.SubscribeSearchSettingsScreen
 import com.moviepilot.feature.settings.UsersManagementScreen
 import com.moviepilot.feature.subscribe.CalendarScreen
 import com.moviepilot.feature.subscribe.SubscribeCommunityScreen
+import com.moviepilot.feature.subscribe.SubscribeHistoryScreen
 import com.moviepilot.feature.subscribe.SubscriptionsScreen
 import com.moviepilot.medal3d.CommunityProfile
 import com.moviepilot.medal3d.NativeCommunityMedalShowcaseOverlay
@@ -138,6 +140,7 @@ import com.moviepilot.pluginhost.clearIsolatedPluginWebViewSession
 import com.moviepilot.pluginhost.runtime.AndroidPluginWebViewPool
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaPersonDto
+import com.moviepilot.rustbridge.MediaSeasonDto
 import com.moviepilot.rustbridge.MediaServerLibraryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.MusicAlbumDto
@@ -167,6 +170,12 @@ sealed interface AppRoute {
     data object SettingsHub : AppRoute
     data class GlobalSearch(val query: String = "", val kind: String = "media") : AppRoute
     data class MediaDetail(val item: MediaCardItem) : AppRoute
+    data class MediaSeasonDetail(
+        val seriesItem: MediaCardItem,
+        val season: MediaSeasonDto,
+        val seriesItemId: String = "",
+        val server: String = "",
+    ) : AppRoute
     data class MediaServerDetail(
         val itemId: String,
         val server: String,
@@ -186,6 +195,7 @@ sealed interface AppRoute {
     data class Subscriptions(val category: String? = null) : AppRoute
     data object Calendar : AppRoute
     data object SubscribeCommunity : AppRoute
+    data class SubscribeHistory(val initialType: String = "电影") : AppRoute
     data class Resources(val keyword: String = "") : AppRoute
     data object Downloads : AppRoute
     data class Files(val storage: String = "local", val path: String = "/") : AppRoute
@@ -251,6 +261,7 @@ private fun checkRoutePermission(route: AppRoute, perms: PermissionsFfi): String
         is AppRoute.Subscriptions,
         AppRoute.Calendar,
         AppRoute.SubscribeCommunity,
+        is AppRoute.SubscribeHistory,
         -> if (perms.subscribe) null else "当前账号无订阅管理权限"
 
         else -> null
@@ -1432,6 +1443,9 @@ fun MoviePilotRootShell(
                                                         onBack = null,
                                                         onOpenCalendar = { pushRoute(AppRoute.Calendar) },
                                                         onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
+                                                        onOpenSubscribeHistory = { mtype ->
+                                                            pushRoute(AppRoute.SubscribeHistory(mtype))
+                                                        },
                                                         onOpenMedia = ::openMediaSmart,
                                                         onPlayMedia = ::startPlayback,
                                                         onOpenServerItem = { itemId, server, title ->
@@ -1523,6 +1537,19 @@ fun MoviePilotRootShell(
                                                     onOpenServerDetail = { itemId, server, title ->
                                                         pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
                                                     },
+                                                    onOpenSeasonDetail = { seriesItem, season, seriesItemId, srv ->
+                                                        pushRoute(AppRoute.MediaSeasonDetail(seriesItem, season, seriesItemId, srv))
+                                                    },
+                                                )
+                                                is AppRoute.MediaSeasonDetail -> MediaSeasonDetailScreen(
+                                                    seriesItem = route.seriesItem,
+                                                    initialSeason = route.season,
+                                                    initialSeriesItemId = route.seriesItemId,
+                                                    initialServer = route.server,
+                                                    repository = repository,
+                                                    onBack = ::popRoute,
+                                                    onSearchResource = { kw -> pushRoute(AppRoute.Resources(kw)) },
+                                                    onPlayMedia = ::startPlayback,
                                                 )
                                                 is AppRoute.MediaServerDetail -> MediaServerDetailScreen(
                                                     itemId = route.itemId,
@@ -1589,6 +1616,9 @@ fun MoviePilotRootShell(
                                                     onBack = ::popRoute,
                                                     onOpenCalendar = { pushRoute(AppRoute.Calendar) },
                                                     onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
+                                                    onOpenSubscribeHistory = { mtype ->
+                                                        pushRoute(AppRoute.SubscribeHistory(mtype))
+                                                    },
                                                     onOpenMedia = ::openMediaSmart,
                                                     onPlayMedia = ::startPlayback,
                                                     onOpenServerItem = { itemId, server, title ->
@@ -1604,6 +1634,12 @@ fun MoviePilotRootShell(
                                                     repository = repository,
                                                     onBack = ::popRoute,
                                                     onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
+                                                )
+                                                is AppRoute.SubscribeHistory -> SubscribeHistoryScreen(
+                                                    repository = repository,
+                                                    initialType = route.initialType,
+                                                    onBack = ::popRoute,
+                                                    onOpenMedia = ::openMediaSmart,
                                                 )
                                                 is AppRoute.Resources -> ResourceSearchScreen(repository, route.keyword, onBack = ::popRoute)
                                                 AppRoute.Downloads -> DownloadsScreen(repository, onBack = ::popRoute)

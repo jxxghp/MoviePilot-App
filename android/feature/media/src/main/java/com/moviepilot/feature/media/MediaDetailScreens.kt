@@ -40,6 +40,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BookmarkAdded
@@ -50,6 +51,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
@@ -92,10 +94,13 @@ import com.moviepilot.designsystem.AdaptiveDeviceLayout
 import com.moviepilot.designsystem.CinematicCircleButton
 import com.moviepilot.designsystem.CinematicGlassSurface
 import com.moviepilot.designsystem.CinematicPanel
+import com.moviepilot.designsystem.ExpressiveHeaderActionButton
 import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
+import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
+import com.moviepilot.designsystem.NativeCardListSkeleton
 import com.moviepilot.designsystem.NativeCastRowSkeleton
 import com.moviepilot.designsystem.NativeEntityLogo
 import com.moviepilot.designsystem.NativeEpisodeShelfSkeleton
@@ -107,10 +112,12 @@ import com.moviepilot.designsystem.NativeSectionHeader
 import com.moviepilot.designsystem.NativeSkeletonBlock
 import com.moviepilot.designsystem.NativeTopStatusBarProgressiveBlur
 import com.moviepilot.designsystem.ProvideSkeletonShimmer
+import com.moviepilot.designsystem.SkeletonCardStyle
 import com.moviepilot.designsystem.SkeletonSurfaceRole
 import com.moviepilot.designsystem.nativePosterGridSkeletonItems
 import com.moviepilot.feature.subscribe.SubscribeFilesSheet
 import com.moviepilot.media.MediaPlaybackRequest
+import com.moviepilot.media.QueueTrackSpec
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaEpisodeDto
@@ -143,6 +150,7 @@ fun MediaDetailScreen(
     onOpenPerson: (MediaPersonDto) -> Unit,
     onOpenMedia: (MediaCardItem) -> Unit = {},
     onOpenServerDetail: ((itemId: String, server: String, title: String) -> Unit)? = null,
+    onOpenSeasonDetail: ((seriesItem: MediaCardItem, season: MediaSeasonDto, seriesItemId: String, server: String) -> Unit)? = null,
 ) {
     val colors = LocalMoviePilotColors.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
@@ -182,6 +190,9 @@ fun MediaDetailScreen(
     var activeSubscribeFilesId by remember(item.resolvedId) { mutableStateOf<Int?>(null) }
     var isMutatingSubscribe by remember(item.resolvedId) { mutableStateOf(false) }
     var libraryStatus by remember(item.resolvedId) { mutableStateOf(MediaLibraryStatusDto(inLibrary = item.inLibrary)) }
+    var playableEpisodesBySeason by remember(item.resolvedId) { mutableStateOf<Map<Int, Map<Int, String>>>(emptyMap()) }
+    var remoteExistingBySeason by remember(item.resolvedId) { mutableStateOf<Map<Int, Set<Int>>>(emptyMap()) }
+    var episodeAvailabilityLoaded by remember(item.resolvedId) { mutableStateOf(false) }
     var feedback by remember(item.resolvedId) { mutableStateOf<String?>(null) }
     var feedbackIsError by remember(item.resolvedId) { mutableStateOf(false) }
     var isDetailLoading by remember(item.resolvedId) { mutableStateOf(true) }
@@ -216,16 +227,15 @@ fun MediaDetailScreen(
             }
             credits = creditsDef.await()
             val resolvedIsTv = MoviePilotRepository.isTvType(detail.type) || MoviePilotRepository.isTvType(item.type)
-            val resolvedTmdbId = detail.tmdbId ?: item.tmdbId
-            if (resolvedIsTv && resolvedTmdbId != null) {
-                val fetchedSeasons = repository.fetchMediaSeasons(resolvedTmdbId)
+            if (resolvedIsTv) {
+                val fetchedSeasons = repository.fetchMediaSeasonsForItem(detail)
                 seasons = fetchedSeasons
                 val defaultSeason = detail.season ?: item.season ?: fetchedSeasons.firstOrNull()?.seasonNumber
-                if (expandedSeason == null && defaultSeason != null) {
+                if (expandedSeason == null && defaultSeason != null && onOpenSeasonDetail == null) {
                     expandedSeason = defaultSeason
                     if (episodesBySeason[defaultSeason] == null) {
                         loadingSeasons = loadingSeasons + defaultSeason
-                        episodesBySeason[defaultSeason] = repository.fetchSeasonEpisodes(resolvedTmdbId, defaultSeason)
+                        episodesBySeason[defaultSeason] = repository.fetchSeasonEpisodesSmart(detail, defaultSeason)
                         loadingSeasons = loadingSeasons - defaultSeason
                     }
                 }
@@ -241,6 +251,17 @@ fun MediaDetailScreen(
                 if (querySeason != null && libStatus.subscribeId != null) {
                     seasonSubscribeIds.putIfAbsent(querySeason, libStatus.subscribeId!!)
                 }
+                val playableDef = async {
+                    if (libStatus.itemId.isNotBlank()) {
+                        repository.fetchPlayableSeriesEpisodes(libStatus.itemId, libStatus.server.ifBlank { null })
+                    } else {
+                        emptyMap()
+                    }
+                }
+                val remoteExistsDef = async { repository.fetchRemoteExistingEpisodes(detail) }
+                playableEpisodesBySeason = playableDef.await()
+                remoteExistingBySeason = remoteExistsDef.await()
+                episodeAvailabilityLoaded = true
             } else {
                 subscribedMovie = libStatus.subscribed
                 if (libStatus.subscribeId != null) {
@@ -563,17 +584,49 @@ fun MediaDetailScreen(
                         val triggerPlayNow: () -> Unit = {
                             scope.launch {
                                 feedback = null
-                                val candidateId = libraryStatus.itemId.takeIf { it.isNotBlank() }
+                                val targetSrv = libraryStatus.server.takeIf { it.isNotBlank() }
+                                var playTargetId = libraryStatus.itemId.takeIf { it.isNotBlank() }
                                     ?: detail.mediaId?.takeIf { it.isNotBlank() && !it.contains(":") }
                                     ?: repository.searchMedia(detail.title, "library", 1).firstOrNull()?.mediaId
-                                val targetSrv = libraryStatus.server.takeIf { it.isNotBlank() }
-                                val manifest = candidateId?.let { repository.fetchVideoStreamInfo(it, targetSrv) }
+                                var queueList: List<MediaPlaybackRequest> = emptyList()
+                                var playTitleOverride: String? = null
+                                if (isTv && !playTargetId.isNullOrBlank()) {
+                                    val seasonMap = if (playableEpisodesBySeason.isNotEmpty()) {
+                                        playableEpisodesBySeason
+                                    } else {
+                                        repository.fetchPlayableSeriesEpisodes(playTargetId!!, targetSrv).also {
+                                            playableEpisodesBySeason = it
+                                        }
+                                    }
+                                    val firstSeason = seasonMap.keys.sortedWith(compareBy<Int> { it == 0 }.thenBy { it }).firstOrNull()
+                                    val epMap = firstSeason?.let { seasonMap[it] }.orEmpty()
+                                    val sortedEps = epMap.keys.sorted()
+                                    val firstEp = sortedEps.firstOrNull()
+                                    if (firstSeason != null && firstEp != null && epMap[firstEp] != null) {
+                                        playTargetId = epMap[firstEp]
+                                        playTitleOverride = "${detail.title} · S%02dE%02d".format(firstSeason, firstEp)
+                                        queueList = sortedEps.mapIndexedNotNull { idx, epNum ->
+                                            val qid = epMap[epNum] ?: return@mapIndexedNotNull null
+                                            MediaPlaybackRequest(
+                                                url = "",
+                                                title = "${detail.title} · S%02dE%02d".format(firstSeason, epNum),
+                                                subtitle = targetSrv.orEmpty(),
+                                                artworkUrl = detail.posterPath,
+                                                itemId = qid,
+                                                server = targetSrv.orEmpty(),
+                                                queueIndex = idx,
+                                                lazySpec = QueueTrackSpec.MediaServerItem(itemId = qid, server = targetSrv.orEmpty()),
+                                            )
+                                        }
+                                    }
+                                }
+                                val manifest = playTargetId?.let { repository.fetchVideoStreamInfo(it, targetSrv) }
                                 if (manifest != null) {
                                     val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
                                     onPlayMedia(
                                         MediaPlaybackRequest(
                                             url = manifest.contentUrl,
-                                            title = manifest.title.ifBlank { detail.title },
+                                            title = playTitleOverride ?: manifest.title.ifBlank { detail.title },
                                             subtitle = listOfNotNull(
                                                 manifest.server.ifBlank { targetSrv },
                                                 detail.year.ifBlank { null },
@@ -606,6 +659,8 @@ fun MediaDetailScreen(
                                             tmdbId = manifest.tmdbId,
                                             fileName = manifest.fileName,
                                             fileSize = manifest.fileSize,
+                                            queue = queueList,
+                                            queueIndex = 0,
                                         ),
                                     )
                                 } else {
@@ -816,19 +871,39 @@ fun MediaDetailScreen(
                                     Text("共 ${seasons.size} 季", color = colors.textMuted, fontSize = 13.sp)
                                 }
                                 seasons.forEach { season ->
-                                    val isExpanded = expandedSeason == season.seasonNumber
+                                    val isExpanded = expandedSeason == season.seasonNumber && onOpenSeasonDetail == null
                                     val isSeasonSub = season.seasonNumber in effectiveSubscribedSeasons
+                                    val seasonExistingSet = remember(
+                                        playableEpisodesBySeason,
+                                        remoteExistingBySeason,
+                                        libraryStatus.existingEpisodesBySeason,
+                                        season.seasonNumber,
+                                    ) {
+                                        buildSet {
+                                            addAll(libraryStatus.existingEpisodesBySeason[season.seasonNumber].orEmpty())
+                                            addAll(remoteExistingBySeason[season.seasonNumber].orEmpty())
+                                            addAll(playableEpisodesBySeason[season.seasonNumber]?.keys.orEmpty())
+                                        }
+                                    }
                                     CinematicPanel(
                                         padding = 14.dp,
                                         showsShadow = false,
                                         modifier = Modifier.clickable {
-                                            expandedSeason = if (isExpanded) null else season.seasonNumber
-                                            val tmdbId = detail.tmdbId
-                                            if (!isExpanded && tmdbId != null && episodesBySeason[season.seasonNumber] == null) {
-                                                scope.launch {
-                                                    loadingSeasons = loadingSeasons + season.seasonNumber
-                                                    episodesBySeason[season.seasonNumber] = repository.fetchSeasonEpisodes(tmdbId, season.seasonNumber)
-                                                    loadingSeasons = loadingSeasons - season.seasonNumber
+                                            if (onOpenSeasonDetail != null) {
+                                                onOpenSeasonDetail(detail, season, libraryStatus.itemId, libraryStatus.server)
+                                            } else {
+                                                expandedSeason = if (isExpanded) null else season.seasonNumber
+                                                if (!isExpanded && episodesBySeason[season.seasonNumber] == null) {
+                                                    scope.launch {
+                                                        loadingSeasons = loadingSeasons + season.seasonNumber
+                                                        episodesBySeason[season.seasonNumber] = repository.fetchSeasonEpisodesSmart(
+                                                            detail,
+                                                            season.seasonNumber,
+                                                            libraryStatus.itemId,
+                                                            libraryStatus.server,
+                                                        )
+                                                        loadingSeasons = loadingSeasons - season.seasonNumber
+                                                    }
                                                 }
                                             }
                                         },
@@ -848,10 +923,38 @@ fun MediaDetailScreen(
                                                     }
                                                 }
                                                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(season.name.ifBlank { "第 ${season.seasonNumber} 季" }, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = season.name.ifBlank { if (season.seasonNumber == 0) "特别篇" else "第 ${season.seasonNumber} 季" },
+                                                            color = colors.textPrimary,
+                                                            fontSize = 16.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.weight(1f),
+                                                        )
+                                                        when {
+                                                            seasonExistingSet.isNotEmpty() && season.episodeCount > 0 && seasonExistingSet.size < season.episodeCount -> {
+                                                                NativeAdaptiveBadge(
+                                                                    text = "已入库 ${seasonExistingSet.size}/${season.episodeCount}",
+                                                                    tint = colors.warning,
+                                                                )
+                                                            }
+                                                            seasonExistingSet.isNotEmpty() -> {
+                                                                NativeAdaptiveBadge(text = "已入库", tint = colors.success)
+                                                            }
+                                                            episodeAvailabilityLoaded -> {
+                                                                NativeAdaptiveBadge(text = "未入库", tint = colors.textMuted)
+                                                            }
+                                                        }
                                                         Icon(
-                                                            if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                                            imageVector = if (onOpenSeasonDetail != null) {
+                                                                Icons.AutoMirrored.Rounded.KeyboardArrowRight
+                                                            } else if (isExpanded) {
+                                                                Icons.Rounded.ExpandLess
+                                                            } else {
+                                                                Icons.Rounded.ExpandMore
+                                                            },
                                                             contentDescription = null,
                                                             tint = colors.textMuted,
                                                             modifier = Modifier.size(20.dp),
@@ -1449,6 +1552,880 @@ fun PersonDetailScreen(
             }
         }
         }
+        }
+    }
+}
+
+// ==================== 季媒体与分集详情页（点击媒体详情单季卡片进入） ====================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MediaSeasonDetailScreen(
+    seriesItem: MediaCardItem,
+    initialSeason: MediaSeasonDto,
+    initialSeriesItemId: String = "",
+    initialServer: String = "",
+    repository: MoviePilotRepository,
+    onBack: () -> Unit,
+    onSearchResource: (String) -> Unit,
+    onPlayMedia: (MediaPlaybackRequest) -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val bottomOverlayInset = LocalBottomOverlayInset.current
+    val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val cardCols = AdaptiveDeviceLayout.cardGridColumns()
+    val scope = rememberCoroutineScope()
+
+    val seasonNum = initialSeason.seasonNumber
+    val seasonTitle = initialSeason.name.ifBlank { if (seasonNum == 0) "特别篇" else "第 $seasonNum 季" }
+
+    var seasonInfo by remember(seriesItem.resolvedId, seasonNum) { mutableStateOf(initialSeason) }
+    var episodes by remember(seriesItem.resolvedId, seasonNum) { mutableStateOf<List<MediaEpisodeDto>>(emptyList()) }
+    var playableMap by remember(seriesItem.resolvedId, seasonNum) { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    var existingSet by remember(seriesItem.resolvedId, seasonNum) { mutableStateOf<Set<Int>>(emptySet()) }
+    var resolvedSeriesId by remember(seriesItem.resolvedId, seasonNum) { mutableStateOf(initialSeriesItemId) }
+    var resolvedServer by remember(seriesItem.resolvedId, seasonNum) { mutableStateOf(initialServer) }
+    var isSubscribed by remember(seriesItem.resolvedId, seasonNum) { mutableStateOf(false) }
+    var subscribeRecordId by remember(seriesItem.resolvedId, seasonNum) { mutableStateOf<Int?>(null) }
+    var isLoading by remember(seriesItem.resolvedId, seasonNum) { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var isMutatingSub by remember { mutableStateOf(false) }
+    var playingEpisodeNum by remember { mutableStateOf<Int?>(null) }
+    var expandOverview by remember { mutableStateOf(false) }
+    var showUnsubscribeConfirm by remember { mutableStateOf(false) }
+    var activeSubscribeFilesId by remember { mutableStateOf<Int?>(null) }
+    var feedback by remember { mutableStateOf<String?>(null) }
+    var feedbackIsError by remember { mutableStateOf(false) }
+    var reloadTrigger by remember { mutableStateOf(0) }
+
+    suspend fun reloadSeasonAll() {
+        if (!isRefreshing) isLoading = true
+        coroutineScope {
+            val statusDef = async { repository.checkMediaInLibraryStatus(seriesItem, season = seasonNum) }
+            val seasonsDef = async { repository.fetchMediaSeasonsForItem(seriesItem) }
+            val remoteExistsDef = async { repository.fetchRemoteExistingEpisodes(seriesItem, season = seasonNum) }
+
+            val libSt = statusDef.await()
+            if (libSt.itemId.isNotBlank()) resolvedSeriesId = libSt.itemId
+            if (libSt.server.isNotBlank()) resolvedServer = libSt.server
+            isSubscribed = seasonNum in libSt.subscribedSeasons.keys || libSt.subscribed
+            subscribeRecordId = libSt.seasonSubscribeIds[seasonNum] ?: libSt.subscribeId
+
+            seasonsDef.await().firstOrNull { it.seasonNumber == seasonNum }?.let { enriched ->
+                seasonInfo = seasonInfo.copy(
+                    name = enriched.name.ifBlank { seasonInfo.name },
+                    overview = enriched.overview.ifBlank { seasonInfo.overview },
+                    airDate = enriched.airDate.ifBlank { seasonInfo.airDate },
+                    episodeCount = if (enriched.episodeCount > 0) enriched.episodeCount else seasonInfo.episodeCount,
+                    posterPath = enriched.posterPath ?: seasonInfo.posterPath,
+                    voteAverage = if (enriched.voteAverage > 0.0) enriched.voteAverage else seasonInfo.voteAverage,
+                )
+            }
+
+            val playableDef = async {
+                if (resolvedSeriesId.isNotBlank()) {
+                    repository.fetchPlayableSeasonEpisodes(resolvedSeriesId, seasonNum, resolvedServer.ifBlank { null })
+                } else {
+                    emptyMap()
+                }
+            }
+            val episodesDef = async {
+                repository.fetchSeasonEpisodesSmart(
+                    item = seriesItem,
+                    seasonNumber = seasonNum,
+                    seriesItemId = resolvedSeriesId,
+                    server = resolvedServer,
+                )
+            }
+
+            val loadedPlayable = playableDef.await()
+            val loadedRemote = remoteExistsDef.await()[seasonNum].orEmpty()
+            val loadedEpisodes = episodesDef.await()
+
+            playableMap = loadedPlayable
+            existingSet = buildSet {
+                addAll(libSt.existingEpisodesBySeason[seasonNum].orEmpty())
+                addAll(loadedRemote)
+                addAll(loadedPlayable.keys)
+            }
+
+            episodes = if (loadedEpisodes.isNotEmpty()) {
+                loadedEpisodes
+            } else {
+                val maxEp = maxOf(seasonInfo.episodeCount, existingSet.maxOrNull() ?: 0)
+                if (maxEp > 0) {
+                    (1..maxEp).map { num -> MediaEpisodeDto(episodeNumber = num, name = "第 $num 集") }
+                } else {
+                    emptyList()
+                }
+            }
+        }
+        isLoading = false
+        isRefreshing = false
+    }
+
+    LaunchedEffect(seriesItem.resolvedId, seasonNum, reloadTrigger) {
+        reloadSeasonAll()
+    }
+
+    fun launchEpisodePlayback(targetEp: MediaEpisodeDto) {
+        val targetItemId = playableMap[targetEp.episodeNumber] ?: return
+        if (playingEpisodeNum != null) return
+        playingEpisodeNum = targetEp.episodeNumber
+        scope.launch {
+            feedback = null
+            val srv = resolvedServer.takeIf { it.isNotBlank() }
+            val epByNum = episodes.associateBy { it.episodeNumber }
+            val sortedNums = playableMap.keys.sorted()
+            var targetQueueIdx = 0
+            val queue = sortedNums.mapIndexedNotNull { idx, epNum ->
+                val qid = playableMap[epNum] ?: return@mapIndexedNotNull null
+                if (epNum == targetEp.episodeNumber) targetQueueIdx = idx
+                val meta = epByNum[epNum]
+                val epLabel = "S%02dE%02d".format(seasonNum, epNum)
+                val qTitle = if (!meta?.name.isNullOrBlank()) {
+                    "${seriesItem.title} · $epLabel · ${meta!!.name}"
+                } else {
+                    "${seriesItem.title} · $epLabel"
+                }
+                MediaPlaybackRequest(
+                    url = "",
+                    title = qTitle,
+                    subtitle = srv.orEmpty(),
+                    artworkUrl = meta?.stillPath ?: seasonInfo.posterPath ?: seriesItem.posterPath,
+                    itemId = qid,
+                    server = srv.orEmpty(),
+                    queueIndex = idx,
+                    lazySpec = QueueTrackSpec.MediaServerItem(itemId = qid, server = srv.orEmpty()),
+                )
+            }
+            val manifest = repository.fetchVideoStreamInfo(targetItemId, srv)
+            playingEpisodeNum = null
+            if (manifest != null) {
+                val lrc = manifest.lyricsUrl?.let { repository.downloadSameOriginText(it) }
+                val epCode = "S%02dE%02d".format(seasonNum, targetEp.episodeNumber)
+                val displayEpName = targetEp.name.ifBlank { "第 ${targetEp.episodeNumber} 集" }
+                onPlayMedia(
+                    MediaPlaybackRequest(
+                        url = manifest.contentUrl,
+                        title = "${seriesItem.title} · $epCode · $displayEpName",
+                        subtitle = listOfNotNull(
+                            manifest.server.ifBlank { srv },
+                            seasonTitle,
+                        ).joinToString(" · "),
+                        artworkUrl = targetEp.stillPath ?: seasonInfo.posterPath ?: seriesItem.posterPath,
+                        isAudio = manifest.mediaType == "audio",
+                        lyricsLrc = lrc,
+                        headers = manifest.headers,
+                        sameOriginHeaders = manifest.sameOriginHeaders,
+                        streamHeaders = manifest.streamHeaders,
+                        proxyFallbackUrl = manifest.proxyFallbackUrl,
+                        activeRouteKind = manifest.activeRouteKind,
+                        fallbackRoutes = manifest.fallbackRoutes,
+                        itemId = manifest.itemId,
+                        server = manifest.server.ifBlank { srv.orEmpty() },
+                        serverType = manifest.serverType,
+                        mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                        playSessionId = manifest.playSessionId,
+                        progressSyncMode = manifest.progressSyncMode,
+                        resumePositionMs = manifest.resumePositionMs,
+                        subtitles = manifest.subtitles.map {
+                            SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)
+                        },
+                        danmakuEnabled = manifest.danmakuEnabled,
+                        seriesName = manifest.seriesName?.takeIf { it.isNotBlank() } ?: seriesItem.title,
+                        seasonNumber = manifest.seasonNumber ?: seasonNum,
+                        episodeNumber = manifest.episodeNumber ?: targetEp.episodeNumber,
+                        year = manifest.year ?: seriesItem.year.toIntOrNull(),
+                        tmdbId = manifest.tmdbId ?: seriesItem.tmdbId?.toString(),
+                        fileName = manifest.fileName,
+                        fileSize = manifest.fileSize,
+                        queue = queue,
+                        queueIndex = targetQueueIdx,
+                    ),
+                )
+            } else {
+                feedbackIsError = true
+                feedback = "无法读取该集的播放流，请检查媒体服务器状态"
+            }
+        }
+    }
+
+    ExpressiveTintedScaffold(
+        title = seasonTitle,
+        subtitle = seriesItem.title,
+        onBack = onBack,
+        actions = {
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.Refresh,
+                contentDescription = "刷新本季信息",
+                onClick = { reloadTrigger += 1 },
+            )
+        },
+    ) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                scope.launch { reloadSeasonAll() }
+            },
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = margin,
+                    end = margin,
+                    top = 14.dp,
+                    bottom = bottomOverlayInset + 28.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                item(key = "season_hero") {
+                    SeasonDetailHeroCard(
+                        seriesItem = seriesItem,
+                        season = seasonInfo,
+                        inLibraryCount = existingSet.size,
+                        totalEpisodes = maxOf(seasonInfo.episodeCount, episodes.size),
+                        serverName = resolvedServer,
+                        isLoading = isLoading,
+                    )
+                }
+
+                item(key = "season_actions") {
+                    val firstPlayableNum = playableMap.keys.sorted().firstOrNull()
+                    SeasonDetailActionRow(
+                        firstPlayableEpisode = firstPlayableNum,
+                        serverName = resolvedServer,
+                        isPlayingFirst = firstPlayableNum != null && playingEpisodeNum == firstPlayableNum,
+                        isSubscribed = isSubscribed,
+                        isMutatingSub = isMutatingSub,
+                        hasSubscribeFiles = isSubscribed && (subscribeRecordId ?: 0) > 0,
+                        onPlayFirst = {
+                            val num = firstPlayableNum ?: return@SeasonDetailActionRow
+                            val ep = episodes.firstOrNull { it.episodeNumber == num }
+                                ?: MediaEpisodeDto(episodeNumber = num, name = "第 $num 集")
+                            launchEpisodePlayback(ep)
+                        },
+                        onToggleSubscribe = {
+                            if (isSubscribed) {
+                                showUnsubscribeConfirm = true
+                            } else {
+                                if (isMutatingSub) return@SeasonDetailActionRow
+                                isMutatingSub = true
+                                scope.launch {
+                                    val identity = MoviePilotRepository.normalizeCanonicalMediaIdentity(
+                                        source = seriesItem.source,
+                                        mediaId = seriesItem.mediaId,
+                                        tmdbId = seriesItem.tmdbId,
+                                        doubanId = seriesItem.doubanId,
+                                        bangumiId = seriesItem.bangumiId,
+                                        imdbId = seriesItem.imdbId,
+                                        tvdbId = seriesItem.tvdbId,
+                                    )
+                                    val (ok, msg, subId) = repository.createOrUpdateSubscriptionFull(
+                                        SubscribeItemDto(
+                                            name = seriesItem.title,
+                                            year = seriesItem.year,
+                                            type = "电视剧",
+                                            season = seasonNum,
+                                            totalEpisode = maxOf(seasonInfo.episodeCount, episodes.size),
+                                            mediaSource = identity?.first ?: "themoviedb",
+                                            mediaId = identity?.second.orEmpty(),
+                                        ),
+                                    )
+                                    isMutatingSub = false
+                                    if (ok) {
+                                        isSubscribed = true
+                                        if (subId != null && subId > 0) subscribeRecordId = subId
+                                        feedbackIsError = false
+                                        feedback = "已订阅 $seasonTitle"
+                                    } else {
+                                        feedbackIsError = true
+                                        feedback = msg
+                                    }
+                                }
+                            }
+                        },
+                        onOpenFiles = { subscribeRecordId?.let { activeSubscribeFilesId = it } },
+                        onSearchSeason = {
+                            onSearchResource("${seriesItem.title} S%02d".format(seasonNum))
+                        },
+                    )
+                }
+
+                feedback?.let { msg ->
+                    item(key = "season_feedback") {
+                        Text(
+                            text = msg,
+                            color = if (feedbackIsError) colors.warning else colors.success,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
+
+                val effectiveOverview = seasonInfo.overview.ifBlank { seriesItem.overview }
+                if (effectiveOverview.isNotBlank()) {
+                    item(key = "season_overview") {
+                        CinematicPanel(
+                            padding = 16.dp,
+                            showsShadow = false,
+                            modifier = Modifier.clickable { expandOverview = !expandOverview },
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("本季简介", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = effectiveOverview,
+                                    color = colors.textSecondary,
+                                    fontSize = 14.sp,
+                                    lineHeight = 22.sp,
+                                    maxLines = if (expandOverview) Int.MAX_VALUE else 4,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (effectiveOverview.length > 100) {
+                                    Text(
+                                        text = if (expandOverview) "收起简介" else "展开全部",
+                                        color = colors.textMuted,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item(key = "episodes_header") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("本季剧集", color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        if (episodes.isNotEmpty()) {
+                            Text(
+                                text = if (existingSet.isNotEmpty()) {
+                                    "已入库 ${existingSet.size} / 共 ${episodes.size} 集"
+                                } else {
+                                    "共 ${episodes.size} 集"
+                                },
+                                color = colors.textMuted,
+                                fontSize = 12.5.sp,
+                            )
+                        }
+                    }
+                }
+
+                if (isLoading && episodes.isEmpty()) {
+                    item(key = "episodes_skeleton") {
+                        NativeCardListSkeleton(
+                            style = SkeletonCardStyle.PosterRow,
+                            count = 4,
+                            columns = cardCols,
+                            contentPadding = PaddingValues(0.dp),
+                        )
+                    }
+                } else if (episodes.isEmpty()) {
+                    item(key = "episodes_empty") {
+                        CinematicPanel(padding = 24.dp, showsShadow = false) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text("暂无本季分集明细", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Text("数据源尚未提供该季的分集信息。", color = colors.textSecondary, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                } else {
+                    items(episodes, key = { "ep_${seasonNum}_${it.episodeNumber}" }) { ep ->
+                        val isPlayable = playableMap.containsKey(ep.episodeNumber)
+                        val inLib = isPlayable || ep.episodeNumber in existingSet
+                        val stillUrl = ep.stillPath ?: seriesItem.backdropPath ?: seasonInfo.posterPath ?: seriesItem.posterPath
+                        SeasonDetailEpisodeCard(
+                            episode = ep,
+                            stillUrl = stillUrl,
+                            inLibrary = inLib,
+                            isPlayable = isPlayable,
+                            isPlaying = playingEpisodeNum == ep.episodeNumber,
+                            busy = playingEpisodeNum != null,
+                            onPlay = { launchEpisodePlayback(ep) },
+                            onSearchEpisode = {
+                                onSearchResource("${seriesItem.title} S%02dE%02d".format(seasonNum, ep.episodeNumber))
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showUnsubscribeConfirm) {
+        AlertDialog(
+            onDismissRequest = { showUnsubscribeConfirm = false },
+            title = { Text("取消订阅") },
+            text = { Text("确认取消《${seriesItem.title}》$seasonTitle 的订阅吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showUnsubscribeConfirm = false
+                        scope.launch {
+                            isMutatingSub = true
+                            val (ok, msg) = repository.unsubscribeMediaWithMessage(seriesItem, season = seasonNum)
+                            isMutatingSub = false
+                            if (ok) {
+                                isSubscribed = false
+                                subscribeRecordId = null
+                                feedbackIsError = false
+                                feedback = "已取消 $seasonTitle 订阅"
+                            } else {
+                                feedbackIsError = true
+                                feedback = msg
+                            }
+                        }
+                    },
+                ) {
+                    Text("取消订阅", color = colors.danger, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUnsubscribeConfirm = false }) {
+                    Text("保留")
+                }
+            },
+        )
+    }
+
+    activeSubscribeFilesId?.let { subId ->
+        SubscribeFilesSheet(
+            subscribeId = subId,
+            seedSubscribe = SubscribeItemDto(
+                id = subId,
+                name = seriesItem.title,
+                year = seriesItem.year,
+                type = "电视剧",
+                season = seasonNum,
+                poster = seasonInfo.posterPath ?: seriesItem.posterPath,
+                backdrop = seriesItem.backdropPath,
+            ),
+            repository = repository,
+            onDismiss = { activeSubscribeFilesId = null },
+            onPlayMedia = onPlayMedia,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SeasonDetailHeroCard(
+    seriesItem: MediaCardItem,
+    season: MediaSeasonDto,
+    inLibraryCount: Int,
+    totalEpisodes: Int,
+    serverName: String,
+    isLoading: Boolean,
+) {
+    val colors = LocalMoviePilotColors.current
+    val posterUrl = season.posterPath ?: seriesItem.posterPath
+    val rating = if (season.voteAverage > 0.0) season.voteAverage else seriesItem.voteAverage
+
+    CinematicPanel(padding = 16.dp, showsShadow = false) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(96.dp)
+                    .aspectRatio(2f / 3f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.chipFill),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!posterUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = posterUrl,
+                        contentDescription = season.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Text(seriesItem.title.take(2), color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Text(
+                    text = seriesItem.title,
+                    color = colors.textSecondary,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = season.name.ifBlank { if (season.seasonNumber == 0) "特别篇" else "第 ${season.seasonNumber} 季" },
+                    color = colors.textPrimary,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                val metaText = listOfNotNull(
+                    season.airDate.takeIf { it.isNotBlank() },
+                    if (totalEpisodes > 0) "共 $totalEpisodes 集" else null,
+                ).joinToString(" · ")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (metaText.isNotBlank()) {
+                        Text(metaText, color = colors.textSecondary, fontSize = 12.5.sp)
+                    }
+                    if (rating > 0.0) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFFC845), modifier = Modifier.size(13.dp))
+                            Text(" ${String.format("%.1f", rating)}", color = colors.warning, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                val srvSuffix = if (serverName.isNotBlank()) " · $serverName" else ""
+                when {
+                    inLibraryCount > 0 && totalEpisodes > 0 && inLibraryCount < totalEpisodes -> {
+                        NativeAdaptiveBadge(text = "部分入库 $inLibraryCount/$totalEpisodes 集$srvSuffix", tint = colors.warning)
+                    }
+                    inLibraryCount > 0 && totalEpisodes > 0 -> {
+                        NativeAdaptiveBadge(text = "已入库 $inLibraryCount/$totalEpisodes 集$srvSuffix", tint = colors.success)
+                    }
+                    inLibraryCount > 0 -> {
+                        NativeAdaptiveBadge(text = "已入库 $inLibraryCount 集$srvSuffix", tint = colors.success)
+                    }
+                    !isLoading -> {
+                        NativeAdaptiveBadge(text = "未入库", tint = colors.textMuted)
+                    }
+                }
+
+                if (seriesItem.genres.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        seriesItem.genres.take(3).forEach { g ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(colors.chipFill)
+                                    .border(0.6.dp, colors.chipBorder, CircleShape)
+                                    .padding(horizontal = 9.dp, vertical = 3.dp),
+                            ) {
+                                Text(g, color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeasonDetailActionRow(
+    firstPlayableEpisode: Int?,
+    serverName: String,
+    isPlayingFirst: Boolean,
+    isSubscribed: Boolean,
+    isMutatingSub: Boolean,
+    hasSubscribeFiles: Boolean,
+    onPlayFirst: () -> Unit,
+    onToggleSubscribe: () -> Unit,
+    onOpenFiles: () -> Unit,
+    onSearchSeason: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val emeraldBg = Color(0xFF1F9D55)
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (firstPlayableEpisode != null) {
+            val srvSuffix = if (serverName.isNotBlank()) " · $serverName" else ""
+            Button(
+                onClick = onPlayFirst,
+                enabled = !isPlayingFirst,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.accent,
+                    contentColor = colors.primaryButtonFg,
+                ),
+                shape = CircleShape,
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+            ) {
+                Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = if (isPlayingFirst) "准备播放…" else "播放第 $firstPlayableEpisode 集$srvSuffix",
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(
+                onClick = onToggleSubscribe,
+                enabled = !isMutatingSub,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = when {
+                        isSubscribed -> emeraldBg
+                        colors.isDark -> Color.White
+                        else -> colors.accent
+                    },
+                    contentColor = when {
+                        isSubscribed -> Color.White
+                        colors.isDark -> Color(0xFF14111D)
+                        else -> colors.primaryButtonFg
+                    },
+                ),
+                shape = CircleShape,
+                modifier = Modifier.weight(1f).height(46.dp),
+            ) {
+                Icon(
+                    imageVector = if (isSubscribed) Icons.Rounded.CheckCircle else Icons.Outlined.BookmarkBorder,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = when {
+                        isMutatingSub -> "处理中…"
+                        isSubscribed -> "本季已订阅"
+                        else -> "订阅本季"
+                    },
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
+
+            if (hasSubscribeFiles) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(emeraldBg.copy(alpha = 0.20f))
+                        .border(0.8.dp, emeraldBg.copy(alpha = 0.45f), CircleShape)
+                        .clickable(onClick = onOpenFiles),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FolderOpen,
+                        contentDescription = "查看订阅文件详情",
+                        tint = Color(0xFF34C759),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+
+            CinematicGlassSurface(
+                shape = CircleShape,
+                blurRadiusDp = 16.dp,
+                useLiveBackdropBlur = false,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .clickable(onClick = onSearchSeason),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("搜索本季", color = colors.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeasonDetailEpisodeCard(
+    episode: MediaEpisodeDto,
+    stillUrl: String?,
+    inLibrary: Boolean,
+    isPlayable: Boolean,
+    isPlaying: Boolean,
+    busy: Boolean,
+    onPlay: () -> Unit,
+    onSearchEpisode: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val isUpcoming = remember(episode.airDate) {
+        runCatching {
+            episode.airDate.length >= 10 &&
+                java.time.LocalDate.parse(episode.airDate.take(10)).isAfter(java.time.LocalDate.now())
+        }.getOrDefault(false)
+    }
+
+    CinematicPanel(
+        padding = 12.dp,
+        showsShadow = false,
+        modifier = if (isPlayable && !busy) Modifier.clickable(onClick = onPlay) else Modifier,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(138.dp)
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(colors.surfaceContainerHigh)
+                        .border(0.6.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(11.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!stillUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = stillUrl,
+                            contentDescription = episode.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.66f))
+                            .padding(horizontal = 7.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = "E%02d".format(episode.episodeNumber),
+                            color = Color.White,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    if ((episode.runtime ?: 0) > 0) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(6.dp)
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(Color.Black.copy(alpha = 0.66f))
+                                .padding(horizontal = 5.5.dp, vertical = 1.5.dp),
+                        ) {
+                            Text("${episode.runtime}分钟", color = Color.White, fontSize = 9.5.sp)
+                        }
+                    }
+                    if (isPlayable) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.48f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlayArrow,
+                                contentDescription = "播放本集",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "${episode.episodeNumber}. ${episode.name.ifBlank { "第 ${episode.episodeNumber} 集" }}",
+                            color = colors.textPrimary,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        when {
+                            inLibrary -> NativeAdaptiveBadge(text = "已入库", tint = colors.success)
+                            isUpcoming -> NativeAdaptiveBadge(text = "未开播", tint = colors.info)
+                            else -> NativeAdaptiveBadge(text = "未入库", tint = colors.textMuted)
+                        }
+                    }
+
+                    if (episode.airDate.isNotBlank() || episode.voteAverage > 0.0) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (episode.airDate.isNotBlank()) {
+                                Text(episode.airDate, color = colors.textSecondary, fontSize = 12.sp)
+                            }
+                            if (episode.voteAverage > 0.0) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFFC845), modifier = Modifier.size(12.dp))
+                                    Text(" ${String.format("%.1f", episode.voteAverage)}", color = colors.warning, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+
+                    if (episode.overview.isNotBlank()) {
+                        Text(
+                            text = episode.overview,
+                            color = colors.textMuted,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isPlayable) {
+                    NativeAdaptivePill(
+                        title = if (isPlaying) "准备播放…" else "播放本集",
+                        selected = true,
+                        icon = Icons.Rounded.PlayArrow,
+                        tint = colors.accent,
+                        onClick = { if (!busy) onPlay() },
+                    )
+                } else {
+                    NativeAdaptivePill(
+                        title = "搜本集",
+                        selected = false,
+                        icon = Icons.Rounded.Search,
+                        onClick = onSearchEpisode,
+                    )
+                }
+            }
         }
     }
 }

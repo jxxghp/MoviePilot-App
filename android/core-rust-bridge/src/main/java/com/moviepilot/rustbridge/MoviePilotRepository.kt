@@ -592,26 +592,93 @@ class MoviePilotRepository(context: Context) {
     /** 拉取电视剧分季列表（`/api/v1/tmdb/seasons/{tmdb_id}`）。 */
     suspend fun fetchMediaSeasons(tmdbId: Int): List<MediaSeasonDto> {
         val resp = authedRequest(listOf("tmdb", "seasons", tmdbId.toString())).getOrNull() ?: return emptyList()
-        return extractArray(resp.body).mapNotNull { el ->
+        return parseSeasonArray(resp.body)
+    }
+
+    /** 按任意数据源身份拉取剧集全部季信息（优先 TMDB，回落 `/api/v1/media/seasons`）。 */
+    suspend fun fetchMediaSeasonsForItem(item: MediaCardItem): List<MediaSeasonDto> {
+        item.tmdbId?.takeIf { it > 0 }?.let { tid ->
+            val tmdbList = fetchMediaSeasons(tid)
+            if (tmdbList.isNotEmpty()) return tmdbList
+        }
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.source,
+            mediaId = item.mediaId,
+            tmdbId = item.tmdbId,
+            doubanId = item.doubanId,
+            bangumiId = item.bangumiId,
+            imdbId = item.imdbId,
+            tvdbId = item.tvdbId,
+        )
+        val query = buildList {
+            if (identity != null) {
+                add("media_source" to identity.first)
+                add("media_id" to identity.second)
+            } else if (item.title.isNotBlank()) {
+                add("title" to item.title)
+                if (item.year.isNotBlank()) add("year" to item.year)
+            }
+        }
+        if (query.isEmpty()) return emptyList()
+        val resp = authedRequest(listOf("media", "seasons"), query = query).getOrNull() ?: return emptyList()
+        if (resp.status !in 200..299) return emptyList()
+        return parseSeasonArray(resp.body)
+    }
+
+    private fun parseSeasonArray(rawBody: String?): List<MediaSeasonDto> {
+        return extractArray(rawBody).mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
             val num = obj.int("season_number") ?: return@mapNotNull null
-            if (num <= 0) return@mapNotNull null
+            if (num < 0) return@mapNotNull null
+            val defaultName = if (num == 0) "特别篇" else "第 $num 季"
             MediaSeasonDto(
                 seasonNumber = num,
-                name = obj.str("name") ?: "第 $num 季",
+                name = obj.str("name")?.takeIf { it.isNotBlank() } ?: defaultName,
                 overview = obj.str("overview") ?: "",
                 airDate = obj.str("air_date") ?: "",
                 episodeCount = obj.int("episode_count") ?: 0,
-                posterPath = resolveImageUrl(obj.str("poster_path"), maxWidth = 320),
+                posterPath = resolveImageUrl(obj.str("poster_path"), maxWidth = 400),
                 voteAverage = obj.dbl("vote_average") ?: 0.0,
             )
-        }
+        }.sortedWith(compareBy<MediaSeasonDto> { it.seasonNumber == 0 }.thenBy { it.seasonNumber })
     }
 
     /** 拉取电视剧单季分集列表（`/api/v1/tmdb/{tmdb_id}/{season}`）。 */
     suspend fun fetchSeasonEpisodes(tmdbId: Int, seasonNumber: Int): List<MediaEpisodeDto> {
         val resp = authedRequest(listOf("tmdb", tmdbId.toString(), seasonNumber.toString())).getOrNull() ?: return emptyList()
-        return extractArray(resp.body).mapNotNull { el ->
+        return parseEpisodeArray(resp.body)
+    }
+
+    /** 智能拉取单季分集元数据（优先 TMDB，回落已入库条目的 `/api/v1/mediaserver/episode-metadata`）。 */
+    suspend fun fetchSeasonEpisodesSmart(
+        item: MediaCardItem,
+        seasonNumber: Int,
+        seriesItemId: String? = null,
+        server: String? = null,
+    ): List<MediaEpisodeDto> {
+        val tmdbId = item.tmdbId ?: item.mediaId?.removePrefix("tmdb:")?.toIntOrNull()
+        if (tmdbId != null && tmdbId > 0) {
+            val eps = fetchSeasonEpisodes(tmdbId, seasonNumber)
+            if (eps.isNotEmpty()) return eps
+        }
+        val sid = seriesItemId?.trim().orEmpty()
+        if (sid.isNotEmpty()) {
+            val q = buildList {
+                add("itemid" to sid)
+                add("season" to seasonNumber.toString())
+                if (!server.isNullOrBlank()) add("server" to server)
+            }
+            val resp = authedRequest(listOf("mediaserver", "episode-metadata"), query = q).getOrNull()
+            if (resp != null && resp.status in 200..299) {
+                val parsed = parseEpisodeArray(resp.body)
+                if (parsed.isNotEmpty()) return parsed
+            }
+        }
+        return emptyList()
+    }
+
+    private fun parseEpisodeArray(rawBody: String?): List<MediaEpisodeDto> {
+        return extractArray(rawBody).mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
             MediaEpisodeDto(
                 episodeNumber = obj.int("episode_number") ?: return@mapNotNull null,
@@ -619,10 +686,104 @@ class MoviePilotRepository(context: Context) {
                 overview = obj.str("overview") ?: "",
                 airDate = obj.str("air_date") ?: "",
                 runtime = obj.int("runtime"),
-                stillPath = resolveImageUrl(obj.str("still_path"), maxWidth = 500),
+                stillPath = resolveImageUrl(obj.str("still_path"), maxWidth = 600),
                 voteAverage = obj.dbl("vote_average") ?: 0.0,
             )
+        }.sortedBy { it.episodeNumber }
+    }
+
+    /** 查询已入库电视剧各季可播放单集映射（`GET /api/v1/mediaserver/episodes?itemid=...`）。 */
+    suspend fun fetchPlayableSeriesEpisodes(
+        seriesItemId: String,
+        server: String? = null,
+    ): Map<Int, Map<Int, String>> {
+        val sid = seriesItemId.trim()
+        if (sid.isEmpty()) return emptyMap()
+        val q = buildList {
+            add("itemid" to sid)
+            if (!server.isNullOrBlank()) add("server" to server)
         }
+        val resp = authedRequest(listOf("mediaserver", "episodes"), query = q).getOrNull() ?: return emptyMap()
+        if (resp.status !in 200..299) return emptyMap()
+        val dataObj = extractObject(resp.body) ?: return emptyMap()
+        val result = mutableMapOf<Int, Map<Int, String>>()
+        dataObj.forEach { (sKey, epMapEl) ->
+            val sNum = sKey.toIntOrNull() ?: return@forEach
+            val epObj = epMapEl.asObj() ?: return@forEach
+            val inner = mutableMapOf<Int, String>()
+            epObj.forEach { (eKey, idEl) ->
+                val eNum = eKey.toIntOrNull() ?: return@forEach
+                val epId = idEl.asPrim()?.content?.takeIf { it.isNotBlank() && it != "null" } ?: return@forEach
+                inner[eNum] = epId
+            }
+            if (inner.isNotEmpty()) result[sNum] = inner
+        }
+        return result
+    }
+
+    /** 查询指定单季的可播放单集映射（`GET /api/v1/mediaserver/episodes/{itemid}/{season}`）。 */
+    suspend fun fetchPlayableSeasonEpisodes(
+        seriesItemId: String,
+        seasonNumber: Int,
+        server: String? = null,
+    ): Map<Int, String> {
+        val sid = seriesItemId.trim()
+        if (sid.isEmpty()) return emptyMap()
+        val q = if (!server.isNullOrBlank()) listOf("server" to server) else emptyList()
+        val resp = authedRequest(
+            segments = listOf("mediaserver", "episodes", sid, seasonNumber.toString()),
+            query = q,
+        ).getOrNull() ?: return emptyMap()
+        if (resp.status !in 200..299) return emptyMap()
+        val dataObj = extractObject(resp.body) ?: return emptyMap()
+        val inner = mutableMapOf<Int, String>()
+        dataObj.forEach { (eKey, idEl) ->
+            val eNum = eKey.toIntOrNull() ?: return@forEach
+            val epId = idEl.asPrim()?.content?.takeIf { it.isNotBlank() && it != "null" } ?: return@forEach
+            inner[eNum] = epId
+        }
+        return inner
+    }
+
+    /** 查询远程媒体服务器已入库的季集编号集合（`POST /api/v1/mediaserver/exists_remote`）。 */
+    suspend fun fetchRemoteExistingEpisodes(
+        item: MediaCardItem,
+        season: Int? = null,
+    ): Map<Int, Set<Int>> {
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.source,
+            mediaId = item.mediaId,
+            tmdbId = item.tmdbId,
+            doubanId = item.doubanId,
+            bangumiId = item.bangumiId,
+            imdbId = item.imdbId,
+            tvdbId = item.tvdbId,
+        )
+        val payload = mutableMapOf<String, JsonElement>(
+            "type" to JsonPrimitive("电视剧"),
+            "title" to JsonPrimitive(item.title),
+        )
+        if (item.year.isNotBlank()) payload["year"] = JsonPrimitive(item.year)
+        if (season != null) payload["season"] = JsonPrimitive(season)
+        if (identity != null) {
+            payload["media_source"] = JsonPrimitive(identity.first)
+            payload["media_id"] = JsonPrimitive(identity.second)
+        }
+        item.tmdbId?.takeIf { it > 0 }?.let { payload["tmdbid"] = JsonPrimitive(it) }
+        val resp = authedRequest(
+            segments = listOf("mediaserver", "exists_remote"),
+            method = "POST",
+            body = JsonObject(payload).toString(),
+        ).getOrNull() ?: return emptyMap()
+        if (resp.status !in 200..299) return emptyMap()
+        val dataObj = extractObject(resp.body) ?: return emptyMap()
+        val out = mutableMapOf<Int, Set<Int>>()
+        dataObj.forEach { (sKey, arrEl) ->
+            val sNum = sKey.toIntOrNull() ?: return@forEach
+            val eps = arrEl.asArr()?.mapNotNull { it.asPrim()?.intOrNull }?.toSet().orEmpty()
+            if (eps.isNotEmpty()) out[sNum] = eps
+        }
+        return out
     }
 
     /** 拉取人物详情与代表作。 */
@@ -1103,6 +1264,102 @@ class MoviePilotRepository(context: Context) {
 
     suspend fun fetchSubscribeShares(page: Int = 1): List<MediaCardItem> =
         fetchMediaList(listOf("subscribe", "shares"), listOf("page" to page.toString()))
+
+    /** 分页拉取已完成订阅历史（`GET /api/v1/subscribe/history/{mtype}?page=&count=`）。 */
+    suspend fun fetchSubscribeHistory(
+        mtype: String = "电影",
+        page: Int = 1,
+        count: Int = 30,
+    ): Result<List<SubscribeItemDto>> {
+        val normalizedType = mtype.trim().ifBlank { "电影" }
+        val resp = authedRequest(
+            segments = listOf("subscribe", "history", normalizedType),
+            query = listOf("page" to page.coerceAtLeast(1).toString(), "count" to count.coerceAtLeast(1).toString()),
+        ).getOrElse { return Result.failure(it) }
+        if (resp.status !in 200..299) {
+            return Result.failure(IllegalStateException("HTTP ${resp.status}"))
+        }
+        val parsed = extractArray(resp.body).mapNotNull { el ->
+            el.asObj()?.let(::parseSubscribeItem)
+        }
+        return Result.success(parsed)
+    }
+
+    /** 删除单条订阅历史记录（`DELETE /api/v1/subscribe/history/{history_id}`）。 */
+    suspend fun deleteSubscribeHistory(historyId: Int): Boolean {
+        if (historyId <= 0) return false
+        val resp = authedRequest(
+            segments = listOf("subscribe", "history", historyId.toString()),
+            method = "DELETE",
+        ).getOrNull() ?: return false
+        return resp.status in 200..299 &&
+            (runCatching { json.parseToJsonElement(resp.body).asObj()?.bool("success") }.getOrNull() != false)
+    }
+
+    /** 从订阅历史记录重新发起订阅（`POST /api/v1/subscribe/`），完整保留原规则字段并刷新订阅缓存。 */
+    suspend fun reSubscribeFromHistory(item: SubscribeItemDto, fallbackType: String = "电影"): Pair<Boolean, String> {
+        val baseMap = runCatching {
+            if (item.rawJson.isNotBlank()) json.parseToJsonElement(item.rawJson).asObj()?.toMutableMap() else null
+        }.getOrNull() ?: mutableMapOf()
+
+        val canonicalType = canonicalMediaType(item.type.ifBlank { fallbackType })
+        val isTv = isTvType(canonicalType)
+        val rawTmdbId = baseMap["tmdbid"]?.asPrim()?.intOrNull
+        val rawDoubanId = baseMap["doubanid"]?.asPrim()?.content?.takeIf { it.isNotBlank() && it != "null" }
+        val rawBangumiId = baseMap["bangumiid"]?.asPrim()?.intOrNull
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.mediaSource,
+            mediaId = item.mediaId,
+            tmdbId = rawTmdbId,
+            doubanId = rawDoubanId,
+            bangumiId = rawBangumiId,
+        )
+
+        listOf(
+            "id", "tmdbid", "poster", "backdrop", "vote", "description", "lack_episode",
+            "completed_episode", "completed_tracks", "note", "state", "last_update",
+            "username", "current_priority", "episode_priority", "date",
+            "current_audio_format", "current_bitrate", "current_bit_depth", "current_sample_rate",
+            "classification_rule_id", "classification_policy_revision", "classification_source",
+            "execution_status", "last_search",
+        ).forEach { baseMap.remove(it) }
+
+        val rawSearchInterval = baseMap["search_interval"]?.asPrim()?.intOrNull ?: item.searchInterval
+        if (rawSearchInterval == null || rawSearchInterval <= 0) {
+            baseMap.remove("search_interval")
+        }
+
+        baseMap["name"] = JsonPrimitive(item.name)
+        baseMap["type"] = JsonPrimitive(canonicalType)
+        if (item.year.isNotBlank()) {
+            baseMap["year"] = JsonPrimitive(item.year.trim())
+        }
+        if (isTv && (item.season ?: 0) > 0) {
+            baseMap["season"] = JsonPrimitive(item.season ?: 1)
+        } else if (!isTv) {
+            baseMap.remove("season")
+        }
+        if (identity != null) {
+            baseMap["media_source"] = JsonPrimitive(identity.first)
+            baseMap["media_id"] = JsonPrimitive(identity.second)
+        } else {
+            baseMap.remove("media_source")
+            baseMap.remove("media_id")
+        }
+
+        val resp = authedRequest(
+            segments = listOf("subscribe"),
+            method = "POST",
+            body = JsonObject(baseMap).toString(),
+            trailingSlash = true,
+        ).getOrNull() ?: return false to "网络请求失败"
+        val rootObj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = resp.status in 200..299 && rootObj?.bool("success") == true
+        if (ok) cachedSubscriptions = null
+        val msg = rootObj?.str("message")?.takeIf { it.isNotBlank() }
+            ?: if (ok) "已重新订阅「${item.name}」" else "重新订阅失败（HTTP ${resp.status}）"
+        return ok to msg
+    }
 
     /** 拉取真实播映日历（优先 `GET /api/v1/subscribe/calendar`；若服务端无此路由则聚合真实 TMDB 单集 air_date）。 */
     suspend fun fetchSubscribeCalendar(): List<CalendarEntryDto> {
@@ -3622,8 +3879,9 @@ class MoviePilotRepository(context: Context) {
 
     /**
      * 解析并准备存储音视频文件起播源：
-     * - 所有非 `.strm` 存储文件均优先通过 `POST /api/v1/mediaserver/stream-ticket` + `stream-info` 获取 HTTP Range 流地址与同名 LRC 歌词，实现边加载边播放；
-     * - `.strm` 指针文件、不支持在线流式的存储或旧版后端自动回退 `POST /api/v1/storage/download`。
+     * - 所有非 `.strm` 音视频文件严格通过 `POST /api/v1/mediaserver/stream-ticket` + `stream-info` 获取 HTTP Range 流地址，
+     *   边加载边播放，严禁回退 `POST /api/v1/storage/download` 整文件落盘（避免在服务端临时目录与客户端缓存产生大体积媒体副本）；
+     * - 仅远端 `.strm` 轻量文本指针文件（`<= 64 KB`）在无流票据时读取直链并立即删除临时指针文件。
      */
     suspend fun resolveStoragePlayback(
         storage: String,
@@ -3634,9 +3892,9 @@ class MoviePilotRepository(context: Context) {
         val fileName = path.substringAfterLast('/').ifBlank { destFile.name }
         val detectedKind = fallbackKind ?: RustCoreBridge.detectMediaKind(path, false)
         val normalizedStorage = storage.trim().ifBlank { "local" }
+        val isStrm = RustCoreBridge.isStrmPath(fileName) || RustCoreBridge.isStrmPath(path)
         val shouldTryStreamTicket =
-            normalizedStorage.equals("local", ignoreCase = true) ||
-                (!RustCoreBridge.isStrmPath(fileName) && !RustCoreBridge.isStrmPath(path))
+            normalizedStorage.equals("local", ignoreCase = true) || !isStrm
         if (shouldTryStreamTicket) {
             val ticketId = createStorageStreamTicket(
                 storage = normalizedStorage,
@@ -3668,29 +3926,25 @@ class MoviePilotRepository(context: Context) {
             }
         }
 
+        if (!isStrm) {
+            return null
+        }
+
         val downloaded = downloadStorageFileToCache(storage, path, destFile) ?: return null
         if (!downloaded.exists()) return null
-        if (RustCoreBridge.isStrmPath(fileName) || RustCoreBridge.isStrmPath(downloaded.name)) {
-            val rawBytes = runCatching {
-                if (downloaded.length() in 1..65_536L) downloaded.readBytes() else null
-            }.getOrNull()
-            runCatching { downloaded.delete() }
-            val bytes = rawBytes ?: return null
-            val text = decodeStrmBytes(bytes) ?: return null
-            val spec = RustCoreBridge.parseStrm(text, fileName) ?: return null
-            return ResolvedStoragePlaybackDto(
-                url = spec.url,
-                isAudio = spec.mediaKind == "audio",
-                streamHeaders = spec.headers,
-                tempFilePath = null,
-                isStrmDirect = true,
-            )
-        }
+        val rawBytes = runCatching {
+            if (downloaded.length() in 1..65_536L) downloaded.readBytes() else null
+        }.getOrNull()
+        runCatching { downloaded.delete() }
+        val bytes = rawBytes ?: return null
+        val text = decodeStrmBytes(bytes) ?: return null
+        val spec = RustCoreBridge.parseStrm(text, fileName) ?: return null
         return ResolvedStoragePlaybackDto(
-            url = android.net.Uri.fromFile(downloaded).toString(),
-            isAudio = detectedKind == "audio",
-            tempFilePath = downloaded.absolutePath,
-            isStrmDirect = false,
+            url = spec.url,
+            isAudio = spec.mediaKind == "audio",
+            streamHeaders = spec.headers,
+            tempFilePath = null,
+            isStrmDirect = true,
         )
     }
 

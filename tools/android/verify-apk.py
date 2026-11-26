@@ -16,6 +16,7 @@ def verify_apk(
     apk_path: Path,
     expected_version: str | None = None,
     expected_abis: list[str] | None = None,
+    require_release_cert: bool = False,
 ) -> dict:
     if not apk_path.is_file():
         raise ValueError(f"APK 不存在：{apk_path}")
@@ -57,11 +58,17 @@ def verify_apk(
             raise ValueError(f"APK 服务品牌 Logo 资源不足：{len(logos)} < 36")
 
         # 校验已签名（V1 META-INF 或 APK Signature Block v2/v3）
-        has_v1_sig = any(n.startswith("META-INF/") and n.endswith((".RSA", ".DSA", ".EC")) for n in names)
+        v1_cert_entries = sorted(n for n in names if n.startswith("META-INF/") and n.endswith((".RSA", ".DSA", ".EC")))
+        has_v1_sig = bool(v1_cert_entries)
         raw_bytes = apk_path.read_bytes()
         has_v2_sig = b"APK Sig Block 42" in raw_bytes
         if not (has_v1_sig or has_v2_sig):
             raise ValueError("APK 未签名，无法在 Android 设备直接安装")
+
+        if require_release_cert:
+            cert_blobs = [raw_bytes] + [zf.read(entry) for entry in v1_cert_entries]
+            if any(b"Android Debug" in blob for blob in cert_blobs):
+                raise ValueError("正式发版 APK 检测到 Android Debug 临时调试签名，已拦截以防升级签名冲突")
 
         if expected_version and expected_version.encode("utf-8") not in raw_bytes and expected_version.encode("utf-16le") not in raw_bytes:
             # 二进制 AXML 字符串池通常以 UTF-8 或 UTF-16LE 存储 versionName
@@ -85,10 +92,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("apk", type=Path)
     parser.add_argument("--version", default=None)
     parser.add_argument("--abis", default=None, help="期望包含的逗号分隔 ABI 列表")
+    parser.add_argument(
+        "--require-release-cert",
+        action="store_true",
+        help="要求使用固定正式发布证书签名，拒绝 Android Debug 临时签名",
+    )
     args = parser.parse_args(argv)
     expected_abis = [a.strip() for a in args.abis.split(",") if a.strip()] if args.abis else None
     try:
-        report = verify_apk(args.apk, args.version, expected_abis)
+        report = verify_apk(args.apk, args.version, expected_abis, args.require_release_cert)
     except ValueError as err:
         print(f"APK 校验失败：{err}", file=sys.stderr)
         return 1

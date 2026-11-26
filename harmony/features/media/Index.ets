@@ -1,5 +1,6 @@
 export {
   HarmonyMediaDetailPage,
+  HarmonyMediaSeasonDetailPage,
   HarmonyPersonDetailPage
 } from './src/main/ets/MediaDetailPage';
 

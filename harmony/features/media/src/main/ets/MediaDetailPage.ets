@@ -23,11 +23,13 @@ import {
   HarmonyEpisodeStripSkeleton,
   HarmonyMediaDetailBodySkeleton,
   HarmonyPosterGridSkeleton,
+  HarmonyPosterRowCardGridSkeleton,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
 import {
   HarmonyPlaybackRequest,
+  HarmonyQueueItem,
   buildPlaybackRequestFromStreamInfo
 } from '@moviepilot/media_player';
 
@@ -64,6 +66,9 @@ export struct HarmonyMediaDetailPage {
   @State private tmdbEpisodes: MpTmdbEpisodeItem[] = [];
   @State private loadingDetail: boolean = true;
   @State private loadingEpisodes: boolean = false;
+  @State private playableSeriesMap: Record<string, Record<string, string>> = {};
+  @State private remoteExistsMap: Record<string, number[]> = {};
+  @State private availabilityLoaded: boolean = false;
   @State private statusMsg: string = '';
   @State private statusIsError: boolean = false;
   private userMutatedSubscribe: boolean = false;
@@ -72,6 +77,7 @@ export struct HarmonyMediaDetailPage {
   onBack: () => void = () => {};
   onSearchResource: (kw: string) => void = () => {};
   onOpenPerson: (person: MpCastMember) => void = () => {};
+  onOpenSeasonDetail: (series: MpMediaItem, season: MpSeasonInfo, seriesItemId: string, server: string) => void = () => {};
   onPlayMedia: (req: HarmonyPlaybackRequest) => void = () => {};
 
   aboutToAppear(): void {
@@ -89,6 +95,9 @@ export struct HarmonyMediaDetailPage {
     this.seasons = [];
     this.activeSeasonNumber = 1;
     this.tmdbEpisodes = [];
+    this.playableSeriesMap = {};
+    this.remoteExistsMap = {};
+    this.availabilityLoaded = false;
     this.loadingDetail = true;
     this.loadingEpisodes = false;
     this.statusMsg = '';
@@ -168,7 +177,7 @@ export struct HarmonyMediaDetailPage {
 
     // 2. 并发拉取 /api/v1/media/status（入库与各季订阅字典）、/api/v1/subscribe/media/{id}、演职员与季列表
     const needCredits = workingItem.tmdbId.length > 0 && this.cast.length === 0;
-    const needSeasons = workingItem.tmdbId.length > 0 && this.seasons.length === 0 &&
+    const needSeasons = this.seasons.length === 0 &&
       (workingItem.type === '电视剧' || workingItem.type.toLowerCase() === 'tv');
 
     try {
@@ -176,7 +185,7 @@ export struct HarmonyMediaDetailPage {
         repo.fetchMediaStatus(workingItem),
         repo.checkMediaSubscribed(workingItem),
         needCredits ? repo.fetchMediaCredits(workingItem.tmdbId, workingItem.type) : Promise.resolve(this.cast),
-        needSeasons ? repo.fetchMediaSeasons(workingItem.tmdbId) : Promise.resolve(this.seasons)
+        needSeasons ? repo.fetchMediaSeasonsForItem(workingItem) : Promise.resolve(this.seasons)
       ]);
       if (seq !== this.detailLoadSeq) { return; }
 
@@ -237,12 +246,24 @@ export struct HarmonyMediaDetailPage {
         }
       }
 
-      // 3. 初始化电视剧默认选中季并拉取 16:9 横版分集剧照卡片
-      if (this.seasons.length > 0) {
-        const preferred = this.seasons.find((s: MpSeasonInfo) => s.seasonNumber > 0) ?? this.seasons[0];
-        this.activeSeasonNumber = preferred.seasonNumber;
-        if (workingItem.tmdbId.length > 0) {
-          this.loadSeasonEpisodes(workingItem.tmdbId, preferred.seasonNumber);
+      // 3. 初始化电视剧默认选中季并拉取 16:9 横版分集剧照卡片 + 各季入库集数映射
+      if (this.seasons.length > 0 || this.isTvMedia(workingItem)) {
+        if (this.seasons.length > 0) {
+          const preferred = this.seasons.find((s: MpSeasonInfo) => s.seasonNumber > 0) ?? this.seasons[0];
+          this.activeSeasonNumber = preferred.seasonNumber;
+          this.loadSeasonEpisodes(workingItem, preferred.seasonNumber);
+        }
+        const seriesSrvId = workingItem.serverItemId ?? '';
+        const availRes = await Promise.all([
+          seriesSrvId.length > 0
+            ? repo.fetchPlayableSeriesEpisodes(seriesSrvId, workingItem.serverName)
+            : Promise.resolve({} as Record<string, Record<string, string>>),
+          repo.fetchRemoteExistingEpisodes(workingItem)
+        ]);
+        if (seq === this.detailLoadSeq) {
+          this.playableSeriesMap = availRes[0];
+          this.remoteExistsMap = availRes[1];
+          this.availabilityLoaded = true;
         }
       }
     } catch {
@@ -253,14 +274,15 @@ export struct HarmonyMediaDetailPage {
     }
   }
 
-  private async loadSeasonEpisodes(tmdbId: string, seasonNum: number): Promise<void> {
-    if (!tmdbId) {
-      this.tmdbEpisodes = [];
-      return;
-    }
+  private async loadSeasonEpisodes(media: MpMediaItem, seasonNum: number): Promise<void> {
     this.loadingEpisodes = true;
     try {
-      this.tmdbEpisodes = await MoviePilotRepository.shared().fetchTmdbSeasonEpisodes(tmdbId, seasonNum);
+      this.tmdbEpisodes = await MoviePilotRepository.shared().fetchSeasonEpisodesSmart(
+        media,
+        seasonNum,
+        media.serverItemId ?? '',
+        media.serverName
+      );
     } catch {
       this.tmdbEpisodes = [];
     }
@@ -272,9 +294,99 @@ export struct HarmonyMediaDetailPage {
       return;
     }
     this.activeSeasonNumber = seasonNum;
-    const tmdb = this.activeMedia().tmdbId;
-    if (tmdb.length > 0) {
-      this.loadSeasonEpisodes(tmdb, seasonNum);
+    this.loadSeasonEpisodes(this.activeMedia(), seasonNum);
+  }
+
+  private seasonExistingCount(seasonNum: number): number {
+    const key = String(seasonNum);
+    const seen: number[] = [];
+    const pMap = this.playableSeriesMap[key];
+    if (pMap) {
+      const eKeys = Object.keys(pMap);
+      for (let i = 0; i < eKeys.length; i++) {
+        const n = Number(eKeys[i]);
+        if (Number.isFinite(n) && n > 0 && !seen.includes(n)) {
+          seen.push(n);
+        }
+      }
+    }
+    const rArr = this.remoteExistsMap[key];
+    if (rArr) {
+      for (let i = 0; i < rArr.length; i++) {
+        if (!seen.includes(rArr[i])) {
+          seen.push(rArr[i]);
+        }
+      }
+    }
+    return seen.length;
+  }
+
+  private episodePlayableItemId(seasonNum: number, epNum: number): string {
+    const pMap = this.playableSeriesMap[String(seasonNum)];
+    if (!pMap) { return ''; }
+    return pMap[String(epNum)] ?? '';
+  }
+
+  private isEpisodeInLibrary(seasonNum: number, epNum: number): boolean {
+    if (this.episodePlayableItemId(seasonNum, epNum).length > 0) {
+      return true;
+    }
+    const rArr = this.remoteExistsMap[String(seasonNum)];
+    return rArr ? rArr.includes(epNum) : false;
+  }
+
+  private async playInlineEpisode(seasonNum: number, epNum: number, epTitle: string, stillUrl: string): Promise<void> {
+    const cur = this.activeMedia();
+    const pMap = this.playableSeriesMap[String(seasonNum)];
+    if (!pMap) { return; }
+    const targetId = pMap[String(epNum)] ?? '';
+    if (!targetId) { return; }
+    const eKeys = Object.keys(pMap);
+    const sortedNums: number[] = [];
+    for (let i = 0; i < eKeys.length; i++) {
+      const n = Number(eKeys[i]);
+      if (Number.isFinite(n) && n > 0) { sortedNums.push(Math.round(n)); }
+    }
+    sortedNums.sort((a: number, b: number) => a - b);
+    const queue: HarmonyQueueItem[] = [];
+    let qIdx = 0;
+    for (let i = 0; i < sortedNums.length; i++) {
+      const num = sortedNums[i];
+      const qid = pMap[String(num)] ?? '';
+      if (!qid) { continue; }
+      if (num === epNum) { qIdx = queue.length; }
+      const hitEp = this.tmdbEpisodes.find((e: MpTmdbEpisodeItem) => e.episodeNumber === num);
+      const code = `S${String(seasonNum).padStart(2, '0')}E${String(num).padStart(2, '0')}`;
+      queue.push({
+        itemId: qid,
+        title: hitEp ? `${cur.title} · ${code} · ${hitEp.title}` : `${cur.title} · ${code}`,
+        subtitle: cur.serverName,
+        server: cur.serverName,
+        artworkUrl: (hitEp && hitEp.stillUrl.length > 0) ? hitEp.stillUrl : (cur.posterUrl || cur.backdropUrl),
+        trackNumber: num
+      });
+    }
+    try {
+      const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(targetId, cur.serverName);
+      if (manifest && manifest.contentUrl.length > 0) {
+        const code = `S${String(seasonNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')}`;
+        this.onPlayMedia(buildPlaybackRequestFromStreamInfo(
+          manifest,
+          `${cur.title} · ${code} · ${epTitle}`,
+          cur.serverName || cur.year,
+          {
+            queue: queue.length > 1 ? queue : undefined,
+            queueIndex: queue.length > 1 ? qIdx : undefined,
+            overrideArtworkUrl: stillUrl || cur.posterUrl || cur.backdropUrl
+          }
+        ));
+      } else {
+        this.statusIsError = true;
+        this.statusMsg = '无法读取该集的媒体服务器流地址';
+      }
+    } catch {
+      this.statusIsError = true;
+      this.statusMsg = '媒体流请求异常，请稍后重试';
     }
   }
 
@@ -491,23 +603,59 @@ export struct HarmonyMediaDetailPage {
                   .borderRadius(8)
                   .backgroundColor('#E034C759')
                   .margin(6)
+                } else if (this.seasonExistingCount(s.seasonNumber) > 0) {
+                  Text(
+                    (s.episodeCount > 0 && this.seasonExistingCount(s.seasonNumber) < s.episodeCount)
+                      ? `${this.seasonExistingCount(s.seasonNumber)}/${s.episodeCount}`
+                      : '已入库'
+                  )
+                    .fontSize(10)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Color.White)
+                    .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                    .borderRadius(8)
+                    .backgroundColor(
+                      (s.episodeCount > 0 && this.seasonExistingCount(s.seasonNumber) < s.episodeCount)
+                        ? '#E0F29B38'
+                        : '#E034C759'
+                    )
+                    .margin(6)
                 }
               }
-              .onClick(() => this.selectSeason(s.seasonNumber))
+              .onClick(() => {
+                const cur = this.activeMedia();
+                this.onOpenSeasonDetail(cur, s, cur.serverItemId ?? '', cur.serverName);
+              })
 
-              Text(s.name)
-                .fontSize(13)
-                .fontWeight(this.activeSeasonNumber === s.seasonNumber ? FontWeight.Bold : FontWeight.Medium)
-                .fontColor(this.activeSeasonNumber === s.seasonNumber ? this.accentHex : mpPrimaryText(this.isDark))
+              Row({ space: 2 }) {
+                Text(s.name)
+                  .fontSize(13)
+                  .fontWeight(this.activeSeasonNumber === s.seasonNumber ? FontWeight.Bold : FontWeight.Medium)
+                  .fontColor(this.activeSeasonNumber === s.seasonNumber ? this.accentHex : mpPrimaryText(this.isDark))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(11)
+                  .fontColor([mpSecondaryText(this.isDark)])
+              }
+              .width(112)
+              .onClick(() => {
+                const cur = this.activeMedia();
+                this.onOpenSeasonDetail(cur, s, cur.serverItemId ?? '', cur.serverName);
+              })
+
+              Text(
+                this.seasonExistingCount(s.seasonNumber) > 0
+                  ? `已入库 ${this.seasonExistingCount(s.seasonNumber)}/${s.episodeCount || this.seasonExistingCount(s.seasonNumber)} 集`
+                  : (this.availabilityLoaded ? `共 ${s.episodeCount} 集 · 未入库` : `共 ${s.episodeCount} 集`)
+              )
+                .fontSize(11)
+                .fontColor(mpSecondaryText(this.isDark))
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .width(112)
                 .onClick(() => this.selectSeason(s.seasonNumber))
-
-              Text(`共 ${s.episodeCount} 集`)
-                .fontSize(11)
-                .fontColor(mpSecondaryText(this.isDark))
-                .width(112)
 
               if (this.isSeasonSubscribed(s.seasonNumber)) {
                 Row({ space: 4 }) {
@@ -600,6 +748,24 @@ export struct HarmonyMediaDetailPage {
                         .borderRadius(8)
                         .backgroundColor('#B810141E')
                       Blank()
+                      if (this.isEpisodeInLibrary(this.activeSeasonNumber, ep.episodeNumber)) {
+                        Text('已入库')
+                          .fontSize(10)
+                          .fontWeight(FontWeight.Bold)
+                          .fontColor(Color.White)
+                          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                          .borderRadius(8)
+                          .backgroundColor('#E034C759')
+                          .margin({ right: ep.runtimeMinutes > 0 ? 5 : 0 })
+                      } else if (this.availabilityLoaded) {
+                        Text('未入库')
+                          .fontSize(10)
+                          .fontColor('#D9FFFFFF')
+                          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                          .borderRadius(8)
+                          .backgroundColor('#8C1E2230')
+                          .margin({ right: ep.runtimeMinutes > 0 ? 5 : 0 })
+                      }
                       if (ep.runtimeMinutes > 0) {
                         Text(`${ep.runtimeMinutes} 分钟`)
                           .fontSize(10.5)
@@ -612,6 +778,16 @@ export struct HarmonyMediaDetailPage {
                     .width(228)
                     .padding({ left: 8, right: 8, bottom: 8 })
                   }
+                  .onClick(() => {
+                    if (this.episodePlayableItemId(this.activeSeasonNumber, ep.episodeNumber).length > 0) {
+                      this.playInlineEpisode(
+                        this.activeSeasonNumber,
+                        ep.episodeNumber,
+                        ep.title,
+                        ep.stillUrl
+                      );
+                    }
+                  })
 
                   Text(`${ep.episodeNumber}. ${ep.title}`)
                     .fontSize(13.5)
@@ -752,6 +928,37 @@ export struct HarmonyMediaDetailPage {
               .backgroundColor(this.accentHex)
               .onClick(async () => {
                 const cur = this.activeMedia();
+                if (this.isTvMedia(cur)) {
+                  const sKeys = Object.keys(this.playableSeriesMap);
+                  const sNums: number[] = [];
+                  for (let i = 0; i < sKeys.length; i++) {
+                    const sn = Number(sKeys[i]);
+                    if (Number.isFinite(sn) && sn >= 0) { sNums.push(Math.round(sn)); }
+                  }
+                  sNums.sort((a: number, b: number) => {
+                    if (a === 0 && b !== 0) { return 1; }
+                    if (b === 0 && a !== 0) { return -1; }
+                    return a - b;
+                  });
+                  if (sNums.length > 0) {
+                    const firstSeason = sNums[0];
+                    const pMap = this.playableSeriesMap[String(firstSeason)];
+                    if (pMap) {
+                      const eKeys = Object.keys(pMap);
+                      const eNums: number[] = [];
+                      for (let j = 0; j < eKeys.length; j++) {
+                        const en = Number(eKeys[j]);
+                        if (Number.isFinite(en) && en > 0) { eNums.push(Math.round(en)); }
+                      }
+                      eNums.sort((a: number, b: number) => a - b);
+                      if (eNums.length > 0) {
+                        const firstEp = eNums[0];
+                        await this.playInlineEpisode(firstSeason, firstEp, `第 ${firstEp} 集`, cur.backdropUrl || cur.posterUrl);
+                        return;
+                      }
+                    }
+                  }
+                }
                 const streamTargetId = cur.serverItemId && cur.serverItemId.length > 0 ? cur.serverItemId : cur.id;
                 try {
                   const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(streamTargetId, cur.serverName);
@@ -1134,6 +1341,699 @@ export struct HarmonyPersonDetailPage {
           }
         }
         .padding({ left: 16, right: 16, bottom: 40 })
+      }
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .height('100%')
+  }
+}
+
+/**
+ * 鸿蒙「季媒体与分集详情页」：
+ * - 点击媒体详情页的任意分季后进入，展示该季海报、首播日期、集数、入库统计、简介及订阅/资源搜索操作；
+ * - 完整列出该季每一集，显示每集的入库状态（已入库 / 未开播 / 未入库）并支持单集点击直放与同季连续播放队列。
+ */
+@Component
+export struct HarmonyMediaSeasonDetailPage {
+  @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
+  @StorageLink(HarmonyAppearanceStore.KEY_DYNAMIC_LIGHT) dynamicLight: boolean = true;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP) safeBottomVp: number = 16;
+
+  @Prop seriesItem: MpMediaItem = {
+    id: '', mediaId: '', tmdbId: '', doubanId: '', title: '', enTitle: '', year: '', type: '电视剧',
+    overview: '', vote: 0, posterUrl: '', backdropUrl: '', logoUrl: '', source: 'themoviedb',
+    inLibrary: false, subtitle: '', percent: 0, serverName: '', playUrl: ''
+  };
+  @Prop initialSeason: MpSeasonInfo = {
+    seasonNumber: 1, name: '第 1 季', episodeCount: 0, airDate: '', posterUrl: '', overview: ''
+  };
+  @Prop initialSeriesItemId: string = '';
+  @Prop initialServer: string = '';
+
+  @State private seasonInfo: MpSeasonInfo = {
+    seasonNumber: 1, name: '第 1 季', episodeCount: 0, airDate: '', posterUrl: '', overview: ''
+  };
+  @State private episodes: MpTmdbEpisodeItem[] = [];
+  @State private playableMap: Record<string, string> = {};
+  @State private existingNums: number[] = [];
+  @State private resolvedSeriesId: string = '';
+  @State private resolvedServer: string = '';
+  @State private isSubscribed: boolean = false;
+  @State private mutatingSubscribe: boolean = false;
+  @State private playingEpisodeNum: number = -1;
+  @State private overviewExpanded: boolean = false;
+  @State private loading: boolean = true;
+  @State private statusMsg: string = '';
+  @State private statusIsError: boolean = false;
+
+  onBack: () => void = () => {};
+  onSearchResource: (kw: string) => void = () => {};
+  onPlayMedia: (req: HarmonyPlaybackRequest) => void = () => {};
+
+  aboutToAppear(): void {
+    this.seasonInfo = {
+      seasonNumber: this.initialSeason.seasonNumber,
+      name: this.initialSeason.name,
+      episodeCount: this.initialSeason.episodeCount,
+      airDate: this.initialSeason.airDate,
+      posterUrl: this.initialSeason.posterUrl,
+      overview: this.initialSeason.overview
+    };
+    this.resolvedSeriesId = this.initialSeriesItemId;
+    this.resolvedServer = this.initialServer;
+    this.loadSeasonAll();
+  }
+
+  private seasonDisplayTitle(): string {
+    if (this.seasonInfo.name && this.seasonInfo.name.trim().length > 0) {
+      return this.seasonInfo.name.trim();
+    }
+    return this.seasonInfo.seasonNumber === 0 ? '特别篇' : `第 ${this.seasonInfo.seasonNumber} 季`;
+  }
+
+  private async loadSeasonAll(): Promise<void> {
+    this.loading = true;
+    const repo = MoviePilotRepository.shared();
+    const sNum = this.seasonInfo.seasonNumber;
+    try {
+      const preResults = await Promise.all([
+        repo.fetchMediaStatus(this.seriesItem, sNum),
+        repo.fetchMediaSeasonsForItem(this.seriesItem),
+        repo.fetchRemoteExistingEpisodes(this.seriesItem, sNum)
+      ]);
+      const mediaSt = preResults[0];
+      const allSeasons = preResults[1];
+      const remoteMap = preResults[2];
+
+      if (mediaSt.itemId.length > 0) {
+        this.resolvedSeriesId = mediaSt.itemId;
+      }
+      if (mediaSt.server.length > 0) {
+        this.resolvedServer = mediaSt.server;
+      }
+      this.isSubscribed = mediaSt.seasons.includes(sNum) || mediaSt.subscribed;
+
+      const matchedSeason = allSeasons.find((s: MpSeasonInfo) => s.seasonNumber === sNum);
+      if (matchedSeason) {
+        this.seasonInfo = {
+          seasonNumber: sNum,
+          name: matchedSeason.name || this.seasonInfo.name,
+          episodeCount: matchedSeason.episodeCount > 0 ? matchedSeason.episodeCount : this.seasonInfo.episodeCount,
+          airDate: matchedSeason.airDate || this.seasonInfo.airDate,
+          posterUrl: matchedSeason.posterUrl || this.seasonInfo.posterUrl,
+          overview: matchedSeason.overview || this.seasonInfo.overview
+        };
+      }
+
+      const epResults = await Promise.all([
+        this.resolvedSeriesId.length > 0
+          ? repo.fetchPlayableSeasonEpisodes(this.resolvedSeriesId, sNum, this.resolvedServer)
+          : Promise.resolve({} as Record<string, string>),
+        repo.fetchSeasonEpisodesSmart(this.seriesItem, sNum, this.resolvedSeriesId, this.resolvedServer)
+      ]);
+      this.playableMap = epResults[0];
+
+      const mergedExist: number[] = [];
+      const rArr = remoteMap[String(sNum)];
+      if (rArr) {
+        for (let i = 0; i < rArr.length; i++) {
+          if (!mergedExist.includes(rArr[i])) {
+            mergedExist.push(rArr[i]);
+          }
+        }
+      }
+      const pKeys = Object.keys(this.playableMap);
+      for (let i = 0; i < pKeys.length; i++) {
+        const n = Number(pKeys[i]);
+        if (Number.isFinite(n) && n > 0 && !mergedExist.includes(Math.round(n))) {
+          mergedExist.push(Math.round(n));
+        }
+      }
+      mergedExist.sort((a: number, b: number) => a - b);
+      this.existingNums = mergedExist;
+
+      const loadedEps = epResults[1];
+      if (loadedEps.length > 0) {
+        this.episodes = loadedEps;
+      } else {
+        const maxExist = mergedExist.length > 0 ? mergedExist[mergedExist.length - 1] : 0;
+        const maxTotal = Math.max(this.seasonInfo.episodeCount, maxExist);
+        const fallbackList: MpTmdbEpisodeItem[] = [];
+        for (let num = 1; num <= maxTotal; num++) {
+          fallbackList.push({
+            id: `fallback_${sNum}_${num}`,
+            seasonNumber: sNum,
+            episodeNumber: num,
+            title: `第 ${num} 集`,
+            overview: '',
+            airDate: '',
+            runtimeMinutes: 0,
+            vote: 0,
+            stillUrl: ''
+          });
+        }
+        this.episodes = fallbackList;
+      }
+    } catch {
+      // keep existing state
+    }
+    this.loading = false;
+  }
+
+  private firstPlayableEpisodeNum(): number {
+    const keys = Object.keys(this.playableMap);
+    const nums: number[] = [];
+    for (let i = 0; i < keys.length; i++) {
+      const n = Number(keys[i]);
+      if (Number.isFinite(n) && n > 0) { nums.push(Math.round(n)); }
+    }
+    nums.sort((a: number, b: number) => a - b);
+    return nums.length > 0 ? nums[0] : -1;
+  }
+
+  private isEpisodePlayable(epNum: number): boolean {
+    const val = this.playableMap[String(epNum)] ?? '';
+    return val.length > 0;
+  }
+
+  private isEpisodeInLib(epNum: number): boolean {
+    return this.isEpisodePlayable(epNum) || this.existingNums.includes(epNum);
+  }
+
+  private isUpcomingAirDate(airDate: string): boolean {
+    if (!airDate || airDate.length < 10) { return false; }
+    const d = Date.parse(airDate.substring(0, 10));
+    if (!Number.isFinite(d)) { return false; }
+    return d > Date.now();
+  }
+
+  private async playEpisode(ep: MpTmdbEpisodeItem): Promise<void> {
+    if (this.playingEpisodeNum !== -1) { return; }
+    const targetId = this.playableMap[String(ep.episodeNumber)] ?? '';
+    if (!targetId) { return; }
+    this.playingEpisodeNum = ep.episodeNumber;
+    this.statusMsg = '';
+
+    const sNum = this.seasonInfo.seasonNumber;
+    const keys = Object.keys(this.playableMap);
+    const sortedNums: number[] = [];
+    for (let i = 0; i < keys.length; i++) {
+      const n = Number(keys[i]);
+      if (Number.isFinite(n) && n > 0) { sortedNums.push(Math.round(n)); }
+    }
+    sortedNums.sort((a: number, b: number) => a - b);
+
+    const queue: HarmonyQueueItem[] = [];
+    let qIdx = 0;
+    for (let i = 0; i < sortedNums.length; i++) {
+      const num = sortedNums[i];
+      const qid = this.playableMap[String(num)] ?? '';
+      if (!qid) { continue; }
+      if (num === ep.episodeNumber) { qIdx = queue.length; }
+      const hit = this.episodes.find((e: MpTmdbEpisodeItem) => e.episodeNumber === num);
+      const code = `S${String(sNum).padStart(2, '0')}E${String(num).padStart(2, '0')}`;
+      queue.push({
+        itemId: qid,
+        title: hit ? `${this.seriesItem.title} · ${code} · ${hit.title}` : `${this.seriesItem.title} · ${code}`,
+        subtitle: this.resolvedServer,
+        server: this.resolvedServer,
+        artworkUrl: (hit && hit.stillUrl.length > 0) ? hit.stillUrl : (this.seasonInfo.posterUrl || this.seriesItem.posterUrl),
+        trackNumber: num
+      });
+    }
+
+    try {
+      const manifest = await MoviePilotRepository.shared().fetchVideoStreamInfo(targetId, this.resolvedServer);
+      if (manifest && manifest.contentUrl.length > 0) {
+        const code = `S${String(sNum).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`;
+        this.onPlayMedia(buildPlaybackRequestFromStreamInfo(
+          manifest,
+          `${this.seriesItem.title} · ${code} · ${ep.title}`,
+          this.resolvedServer || this.seasonDisplayTitle(),
+          {
+            queue: queue.length > 1 ? queue : undefined,
+            queueIndex: queue.length > 1 ? qIdx : undefined,
+            overrideArtworkUrl: ep.stillUrl || this.seasonInfo.posterUrl || this.seriesItem.posterUrl
+          }
+        ));
+      } else {
+        this.statusIsError = true;
+        this.statusMsg = '无法获取该集的媒体流地址';
+      }
+    } catch {
+      this.statusIsError = true;
+      this.statusMsg = '读取播放流失败，请稍后重试';
+    }
+    this.playingEpisodeNum = -1;
+  }
+
+  private async toggleSeasonSubscribe(): Promise<void> {
+    if (this.mutatingSubscribe) { return; }
+    const sNum = this.seasonInfo.seasonNumber;
+    if (this.isSubscribed) {
+      this.getUIContext().showAlertDialog({
+        title: '取消订阅',
+        message: `确认取消《${this.seriesItem.title}》${this.seasonDisplayTitle()}的订阅吗？`,
+        autoCancel: true,
+        primaryButton: { value: '保留', action: () => {} },
+        secondaryButton: {
+          value: '取消订阅',
+          fontColor: '#E84855',
+          action: async () => {
+            this.mutatingSubscribe = true;
+            const ok = await MoviePilotRepository.shared().deleteMediaSubscribe(this.seriesItem, sNum);
+            this.mutatingSubscribe = false;
+            if (ok) {
+              this.isSubscribed = false;
+              this.statusIsError = false;
+              this.statusMsg = `已取消${this.seasonDisplayTitle()}订阅`;
+            } else {
+              this.statusIsError = true;
+              this.statusMsg = '取消订阅失败，请稍后重试';
+            }
+          }
+        }
+      });
+      return;
+    }
+
+    this.mutatingSubscribe = true;
+    const res = await MoviePilotRepository.shared().addSubscribeWithMessage(this.seriesItem, sNum);
+    this.mutatingSubscribe = false;
+    if (res.ok) {
+      this.isSubscribed = true;
+      this.statusIsError = false;
+      this.statusMsg = res.message || `已订阅${this.seasonDisplayTitle()}`;
+    } else {
+      this.statusIsError = true;
+      this.statusMsg = res.message || '订阅添加失败';
+    }
+  }
+
+  build() {
+    Column({ space: 10 }) {
+      NativeBackHeader({
+        title: `${this.seriesItem.title} · ${this.seasonDisplayTitle()}`,
+        trailingSymbol: 'sys.symbol.arrow_clockwise',
+        trailingAccessibility: '刷新本季信息',
+        onBack: () => this.onBack(),
+        onTrailingClick: () => { this.loadSeasonAll(); }
+      })
+
+      Scroll() {
+        Column({ space: 14 }) {
+          // 1. 本季媒体信息头卡
+          CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
+            Row({ space: 14 }) {
+              if ((this.seasonInfo.posterUrl || this.seriesItem.posterUrl).length > 0) {
+                MpRemoteImage({
+                  src: this.seasonInfo.posterUrl || this.seriesItem.posterUrl,
+                  imgWidth: 92,
+                  imgHeight: 138,
+                  imgRadius: 12,
+                  placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                })
+              } else {
+                Column()
+                  .width(92)
+                  .height(138)
+                  .borderRadius(12)
+                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+              }
+
+              Column({ space: 7 }) {
+                Text(this.seriesItem.title)
+                  .fontSize(12)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(mpSecondaryText(this.isDark))
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+
+                Text(this.seasonDisplayTitle())
+                  .fontSize(19)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(mpPrimaryText(this.isDark))
+                  .maxLines(2)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+
+                Row({ space: 8 }) {
+                  if (this.seasonInfo.airDate.length > 0) {
+                    Text(this.seasonInfo.airDate)
+                      .fontSize(12)
+                      .fontColor(mpSecondaryText(this.isDark))
+                  }
+                  if (Math.max(this.seasonInfo.episodeCount, this.episodes.length) > 0) {
+                    Text(`共 ${Math.max(this.seasonInfo.episodeCount, this.episodes.length)} 集`)
+                      .fontSize(12)
+                      .fontColor(mpSecondaryText(this.isDark))
+                  }
+                  if (this.seriesItem.vote > 0) {
+                    Text(`★ ${this.seriesItem.vote.toFixed(1)}`)
+                      .fontSize(12)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#F2B830')
+                  }
+                }
+                .width('100%')
+
+                if (this.existingNums.length > 0) {
+                  NativeAdaptiveBadge({
+                    text: (Math.max(this.seasonInfo.episodeCount, this.episodes.length) > this.existingNums.length)
+                      ? `部分入库 ${this.existingNums.length}/${Math.max(this.seasonInfo.episodeCount, this.episodes.length)} 集${this.resolvedServer ? ' · ' + this.resolvedServer : ''}`
+                      : `已入库 ${this.existingNums.length}/${Math.max(this.seasonInfo.episodeCount, this.episodes.length)} 集${this.resolvedServer ? ' · ' + this.resolvedServer : ''}`,
+                    tintHex: (Math.max(this.seasonInfo.episodeCount, this.episodes.length) > this.existingNums.length)
+                      ? '#F29B38'
+                      : '#34C759'
+                  })
+                } else if (!this.loading) {
+                  NativeAdaptiveBadge({ text: '未入库', tintHex: '#8E8E93' })
+                }
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+            }
+            .width('100%')
+          }
+
+          // 2. 本季操作栏
+          Column({ space: 10 }) {
+            if (this.firstPlayableEpisodeNum() > 0) {
+              Button() {
+                Row({ space: 6 }) {
+                  SymbolGlyph($r('sys.symbol.play_fill')).fontSize(16).fontColor([Color.White])
+                  Text(
+                    this.playingEpisodeNum === this.firstPlayableEpisodeNum()
+                      ? '准备播放…'
+                      : `播放第 ${this.firstPlayableEpisodeNum()} 集${this.resolvedServer ? ' · ' + this.resolvedServer : ''}`
+                  )
+                    .fontSize(14.5)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Color.White)
+                    .maxLines(1)
+                }
+              }
+              .width('100%')
+              .height(46)
+              .borderRadius(23)
+              .backgroundColor(this.accentHex)
+              .onClick(() => {
+                const fn = this.firstPlayableEpisodeNum();
+                const hit = this.episodes.find((e: MpTmdbEpisodeItem) => e.episodeNumber === fn);
+                if (hit) {
+                  this.playEpisode(hit);
+                }
+              })
+            }
+
+            Row({ space: 10 }) {
+              Button() {
+                Row({ space: 6 }) {
+                  if (this.isSubscribed) {
+                    SymbolGlyph($r('sys.symbol.checkmark_circle_fill'))
+                      .fontSize(15)
+                      .fontColor([Color.White])
+                  } else {
+                    SymbolGlyph($r('sys.symbol.bookmark_fill'))
+                      .fontSize(15)
+                      .fontColor([Color.White])
+                  }
+                  Text(this.mutatingSubscribe ? '处理中…' : (this.isSubscribed ? '本季已订阅' : '订阅本季'))
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(Color.White)
+                }
+              }
+              .layoutWeight(1)
+              .height(44)
+              .borderRadius(22)
+              .backgroundColor(this.isSubscribed ? '#34C759' : this.accentHex)
+              .onClick(() => { this.toggleSeasonSubscribe(); })
+
+              Button() {
+                Row({ space: 6 }) {
+                  SymbolGlyph($r('sys.symbol.magnifyingglass'))
+                    .fontSize(15)
+                    .fontColor([mpPrimaryText(this.isDark)])
+                  Text('搜索本季')
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(mpPrimaryText(this.isDark))
+                }
+              }
+              .layoutWeight(1)
+              .height(44)
+              .borderRadius(22)
+              .backgroundColor(Color.Transparent)
+              .attributeModifier(new HarmonySurfaceModifier(this.isDark, 'pill', 22, this.accentHex, true, this.dynamicLight))
+              .onClick(() => {
+                this.onSearchResource(`${this.seriesItem.title} S${String(this.seasonInfo.seasonNumber).padStart(2, '0')}`);
+              })
+            }
+            .width('100%')
+          }
+          .width('100%')
+
+          if (this.statusMsg.length > 0) {
+            Text(this.statusMsg)
+              .fontSize(12)
+              .fontColor(this.statusIsError ? '#E84855' : '#34C759')
+              .width('100%')
+          }
+
+          // 3. 本季简介
+          if ((this.seasonInfo.overview || this.seriesItem.overview).length > 0) {
+            CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
+              Column({ space: 8 }) {
+                Row() {
+                  Text('本季简介')
+                    .fontSize(15.5)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .layoutWeight(1)
+                  if ((this.seasonInfo.overview || this.seriesItem.overview).length > 72) {
+                    Text(this.overviewExpanded ? '收起 ▴' : '展开 ▾')
+                      .fontSize(12)
+                      .fontColor(this.accentHex)
+                      .onClick(() => { this.overviewExpanded = !this.overviewExpanded; })
+                  }
+                }
+                .width('100%')
+
+                Text(this.seasonInfo.overview || this.seriesItem.overview)
+                  .fontSize(13.5)
+                  .fontColor(mpSecondaryText(this.isDark))
+                  .lineHeight(21)
+                  .maxLines(this.overviewExpanded ? 99 : 4)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width('100%')
+              }
+              .alignItems(HorizontalAlign.Start)
+              .width('100%')
+            }
+          }
+
+          // 4. 本季分集列表
+          Row() {
+            Text('本季剧集')
+              .fontSize(17.5)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(mpPrimaryText(this.isDark))
+              .layoutWeight(1)
+            if (this.episodes.length > 0) {
+              Text(
+                this.existingNums.length > 0
+                  ? `已入库 ${this.existingNums.length} / 共 ${this.episodes.length} 集`
+                  : `共 ${this.episodes.length} 集`
+              )
+                .fontSize(12)
+                .fontColor(mpSecondaryText(this.isDark))
+            }
+          }
+          .width('100%')
+
+          if (this.loading && this.episodes.length === 0) {
+            HarmonyPosterRowCardGridSkeleton({
+              variant: 'subscribe',
+              fillViewport: false,
+              bottomPadding: 16
+            })
+          } else if (this.episodes.length === 0) {
+            CinematicPanel({ panelPadding: 22, cornerRadius: 18 }) {
+              Column({ space: 6 }) {
+                Text('暂无本季分集明细')
+                  .fontSize(14.5)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(mpPrimaryText(this.isDark))
+                Text('数据源尚未提供该季的分集列表。')
+                  .fontSize(12.5)
+                  .fontColor(mpSecondaryText(this.isDark))
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Center)
+            }
+          } else {
+            Grid() {
+              ForEach(this.episodes, (ep: MpTmdbEpisodeItem) => {
+                GridItem() {
+                  Column() {
+                    CinematicPanel({
+                      panelPadding: 12,
+                      cornerRadius: 16,
+                      interactive: this.isEpisodePlayable(ep.episodeNumber)
+                    }) {
+                      Column({ space: 9 }) {
+                        Row({ space: 12 }) {
+                          Stack({ alignContent: Alignment.Center }) {
+                            MpRemoteImage({
+                              src: ep.stillUrl || this.seriesItem.backdropUrl || this.seasonInfo.posterUrl || this.seriesItem.posterUrl,
+                              imgWidth: 132,
+                              imgHeight: 74,
+                              imgRadius: 10,
+                              placeholderColor: HarmonyThemeColors.chipFill(this.isDark)
+                            })
+
+                            Text(`E${String(ep.episodeNumber).padStart(2, '0')}`)
+                              .fontSize(10)
+                              .fontWeight(FontWeight.Bold)
+                              .fontColor(Color.White)
+                              .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                              .borderRadius(7)
+                              .backgroundColor('#B010141E')
+                              .position({ left: 6, top: 6 })
+
+                            if (this.isEpisodePlayable(ep.episodeNumber)) {
+                              Column() {
+                                SymbolGlyph($r('sys.symbol.play_fill'))
+                                  .fontSize(14)
+                                  .fontColor([Color.White])
+                              }
+                              .width(30)
+                              .height(30)
+                              .borderRadius(15)
+                              .justifyContent(FlexAlign.Center)
+                              .backgroundColor('#78000000')
+                            }
+                          }
+                          .width(132)
+                          .height(74)
+                          .onClick(() => {
+                            if (this.isEpisodePlayable(ep.episodeNumber)) {
+                              this.playEpisode(ep);
+                            }
+                          })
+
+                          Column({ space: 5 }) {
+                            Row({ space: 6 }) {
+                              Text(`${ep.episodeNumber}. ${ep.title}`)
+                                .fontSize(14.5)
+                                .fontWeight(FontWeight.Bold)
+                                .fontColor(mpPrimaryText(this.isDark))
+                                .maxLines(2)
+                                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                                .layoutWeight(1)
+
+                              if (this.isEpisodeInLib(ep.episodeNumber)) {
+                                NativeAdaptiveBadge({ text: '已入库', tintHex: '#34C759' })
+                              } else if (this.isUpcomingAirDate(ep.airDate)) {
+                                NativeAdaptiveBadge({ text: '未开播', tintHex: '#64A2FF' })
+                              } else {
+                                NativeAdaptiveBadge({ text: '未入库', tintHex: '#8E8E93' })
+                              }
+                            }
+                            .width('100%')
+
+                            Row({ space: 8 }) {
+                              if (ep.airDate.length > 0) {
+                                Text(ep.airDate)
+                                  .fontSize(11.5)
+                                  .fontColor(mpSecondaryText(this.isDark))
+                              }
+                              if (ep.runtimeMinutes > 0) {
+                                Text(`${ep.runtimeMinutes} 分钟`)
+                                  .fontSize(11.5)
+                                  .fontColor(mpSecondaryText(this.isDark))
+                              }
+                              if (ep.vote > 0) {
+                                Text(`★ ${ep.vote.toFixed(1)}`)
+                                  .fontSize(11.5)
+                                  .fontWeight(FontWeight.Medium)
+                                  .fontColor('#F2B830')
+                              }
+                            }
+                            .width('100%')
+
+                            if (ep.overview.length > 0) {
+                              Text(ep.overview)
+                                .fontSize(12)
+                                .fontColor(mpSecondaryText(this.isDark))
+                                .lineHeight(17)
+                                .maxLines(3)
+                                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                                .width('100%')
+                            }
+                          }
+                          .alignItems(HorizontalAlign.Start)
+                          .layoutWeight(1)
+                        }
+                        .width('100%')
+
+                        Row({ space: 8 }) {
+                          if (this.isEpisodePlayable(ep.episodeNumber)) {
+                            Row({ space: 5 }) {
+                              SymbolGlyph($r('sys.symbol.play_fill'))
+                                .fontSize(12)
+                                .fontColor([Color.White])
+                              Text(this.playingEpisodeNum === ep.episodeNumber ? '准备播放…' : '播放本集')
+                                .fontSize(12)
+                                .fontWeight(FontWeight.Bold)
+                                .fontColor(Color.White)
+                            }
+                            .padding({ left: 12, right: 13, top: 6, bottom: 6 })
+                            .borderRadius(15)
+                            .backgroundColor(this.accentHex)
+                            .onClick(() => { this.playEpisode(ep); })
+                          } else {
+                            Row({ space: 5 }) {
+                              SymbolGlyph($r('sys.symbol.magnifyingglass'))
+                                .fontSize(12)
+                                .fontColor([mpPrimaryText(this.isDark)])
+                              Text('搜本集')
+                                .fontSize(12)
+                                .fontWeight(FontWeight.Medium)
+                                .fontColor(mpPrimaryText(this.isDark))
+                            }
+                            .padding({ left: 11, right: 12, top: 6, bottom: 6 })
+                            .borderRadius(15)
+                            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                            .onClick(() => {
+                              const code = `S${String(this.seasonInfo.seasonNumber).padStart(2, '0')}E${String(ep.episodeNumber).padStart(2, '0')}`;
+                              this.onSearchResource(`${this.seriesItem.title} ${code}`);
+                            })
+                          }
+                          Blank().layoutWeight(1)
+                        }
+                        .width('100%')
+                      }
+                      .width('100%')
+                    }
+                  }
+                  .width('100%')
+                }
+              }, (ep: MpTmdbEpisodeItem) => `season_ep_${ep.seasonNumber}_${ep.episodeNumber}_${this.isEpisodeInLib(ep.episodeNumber)}`)
+            }
+            .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+            .columnsGap(12)
+            .rowsGap(12)
+            .width('100%')
+          }
+        }
+        .padding({ left: 16, right: 16, top: 4, bottom: Math.max(40, this.safeBottomVp + 24) })
       }
       .scrollBar(BarState.Off)
       .layoutWeight(1)

@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/auth",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "MoviePilot HarmonyOS NEXT auth HAR",
   "main": "Index.ets",
   "dependencies": {

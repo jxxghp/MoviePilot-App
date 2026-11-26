@@ -365,12 +365,19 @@ export struct HarmonyPageHeader {
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @Prop title: string = '';
   @Prop subtitle: string = '';
+  @Prop centerTitle: boolean = false;
+  @Prop leadingPrimarySymbol: string = '';
+  @Prop leadingPrimaryAccessibility: string = '左侧操作';
+  @Prop leadingSecondarySymbol: string = '';
+  @Prop leadingSecondaryAccessibility: string = '左侧快捷操作';
   @Prop primarySymbol: string = '';
   @Prop primaryAccessibility: string = '操作';
   @Prop secondarySymbol: string = '';
   @Prop secondaryAccessibility: string = '快捷操作';
   @Prop tertiarySymbol: string = '';
   @Prop tertiaryAccessibility: string = '通知';
+  onLeadingPrimaryClick: () => void = () => {};
+  onLeadingSecondaryClick: () => void = () => {};
   onPrimaryClick: () => void = () => {};
   onSecondaryClick: () => void = () => {};
   onTertiaryClick: () => void = () => {};
@@ -379,98 +386,123 @@ export struct HarmonyPageHeader {
     return this.windowHeightVp > 0 && this.windowHeightVp < 480;
   }
 
+  @Builder
+  private circleActionBtn(symbolName: string, a11yText: string, onTap: () => void) {
+    Button({ type: ButtonType.Circle }) {
+      SymbolGlyph($r(symbolName))
+        .fontSize(this.isCompact() ? 17 : 19)
+        .fontColor([mpPrimaryText(this.isDark)])
+    }
+    .width(this.isCompact() ? 36 : 40)
+    .height(this.isCompact() ? 36 : 40)
+    .backgroundColor(Color.Transparent)
+    .attributeModifier(new HarmonySurfaceModifier(
+      this.isDark,
+      'pill',
+      this.isCompact() ? 18 : 20,
+      this.accentHex,
+      true,
+      this.dynamicLight
+    ))
+    .hoverEffect(HoverEffect.Highlight)
+    .accessibilityText(a11yText)
+    .onClick(() => onTap())
+  }
+
   build() {
-    Row({ space: 8 }) {
-      Column({ space: 2 }) {
-        Text(this.title)
-          .fontSize(this.isCompact() ? 22 : 28)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(mpPrimaryText(this.isDark))
-          .maxLines(1)
-        if (this.subtitle.length > 0) {
-          Text(this.subtitle)
-            .fontSize(12)
-            .fontColor(mpSecondaryText(this.isDark))
+    if (this.centerTitle) {
+      Stack({ alignContent: Alignment.Center }) {
+        Row({ space: 8 }) {
+          if (this.leadingPrimarySymbol.length > 0) {
+            this.circleActionBtn(this.leadingPrimarySymbol, this.leadingPrimaryAccessibility, () => this.onLeadingPrimaryClick())
+          }
+          if (this.leadingSecondarySymbol.length > 0) {
+            this.circleActionBtn(this.leadingSecondarySymbol, this.leadingSecondaryAccessibility, () => this.onLeadingSecondaryClick())
+          }
+          Blank().layoutWeight(1)
+          if (this.tertiarySymbol.length > 0) {
+            this.circleActionBtn(this.tertiarySymbol, this.tertiaryAccessibility, () => this.onTertiaryClick())
+          }
+          if (this.secondarySymbol.length > 0) {
+            this.circleActionBtn(this.secondarySymbol, this.secondaryAccessibility, () => this.onSecondaryClick())
+          }
+          if (this.primarySymbol.length > 0) {
+            this.circleActionBtn(this.primarySymbol, this.primaryAccessibility, () => this.onPrimaryClick())
+          }
+        }
+        .width('100%')
+
+        Column({ space: 2 }) {
+          Text(this.title)
+            .fontSize(this.isCompact() ? 18 : 20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(mpPrimaryText(this.isDark))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (this.subtitle.length > 0 && !this.isCompact()) {
+            Text(this.subtitle)
+              .fontSize(11.5)
+              .fontColor(mpSecondaryText(this.isDark))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
         }
+        .padding({ left: 96, right: 96 })
+        .alignItems(HorizontalAlign.Center)
       }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
+      .width('100%')
+      .padding({
+        left: 16,
+        right: 16,
+        top: Math.max(10, this.safeTopVp + 4),
+        bottom: this.isCompact() ? 4 : 8
+      })
+    } else {
+      Row({ space: 8 }) {
+        if (this.leadingPrimarySymbol.length > 0) {
+          this.circleActionBtn(this.leadingPrimarySymbol, this.leadingPrimaryAccessibility, () => this.onLeadingPrimaryClick())
+        }
+        if (this.leadingSecondarySymbol.length > 0) {
+          this.circleActionBtn(this.leadingSecondarySymbol, this.leadingSecondaryAccessibility, () => this.onLeadingSecondaryClick())
+        }
 
-      if (this.tertiarySymbol.length > 0) {
-        Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r(this.tertiarySymbol))
-            .fontSize(this.isCompact() ? 17 : 19)
-            .fontColor([mpPrimaryText(this.isDark)])
+        Column({ space: 2 }) {
+          Text(this.title)
+            .fontSize(this.isCompact() ? 22 : 28)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(mpPrimaryText(this.isDark))
+            .maxLines(1)
+          if (this.subtitle.length > 0) {
+            Text(this.subtitle)
+              .fontSize(12)
+              .fontColor(mpSecondaryText(this.isDark))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
         }
-        .width(this.isCompact() ? 36 : 40)
-        .height(this.isCompact() ? 36 : 40)
-        .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(
-          this.isDark,
-          'pill',
-          this.isCompact() ? 18 : 20,
-          this.accentHex,
-          true,
-          this.dynamicLight
-        ))
-        .hoverEffect(HoverEffect.Highlight)
-        .accessibilityText(this.tertiaryAccessibility)
-        .onClick(() => this.onTertiaryClick())
-      }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
 
-      if (this.secondarySymbol.length > 0) {
-        Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r(this.secondarySymbol))
-            .fontSize(this.isCompact() ? 17 : 19)
-            .fontColor([mpPrimaryText(this.isDark)])
+        if (this.tertiarySymbol.length > 0) {
+          this.circleActionBtn(this.tertiarySymbol, this.tertiaryAccessibility, () => this.onTertiaryClick())
         }
-        .width(this.isCompact() ? 36 : 40)
-        .height(this.isCompact() ? 36 : 40)
-        .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(
-          this.isDark,
-          'pill',
-          this.isCompact() ? 18 : 20,
-          this.accentHex,
-          true,
-          this.dynamicLight
-        ))
-        .hoverEffect(HoverEffect.Highlight)
-        .accessibilityText(this.secondaryAccessibility)
-        .onClick(() => this.onSecondaryClick())
-      }
 
-      if (this.primarySymbol.length > 0) {
-        Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r(this.primarySymbol))
-            .fontSize(this.isCompact() ? 17 : 19)
-            .fontColor([mpPrimaryText(this.isDark)])
+        if (this.secondarySymbol.length > 0) {
+          this.circleActionBtn(this.secondarySymbol, this.secondaryAccessibility, () => this.onSecondaryClick())
         }
-        .width(this.isCompact() ? 36 : 40)
-        .height(this.isCompact() ? 36 : 40)
-        .backgroundColor(Color.Transparent)
-        .attributeModifier(new HarmonySurfaceModifier(
-          this.isDark,
-          'pill',
-          this.isCompact() ? 18 : 20,
-          this.accentHex,
-          true,
-          this.dynamicLight
-        ))
-        .hoverEffect(HoverEffect.Highlight)
-        .accessibilityText(this.primaryAccessibility)
-        .onClick(() => this.onPrimaryClick())
+
+        if (this.primarySymbol.length > 0) {
+          this.circleActionBtn(this.primarySymbol, this.primaryAccessibility, () => this.onPrimaryClick())
+        }
       }
+      .width('100%')
+      .padding({
+        left: 16,
+        right: 16,
+        top: Math.max(10, this.safeTopVp + 4),
+        bottom: this.isCompact() ? 4 : 8
+      })
     }
-    .width('100%')
-    .padding({
-      left: 16,
-      right: 16,
-      top: Math.max(10, this.safeTopVp + 4),
-      bottom: this.isCompact() ? 4 : 8
-    })
   }
 }
 

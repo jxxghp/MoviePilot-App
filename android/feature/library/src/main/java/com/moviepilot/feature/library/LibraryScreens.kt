@@ -270,7 +270,7 @@ fun FileManagerScreen(
                         ),
                     )
                 } else {
-                    snackbar?.showSnackbar("无法从存储拉取「${file.name}」，请确认存储权限与网络")
+                    snackbar?.showSnackbar("当前存储或后端版本不支持在线流式播放「${file.name}」，请升级后端或检查存储配置")
                 }
             } catch (ce: CancellationException) {
                 throw ce

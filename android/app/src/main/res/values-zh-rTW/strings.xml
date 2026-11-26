@@ -193,11 +193,14 @@
     <string name="mp_5e8c6fba" formatted="false">%1$s\n將清除此服務保存的帳號密碼、登錄狀態和網頁資料。</string>
     <string name="mp_5ea60e8a" formatted="false">即時會話同步</string>
     <string name="mp_5f83e7f6" formatted="false">基礎</string>
+    <string name="mp_5fc0ca7e" formatted="false">完成的訂閱會顯示在這裡</string>
+    <string name="mp_6113c5ff" formatted="false">重新訂閱</string>
     <string name="mp_613305fc" formatted="false">字號大小</string>
     <string name="mp_637471eb" formatted="false">管理員已建立，請登入。</string>
     <string name="mp_63f6267b" formatted="false">訂閱與搜尋</string>
     <string name="mp_6403cfdd" formatted="false">使用通行密鑰登錄</string>
     <string name="mp_64b9a5e8" formatted="false">輸入作品名搜尋彈幕</string>
+    <string name="mp_64cb8804" formatted="false">訂閱歷史</string>
     <string name="mp_64f2b4a7" formatted="false">字幕讀取失敗，請選擇其他字幕或檢查後台連接。</string>
     <string name="mp_65a876f5" formatted="false">通知服務響應無效。</string>
     <string name="mp_65ae053f" formatted="false">上次採樣</string>
@@ -376,6 +379,7 @@
     <string name="mp_bde0b46a" formatted="false">密碼僅在本機安全儲存，驗證碼不會儲存。</string>
     <string name="mp_be577c3b" formatted="false">自動選擇（推薦）</string>
     <string name="mp_be7f8395" formatted="false">記住帳號密碼</string>
+    <string name="mp_bea9e8d4" formatted="false">刪除訂閱歷史</string>
     <string name="mp_bfc04721" formatted="false">密碼僅用於一次性換取存取權杖，不會儲存明文密碼。</string>
     <string name="mp_c023e8d2" formatted="false">轉簡體</string>
     <string name="mp_c02c99e7" formatted="false">轉繁體</string>
@@ -392,6 +396,7 @@
     <string name="mp_c753c38b" formatted="false">重新打開</string>
     <string name="mp_c75c40a9" formatted="false">暫不支援的設定元件</string>
     <string name="mp_c773293d" formatted="false">系統通知未開啓，可前往設置允許通知。</string>
+    <string name="mp_c834c49b" formatted="false">沒有已完成的訂閱</string>
     <string name="mp_c839a8ff" formatted="false">密碼</string>
     <string name="mp_c9704212" formatted="false">隱藏密碼</string>
     <string name="mp_c9ca330f" formatted="false">媒體庫</string>
