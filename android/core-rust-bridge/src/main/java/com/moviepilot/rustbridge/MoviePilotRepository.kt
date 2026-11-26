@@ -61,6 +61,8 @@ class MoviePilotRepository(context: Context) {
     val playbackRouteResolver = PlaybackRouteResolver(appContext)
     val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
+    private val sessionLock = Any()
+    private var sessionGeneration = 0L
     private val _session = MutableStateFlow<SessionState>(SessionState.Unconnected)
     val session: StateFlow<SessionState> = _session.asStateFlow()
 
@@ -100,12 +102,36 @@ class MoviePilotRepository(context: Context) {
         transport.cfAccessTokenProvider = { requestUrl ->
             cloudflareOAuth.accessTokenForUrl(requestUrl)
         }
-        transport.onAuthClassified = { decision, _, _ ->
-            if (decision == "logout" && _session.value is SessionState.Authenticated) {
-                logout("登录状态已过期，请重新登录")
+        transport.authFailureHandlerProvider = ::captureAuthFailureHandler
+        restoreSessionIfPossible()
+    }
+
+    /** 使用不可变用户 ID 隔离播放桶；恢复会话时可从已验证令牌的 sub 读取，未知身份不补报。 */
+    fun playbackStorageKey(auth: SessionState.Authenticated): String? = runCatching {
+        val accountID = if (auth.identity.id > 0) auth.identity.id.toString() else {
+            val claims = String(java.util.Base64.getUrlDecoder().decode(auth.token.split('.')[1]), Charsets.UTF_8)
+            json.parseToJsonElement(claims).asObj()?.str("sub") ?: return null
+        }
+        PlaybackQueueScope.storageKey(auth.serverUrl, accountID)
+    }.getOrNull()
+
+    /** 序列化会话替换并递增代次，包含同实例重新登录，旧请求不得注销新代次。 */
+    private fun setSession(next: SessionState, advancesGeneration: Boolean = true) = synchronized(sessionLock) {
+        if (advancesGeneration) sessionGeneration++
+        _session.value = next
+    }
+
+    /** 在请求发出前捕获实例、令牌和会话代次，响应只可使原始会话失效。 */
+    private fun captureAuthFailureHandler(url: String, token: String): (() -> Unit)? = synchronized(sessionLock) {
+        val auth = _session.value as? SessionState.Authenticated ?: return@synchronized null
+        if (auth.token != token || !RustCoreBridge.containsUrl(auth.serverUrl, url)) return@synchronized null
+        val generation = sessionGeneration
+        val handler: () -> Unit = {
+            synchronized(sessionLock) {
+                if (generation == sessionGeneration) logout("登录状态已过期，请重新登录")
             }
         }
-        restoreSessionIfPossible()
+        handler
     }
 
     /** 从 JWT Payload 提取签发时的 `level`（用于重启恢复与 `/user/current` 未返回该字段时回退）。 */
@@ -129,7 +155,7 @@ class MoviePilotRepository(context: Context) {
             val claims = RustCoreBridge.decodeJwt(token)
             if (!claims.isExpired) {
                 val perms = RustCoreBridge.evaluatePermissions("{}", claims.superUser)
-                _session.value = SessionState.Authenticated(
+                setSession(SessionState.Authenticated(
                     serverUrl = activeUrl,
                     token = token,
                     identity = UserIdentity(
@@ -138,13 +164,13 @@ class MoviePilotRepository(context: Context) {
                         level = parseJwtLevel(token) ?: 1,
                     ),
                     permissions = perms,
-                )
+                ))
                 return
             } else {
                 secretStore.clearToken(activeUrl)
             }
         }
-        _session.value = SessionState.NeedsLogin(activeUrl)
+        setSession(SessionState.NeedsLogin(activeUrl))
     }
 
     /** 恢复会话后异步刷新 `/user/current`（拿真实头像与权限）并预热短效资源 Cookie（保证图片代理首屏即命中）。 */
@@ -169,7 +195,10 @@ class MoviePilotRepository(context: Context) {
                 dataObj["permissions"]?.toString() ?: "{}",
                 isSu,
             )
-            _session.value = auth.copy(identity = refreshed, permissions = perms)
+            synchronized(sessionLock) {
+                // 只刷新发起 hydration 的会话，旧响应不能重新装回已切走的实例。
+                if (_session.value === auth) setSession(auth.copy(identity = refreshed, permissions = perms), advancesGeneration = false)
+            }
         }
     }
 
@@ -198,7 +227,7 @@ class MoviePilotRepository(context: Context) {
         secretStore.setActiveServerUrl(normalized)
         _savedServers.value = secretStore.loadServers()
         clearSessionCaches()
-        _session.value = SessionState.NeedsLogin(normalized)
+        setSession(SessionState.NeedsLogin(normalized))
         return Result.success(normalized)
     }
 
@@ -210,7 +239,7 @@ class MoviePilotRepository(context: Context) {
         val existingToken = secretStore.loadToken(entry.url)
         if (!existingToken.isNullOrBlank() && !RustCoreBridge.decodeJwt(existingToken).isExpired) {
             val claims = RustCoreBridge.decodeJwt(existingToken)
-            _session.value = SessionState.Authenticated(
+            setSession(SessionState.Authenticated(
                 serverUrl = entry.url,
                 token = existingToken,
                 identity = UserIdentity(
@@ -219,16 +248,18 @@ class MoviePilotRepository(context: Context) {
                     level = parseJwtLevel(existingToken) ?: 1,
                 ),
                 permissions = RustCoreBridge.evaluatePermissions("{}", claims.superUser),
-            )
+            ))
         } else {
-            _session.value = SessionState.NeedsLogin(entry.url)
+            setSession(SessionState.NeedsLogin(entry.url))
         }
     }
 
+    /** 返回实例连接页并废弃前一会话的失效回调。 */
     fun openServerConnection() {
-        _session.value = SessionState.Unconnected
+        setSession(SessionState.Unconnected)
     }
 
+    /** 忘记实例；若正处于该实例，则同时清理当前会话与缓存。 */
     fun forgetServer(url: String) {
         cloudflareOAuth.clearSession(url)
         secretStore.forgetServer(url)
@@ -237,7 +268,7 @@ class MoviePilotRepository(context: Context) {
             (_session.value as? SessionState.Authenticated)?.serverUrl == url
         ) {
             clearSessionCaches()
-            _session.value = SessionState.Unconnected
+            setSession(SessionState.Unconnected)
         }
     }
 
@@ -342,11 +373,12 @@ class MoviePilotRepository(context: Context) {
         )
         _savedServers.value = secretStore.loadServers()
         resourceCookiePrimed = false
-        _session.value = SessionState.Authenticated(serverUrl, token, identity, permissions)
+        setSession(SessionState.Authenticated(serverUrl, token, identity, permissions))
         primeResourceCookie()
         return LoginOutcome.Success(identity)
     }
 
+    /** 显式退出当前会话并使其在途响应的失效处理器全部过期。 */
     fun logout(notice: String? = null) {
         transport.clearCookies()
         resourceCookiePrimed = false
@@ -359,9 +391,9 @@ class MoviePilotRepository(context: Context) {
         }
         if (url != null) {
             secretStore.clearToken(url)
-            _session.value = SessionState.NeedsLogin(url, notice)
+            setSession(SessionState.NeedsLogin(url, notice))
         } else {
-            _session.value = SessionState.Unconnected
+            setSession(SessionState.Unconnected)
         }
     }
 
@@ -373,9 +405,14 @@ class MoviePilotRepository(context: Context) {
         body: String? = null,
         trailingSlash: Boolean = false,
         extraHeaders: Map<String, String> = emptyMap(),
+        expectedSession: SessionState.Authenticated? = null,
     ): Result<NativeHttpResponse> {
-        val auth = _session.value as? SessionState.Authenticated
+        val current = _session.value as? SessionState.Authenticated
             ?: return Result.failure(IllegalStateException("未登录"))
+        val auth = expectedSession ?: current
+        if (current.serverUrl != auth.serverUrl || current.token != auth.token) {
+            return Result.failure(IllegalStateException("请求所属会话已切换"))
+        }
         val url = if (segments.any { seg -> seg.any { it.code > 127 || it == ' ' } }) {
             // 含中文或空格路径段（如 `/tmdb/credits/{id}/电视剧` 或 `/account-bindings/My Emby`）直接单次 UTF-8 百分号编码
             val base = auth.serverUrl.trimEnd('/')
@@ -391,6 +428,7 @@ class MoviePilotRepository(context: Context) {
                 RustCoreBridge.buildEndpointUrl(auth.serverUrl, segments, query, trailingSlash)
             }.getOrElse { return Result.failure(it) }
         }
+        val onAuthFailure = captureAuthFailureHandler(url, auth.token)
         val resp = runCatching {
             transport.execute(
                 url = url,
@@ -402,7 +440,7 @@ class MoviePilotRepository(context: Context) {
         }.getOrElse { return Result.failure(it) }
 
         if (RustCoreBridge.classifyAuthStatus(resp.status, resp.body) == "logout") {
-            logout("登录状态已过期，请重新登录")
+            onAuthFailure?.invoke()
             return Result.failure(IllegalStateException("登录状态已过期"))
         }
         return Result.success(resp)
@@ -1417,73 +1455,53 @@ class MoviePilotRepository(context: Context) {
         return ok to msg
     }
 
-    /** 拉取真实播映日历（优先 `GET /api/v1/subscribe/calendar`；若服务端无此路由则聚合真实 TMDB 单集 air_date）。 */
-    suspend fun fetchSubscribeCalendar(): List<CalendarEntryDto> {
-        val resp = authedRequest(listOf("subscribe", "calendar")).getOrNull()
-        if (resp != null && resp.status in 200..299) {
-            return extractArray(resp.body).mapNotNull { el ->
-                val obj = el.asObj() ?: return@mapNotNull null
-                val title = obj.str("name") ?: obj.str("title") ?: obj.str("show_name") ?: return@mapNotNull null
-                val airDate = obj.str("air_date") ?: obj.str("release_date") ?: obj.str("date") ?: return@mapNotNull null
-                val tmdbId = obj.int("tmdbid") ?: obj.int("tmdb_id")
-                val season = obj.int("season") ?: obj.int("season_number")
-                val episode = obj.int("episode") ?: obj.int("episode_number")
-                CalendarEntryDto(
-                    id = obj.str("id") ?: "${tmdbId ?: title}_S${season ?: 1}E${episode ?: 1}_$airDate",
-                    subscribeId = obj.int("subscribe_id") ?: obj.int("id") ?: 0,
-                    title = title,
-                    year = obj.str("year") ?: airDate.take(4),
-                    type = obj.str("type") ?: "电视剧",
-                    season = season,
-                    episode = episode,
-                    episodeTitle = obj.str("episode_title") ?: obj.str("episode_name") ?: "",
-                    airDate = airDate.take(10),
-                    poster = resolveImageUrl(obj.str("poster") ?: obj.str("poster_path") ?: obj.str("still_path") ?: obj.str("image"), maxWidth = 400),
-                    backdrop = resolveImageUrl(obj.str("backdrop") ?: obj.str("backdrop_path") ?: obj.str("still_path"), maxWidth = 720),
-                    voteAverage = obj.dbl("vote_average") ?: obj.dbl("vote") ?: 0.0,
-                    source = obj.str("media_source") ?: obj.str("source") ?: "themoviedb",
-                    tmdbId = tmdbId,
-                    doubanId = obj.str("doubanid") ?: obj.str("douban_id"),
-                    bangumiId = obj.int("bangumiid") ?: obj.int("bangumi_id"),
-                    mediaId = obj.str("media_id"),
-                    overview = obj.str("overview") ?: obj.str("description") ?: "",
-                )
-            }
-        }
-        // 兼容未提供 `/subscribe/calendar` 的后端版本：按已订阅剧集拉取真实 TMDB 分集 air_date（绝不使用取模伪造日期）
-        val tvSubs = fetchSubscriptions(forceRefresh = false).filter { it.type != "电影" }
-        if (tvSubs.isEmpty()) return emptyList()
-        return coroutineScope {
-            tvSubs.take(16).map { sub ->
-                async {
-                    val tmdbId = sub.mediaId.removePrefix("tmdb:").toIntOrNull()
-                        ?: runCatching { json.parseToJsonElement(sub.rawJson).asObj()?.int("tmdbid") }.getOrNull()
-                        ?: return@async emptyList()
-                    val sNum = sub.season ?: 1
-                    fetchSeasonEpisodes(tmdbId, sNum).mapNotNull { ep ->
-                        if (ep.airDate.isBlank()) return@mapNotNull null
-                        CalendarEntryDto(
-                            id = "${sub.id}_S${sNum}E${ep.episodeNumber}",
-                            subscribeId = sub.id,
-                            title = sub.name,
-                            year = sub.year,
-                            type = sub.type,
-                            season = sNum,
-                            episode = ep.episodeNumber,
-                            episodeTitle = ep.name,
-                            airDate = ep.airDate.take(10),
-                            poster = sub.poster ?: ep.stillPath,
-                            backdrop = sub.backdrop ?: ep.stillPath,
-                            voteAverage = if (ep.voteAverage > 0.0) ep.voteAverage else sub.vote,
-                            source = sub.mediaSource,
-                            tmdbId = tmdbId,
-                            mediaId = sub.mediaId,
-                            overview = ep.overview,
-                        )
-                    }
+    /** 按页面日期窗口分页读取日历；参数错误不能回退成截断的 TMDB 订阅聚合。 */
+    suspend fun fetchSubscribeCalendar(
+        start: java.time.LocalDate = java.time.LocalDate.now(),
+        end: java.time.LocalDate = start.plusDays(31),
+    ): List<CalendarEntryDto> {
+        require(java.time.temporal.ChronoUnit.DAYS.between(start, end) in 1..93) { "日历窗口须为 1–93 天" }
+        val subscriptions = fetchSubscriptions(forceRefresh = false).associateBy { it.id }
+        val result = mutableListOf<CalendarEntryDto>()
+        var page = 1
+        var consumed = 0
+        do {
+            val resp = authedRequest(listOf("subscribe", "calendar"), query = listOf(
+                "start" to start.toString(), "end" to end.toString(), "page" to page.toString(), "count" to "200",
+            )).getOrThrow()
+            check(resp.status in 200..299) { "加载日历失败（HTTP ${resp.status}）" }
+            val root = extractObject(resp.body) ?: error("日历响应格式无效")
+            val events = root["items"].asArr() ?: error("日历响应缺少 items")
+            for (value in events) {
+                val event = value.asObj() ?: continue
+                val sub = event["subscribe"].asObj() ?: continue
+                val id = sub.int("id") ?: continue
+                val details = subscriptions[id]
+                val media = normalizeCanonicalMediaIdentity(details?.mediaSource, details?.mediaId)
+                val date = event.str("date").orEmpty()
+                val episodes = event["episodes"].asArr().orEmpty()
+                // 电影没有分集，仍需保留其上映日历项。
+                val rows = if (episodes.isEmpty()) listOf<JsonElement?>(null) else episodes
+                for (episode in rows) {
+                    val ep = episode.asObj()
+                    result += CalendarEntryDto(
+                        id = "${id}_${date}_${ep?.int("episode_number") ?: 0}", subscribeId = id,
+                        title = sub.str("name").orEmpty(), year = sub.str("year").orEmpty(),
+                        type = sub.str("type") ?: "电视剧", season = sub.int("season"),
+                        episode = ep?.int("episode_number"), episodeTitle = ep?.str("name").orEmpty(),
+                        airDate = date, poster = resolveImageUrl(sub.str("poster"), maxWidth = 400),
+                        source = media?.first ?: details?.mediaSource ?: "themoviedb", mediaId = media?.second,
+                        tmdbId = media?.takeIf { it.first == "themoviedb" }?.second?.toIntOrNull(),
+                        doubanId = media?.takeIf { it.first == "douban" }?.second,
+                        bangumiId = media?.takeIf { it.first == "bangumi" }?.second?.toIntOrNull(),
+                    )
                 }
-            }.flatMap { it.await() }
-        }
+            }
+            consumed += events.size
+            page++
+            val total = root.int("total") ?: error("日历响应缺少 total")
+        } while (events.isNotEmpty() && consumed < total)
+        return result
     }
 
     /** 复用社区订阅分享（`POST /api/v1/subscribe/fork`）。 */
@@ -2258,14 +2276,14 @@ class MoviePilotRepository(context: Context) {
         }
     }
 
-    /** 拉取系统已启用模块健康检查列表（`GET /api/v1/system/modulelist`，并合并 `system/module-catalog` 类型元数据）。 */
+    /** 拉取已启用模块并合并目录类型元数据；主列表失败时向调用方报告，避免误显示为空列表。 */
     suspend fun fetchSystemModules(): List<SystemModuleStatusDto> = coroutineScope {
-        val listDef = async { authedRequest(listOf("system", "modulelist")).getOrNull() }
+        val listDef = async { authedRequest(listOf("system", "modulelist")).getOrThrow() }
         val catalogDef = async {
             runCatching { authedRequest(listOf("system", "module-catalog")).getOrNull() }.getOrNull()
         }
-        val resp = listDef.await() ?: return@coroutineScope emptyList()
-        if (resp.status !in 200..299) return@coroutineScope emptyList()
+        val resp = listDef.await()
+        check(resp.status in 200..299) { "加载系统模块失败（HTTP ${resp.status}）" }
 
         val catalogMap = mutableMapOf<String, Pair<String, String>>()
         val catBody = catalogDef.await()?.takeIf { it.status in 200..299 }?.body
@@ -2832,78 +2850,67 @@ class MoviePilotRepository(context: Context) {
 
     // ==================== 渠道授权（`/api/v1/authorization` 5 分钟绑定码 + 审批/解绑） ====================
 
-    /** 拉取已授权与待审批的消息渠道用户绑定列表（`GET /api/v1/authorization`）。 */
-    suspend fun fetchChannelAuthorizations(): List<ChannelAuthRecordDto> {
-        val resp = authedRequest(listOf("authorization")).getOrNull()
-            ?.takeIf { it.status != 404 }
-            ?: authedRequest(listOf("authorization"), trailingSlash = true).getOrNull()
-            ?: return emptyList()
-        return extractArray(resp.body).mapNotNull { el ->
-            val obj = el.asObj() ?: return@mapNotNull null
-            val id = obj.str("id") ?: obj.str("auth_id") ?: obj.str("key") ?: obj.str("userid") ?: return@mapNotNull null
-            val rawStatus = obj.str("status") ?: obj.str("state") ?: if (obj.bool("approved") == false) "pending" else "approved"
-            ChannelAuthRecordDto(
-                id = id,
-                channel = obj.str("channel") ?: obj.str("source") ?: obj.str("type") ?: "notification",
-                channelUserId = obj.str("channel_user_id") ?: obj.str("userid") ?: obj.str("external_id") ?: id,
-                channelUsername = obj.str("channel_username") ?: obj.str("nickname") ?: obj.str("username") ?: "",
-                boundUsername = obj.str("bound_user") ?: obj.str("user_name") ?: obj.str("mp_username") ?: "",
-                status = if (rawStatus.lowercase() in setOf("pending", "wait", "waiting", "unapproved", "0")) "pending" else "approved",
-                createdAt = obj.str("created_at") ?: obj.str("updated_at") ?: obj.str("date") ?: "",
-            )
-        }
+    /** 读取当前后端成员列表，尾斜杠避免被禁止跟随的 307 重定向。 */
+    private suspend fun channelAuthorizationMembers(expectedSession: SessionState.Authenticated? = null): List<JsonObject> {
+        val resp = authedRequest(listOf("authorization"), trailingSlash = true, expectedSession = expectedSession).getOrThrow()
+        check(resp.status in 200..299) { "加载渠道授权失败（HTTP ${resp.status}）" }
+        return extractObject(resp.body)?.get("members").asArr().orEmpty().mapNotNull { it.asObj() }
     }
 
-    /** 生成 5 分钟短效渠道绑定授权码（调用 `POST /api/v1/authorization/code`，兼容回退 `POST /api/v1/authorization`）。 */
-    suspend fun generateChannelBindingCode(): Result<ChannelBindingCodeDto> {
-        var resp = authedRequest(listOf("authorization", "code"), method = "POST", body = "{}").getOrNull()
-        if (resp == null || resp.status in setOf(404, 405)) {
-            resp = authedRequest(listOf("authorization"), method = "POST", body = "{}").getOrNull()
-        }
-        if (resp == null) return Result.failure(IllegalStateException("请求失败，请检查网络连接"))
-        val root = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
-        val data = root?.get("data").asObj() ?: root
-        val code = data?.str("code") ?: data?.str("bind_code") ?: data?.str("token").orEmpty()
-        if (resp.status !in 200..299 || code.isBlank()) {
-            val errMsg = root?.str("message") ?: root?.str("detail") ?: "服务端暂未开启渠道授权码接口（HTTP ${resp.status}）"
-            return Result.failure(IllegalStateException(errMsg))
-        }
-        val ttl = data?.int("expires_in") ?: data?.int("ttl") ?: 300
-        val cmd = data?.str("command") ?: data?.str("instruction") ?: "/bind $code"
-        return Result.success(
-            ChannelBindingCodeDto(
-                code = code,
-                expiresInSeconds = ttl.coerceAtLeast(30),
-                commandHint = cmd,
-                createdAtEpochMs = System.currentTimeMillis(),
-            ),
+    /** 展示真实成员身份和全部审批状态，不把停用或拒绝记录显示为已授权。 */
+    suspend fun fetchChannelAuthorizations(): List<ChannelAuthRecordDto> = channelAuthorizationMembers().map { obj ->
+        ChannelAuthRecordDto(
+            id = obj.str("id").orEmpty(),
+            channel = obj.str("channel").orEmpty(),
+            channelUserId = obj.str("sender_id").orEmpty(),
+            channelUsername = obj.str("display_name").orEmpty(),
+            boundUsername = obj.str("linked_username").orEmpty(),
+            status = obj.str("status").orEmpty(),
+            createdAt = obj.str("created_at").orEmpty(),
         )
     }
 
-    /** 管理员批准待审核渠道绑定请求（`POST /api/v1/authorization/{id}/approve` 兼容 `PUT /api/v1/authorization/{id}`）。 */
-    suspend fun approveChannelAuthorization(id: String): Pair<Boolean, String> {
-        var resp = authedRequest(listOf("authorization", id, "approve"), method = "POST", body = "{}").getOrNull()
-        if (resp == null || resp.status in setOf(404, 405)) {
-            resp = authedRequest(
-                segments = listOf("authorization", id),
-                method = "PUT",
-                body = """{"status":"approved","approved":true}""",
-            ).getOrNull()
-        }
-        if (resp == null) return false to "审批请求失败"
-        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
-        val ok = obj?.bool("success") ?: (resp.status in 200..299)
-        return ok to (obj?.str("message") ?: if (ok) "已批准该渠道授权" else "审批失败（HTTP ${resp.status}）")
+    /** 从 `/authorization/binding` 读取关联码及绝对到期时间，不调用直接授权成员接口。 */
+    suspend fun generateChannelBindingCode(): Result<ChannelBindingCodeDto> = runCatching {
+        val resp = authedRequest(listOf("authorization", "binding"), method = "POST", body = "{}").getOrThrow()
+        val data = extractObject(resp.body)
+        val code = data?.str("code").orEmpty()
+        check(resp.status in 200..299 && code.isNotBlank()) { "生成关联码失败（HTTP ${resp.status}）" }
+        val now = System.currentTimeMillis()
+        val expires = data?.dbl("expires_at") ?: error("关联码缺少到期时间")
+        ChannelBindingCodeDto(
+            code = code,
+            expiresInSeconds = ((expires * 1000 - now) / 1000).toInt().coerceAtLeast(0),
+            commandHint = "/bind $code",
+            createdAtEpochMs = now,
+        )
     }
 
-    /** 删除/解除渠道绑定记录（`DELETE /api/v1/authorization/{id}`）。 */
-    suspend fun deleteChannelAuthorization(id: String): Pair<Boolean, String> {
-        val resp = authedRequest(listOf("authorization", id), method = "DELETE").getOrNull()
-            ?: return false to "解绑请求失败"
-        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
-        val ok = obj?.bool("success") ?: (resp.status in 200..299)
-        return ok to (obj?.str("message") ?: if (ok) "已移除该渠道绑定" else "移除失败（HTTP ${resp.status}）")
+    /** 保留成员角色和能力集合，仅修改管理员要求的状态。 */
+    private suspend fun updateChannelAuthorizationStatus(id: String, status: String): Pair<Boolean, String> {
+        val auth = _session.value as? SessionState.Authenticated ?: return false to "未登录"
+        return runCatching {
+            val member = channelAuthorizationMembers(auth).firstOrNull { it.str("id") == id }
+                ?: return false to "渠道成员不存在，请刷新列表"
+            val body = buildJsonObject {
+                put("status", status)
+                put("role", member["role"] ?: error("成员缺少角色"))
+                put("scopes", member["scopes"] ?: error("成员缺少能力集合"))
+            }.toString()
+            val resp = authedRequest(listOf("authorization", id), method = "PUT", body = body, expectedSession = auth).getOrThrow()
+            val root = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+            val ok = resp.status in 200..299 && root?.bool("success") == true
+            ok to (root?.str("message")?.takeIf { it.isNotBlank() } ?: if (ok) "渠道授权已更新" else "更新失败（HTTP ${resp.status}）")
+        }.getOrElse { false to (it.message ?: "更新渠道授权失败") }
     }
+
+    /** 通过成员状态更新接口批准申请，并保留既有角色和能力。 */
+    suspend fun approveChannelAuthorization(id: String): Pair<Boolean, String> =
+        updateChannelAuthorizationStatus(id, "approved")
+
+    /** 后端保留不可变成员身份；撤销对应停用而不是删除资源。 */
+    suspend fun deleteChannelAuthorization(id: String): Pair<Boolean, String> =
+        updateChannelAuthorizationStatus(id, "disabled")
 
     suspend fun fetchSearchSources(): Set<String> {
         val el = fetchSettingValue("SEARCH_SOURCE") ?: return setOf("themoviedb")
@@ -4219,6 +4226,7 @@ class MoviePilotRepository(context: Context) {
         audioStreamIndex: Int? = null,
         subtitleStreamIndex: Int? = null,
         seq: Long? = null,
+        expectedSession: SessionState.Authenticated? = null,
     ): Boolean {
         if (itemId.isBlank() || server.isBlank() || itemId.startsWith("file.") || itemId.startsWith("file:")) {
             return false
@@ -4245,7 +4253,7 @@ class MoviePilotRepository(context: Context) {
         if (seq != null && seq >= 0L) fields += """"seq":$seq"""
         val body = "{${fields.joinToString(",")}}"
         val resp = runCatching {
-            authedRequest(listOf("mediaserver", "progress"), method = "POST", body = body).getOrNull()
+            authedRequest(listOf("mediaserver", "progress"), method = "POST", body = body, expectedSession = expectedSession).getOrNull()
         }.getOrNull() ?: return false
         if (resp.status !in 200..299) return false
         // 核验响应体中的 `success` 与 `data.reported` 字段，避免 Emby 写入失败仍被当作成功从而跳过离线重试

@@ -367,6 +367,7 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
 
   // MARK: - Authenticated Native API Proxy
 
+  /// 校验插件 API 路径后，经原生实例与网关鉴权代发请求。
   private func handleAPIRequest(requestId: String, payload: [String: Any]) {
     guard let rawPath = payload["path"] as? String else {
       sendAPIError(requestId: requestId, status: 400, code: "INVALID_PATH", message: "Missing request path")
@@ -420,6 +421,8 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
     if let cookie = context.resourceCookie {
       request.setValue("\(cookie.name)=\(cookie.value)", forHTTPHeaderField: "Cookie")
     }
+    // 与原生 API 和插件资源通道保持相同网关鉴权，注册表会保留资源 Cookie。
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: context.address)
 
     let bodyEncoding = (payload["bodyEncoding"] as? String) ?? ""
     switch bodyEncoding {

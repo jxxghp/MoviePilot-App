@@ -2058,10 +2058,18 @@ fun ChannelAuthorizationScreen(
     var isLoadingRecords by remember { mutableStateOf(true) }
     var confirmRemoveRecord by remember { mutableStateOf<ChannelAuthRecordDto?>(null) }
 
+    /** 列表异常保留已有结果并提示用户，不让网络错误终止页面协程。 */
     suspend fun reloadRecords() {
         isLoadingRecords = true
-        records = repository.fetchChannelAuthorizations()
-        isLoadingRecords = false
+        try {
+            records = repository.fetchChannelAuthorizations()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            snackbar?.showSnackbar(error.message ?: "加载渠道授权失败")
+        } finally {
+            isLoadingRecords = false
+        }
     }
 
     LaunchedEffect(Unit) { reloadRecords() }
@@ -2278,8 +2286,14 @@ fun ChannelAuthorizationScreen(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     NativeAdaptiveBadge(
-                                        text = if (isPending) "待审批" else "已授权",
-                                        tint = if (isPending) colors.warning else colors.success,
+                                        text = when (rec.status) {
+                                            "pending" -> "待审批"
+                                            "approved" -> "已授权"
+                                            "disabled" -> "已停用"
+                                            "rejected" -> "已拒绝"
+                                            else -> rec.status
+                                        },
+                                        tint = if (rec.status == "approved") colors.success else colors.warning,
                                     )
                                 }
                                 val sub = buildList {

@@ -230,10 +230,9 @@ private data class BackStackEntry(
 /**
  * 校验目标路由是否满足当前用户的 `PermissionsFfi` RBAC 权限；返回 `null` 代表放行，非空字符串代表拦截原因。
  */
-private fun checkRoutePermission(route: AppRoute, perms: PermissionsFfi): String? {
+internal fun checkRoutePermission(route: AppRoute, perms: PermissionsFfi): String? {
     if (perms.admin) return null
     return when (route) {
-        AppRoute.Sites,
         AppRoute.Users,
         AppRoute.SubscribeSearchSettings,
         AppRoute.MediaSourcesSettings,
@@ -241,13 +240,14 @@ private fun checkRoutePermission(route: AppRoute, perms: PermissionsFfi): String
         AppRoute.MediaServersSettings,
         AppRoute.DirectoriesSettings,
         AppRoute.NotificationsSettings,
-        AppRoute.Workflows,
-        is AppRoute.WorkflowCanvas,
         is AppRoute.Plugins,
         is AppRoute.PluginDetail,
         is AppRoute.Diagnostics,
         -> "当前账号无管理员权限"
 
+        AppRoute.Sites,
+        AppRoute.Workflows,
+        is AppRoute.WorkflowCanvas,
         AppRoute.Downloads,
         is AppRoute.Files,
         is AppRoute.History,

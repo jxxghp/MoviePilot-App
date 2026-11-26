@@ -1220,7 +1220,7 @@ export struct HarmonySettingsHubPage {
         repo.fetchDirectories(),
         repo.fetchStorages(),
         repo.fetchSystemSettingList('Notifications'),
-        repo.fetchAuthorizations(),
+        repo.fetchAuthorizations().catch(() => this.authorizations),
         repo.fetchSystemSettingString('RECOGNIZE_SOURCE', 'themoviedb'),
         repo.fetchSystemSettingString('SCRAP_SOURCE', 'themoviedb'),
         repo.fetchSystemSettingBool('MEDIASERVER_SYNC', true),
@@ -1481,6 +1481,33 @@ export struct HarmonySettingsHubPage {
     }
   }
 
+  /** 授权请求失败时保留已加载列表并提示，不将失败显示为空成员。 */
+  private async reloadAuthorizations(): Promise<void> {
+    this.loadingAuth = true;
+    try {
+      this.authorizations = await MoviePilotRepository.shared().fetchAuthorizations();
+    } catch (error) {
+      this.authCodeHint = (error as Error).message || '加载渠道授权失败';
+    } finally {
+      this.loadingAuth = false;
+    }
+  }
+
+  /** 生成绑定码后刷新成员，网络错误也必须恢复按钮状态。 */
+  private async generateBindingCode(): Promise<void> {
+    this.authGenerating = true;
+    try {
+      const result = await MoviePilotRepository.shared().generateAuthorizationCode();
+      this.authCode = result.code;
+      this.authCodeHint = result.message;
+      await this.reloadAuthorizations();
+    } catch (error) {
+      this.authCodeHint = (error as Error).message || '生成关联码失败';
+    } finally {
+      this.authGenerating = false;
+    }
+  }
+
   @Builder
   authorizationSheetBuilder() {
     Column({ space: 12 }) {
@@ -1493,13 +1520,7 @@ export struct HarmonySettingsHubPage {
         actionEnabled: !this.loadingAuth,
         onCancel: () => { this.showAuthorizationSheet = false; },
         onAction: async () => {
-          this.loadingAuth = true;
-          try {
-            this.authorizations = await MoviePilotRepository.shared().fetchAuthorizations();
-          } catch {
-            // keep existing authorizations
-          }
-          this.loadingAuth = false;
+          await this.reloadAuthorizations();
         }
       })
 
@@ -1542,12 +1563,7 @@ export struct HarmonySettingsHubPage {
                 .fontColor(this.accentHex).fontWeight(FontWeight.Bold)
                 .enabled(!this.authGenerating)
                 .onClick(async () => {
-                  this.authGenerating = true;
-                  const res = await MoviePilotRepository.shared().generateAuthorizationCode();
-                  this.authGenerating = false;
-                  this.authCode = res.code;
-                  this.authCodeHint = res.message;
-                  this.authorizations = await MoviePilotRepository.shared().fetchAuthorizations();
+                  await this.generateBindingCode();
                 })
             }
           }
@@ -1580,7 +1596,7 @@ export struct HarmonySettingsHubPage {
                     Row({ space: 6 }) {
                       Text(auth.name).fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
                       NativeAdaptiveBadge({
-                        text: auth.approved ? '已授权' : '待审批',
+                        text: auth.status === 'pending' ? '待审批' : (auth.status === 'approved' ? '已授权' : (auth.status === 'disabled' ? '已停用' : '已拒绝')),
                         tintHex: auth.approved ? '#34C759' : '#F29B38'
                       })
                     }
@@ -1594,9 +1610,9 @@ export struct HarmonySettingsHubPage {
                       .fontSize(12).fontWeight(FontWeight.Bold)
                       .backgroundColor('#34C759').fontColor(Color.White)
                       .onClick(async () => {
-                        const ok = await MoviePilotRepository.shared().approveAuthorization(auth.id);
+                        const ok = await MoviePilotRepository.shared().approveAuthorization(auth.id).catch(() => false);
                         this.authCodeHint = ok ? `已批准「${auth.name}」` : '审批失败';
-                        this.authorizations = await MoviePilotRepository.shared().fetchAuthorizations();
+                        await this.reloadAuthorizations();
                       })
                   }
                   Button('撤销')
@@ -1615,8 +1631,8 @@ export struct HarmonySettingsHubPage {
                           action: () => {
                             MoviePilotRepository.shared().revokeAuthorization(auth.id).then(async (ok: boolean) => {
                               this.authCodeHint = ok ? `已撤销「${auth.name}」` : '撤销失败';
-                              this.authorizations = await MoviePilotRepository.shared().fetchAuthorizations();
-                            });
+                              await this.reloadAuthorizations();
+                            }).catch(() => { this.authCodeHint = '撤销失败'; });
                           }
                         }
                       });

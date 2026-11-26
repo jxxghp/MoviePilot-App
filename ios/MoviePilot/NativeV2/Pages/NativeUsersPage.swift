@@ -299,7 +299,9 @@ struct NativeUsersPage: View {
   }
 }
 
+/// 保留服务端完整可写快照，编辑分类权限时不丢失未展示的用户字段。
 private struct NativeUserRecord: Decodable, Sendable, Identifiable {
+  /// 用户管理表单展示的分类权限；完整权限仍由原始快照保存。
   struct Permissions: Decodable, Sendable {
     let discovery: Bool?
     let search: Bool?
@@ -315,6 +317,7 @@ private struct NativeUserRecord: Decodable, Sendable, Identifiable {
   let isSuperuser: Bool
   let isOTP: Bool
   let permissions: Permissions?
+  let originalPayload: [String: JSONValue]
 
   var permissionLabels: [String] {
     if isSuperuser { return ["全部管理权限"] }
@@ -326,7 +329,9 @@ private struct NativeUserRecord: Decodable, Sendable, Identifiable {
     return labels
   }
 
+  /// 同时解码展示字段和完整 JSON，兼容后端增加的细粒度权限。
   init(from decoder: Decoder) throws {
+    originalPayload = try decoder.singleValueContainer().decode([String: JSONValue].self)
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decode(Int.self, forKey: .id)
     name = try container.decode(String.self, forKey: .name)
@@ -544,6 +549,7 @@ private struct NativeUserEditorSheet: View {
     .nativeGlassSheet()
   }
 
+  /// 合并用户快照后提交完整更新，避免后端默认值覆盖表单未编辑的安全字段。
   private func submit() async {
     isSubmitting = true
     errorMessage = nil
@@ -571,6 +577,7 @@ private struct NativeUserEditorSheet: View {
     if !password.isEmpty {
       payload["password"] = .string(password)
     }
+    payload = UserManagementPayload.merging(original: existing?.originalPayload ?? [:], edits: payload)
     do {
       let body = try JSONEncoder().encode(payload)
       let endpoint = try APIEndpoint(

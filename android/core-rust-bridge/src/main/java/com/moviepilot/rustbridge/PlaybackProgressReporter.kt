@@ -5,6 +5,7 @@ import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -24,6 +25,7 @@ class PlaybackSyncSessionTracker(
     private val lock = Any()
     private var state = PlaybackSyncStateDto(playSessionId = playSessionId)
 
+    /** 在锁内推进一次共享状态机，防止播放器事件和后台终态并发修改序号。 */
     fun step(
         trigger: String,
         positionMs: Long,
@@ -49,6 +51,7 @@ class PlaybackSyncSessionTracker(
         decision
     }
 
+    /** 判断终态是否已发送，供播放生命周期避免重复停止。 */
     fun isStopped(): Boolean = synchronized(lock) { state.stoppedSent }
 }
 
@@ -123,8 +126,8 @@ class PlaybackProgressReporter(
         playMethod: String = "DirectPlay",
         audioStreamIndex: Int? = null,
         subtitleStreamIndex: Int? = null,
-    ) {
-        if (!decision.shouldReport) return
+    ): Job? {
+        if (!decision.shouldReport) return null
         val cleanItem = itemId.trim()
         val cleanServer = server.trim()
         if (
@@ -135,13 +138,15 @@ class PlaybackProgressReporter(
             cleanItem.startsWith("local:") ||
             cleanItem.startsWith("external:")
         ) {
-            return
+            return null
         }
+        val auth = repository.session.value as? SessionState.Authenticated ?: return null
+        val storageKey = repository.playbackStorageKey(auth) ?: return null
         val cid = clientId
         val dev = deviceName
         val ver = appVersion
         val isStop = decision.state == "stopped"
-        reporterScope.launch {
+        return reporterScope.launch {
             submitMutex.withLock {
                 val ok = repository.reportMediaPlaybackProgress(
                     itemId = cleanItem,
@@ -162,6 +167,7 @@ class PlaybackProgressReporter(
                     audioStreamIndex = audioStreamIndex,
                     subtitleStreamIndex = subtitleStreamIndex,
                     seq = decision.seq,
+                    expectedSession = auth,
                 )
                 if (isStop) {
                     if (ok) {
@@ -178,7 +184,7 @@ class PlaybackProgressReporter(
                                 playbackTimeMs = decision.playbackTimeMs,
                                 seq = decision.seq,
                                 updatedAtMs = System.currentTimeMillis(),
-                            ),
+                            ), storageKey,
                         )
                     }
                 }
@@ -187,15 +193,15 @@ class PlaybackProgressReporter(
     }
 
     /** 在下次起播或网络恢复时串行补报此前离线失败的 `stopped` 终态记录。 */
-    fun flushPendingStops(repository: MoviePilotRepository) {
-        val pending = loadPendingStops()
-        if (pending.isEmpty()) return
+    fun flushPendingStops(repository: MoviePilotRepository): Job? {
+        val auth = repository.session.value as? SessionState.Authenticated ?: return null
+        val storageKey = repository.playbackStorageKey(auth) ?: return null
         val cid = clientId
         val dev = deviceName
         val ver = appVersion
-        reporterScope.launch {
+        return reporterScope.launch {
             submitMutex.withLock {
-                val currentPending = loadPendingStops()
+                val currentPending = loadPendingStops(storageKey)
                 if (currentPending.isEmpty()) return@withLock
                 val remaining = mutableListOf<PendingPlaybackStopDto>()
                 var flushedLast: Pair<String, String>? = null
@@ -219,6 +225,7 @@ class PlaybackProgressReporter(
                         audioStreamIndex = null,
                         subtitleStreamIndex = null,
                         seq = entry.seq,
+                        expectedSession = auth,
                     )
                     if (ok) {
                         flushedLast = entry.server to entry.itemId
@@ -226,34 +233,38 @@ class PlaybackProgressReporter(
                         remaining += entry
                     }
                 }
-                savePendingStops(remaining)
+                savePendingStops(remaining, storageKey)
                 flushedLast?.let { _playbackStoppedEvents.tryEmit(it) }
             }
         }
     }
 
-    private fun loadPendingStops(): List<PendingPlaybackStopDto> = synchronized(pendingLock) {
-        val raw = runCatching { prefs.getString(KEY_PENDING_STOPS, null) }.getOrNull()
+    /** 只读当前实例账号桶，拒绝把旧版无归属记录归给当前登录人。 */
+    private fun loadPendingStops(storageKey: String): List<PendingPlaybackStopDto> = synchronized(pendingLock) {
+        prefs.edit().remove(KEY_PENDING_STOPS).apply()
+        val raw = runCatching { prefs.getString(storageKey, null) }.getOrNull()
             ?: return emptyList()
         val parsed = runCatching { json.decodeFromString<List<PendingPlaybackStopDto>>(raw) }
             .getOrDefault(emptyList())
         RustCoreBridge.normalizePendingPlaybackStops(parsed, System.currentTimeMillis())
     }
 
-    private fun savePendingStops(entries: List<PendingPlaybackStopDto>) = synchronized(pendingLock) {
+    /** 按归属分别持久化，串行补报不会清除其他账号的记录。 */
+    private fun savePendingStops(entries: List<PendingPlaybackStopDto>, storageKey: String) = synchronized(pendingLock) {
         val normalized = RustCoreBridge.normalizePendingPlaybackStops(entries, System.currentTimeMillis())
         runCatching {
             if (normalized.isEmpty()) {
-                prefs.edit().remove(KEY_PENDING_STOPS).apply()
+                prefs.edit().remove(storageKey).apply()
             } else {
-                prefs.edit().putString(KEY_PENDING_STOPS, json.encodeToString(normalized)).apply()
+                prefs.edit().putString(storageKey, json.encodeToString(normalized)).apply()
             }
         }
     }
 
-    private fun recordPendingStop(stop: PendingPlaybackStopDto) = synchronized(pendingLock) {
-        val existing = loadPendingStops()
-        savePendingStops(existing + stop)
+    /** 记录到播放发起时固定的账号桶，失败重试不随当前实例漂移。 */
+    private fun recordPendingStop(stop: PendingPlaybackStopDto, storageKey: String) = synchronized(pendingLock) {
+        val existing = loadPendingStops(storageKey)
+        savePendingStops(existing + stop, storageKey)
     }
 
     companion object {

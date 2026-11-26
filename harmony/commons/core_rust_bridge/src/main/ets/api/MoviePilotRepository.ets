@@ -117,7 +117,9 @@ export interface MpCommunityState {
   medals: MpCommunityMedal[];
 }
 
+/** 展开的日历事件；保留订阅归属以复用正确来源的详情入口。 */
 export interface MpCalendarEpisodeItem {
+  subscribeId?: number;
   id: string;
   title: string;
   episodeTitle: string;
@@ -1255,27 +1257,35 @@ export class MoviePilotRepository {
   userAvatar: string = '';
   userLevel: number = 1;
 
-  /** 从 JWT Payload 提取签发时的 `level`（用于重启恢复与 `/user/current` 未返回该字段时回退）。 */
-  static parseJwtLevel(token: string): number | null {
+  /** 从不可变 sub 派生存储归属；无法确认账号时不使用共享桶。 */
+  accountStorageScope(): string {
+    const claims = MoviePilotRepository.jwtClaims(this.token);
+    const subject = claims ? strVal(claims, 'sub') : '';
+    if (!/^[1-9][0-9]*$/.test(subject)) { return ''; }
+    return encodeURIComponent(JSON.stringify([RustCoreBridge.normalizeServerAddress(this.baseUrl), subject]));
+  }
+
+  /** 解码已认证令牌的业务声明，仅用于展示和存储归属，不作为权限验证。 */
+  private static jwtClaims(token: string): Record<string, Object> | null {
     const parts = token.split('.');
     if (parts.length !== 3) { return null; }
     try {
       let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-      const pad = (4 - (payload.length % 4)) % 4;
-      for (let i = 0; i < pad; i++) {
-        payload += '=';
-      }
-      const b64 = new util.Base64Helper();
-      const bytes = b64.decodeSync(payload);
-      const dec = util.TextDecoder.create('utf-8', { ignoreBOM: true });
-      const text = dec.decodeToString(bytes);
-      const rec = asRec(parseJsonSafe(text));
-      if (!rec || rec['level'] === undefined || rec['level'] === null) { return null; }
-      const lv = Number(rec['level']);
-      return Number.isFinite(lv) && lv >= 0 ? Math.trunc(lv) : null;
+      payload += '='.repeat((4 - payload.length % 4) % 4);
+      const bytes = new util.Base64Helper().decodeSync(payload);
+      const text = util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes);
+      return asRec(parseJsonSafe(text));
     } catch {
       return null;
     }
+  }
+
+  /** 读取签发等级供重启展示，缺失时使用调用方既有回退。 */
+  static parseJwtLevel(token: string): number | null {
+    const claims = MoviePilotRepository.jwtClaims(token);
+    if (!claims || claims['level'] === undefined || claims['level'] === null) { return null; }
+    const level = Number(claims['level']);
+    return Number.isFinite(level) && level >= 0 ? Math.trunc(level) : null;
   }
 
   static shared(): MoviePilotRepository {
@@ -2475,8 +2485,9 @@ export class MoviePilotRepository {
   }
 
   /** 拉取真实 `/api/v1/github/community` 社区勋章并映射解锁条件、贡献记录与佩戴状态。 */
-  async fetchCommunityMedals(): Promise<MpCommunityState> {
-    const resp = await this.get(['github', 'community']);
+  async fetchCommunityMedals(refresh: boolean = false): Promise<MpCommunityState> {
+    const scope = this.accountStorageScope();
+    const resp = await this.get(['github', 'community'], refresh ? { 'refresh': 'true' } : {});
     const out: MpCommunityState = {
       githubLogin: this.userName || 'MoviePilot',
       earnedCount: 0,
@@ -2494,7 +2505,7 @@ export class MoviePilotRepository {
     } else if (userRec) {
       out.githubLogin = strVal(userRec, 'login', out.githubLogin);
     }
-    const globalWorn = strVal(root, 'worn_medal') || strVal(root, 'wearing') || (userRec ? strVal(userRec, 'worn_medal') : '');
+    const globalWorn = scope.length > 0 ? await NativeHuksStore.shared().loadUsagePreference('mp_worn_medal_v2_' + scope) : '';
     if (globalWorn.length > 0) {
       out.wornMedalId = globalWorn;
     }
@@ -2536,7 +2547,7 @@ export class MoviePilotRepository {
       const title = strVal(m, 'name') || strVal(m, 'title') || (titleMap[id] ?? id);
       const sub = strVal(m, 'description') || strVal(m, 'tier_label') || (isTiered ? `Tier ${tier}` : '荣耀勋章');
       const dateStr = strVal(m, 'at') || strVal(m, 'earned_at') || strVal(m, 'date') || '2026-11';
-      const isWorn = boolVal(m, 'worn', boolVal(m, 'is_worn', globalWorn === id));
+      const isWorn = earned && globalWorn === id;
       if (isWorn && (!out.wornMedalId || out.wornMedalId.length === 0)) {
         out.wornMedalId = id;
       }
@@ -2575,20 +2586,23 @@ export class MoviePilotRepository {
     return out;
   }
 
-  /** 佩戴或取消佩戴指定社区勋章（`POST /api/v1/github/medals/wear`）。 */
+  /** 按实例和本地账号隔离偏好，不调用不存在的服务端佩戴接口。 */
   async wearCommunityMedal(medalId: string): Promise<boolean> {
-    const payloadObj: Record<string, string> = {};
-    payloadObj['medal'] = medalId;
-    payloadObj['medal_id'] = medalId;
-    payloadObj['key'] = medalId;
-    const resp = await this.postJson(['github', 'medals', 'wear'], JSON.stringify(payloadObj));
-    return resp.status >= 200 && resp.status < 300;
+    if (this.token.length === 0 || this.userName.length === 0) { return false; }
+    const scope = this.accountStorageScope();
+    if (scope.length === 0) { return false; }
+    const state = await this.fetchCommunityMedals();
+    if (scope !== this.accountStorageScope()) { return false; }
+    if (medalId.length > 0 && !state.medals.some((medal: MpCommunityMedal) => medal.id === medalId && medal.earned)) {
+      return false;
+    }
+    await NativeHuksStore.shared().saveUsagePreference('mp_worn_medal_v2_' + scope, medalId);
+    return true;
   }
 
-  /** 刷新 GitHub 社区勋章同步状态（`POST /api/v1/github/medals/refresh`）。 */
+  /** 当前真实后端通过 refresh 查询参数强制同步社区资料。 */
   async refreshCommunityMedals(): Promise<MpCommunityState> {
-    await this.postJson(['github', 'medals', 'refresh'], '{}');
-    return this.fetchCommunityMedals();
+    return this.fetchCommunityMedals(true);
   }
 
   private parseSubscribeRecord(r: Record<string, Object> | null): MpSubscribeItem | null {
@@ -2752,34 +2766,52 @@ export class MoviePilotRepository {
     return this.toggleSubscribeStatus(sub);
   }
 
-  /** 拉取真实追剧日历排期（`GET /api/v1/subscribe/calendar`）。 */
+  /** 使用本地日期格式，避免 UTC 转换令日历窗口偏移一天。 */
+  private calendarDate(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
+  /** 读取未来 31 天的分页日历，按真实嵌套订阅和分集响应展开。 */
   async fetchSubscribeCalendar(): Promise<MpCalendarEpisodeItem[]> {
-    const resp = await this.get(['subscribe', 'calendar']);
-    if (resp.status !== 200) { return []; }
-    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const start = new Date();
+    const end = new Date(start.getTime());
+    end.setDate(end.getDate() + 31);
+    const subscriptions = await this.fetchSubscriptions();
     const out: MpCalendarEpisodeItem[] = [];
-    for (let i = 0; i < arr.length; i++) {
-      const r = asRec(arr[i]);
-      if (!r) { continue; }
-      const showTitle = strVal(r, 'show_name') || strVal(r, 'title') || strVal(r, 'name');
-      const epTitle = strVal(r, 'episode_name') || strVal(r, 'subtitle') || '';
-      const airDate = strVal(r, 'air_date') || strVal(r, 'release_date') || '';
-      const sn = Math.round(numVal(r, 'season_number', numVal(r, 'season', 1)));
-      const en = Math.round(numVal(r, 'episode_number', numVal(r, 'episode', 1)));
-      const posterRaw = strVal(r, 'poster_path') || strVal(r, 'poster') || strVal(r, 'still_path') || strVal(r, 'backdrop');
-      out.push({
-        id: `${showTitle}_${sn}_${en}_${i}`,
-        title: showTitle,
-        episodeTitle: epTitle,
-        airDate: airDate,
-        seasonNumber: sn,
-        episodeNumber: en,
-        posterUrl: this.resolveImageUrl(posterRaw),
-        overview: strVal(r, 'overview') || strVal(r, 'description'),
-        tmdbId: strVal(r, 'tmdb_id') || strVal(r, 'tmdbid')
-      });
+    let page = 1;
+    let consumed = 0;
+    while (true) {
+      const query: Record<string, string> = {
+        'start': this.calendarDate(start), 'end': this.calendarDate(end), 'page': String(page), 'count': '200'
+      };
+      const resp = await this.get(['subscribe', 'calendar'], query);
+      if (resp.status !== 200) { throw new Error(`加载日历失败（HTTP ${resp.status}）`); }
+      const root = unwrapObject(parseJsonSafe(resp.body));
+      if (!root) { throw new Error('日历响应格式无效'); }
+      const events = asArr(root['items']);
+      for (let i = 0; i < events.length; i++) {
+        const event = asRec(events[i]);
+        const sub = event ? asRec(event['subscribe']) : null;
+        if (!sub) { continue; }
+        const details = subscriptions.find((item: MpSubscribeItem) => item.id === numVal(sub, 'id'));
+        const episodes = event ? asArr(event['episodes']) : [];
+        const count = Math.max(1, episodes.length);
+        for (let j = 0; j < count; j++) {
+          const ep = j < episodes.length ? asRec(episodes[j]) : null;
+          const episodeNumber = numVal(ep, 'episode_number', 0);
+          out.push({
+            id: `${numVal(sub, 'id')}_${strVal(event, 'date')}_${episodeNumber}`, subscribeId: numVal(sub, 'id'),
+            title: strVal(sub, 'name'), episodeTitle: strVal(ep, 'name'),
+            airDate: strVal(event, 'date'), seasonNumber: numVal(sub, 'season', 1),
+            episodeNumber: episodeNumber, posterUrl: this.resolveImageUrl(strVal(sub, 'poster')),
+            overview: details ? details.description : '', tmdbId: details ? strVal(asRec(parseJsonSafe(details.rawJson ?? '{}')), 'tmdbid') : ''
+          });
+        }
+      }
+      consumed += events.length;
+      if (events.length === 0 || consumed >= numVal(root, 'total')) { break; }
+      page++;
     }
-    out.sort((a: MpCalendarEpisodeItem, b: MpCalendarEpisodeItem) => a.airDate.localeCompare(b.airDate));
     return out;
   }
 
@@ -4300,8 +4332,12 @@ export class MoviePilotRepository {
     durationMs: number,
     isPaused: boolean,
     state: string,
-    options?: MpProgressReportOptions
+    options?: MpProgressReportOptions,
+    requestBase: string = this.baseUrl,
+    requestToken: string = this.token
   ): Promise<boolean> {
+    // 串行队列等待期间若已切换会话，只保留原桶记录，不用新会话发起旧上报。
+    if (requestBase !== this.baseUrl || requestToken !== this.token) { return false; }
     const cleanItem = itemId.trim();
     const cleanSrv = server.trim();
     if (
@@ -4360,7 +4396,8 @@ export class MoviePilotRepository {
       payload['seq'] = Math.round(options.seq);
     }
     try {
-      const resp = await this.postJson(['mediaserver', 'progress'], JSON.stringify(payload));
+      const url = RustCoreBridge.buildV3EndpointUrl(requestBase, ['mediaserver', 'progress'], {});
+      const resp = await this.transport.execute(url, 'POST', requestToken, JSON.stringify(payload), 'application/json');
       return resp.status >= 200 && resp.status < 300;
     } catch {
       return false;
@@ -5988,68 +6025,74 @@ export class MoviePilotRepository {
     return this.saveRawSettingArray('Notifications', next);
   }
 
-  /** 查询真实渠道授权与待审批列表（`GET /api/v1/authorization`）。 */
+  /** 读取当前后端 `data.members`，尾斜杠避免认证请求重定向。 */
+  private async authorizationMembers(): Promise<Object[]> {
+    const resp = await this.get(['authorization'], {}, true);
+    if (resp.status !== 200) { throw new Error(`加载渠道授权失败（HTTP ${resp.status}）`); }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    return root ? asArr(root['members']) : [];
+  }
+
+  /** 展示渠道真实发送者和审批状态，不将拒绝或停用记录归为已授权。 */
   async fetchAuthorizations(): Promise<MpAuthorizationItem[]> {
-    let resp = await this.get(['authorization']);
-    if (resp.status === 404) {
-      resp = await this.get(['authorization', 'sessions']);
-    }
-    if (resp.status !== 200) { return []; }
-    const parsed = parseJsonSafe(resp.body);
-    let arr = unwrapArray(parsed);
-    if (arr.length === 0) {
-      const root = unwrapObject(parsed);
-      if (root) {
-        arr = asArr(root['sessions']).concat(asArr(root['pending'])).concat(asArr(root['authorizations']));
-      }
-    }
+    const arr = await this.authorizationMembers();
     const out: MpAuthorizationItem[] = [];
     for (let i = 0; i < arr.length; i++) {
       const r = asRec(arr[i]);
       if (!r) { continue; }
-      const st = strVal(r, 'status', boolVal(r, 'approved', true) ? 'authorized' : 'pending');
+      const st = strVal(r, 'status');
       out.push({
-        id: strVal(r, 'id') || strVal(r, 'session_id') || strVal(r, 'code', `auth_${i}`),
-        channel: strVal(r, 'channel') || strVal(r, 'source') || strVal(r, 'type', 'telegram'),
-        name: strVal(r, 'name') || strVal(r, 'username') || strVal(r, 'user_id') || strVal(r, 'title', '外部会话'),
+        id: strVal(r, 'id'),
+        channel: strVal(r, 'channel'),
+        name: strVal(r, 'display_name') || strVal(r, 'sender_id'),
         status: st,
-        createdAt: strVal(r, 'created_at') || strVal(r, 'time'),
-        expiresAt: strVal(r, 'expires_at'),
-        approved: st === 'authorized' || st === 'approved' || st === 'active' || boolVal(r, 'approved', false)
+        createdAt: new Date(numVal(r, 'created_at') * 1000).toISOString(),
+        expiresAt: '',
+        approved: st === 'approved'
       });
     }
     return out;
   }
 
-  /** 生成 5 分钟渠道关联绑定码（`POST /api/v1/authorization/code` / `POST /api/v1/authorization`）。 */
+  /** 从一次性关联码接口读取绝对到期时间，保留失败状态供界面展示。 */
   async generateAuthorizationCode(): Promise<MpAuthorizationCode> {
-    let resp = await this.postJson(['authorization', 'code'], '{}');
-    if (resp.status === 404 || resp.status === 405) {
-      resp = await this.postJson(['authorization'], '{}');
-    }
+    const resp = await this.postJson(['authorization', 'binding'], '{}');
     const root = unwrapObject(parseJsonSafe(resp.body));
-    const code = root ? (strVal(root, 'code') || strVal(root, 'bind_code') || strVal(root, 'token')) : '';
-    const expires = root ? Math.round(numVal(root, 'expires_in', 300)) : 300;
-    const rawRoot = asRec(parseJsonSafe(resp.body));
-    const msg = strVal(rawRoot, 'message') || (code.length > 0 ? '已生成渠道授权绑定码' : '当前实例暂未启用绑定码接口或无待绑定请求');
+    const code = strVal(root, 'code');
+    if (resp.status < 200 || resp.status >= 300 || code.length === 0) {
+      throw new Error(`生成渠道关联码失败（HTTP ${resp.status}）`);
+    }
     return {
       code: code,
-      expiresIn: expires,
-      message: msg
+      expiresIn: Math.max(0, Math.floor(numVal(root, 'expires_at') - Date.now() / 1000)),
+      message: '请在本人渠道私聊中发送 /bind ' + code
     };
   }
 
-  /** 审批通过待授权渠道请求（`POST /api/v1/authorization/approve`）。 */
-  async approveAuthorization(idOrCode: string): Promise<boolean> {
-    const payloadObj: Record<string, string> = {};
-    payloadObj['id'] = idOrCode;
-    payloadObj['code'] = idOrCode;
-    payloadObj['session_id'] = idOrCode;
-    let resp = await this.postJson(['authorization', 'approve'], JSON.stringify(payloadObj));
-    if (resp.status === 404) {
-      resp = await this.postJson(['authorization', idOrCode, 'approve'], '{}');
+  /** 仅更新成员状态，保留原角色与能力，避免审批或停用时重置授权。 */
+  private async updateAuthorizationStatus(id: string, status: string): Promise<boolean> {
+    const requestBase = this.baseUrl;
+    const requestToken = this.token;
+    const members = await this.authorizationMembers();
+    if (requestBase !== this.baseUrl || requestToken !== this.token) { return false; }
+    for (let i = 0; i < members.length; i++) {
+      const member = asRec(members[i]);
+      if (member && strVal(member, 'id') === id) {
+        const payload: Record<string, Object> = {};
+        payload['status'] = status;
+        payload['role'] = member['role'];
+        payload['scopes'] = member['scopes'];
+        const resp = await this.putJson(['authorization', id], JSON.stringify(payload));
+        const root = asRec(parseJsonSafe(resp.body));
+        return resp.status >= 200 && resp.status < 300 && boolVal(root, 'success', false);
+      }
     }
-    return resp.status >= 200 && resp.status < 300;
+    return false;
+  }
+
+  /** 通过当前成员状态更新契约批准申请。 */
+  async approveAuthorization(idOrCode: string): Promise<boolean> {
+    return this.updateAuthorizationStatus(idOrCode, 'approved');
   }
 
   /** 读取当前实例的匿名版本统计开关与统计服务地址（`GET /api/v1/system/env`）。 */
@@ -6078,10 +6121,9 @@ export class MoviePilotRepository {
     }
   }
 
-  /** 撤销已授权的渠道绑定（`DELETE /api/v1/authorization/{id}`）。 */
+  /** 撤销对应停用不可变成员记录，后端不提供 DELETE。 */
   async revokeAuthorization(sessionId: string): Promise<boolean> {
-    const resp = await this.deleteReq(['authorization', sessionId]);
-    return resp.status >= 200 && resp.status < 300;
+    return this.updateAuthorizationStatus(sessionId, 'disabled');
   }
 
   private danmakuCommentsCache: Map<number, MpDanmakuCachedEntry> = new Map<number, MpDanmakuCachedEntry>();

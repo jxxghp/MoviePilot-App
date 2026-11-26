@@ -293,8 +293,8 @@ export struct HarmonySubscriptionsPage {
     this.loadingCalendar = true;
     try {
       this.calendarItems = await MoviePilotRepository.shared().fetchSubscribeCalendar();
-    } catch {
-      this.calendarItems = [];
+    } catch (error) {
+      this.feedbackMsg = (error as Error).message || '加载日历失败，请重试';
     }
     this.loadingCalendar = false;
   }
@@ -489,7 +489,13 @@ export struct HarmonySubscriptionsPage {
     }, 120);
   }
 
+  /** 优先复用订阅的完整来源身份，避免把豆瓣或 Bangumi 订阅误认为 TMDB。 */
   private openCalendarMediaDetail(ep: MpCalendarEpisodeItem): void {
+    const subscription = this.items.find((item: MpSubscribeItem) => item.id === ep.subscribeId);
+    if (subscription) {
+      this.openSubMediaDetail(subscription);
+      return;
+    }
     const item: MpMediaItem = {
       id: ep.tmdbId || ep.id,
       mediaId: ep.tmdbId ? `tmdb:${ep.tmdbId}` : '',

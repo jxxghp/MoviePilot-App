@@ -195,6 +195,10 @@ export class HarmonyPlaybackProgressReporter {
     ) {
       return;
     }
+    const scope = repo.accountStorageScope();
+    const requestBase = repo.baseUrl;
+    const requestToken = repo.token;
+    if (requestToken.length === 0 || scope.length === 0) { return; }
     const isStop = decision.state === 'stopped';
     const nextWork = async (): Promise<void> => {
       const cid = await this.ensureClientId();
@@ -219,7 +223,7 @@ export class HarmonyPlaybackProgressReporter {
         durationMs,
         decision.is_paused,
         decision.state,
-        opts
+        opts, requestBase, requestToken
       );
       if (isStop) {
         if (ok) {
@@ -235,7 +239,7 @@ export class HarmonyPlaybackProgressReporter {
             playback_time_ms: decision.playback_time_ms,
             seq: decision.seq,
             updated_at_ms: Date.now()
-          });
+          }, scope);
         }
       }
     };
@@ -244,8 +248,12 @@ export class HarmonyPlaybackProgressReporter {
 
   /** 在起播或网络恢复时串行补报离线失败的 `stopped` 终态记录。 */
   flushPendingStops(repo: MoviePilotRepository): void {
+    const scope = repo.accountStorageScope();
+    const requestBase = repo.baseUrl;
+    const requestToken = repo.token;
+    if (requestToken.length === 0 || scope.length === 0) { return; }
     const nextWork = async (): Promise<void> => {
-      const pending = await this.loadPendingStops();
+      const pending = await this.loadPendingStops(scope);
       if (pending.length === 0) {
         return;
       }
@@ -273,7 +281,7 @@ export class HarmonyPlaybackProgressReporter {
             playMethod: 'DirectPlay',
             playbackTimeMs: entry.playback_time_ms ?? undefined,
             seq: entry.seq ?? undefined
-          }
+          }, requestBase, requestToken
         );
         if (ok) {
           flushedAny = true;
@@ -281,7 +289,7 @@ export class HarmonyPlaybackProgressReporter {
           remaining.push(entry);
         }
       }
-      await this.savePendingStops(remaining);
+      await this.savePendingStops(remaining, scope);
       if (flushedAny) {
         this.bumpProgressRevision();
       }
@@ -298,9 +306,10 @@ export class HarmonyPlaybackProgressReporter {
     }
   }
 
-  private async loadPendingStops(): Promise<PendingPlaybackStop[]> {
+  /** 只读取显式实例账号桶，旧版未知归属数据不参与补报。 */
+  private async loadPendingStops(scope: string): Promise<PendingPlaybackStop[]> {
     try {
-      const raw = (await NativeHuksStore.shared().loadUsagePreference(HarmonyPlaybackProgressReporter.PENDING_STOPS_KEY)).trim();
+      const raw = (await NativeHuksStore.shared().loadUsagePreference(HarmonyPlaybackProgressReporter.PENDING_STOPS_KEY + '_v2_' + scope)).trim();
       if (raw.length === 0) { return []; }
       const parsed = JSON.parse(raw) as PendingPlaybackStop[];
       if (!Array.isArray(parsed)) { return []; }
@@ -310,11 +319,12 @@ export class HarmonyPlaybackProgressReporter {
     }
   }
 
-  private async savePendingStops(entries: PendingPlaybackStop[]): Promise<void> {
+  /** 分桶写入，串行任务不会覆盖别的实例或用户。 */
+  private async savePendingStops(entries: PendingPlaybackStop[], scope: string): Promise<void> {
     const normalized = RustCoreBridge.normalizePendingPlaybackStops(entries, Date.now());
     try {
       await NativeHuksStore.shared().saveUsagePreference(
-        HarmonyPlaybackProgressReporter.PENDING_STOPS_KEY,
+        HarmonyPlaybackProgressReporter.PENDING_STOPS_KEY + '_v2_' + scope,
         normalized.length > 0 ? JSON.stringify(normalized) : ''
       );
     } catch {
@@ -322,9 +332,10 @@ export class HarmonyPlaybackProgressReporter {
     }
   }
 
-  private async recordPendingStop(stop: PendingPlaybackStop): Promise<void> {
-    const existing = await this.loadPendingStops();
+  /** 将失败终态保存到发起播放时的固定归属中。 */
+  private async recordPendingStop(stop: PendingPlaybackStop, scope: string): Promise<void> {
+    const existing = await this.loadPendingStops(scope);
     existing.push(stop);
-    await this.savePendingStops(existing);
+    await this.savePendingStops(existing, scope);
   }
 }

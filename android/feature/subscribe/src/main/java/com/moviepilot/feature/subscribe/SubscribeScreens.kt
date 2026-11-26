@@ -1173,22 +1173,32 @@ fun CalendarScreen(
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
 
-    suspend fun reloadCalendar() {
-        if (repository != null) {
-            calendarEntries = repository.fetchSubscribeCalendar()
-        }
-        isLoading = false
-        isRefreshing = false
-    }
-
-    LaunchedEffect(repository) {
-        reloadCalendar()
-    }
-
+    var calendarError by remember { mutableStateOf<String?>(null) }
     val weekStart = remember(today, weekOffset) {
         val sundayOffset = today.dayOfWeek.value % 7
         today.minusDays(sundayOffset.toLong()).plusWeeks(weekOffset.toLong())
     }
+
+    /** 按可见周请求日历，取消旧请求时不覆盖新周数据。 */
+    suspend fun reloadCalendar() {
+        try {
+            calendarError = null
+            if (repository != null) calendarEntries = repository.fetchSubscribeCalendar(weekStart, weekStart.plusDays(7))
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            calendarError = error.message ?: "加载日历失败，请重试"
+        } finally {
+            isLoading = false
+            isRefreshing = false
+        }
+    }
+
+    LaunchedEffect(repository, weekStart) {
+        isLoading = true
+        reloadCalendar()
+    }
+
     val weekDates = remember(weekStart) { (0L..6L).map { weekStart.plusDays(it) } }
     val weekdayLabels = listOf("日", "一", "二", "三", "四", "五", "六")
     val dateFmt = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd") }
@@ -1213,6 +1223,7 @@ fun CalendarScreen(
         },
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            calendarError?.let { Text(it, color = colors.textSecondary, modifier = Modifier.padding(horizontal = margin)) }
             Spacer(Modifier.height(10.dp))
 
             // 周视图日期条

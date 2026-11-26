@@ -5,7 +5,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** 播放状态机原生路径与降级路径的后端事件合同回归。 */
 class PlaybackProgressSyncTest {
+    /** 使用真实 Rust 状态机校验播放和暂停心跳及自动释放。 */
     @Test
     fun `start playing heartbeat paused keepalive and auto stop`() {
         val tracker = PlaybackSyncSessionTracker(playSessionId = "ps-android-1")
@@ -21,19 +23,19 @@ class PlaybackProgressSyncTest {
         val playTick = tracker.step("tick", positionMs = 10_000L, durationMs = 3_600_000L, isPaused = false, nowMs = 11_000L)
         assertTrue(playTick.shouldReport)
         assertEquals("playing", playTick.state)
-        assertEquals("timeupdate", playTick.eventName)
+        assertEquals("TimeUpdate", playTick.eventName)
         assertEquals(10_000L, playTick.playbackTimeMs)
         assertEquals(2L, playTick.seq)
 
         val pause = tracker.step("pause", positionMs = 12_000L, durationMs = 3_600_000L, isPaused = true, nowMs = 13_000L)
         assertTrue(pause.shouldReport)
         assertEquals("paused", pause.state)
-        assertEquals("pause", pause.eventName)
+        assertEquals("Pause", pause.eventName)
 
         val keepalive = tracker.step("tick", positionMs = 12_000L, durationMs = 3_600_000L, isPaused = true, nowMs = 25_000L)
         assertTrue(keepalive.shouldReport)
         assertEquals("paused", keepalive.state)
-        assertEquals("timeupdate", keepalive.eventName)
+        assertEquals("Pause", keepalive.eventName)
 
         // 15 分钟后自动释放会话
         val autoStop = tracker.step("tick", positionMs = 12_000L, durationMs = 3_600_000L, isPaused = true, nowMs = 13_000L + 15L * 60_000L)
@@ -51,6 +53,7 @@ class PlaybackProgressSyncTest {
         assertEquals("started", resumed.state)
     }
 
+    /** Seek 回零和离线队列规范化不受事件名修正影响。 */
     @Test
     fun `seek backward to zero is preserved and pending stops normalize`() {
         val tracker = PlaybackSyncSessionTracker(playSessionId = "ps-seek")
@@ -72,4 +75,19 @@ class PlaybackProgressSyncTest {
         assertEquals(1, normalized.size)
         assertEquals(25_000L, normalized.first().positionMs)
     }
+    /** 不加载原生库的降级分支也不能发出导致后端 422 的小写或未知事件名。 */
+    @Test
+    fun fallbackEmitsValidBackendEvents() {
+        val valid = setOf("Start", "TimeUpdate", "Pause", "Unpause", "AudioTrackChange", "SubtitleTrackChange")
+        var state = PlaybackSyncStateDto()
+        for ((index, trigger) in listOf("start", "pause", "resume", "seek", "track_change", "background", "tick").withIndex()) {
+            val decision = RustCoreBridge.fallbackPlanPlaybackSyncStep(state, PlaybackSyncInputDto(
+                trigger = trigger, nowMs = 1_000L + index * 20_000L, positionMs = 1_000L,
+                isPaused = trigger == "pause", audioStreamIndex = index,
+            ))
+            if (decision.shouldReport) assertTrue(decision.eventName in valid)
+            state = decision.nextState
+        }
+    }
+
 }

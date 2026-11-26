@@ -5,7 +5,10 @@ import XCTest
 @MainActor
 final class NativeV2EntryTests: XCTestCase {
   private let base = "http://127.0.0.1:5330/"
-  private let arguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+  private let arguments = [
+    "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+    "-nativeV2.appearance.animateBackground", "NO",
+  ]
 
   /// 显式交互运行时才从一次性回环通道取得凭据；App 自己连接真实后端执行只读浏览。
   func testLiveBackendReadOnlyMediaScreens() async throws {
@@ -1281,6 +1284,39 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
+  /// 只编辑邮箱时，真实完整更新请求仍需保留 OTP、资料和细粒度权限。
+  func testUserEditorPreservesUneditedFields() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    openSettingsHub(app: app)
+    let usersEntry = app.buttons["native-workspace-users"]
+    reveal(usersEntry, app: app)
+    tap(usersEntry, app: app)
+    let member = app.buttons["native-user-card-20"]
+    XCTAssertTrue(member.waitForExistence(timeout: 10))
+    tap(member, app: app)
+    let email = app.textFields["native-user-editor-email"]
+    XCTAssertTrue(email.waitForExistence(timeout: 10))
+    email.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+    let existingEmailLength = (email.value as? String)?.count ?? 0
+    email.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingEmailLength * 2) + "edited@example.test")
+    dismissKeyboard(app)
+    tap(app.buttons["native-user-editor-save"], app: app)
+    XCTAssertTrue(app.descendants(matching: .any)["native-users-feedback"].firstMatch.waitForExistence(timeout: 10))
+    var request = URLRequest(url: URL(string: base + "a/api/v1/user/")!)
+    request.setValue("Bearer synthetic-native-a", forHTTPHeaderField: "Authorization")
+    let (data, _) = try await URLSession.shared.data(for: request)
+    let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let users = try XCTUnwrap(root["data"] as? [[String: Any]])
+    let saved = try XCTUnwrap(users.first { $0["id"] as? Int == 20 })
+    XCTAssertEqual(saved["email"] as? String, "edited@example.test")
+    XCTAssertEqual(saved["is_otp"] as? Bool, true)
+    XCTAssertEqual(saved["avatar"] as? String, "synthetic-avatar")
+    XCTAssertEqual((saved["settings"] as? [String: String])?["theme"], "dark")
+    let permissions = saved["permissions"] as? [String: Any]
+    XCTAssertEqual((permissions?["features"] as? [String: Bool])?["plugin.demo.main"], false)
+  }
+
   /// P3.2b：验证多来源片库探索筛选切换与发现页模块编排开关持久化，零 WebView。
   func testNativeExploreSourcesAndModuleArrangement() async throws {
     let app = try await signInToNativeBusiness()
@@ -1500,13 +1536,15 @@ final class NativeV2EntryTests: XCTestCase {
     tap(sessionsBtn, app: app)
     let firstSession = app.buttons["native-agent-session-sess-1"]
     XCTAssertTrue(firstSession.waitForExistence(timeout: 10))
+    // 启动恢复可能已读取最近会话；只要求本次手动打开新增一次读取。
+    let beforeOpen = try await stats()["a"]?["GET api/v1/message/agent/sessions/sess-1"] ?? 0
     firstSession.tap()
     XCTAssertTrue(app.staticTexts["已检索 TMDB 评分"].waitForExistence(timeout: 10))
     XCTAssertEqual(app.webViews.count, 0)
 
     let counts = try await stats()
-    XCTAssertEqual(counts["a"]?["POST api/v1/agent/stream"], 1)
-    XCTAssertEqual(counts["a"]?["GET api/v1/agent/sessions/sess-1"], 1)
+    XCTAssertEqual(counts["a"]?["POST api/v1/message/agent/stream"], 1)
+    XCTAssertEqual(counts["a"]?["GET api/v1/message/agent/sessions/sess-1"], beforeOpen + 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 

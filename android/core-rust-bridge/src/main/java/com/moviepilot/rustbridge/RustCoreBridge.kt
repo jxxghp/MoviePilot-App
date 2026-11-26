@@ -786,7 +786,8 @@ object RustCoreBridge {
         )
     }
 
-    private fun fallbackPlanPlaybackSyncStep(
+    /** 原生库暂不可用时的降级状态机也必须使用后端允许的播放事件枚举。 */
+    internal fun fallbackPlanPlaybackSyncStep(
         current: PlaybackSyncStateDto,
         input: PlaybackSyncInputDto,
     ): PlaybackSyncDecisionDto {
@@ -860,7 +861,7 @@ object RustCoreBridge {
                 if (next.startedSent && !next.stoppedSent) {
                     skip(if (input.isPaused) "paused" else "playing", input.isPaused)
                 } else {
-                    emit("started", null, input.isPaused) { s ->
+                    emit("started", "Start", input.isPaused) { s ->
                         s.copy(
                             startedSent = true,
                             stoppedSent = false,
@@ -872,13 +873,13 @@ object RustCoreBridge {
             "pause" -> {
                 if (next.stoppedSent) return skip("stopped", true)
                 val pausedSince = next.pausedSinceMs ?: now
-                emit("paused", "pause", true) { s ->
+                emit("paused", "Pause", true) { s ->
                     s.copy(startedSent = true, pausedSinceMs = pausedSince)
                 }
             }
             "resume" -> {
                 if (next.stoppedSent) {
-                    emit("started", null, false) { s ->
+                    emit("started", "Start", false) { s ->
                         s.copy(
                             startedSent = true,
                             stoppedSent = false,
@@ -887,7 +888,7 @@ object RustCoreBridge {
                         )
                     }
                 } else {
-                    emit("playing", "unpause", false) { s ->
+                    emit("playing", "Unpause", false) { s ->
                         s.copy(startedSent = true, pausedSinceMs = null, lastPlayingTickAtMs = now)
                     }
                 }
@@ -899,7 +900,7 @@ object RustCoreBridge {
                     skip(if (input.isPaused) "paused" else "playing", input.isPaused)
                 } else {
                     val st = if (input.isPaused) "paused" else "playing"
-                    emit(st, "timeupdate", input.isPaused) { s ->
+                    emit(st, "TimeUpdate", input.isPaused) { s ->
                         s.copy(startedSent = true, lastSeekAtMs = now)
                     }
                 }
@@ -907,15 +908,20 @@ object RustCoreBridge {
             "track_change" -> {
                 if (next.stoppedSent) return skip("stopped", true)
                 val st = if (input.isPaused) "paused" else "playing"
-                emit(st, "trackchange", input.isPaused) { s ->
-                    s.copy(startedSent = true)
+                val event = when {
+                    input.audioStreamIndex != next.lastAudioStreamIndex -> "AudioTrackChange"
+                    input.subtitleStreamIndex != next.lastSubtitleStreamIndex -> "SubtitleTrackChange"
+                    else -> "TimeUpdate"
+                }
+                emit(st, event, input.isPaused) { s ->
+                    s.copy(startedSent = true, lastAudioStreamIndex = input.audioStreamIndex, lastSubtitleStreamIndex = input.subtitleStreamIndex)
                 }
             }
             "background" -> {
                 if (next.stoppedSent) return skip("stopped", true)
                 val pausedSince = if (input.isPaused) (next.pausedSinceMs ?: now) else null
                 val st = if (input.isPaused) "paused" else "playing"
-                emit(st, if (input.isPaused) "pause" else "timeupdate", input.isPaused) { s ->
+                emit(st, if (input.isPaused) "Pause" else "TimeUpdate", input.isPaused) { s ->
                     s.copy(startedSent = true, pausedSinceMs = pausedSince)
                 }
             }
@@ -928,7 +934,7 @@ object RustCoreBridge {
             else -> { // tick
                 if (next.stoppedSent) return skip("stopped", true)
                 if (!next.startedSent) {
-                    return emit("started", null, input.isPaused) { s ->
+                    return emit("started", "Start", input.isPaused) { s ->
                         s.copy(
                             startedSent = true,
                             stoppedSent = false,
@@ -946,7 +952,7 @@ object RustCoreBridge {
                     }
                     val elapsed = next.lastReportAtMs?.let { now - it } ?: Long.MAX_VALUE
                     if (elapsed >= 12_000L) {
-                        emit("paused", "timeupdate", true)
+                        emit("paused", "Pause", true)
                     } else {
                         skip("paused", true, next)
                     }
@@ -954,7 +960,7 @@ object RustCoreBridge {
                     next = next.copy(pausedSinceMs = null)
                     val elapsed = next.lastReportAtMs?.let { now - it } ?: Long.MAX_VALUE
                     if (elapsed >= 10_000L) {
-                        emit("playing", "timeupdate", false)
+                        emit("playing", "TimeUpdate", false)
                     } else {
                         skip("playing", false, next)
                     }

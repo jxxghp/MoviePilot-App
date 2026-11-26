@@ -106,6 +106,7 @@ import com.moviepilot.designsystem.ExpressiveHeaderActionButton
 import com.moviepilot.designsystem.ExpressivePillTabRow
 import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalBottomOverlayInset
+import com.moviepilot.designsystem.LocalSnackbarHostState
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
@@ -1228,6 +1229,7 @@ fun ShortcutsDiagnosticsScreen(
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val scope = rememberCoroutineScope()
+    val snackbar = LocalSnackbarHostState.current
 
     val validTools = remember { listOf("健康检查", "名称识别", "网络测试", "实时日志", "定时服务", "词表") }
     var activeTool by remember(initialTab) {
@@ -1356,6 +1358,20 @@ fun ShortcutsDiagnosticsScreen(
     val wordTabLabels = remember(wordMetas) { wordMetas.keys.toList() }
     val currentWordMeta = wordMetas[activeWordTab] ?: wordMetas.values.first()
 
+    /** 保留上次诊断内容并展示加载失败，取消旧请求时正常传递取消信号。 */
+    suspend fun reloadSystemModules() {
+        isLoadingModules = true
+        try {
+            systemModules = repository.fetchSystemModules()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            snackbar?.showSnackbar(error.message ?: "加载系统模块失败")
+        } finally {
+            isLoadingModules = false
+        }
+    }
+
     suspend fun testSingleModule(moduleId: String) {
         testingModuleIds[moduleId] = true
         val (ok, msg) = repository.testSystemModule(moduleId)
@@ -1369,7 +1385,7 @@ fun ShortcutsDiagnosticsScreen(
         when (activeTool) {
             "健康检查" -> if (systemModules.isEmpty()) {
                 isLoadingModules = true
-                systemModules = repository.fetchSystemModules()
+                reloadSystemModules()
                 isLoadingModules = false
             }
             "定时服务" -> {
@@ -1650,7 +1666,7 @@ fun ShortcutsDiagnosticsScreen(
                                             onClick = {
                                                 scope.launch {
                                                     isLoadingModules = true
-                                                    systemModules = repository.fetchSystemModules()
+                                                    reloadSystemModules()
                                                     isLoadingModules = false
                                                 }
                                             },

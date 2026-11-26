@@ -851,7 +851,7 @@ export class RustCoreBridge {
       if (next.paused_since_ms === null || next.paused_since_ms === undefined) {
         next.paused_since_ms = now;
       }
-      return emit('paused', 'pause', true);
+      return emit('paused', 'Pause', true);
     }
     if (input.trigger === 'resume') {
       next.started_sent = true;
@@ -861,7 +861,7 @@ export class RustCoreBridge {
         next.stopped_sent = false;
         return emit('started', null, false);
       }
-      return emit('playing', 'unpause', false);
+      return emit('playing', 'Unpause', false);
     }
     if (input.trigger === 'seek') {
       if (next.stopped_sent) { return skip('stopped', true); }
@@ -870,18 +870,22 @@ export class RustCoreBridge {
       }
       next.started_sent = true;
       next.last_seek_at_ms = now;
-      return emit(input.is_paused ? 'paused' : 'playing', 'timeupdate', input.is_paused);
+      return emit(input.is_paused ? 'paused' : 'playing', 'TimeUpdate', input.is_paused);
     }
     if (input.trigger === 'track_change') {
       if (next.stopped_sent) { return skip('stopped', true); }
       next.started_sent = true;
-      return emit(input.is_paused ? 'paused' : 'playing', 'trackchange', input.is_paused);
+      const eventName = input.audio_stream_index !== current.last_audio_stream_index ? 'AudioTrackChange' :
+        (input.subtitle_stream_index !== current.last_subtitle_stream_index ? 'SubtitleTrackChange' : 'TimeUpdate');
+      next.last_audio_stream_index = input.audio_stream_index ?? null;
+      next.last_subtitle_stream_index = input.subtitle_stream_index ?? null;
+      return emit(input.is_paused ? 'paused' : 'playing', eventName, input.is_paused);
     }
     if (input.trigger === 'background') {
       if (next.stopped_sent) { return skip('stopped', true); }
       next.started_sent = true;
       next.paused_since_ms = input.is_paused ? (next.paused_since_ms ?? now) : null;
-      return emit(input.is_paused ? 'paused' : 'playing', input.is_paused ? 'pause' : 'timeupdate', input.is_paused);
+      return emit(input.is_paused ? 'paused' : 'playing', input.is_paused ? 'Pause' : 'TimeUpdate', input.is_paused);
     }
     if (input.trigger === 'stop' || input.trigger === 'finish') {
       if (next.stopped_sent) { return skip('stopped', true); }
@@ -910,14 +914,14 @@ export class RustCoreBridge {
       }
       const elapsed = next.last_report_at_ms !== null && next.last_report_at_ms !== undefined ? now - next.last_report_at_ms : 999999;
       if (elapsed >= 12000) {
-        return emit('paused', 'timeupdate', true);
+        return emit('paused', 'Pause', true);
       }
       return skip('paused', true);
     }
     next.paused_since_ms = null;
     const elapsed = next.last_report_at_ms !== null && next.last_report_at_ms !== undefined ? now - next.last_report_at_ms : 999999;
     if (elapsed >= 10000) {
-      return emit('playing', 'timeupdate', false);
+      return emit('playing', 'TimeUpdate', false);
     }
     return skip('playing', false);
   }

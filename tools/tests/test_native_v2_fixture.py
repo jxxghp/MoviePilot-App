@@ -31,18 +31,67 @@ class NativeFixtureTests(unittest.TestCase):
         self.server.server_close()
         self.thread.join()
 
-    def request(self, path, body=None, content="application/json", token=None):
+    def request(self, path, body=None, content="application/json", token=None, method=None):
         """只收集状态和 JSON；不将认证输入输出到日志。"""
         headers = {"Content-Type": content}
         if token:
             headers["Authorization"] = "Bearer " + token
-        request = Request(self.base + path, data=body, headers=headers)
+        request = Request(self.base + path, data=body, headers=headers, method=method)
         try:
             response = urlopen(request, timeout=5)
         except HTTPError as error:
             response = error
         with response:
             return response.status, json.load(response)
+
+    def test_agent_and_dashboard_use_current_routes(self):
+        """当前 Agent 命名空间和首页遥测均有显式夹具，旧接口不能悄悄继续成功。"""
+        for endpoint in ("message/agent/commands", "message/agent/sessions", "dashboard/cpu",
+                         "dashboard/memory", "dashboard/network", "dashboard/downloader",
+                         "dashboard/system", "dashboard/transfer", "github/community"):
+            self.assertEqual(self.request("/a/api/v1/" + endpoint, token="synthetic-native-a")[0], 200)
+        self.assertEqual(self.request("/a/api/v1/agent/commands", token="synthetic-native-a")[0], 404)
+
+    def test_calendar_requires_window_and_search_only_has_no_subscription(self):
+        """夹具保持真实日期必填合同，搜索专用账号不隐式授予订阅。"""
+        path = "/a/api/v1/subscribe/calendar"
+        self.assertEqual(self.request(path, token="synthetic-native-a")[0], 422)
+        status, result = self.request(path + "?start=2026-11-01&end=2026-11-08", token="synthetic-native-a")
+        self.assertEqual(status, 200)
+        self.assertEqual(result["data"]["items"][0]["date"], "2026-11-01")
+        with self.server.lock:
+            self.server.profiles["b"]["mode"] = "resource-search-only"
+        _, result = self.request("/b/api/v1/user/current", token="synthetic-native-b")
+        self.assertTrue(result["data"]["permissions"]["search"])
+        self.assertFalse(result["data"]["permissions"]["subscribe"])
+        self.assertFalse(result["data"]["permissions"]["discovery"])
+
+    def test_agent_display_snapshot_round_trips_and_checks_token(self):
+        """展示快照更新必须实际保存且保持实例鉴权，不能用成功空响应掩盖陈旧夹具。"""
+        path = "/a/api/v1/message/agent/sessions/sess-1/display"
+        payload = {"title": "合成展示", "messages": [{"role": "user", "content": "合成消息"}]}
+        body = json.dumps(payload).encode()
+        self.assertEqual(self.request(path, body, token="synthetic-native-b", method="PUT")[0], 401)
+        status, summary = self.request(path, body, token="synthetic-native-a", method="PUT")
+        self.assertEqual(status, 200)
+        self.assertEqual(summary["data"]["message_count"], 1)
+        _, detail = self.request(path.removesuffix("/display"), token="synthetic-native-a")
+        self.assertEqual(detail["data"]["messages"], payload["messages"])
+        self.assertEqual(detail["data"]["title"], payload["title"])
+        _, stats = self.request("/__native/stats")
+        self.assertEqual(stats["unexpected"], {})
+
+    def test_user_fixture_does_not_preserve_omitted_fields_for_client(self):
+        """完整替换语义与后端一致，禁止夹具替客户端保留 OTP 而掩盖丢字段回归。"""
+        status, _ = self.request("/a/api/v1/user/", body=json.dumps({
+            "id": 20, "name": "native-b", "email": "edited@example.test"
+        }).encode(), token="synthetic-native-a", method="PUT")
+        self.assertEqual(status, 200)
+        _, result = self.request("/a/api/v1/user/", token="synthetic-native-a")
+        member = next(row for row in result["data"] if row["id"] == 20)
+        self.assertFalse(member["is_otp"])
+        self.assertIsNone(member["avatar"])
+        self.assertEqual(member["settings"], {})
 
     def test_frontend_is_unavailable_and_recorded(self):
         """HTML、JS 和未声明路径只能返回 404，不能靠假前端使 UI 测试通过。"""

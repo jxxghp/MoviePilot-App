@@ -66,7 +66,7 @@ build_variant_apk() {
   cd "$ROOT/android"
   local csv_abis="${abis// /,}"
   if [[ "$run_tests" == "true" ]]; then
-    ./gradlew :app:testDebugUnitTest :app:assembleRelease -PMOVIEPILOT_ABI_FILTERS="$csv_abis" --no-daemon
+    ./gradlew :app:testDebugUnitTest :core-rust-bridge:testDebugUnitTest :app:lintDebug :app:assembleRelease -PMOVIEPILOT_ABI_FILTERS="$csv_abis" --no-daemon
   else
     ./gradlew :app:assembleRelease -PMOVIEPILOT_ABI_FILTERS="$csv_abis" --no-daemon
   fi
@@ -84,6 +84,10 @@ build_variant_apk() {
   python3 "$ROOT/tools/android/verify-apk.py" "$apk_dst" --version "$VERSION" --abis "$csv_abis" "${extra_verify_args[@]}"
   echo "Android APK 构建与校验通过：$apk_dst"
 }
+
+# JVM 回归与设备产物复用相同 Rust 源码构建的宿主库。
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${RUNNER_TEMP:-/Volumes/DISK/TmpBuild}/moviepilot-rust-target}"
+export MOVIEPILOT_RUST_HOST_LIB_DIR="$CARGO_TARGET_DIR/release"
 
 # 1. 构建主力 arm64-v8a 轻量安装包
 build_variant_apk "${ANDROID_ABIS:-arm64-v8a}" "MoviePilot-${VERSION}-android-arm64-v8a.apk" "true"

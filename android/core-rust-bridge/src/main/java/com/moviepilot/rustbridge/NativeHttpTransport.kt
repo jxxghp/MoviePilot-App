@@ -70,7 +70,7 @@ private class InMemoryCookieJar : CookieJar {
  */
 class NativeHttpTransport(
     private val allowSelfSignedTls: () -> Boolean = { false },
-    @Volatile var onAuthClassified: ((decision: String, status: Int, body: String) -> Unit)? = null,
+    @Volatile var authFailureHandlerProvider: ((requestUrl: String, token: String) -> (() -> Unit)?)? = null,
     @Volatile var cfAccessTokenProvider: ((requestUrl: String) -> String?)? = null,
 ) {
     private val cookieJar = InMemoryCookieJar()
@@ -105,14 +105,18 @@ class NativeHttpTransport(
         reqBuilder.header("cf-access-token", cfToken)
     }
 
-    private fun notifyAuthDecision(token: String?, status: Int, body: String): String {
+    /** 只通知发起请求时捕获的会话，不能用返回响应时的新会话处理旧 401。 */
+    private fun notifyAuthDecision(handler: (() -> Unit)?, status: Int, body: String): String {
         val decision = RustCoreBridge.classifyAuthStatus(status, body)
-        if (!token.isNullOrBlank() && decision != "valid") {
-            onAuthClassified?.invoke(decision, status, body)
-        }
+        if (decision == "logout") handler?.invoke()
         return decision
     }
 
+    /** 发请求前固定失效处理器，登录或实例切换后由仓库判定是否仍有权注销。 */
+    private fun authFailureHandler(url: String, token: String?): (() -> Unit)? =
+        token?.takeIf { it.isNotBlank() }?.let { authFailureHandlerProvider?.invoke(url, it) }
+
+    /** 释放当前会话短效资源 Cookie。 */
     fun clearCookies() {
         cookieJar.clear()
     }
@@ -148,6 +152,7 @@ class NativeHttpTransport(
         destFile: File,
         contentType: String = "application/json; charset=utf-8",
     ): Boolean = withContext(Dispatchers.IO) {
+        val onAuthFailure = authFailureHandler(url, token)
         val reqBuilder = Request.Builder().url(url)
         if (!token.isNullOrBlank()) {
             reqBuilder.header("Authorization", "Bearer $token")
@@ -162,7 +167,7 @@ class NativeHttpTransport(
         dlClient.newCall(reqBuilder.build()).execute().use { resp ->
             if (!resp.isSuccessful) {
                 val errBody = resp.body?.string().orEmpty()
-                notifyAuthDecision(token, resp.code, errBody)
+                notifyAuthDecision(onAuthFailure, resp.code, errBody)
                 return@use false
             }
             val stream = resp.body?.byteStream() ?: return@use false
@@ -189,7 +194,8 @@ class NativeHttpTransport(
             .readTimeout(25, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
-            .addInterceptor { chain ->
+            // 网络拦截器每一跳执行；应用拦截器只执行首跳，无法隔离重定向凭据。
+            .addNetworkInterceptor { chain ->
                 val original = chain.request()
                 val reqUrl = original.url.toString()
                 val server = serverUrlProvider()
@@ -203,7 +209,13 @@ class NativeHttpTransport(
                     applyCloudflareAccessHeaders(rb, reqUrl, original.header("Cookie"))
                     rb.build()
                 } else {
-                    original
+                    original.newBuilder()
+                        .removeHeader("Authorization")
+                        .removeHeader("Cookie")
+                        .removeHeader("cf-access-token")
+                        .removeHeader("CF-Access-Client-Id")
+                        .removeHeader("CF-Access-Client-Secret")
+                        .build()
                 }
                 chain.proceed(nextReq)
             }
@@ -244,6 +256,7 @@ class NativeHttpTransport(
         contentType: String = "application/json; charset=utf-8",
         extraHeaders: Map<String, String> = emptyMap(),
     ): NativeHttpResponse = withContext(Dispatchers.IO) {
+        val onAuthFailure = authFailureHandler(url, token)
         val reqBuilder = Request.Builder().url(url)
         if (!token.isNullOrBlank()) {
             reqBuilder.header("Authorization", "Bearer $token")
@@ -262,7 +275,7 @@ class NativeHttpTransport(
         client().newCall(reqBuilder.build()).execute().use { resp ->
             val headersMap = resp.headers.names().associateWith { resp.headers[it].orEmpty() }
             val bodyText = resp.body?.string().orEmpty()
-            notifyAuthDecision(token, resp.code, bodyText)
+            notifyAuthDecision(onAuthFailure, resp.code, bodyText)
             NativeHttpResponse(
                 status = resp.code,
                 body = bodyText,
@@ -281,6 +294,7 @@ class NativeHttpTransport(
         bytes: ByteArray,
         formFields: Map<String, String> = emptyMap(),
     ): NativeHttpResponse = withContext(Dispatchers.IO) {
+        val onAuthFailure = authFailureHandler(url, token)
         val bodyBuilder = okhttp3.MultipartBody.Builder()
             .setType(okhttp3.MultipartBody.FORM)
         formFields.forEach { (k, v) -> bodyBuilder.addFormDataPart(k, v) }
@@ -300,7 +314,7 @@ class NativeHttpTransport(
             .newCall(reqBuilder.build()).execute().use { resp ->
                 val headersMap = resp.headers.names().associateWith { resp.headers[it].orEmpty() }
                 val bodyText = resp.body?.string().orEmpty()
-                notifyAuthDecision(token, resp.code, bodyText)
+                notifyAuthDecision(onAuthFailure, resp.code, bodyText)
                 NativeHttpResponse(
                     status = resp.code,
                     body = bodyText,
@@ -319,6 +333,7 @@ class NativeHttpTransport(
         bodyJson: String? = null,
         extraHeaders: Map<String, String> = emptyMap(),
     ): Flow<SseEventFfi> = flow {
+        val onAuthFailure = authFailureHandler(url, token)
         val reqBuilder = Request.Builder()
             .url(url)
             .header("Accept", "text/event-stream")
@@ -337,7 +352,7 @@ class NativeHttpTransport(
         streamClient.newCall(reqBuilder.build()).execute().use { resp ->
             if (!resp.isSuccessful) {
                 val errBody = resp.body?.string().orEmpty()
-                val decision = notifyAuthDecision(token, resp.code, errBody)
+                val decision = notifyAuthDecision(onAuthFailure, resp.code, errBody)
                 throw IllegalStateException(
                     if (decision == "logout") "登录状态已过期" else "SSE 流式连接失败 (HTTP ${resp.code})",
                 )

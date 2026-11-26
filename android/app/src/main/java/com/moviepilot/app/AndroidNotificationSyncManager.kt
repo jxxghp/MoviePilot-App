@@ -117,6 +117,7 @@ object AndroidNotificationSyncManager {
         return true
     }
 
+    /** 发送前显式检查通知权限，兼顾运行时撤权与 Lint 的调用点校验。 */
     private fun postToStatusBar(
         context: Context,
         normalizedOrigin: String,
@@ -154,6 +155,9 @@ object AndroidNotificationSyncManager {
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
         runCatching {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
         }

@@ -102,7 +102,7 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
   ) async -> String? {
     do {
       let auth = try session.playbackAuthorization()
-      let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken)
+      let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken, accountID: session.user.id)
       let manifest = try await client.loadManifest(
         itemId: itemID, server: server, mediaSourceId: trackSelection?.mediaSourceID)
       return present(
@@ -129,7 +129,7 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
   ) async -> String? {
     do {
       let auth = try session.playbackAuthorization()
-      let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken)
+      let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken, accountID: session.user.id)
       let manifest = try await client.loadMusicManifest(
         title: title, artist: artist, album: album)
       return present(
@@ -154,7 +154,7 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
   ) async -> String? {
     do {
       let auth = try session.playbackAuthorization()
-      let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken)
+      let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken, accountID: session.user.id)
       let isAudio = Self.isAudioExtension((fileName as NSString).pathExtension)
       let manifest = try await client.loadStorageFileManifest(
         storage: storage, path: path, fileName: fileName, isAudio: isAudio)

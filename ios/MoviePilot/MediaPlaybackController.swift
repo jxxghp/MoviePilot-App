@@ -235,14 +235,17 @@ private struct MediaPlaybackLyricCue: Sendable {
 final class MediaPlaybackClient {
   private let address: ServerAddress
   private let accessToken: String
+  /// 离线终态仅能由同一实例、同一账号的客户端补报。
+  let progressStorageKey: String
   private let session: URLSession
   private var resourceCookie: HTTPCookie?
   private var selectedServer: String?
 
   /// 以短生命周期、无 Cookie 的网络会话访问当前实例播放接口。
-  init(address: ServerAddress, accessToken: String) {
+  init(address: ServerAddress, accessToken: String, accountID: Int) {
     self.address = address
     self.accessToken = accessToken
+    progressStorageKey = PlaybackQueueScope.storageKey(address: address, accountID: accountID)
     let configuration = URLSessionConfiguration.ephemeral
     configuration.httpCookieStorage = nil
     configuration.httpShouldSetCookies = false

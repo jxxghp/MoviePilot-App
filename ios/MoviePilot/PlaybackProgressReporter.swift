@@ -36,7 +36,8 @@ final class PlaybackProgressReporter {
   static let shared = PlaybackProgressReporter()
 
   private static let clientIDKey = "nativeV2.playback.clientId"
-  private static let pendingStopsKey = "nativeV2.playback.pendingStops"
+  // v1 没有记录归属，不能将旧记录猜测归入当前账号。
+  private static let legacyPendingStopsKey = "nativeV2.playback.pendingStops"
 
   private var serialTailTask: Task<Void, Never>?
 
@@ -91,6 +92,7 @@ final class PlaybackProgressReporter {
     guard !server.isEmpty, !itemId.isEmpty, !itemId.hasPrefix("file."), !itemId.hasPrefix("file:") else {
       return
     }
+    let storageKey = client.progressStorageKey
     let cid = clientID
     let dev = deviceName
     let ver = appVersion
@@ -140,7 +142,7 @@ final class PlaybackProgressReporter {
                 playbackTimeMs: decision.playbackTimeMs,
                 seq: decision.seq,
                 updatedAtMs: Int64(Date().timeIntervalSince1970 * 1000)
-              )
+              ), storageKey: storageKey
             )
           }
           backgroundLease?.end()
@@ -152,14 +154,16 @@ final class PlaybackProgressReporter {
 
   /// 在网络恢复或下次起播时补报此前离线失败的终态 `stopped` 进度记录。
   func flushPendingStops(using client: MediaPlaybackClient) {
-    let pending = loadPendingStops()
-    guard !pending.isEmpty else { return }
+    let storageKey = client.progressStorageKey
     let cid = clientID
     let dev = deviceName
     let ver = appVersion
     let previous = serialTailTask
     let task = Task { [weak self] in
       await previous?.value
+      // 等前一个写入任务完成后重新读取，避免用旧快照覆盖新入队记录。
+      guard let self else { return }
+      let pending = self.loadPendingStops(storageKey: storageKey)
       var remaining: [PendingPlaybackStop] = []
       var flushedAny = false
       for entry in pending {
@@ -190,7 +194,7 @@ final class PlaybackProgressReporter {
         }
       }
       await MainActor.run {
-        self?.savePendingStops(remaining)
+        self.savePendingStops(remaining, storageKey: storageKey)
         if flushedAny {
           NotificationCenter.default.post(name: .moviePilotPlaybackDidStop, object: nil)
         }
@@ -199,28 +203,32 @@ final class PlaybackProgressReporter {
     serialTailTask = task
   }
 
-  private func loadPendingStops() -> [PendingPlaybackStop] {
-    guard let data = UserDefaults.standard.data(forKey: Self.pendingStopsKey),
+  /// 只读取调用方的实例账号队列；旧版无归属记录不参与补报。
+  private func loadPendingStops(storageKey: String) -> [PendingPlaybackStop] {
+    UserDefaults.standard.removeObject(forKey: Self.legacyPendingStopsKey)
+    guard let data = UserDefaults.standard.data(forKey: storageKey),
       let decoded = try? JSONDecoder().decode([PendingPlaybackStop].self, from: data)
     else { return [] }
     let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
     return PlaybackProgressPlanner.normalizePendingStops(decoded, nowEpochMs: nowMs)
   }
 
-  private func savePendingStops(_ entries: [PendingPlaybackStop]) {
+  /// 保存指定归属的队列，跨账号任务不会覆盖彼此。
+  private func savePendingStops(_ entries: [PendingPlaybackStop], storageKey: String) {
     let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
     let normalized = PlaybackProgressPlanner.normalizePendingStops(entries, nowEpochMs: nowMs)
     if normalized.isEmpty {
-      UserDefaults.standard.removeObject(forKey: Self.pendingStopsKey)
+      UserDefaults.standard.removeObject(forKey: storageKey)
     } else if let data = try? JSONEncoder().encode(normalized) {
-      UserDefaults.standard.set(data, forKey: Self.pendingStopsKey)
+      UserDefaults.standard.set(data, forKey: storageKey)
     }
   }
 
-  private func recordPendingStop(_ stop: PendingPlaybackStop) {
-    var existing = loadPendingStops()
+  /// 在播放开始时固定的账号桶中追加失败终态。
+  private func recordPendingStop(_ stop: PendingPlaybackStop, storageKey: String) {
+    var existing = loadPendingStops(storageKey: storageKey)
     existing.append(stop)
-    savePendingStops(existing)
+    savePendingStops(existing, storageKey: storageKey)
   }
 }
 

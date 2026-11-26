@@ -251,7 +251,7 @@ fun SettingsHubScreen(
                 val usersDef = async { repository.fetchUsers().size.coerceAtLeast(1) }
                 val serversDef = async { repository.fetchMediaServers().count { it.enabled } }
                 val notifDef = async { repository.fetchNotificationChannels().count { it.enabled } }
-                val authDef = async { repository.fetchChannelAuthorizations().size }
+                val authDef = async { runCatching { repository.fetchChannelAuthorizations().size }.getOrDefault(0) }
                 stats = statsDef.await()
                 activeSitesCount = sitesDef.await()
                 usersCount = usersDef.await()
