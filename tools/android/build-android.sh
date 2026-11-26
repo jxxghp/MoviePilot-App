@@ -27,6 +27,7 @@ fi
 
 # 若注入 Base64 签名证书则自动解包用于正式签名（构建结束即销毁）
 TEMP_KEYSTORE=""
+# 仅销毁本次从环境解包的一次性证书，不改动维护者已有签名文件。
 cleanup() {
   if [[ -n "$TEMP_KEYSTORE" && -f "$TEMP_KEYSTORE" ]]; then
     rm -f "$TEMP_KEYSTORE"
@@ -57,6 +58,7 @@ fi
 
 python3 "$ROOT/tools/sync-all.py" --check
 
+# 按指定 ABI 构建安装包，并在同一版本、架构与签名约束下校验产物。
 build_variant_apk() {
   local abis="$1"
   local dst_name="$2"
@@ -77,11 +79,12 @@ build_variant_apk() {
   fi
   local apk_dst="$OUT_DIR/$dst_name"
   cp "$apk_src" "$apk_dst"
-  local extra_verify_args=()
+  # 始终保留必填参数，兼容 macOS Bash 3.2 在 set -u 下不能展开空数组的行为。
+  local verify_args=("$apk_dst" --version "$VERSION" --abis "$csv_abis")
   if [[ "${REQUIRE_RELEASE_SIGNING:-0}" == "1" ]]; then
-    extra_verify_args+=(--require-release-cert)
+    verify_args+=(--require-release-cert)
   fi
-  python3 "$ROOT/tools/android/verify-apk.py" "$apk_dst" --version "$VERSION" --abis "$csv_abis" "${extra_verify_args[@]}"
+  python3 "$ROOT/tools/android/verify-apk.py" "${verify_args[@]}"
   echo "Android APK 构建与校验通过：$apk_dst"
 }
 

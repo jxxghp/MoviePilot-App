@@ -2506,65 +2506,21 @@ private struct NativePluginCloneSheet: View {
   }
 }
 
-/// 插件专属实时日志查看弹窗（`GET /api/v1/system/logging?length=200&logfile=plugins/{id}.log`）。
+/// 插件日志弹窗直接复用实时日志工具，只注入插件文件名、标题和关闭入口。
 @MainActor
 private struct NativePluginLogSheet: View {
   let session: NativeSession
   let plugin: NativeMarketPluginRecord
 
   @Environment(\.dismiss) private var dismiss
-  @State private var lines: [String] = []
-  @State private var isLoading = true
-  @State private var errorMessage: String?
 
   var body: some View {
     NavigationStack {
-      ZStack {
-        CinematicBackground()
-        if isLoading && lines.isEmpty {
-          ScrollView {
-            NativeCardListSkeletonView(
-              count: 14,
-              style: .logLines,
-              spacing: 6,
-              showsIcon: false
-            )
-            .padding(.horizontal, CinematicStyle.margin)
-            .padding(.vertical, 12)
-          }
-          .scrollIndicators(.hidden)
-          .transition(.opacity)
-        } else if let errorMessage {
-          CinematicPanel {
-            VStack(spacing: 10) {
-              Text(errorMessage).font(.subheadline).foregroundStyle(.secondary)
-              Button("重试") { Task { await loadLogs() } }
-            }
-            .frame(maxWidth: .infinity)
-          }
-          .padding(.horizontal, CinematicStyle.margin)
-        } else if lines.isEmpty {
-          Text("暂无插件日志输出").font(.subheadline).foregroundStyle(.secondary)
-        } else {
-          ScrollView {
-            LazyVStack(alignment: .leading, spacing: 6) {
-              ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                Text(line)
-                  .font(.caption2.monospaced())
-                  .foregroundStyle(colorForLogLine(line))
-                  .textSelection(.enabled)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-            }
-            .padding(.horizontal, CinematicStyle.margin)
-            .padding(.vertical, 12)
-          }
-          .refreshable { await loadLogs() }
-        }
-      }
-      .navigationTitle("\(plugin.displayName) 日志")
-      .navigationBarTitleDisplayMode(.inline)
-      .nativeTopNavigationBar()
+      NativeDiagnosticsToolsPage(
+        session: session, initialTool: .liveLog,
+        logfile: "plugins/\(plugin.id.lowercased()).log",
+        logTitle: "\(plugin.displayName) 日志"
+      )
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -2574,52 +2530,13 @@ private struct NativePluginLogSheet: View {
           }
           .tint(.primary)
           .accessibilityLabel("关闭")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-          Button {
-            Task { await loadLogs() }
-          } label: {
-            Image(systemName: "arrow.clockwise")
-          }
-          .tint(.primary)
-          .accessibilityLabel("刷新")
+          .accessibilityIdentifier("native-plugin-log-close")
         }
       }
-      .task { await loadLogs() }
     }
     .nativeGlassSheet()
   }
 
-  private func loadLogs() async {
-    isLoading = true
-    errorMessage = nil
-    defer { isLoading = false }
-    do {
-      let ep = try APIEndpoint(
-        path: ["system", "logging"],
-        query: [
-          URLQueryItem(name: "length", value: "200"),
-          URLQueryItem(name: "logfile", value: "plugins/\(plugin.id.lowercased()).log"),
-        ],
-        responseContract: .payload,
-        timeout: 20)
-      let data = try await session.requestResourcePayload(ep).value
-      let rawText = String(data: data, encoding: .utf8) ?? ""
-      lines = rawText.components(separatedBy: .newlines).filter {
-        !$0.trimmingCharacters(in: .whitespaces).isEmpty
-      }
-    } catch {
-      errorMessage = "读取插件日志失败：\(error.localizedDescription)"
-    }
-  }
-
-  private func colorForLogLine(_ line: String) -> Color {
-    let upper = line.uppercased()
-    if upper.contains("ERROR") || upper.contains("CRITICAL") { return NativeTheme.danger }
-    if upper.contains("WARNING") || upper.contains("WARN") { return NativeTheme.warning }
-    if upper.contains("DEBUG") { return .secondary }
-    return .primary
-  }
 }
 
 /// 插件运行能力只读诊断弹窗（`GET /api/v1/plugin/runtime/capabilities?plugin_id={id}`）。

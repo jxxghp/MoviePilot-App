@@ -351,9 +351,13 @@ struct CinematicAmbientGradient: View {
   }
 
   var body: some View {
-    TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: isPaused)) { timeline in
-      let phase = isPaused ? 0.0 : timeline.date.timeIntervalSinceReferenceDate
-      gradientView(at: phase)
+    if isPaused {
+      // 静态状态不创建动画时钟，避免隐藏的帧调度仍阻止界面进入空闲。
+      gradientView(at: 0)
+    } else {
+      TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
+        gradientView(at: timeline.date.timeIntervalSinceReferenceDate)
+      }
     }
   }
 

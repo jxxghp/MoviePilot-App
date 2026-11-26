@@ -455,15 +455,20 @@ export struct HarmonyPluginsPage {
     }
   }
 
+  /** 打开或刷新插件日志快照，并在请求结束或失败后释放加载状态。 */
   private async openLogsForPlugin(pl: MpPluginItem): Promise<void> {
     this.logTargetPlugin = pl;
     this.pluginLogLines = [];
     this.loadingPluginLogs = true;
     this.showPluginLogSheet = true;
-    this.pluginLogLines = await MoviePilotRepository.shared().fetchPluginLogs(pl.id, 200);
-    this.loadingPluginLogs = false;
+    try {
+      this.pluginLogLines = await MoviePilotRepository.shared().fetchPluginLogs(pl.id, 200);
+    } finally {
+      this.loadingPluginLogs = false;
+    }
   }
 
+  /** 用日志级别区分正文颜色，保留原始文本内容。 */
   private logLineColor(line: string): ResourceColor {
     const upper = line.toUpperCase();
     if (upper.includes('ERROR') || upper.includes('CRITICAL')) { return '#E84855'; }

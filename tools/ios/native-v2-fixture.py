@@ -256,6 +256,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                     "ready", "new", "otp", "expired", "unavailable", "slow",
                     "discovery-only", "resource-search-only", "search-failed", "storage-failed",
                     "partial-discovery-failed", "subscribe-failed", "mediaserver",
+                    "logs-empty", "logs-failed",
                 }:
                     raise ValueError()
             except (KeyError, ValueError, TypeError):
@@ -450,10 +451,13 @@ class NativeHandler(BaseHTTPRequestHandler):
             if endpoint in {"api/v1/workflow/actions", "api/v1/workflow/shares"} or re.fullmatch(r"api/v1/workflow/[0-9]+", endpoint):
                 self.workflow_read_endpoint(name, endpoint)
                 return
+            if endpoint == "api/v1/system/logging":
+                self.logging_endpoint(name)
+                return
             if endpoint in {
                 "api/v1/system/nettest/targets", "api/v1/system/nettest",
                 "api/v1/system/modulelist", "api/v1/system/ruletest",
-                "api/v1/system/logging", "api/v1/system/runscheduler",
+                "api/v1/system/runscheduler",
                 "api/v1/system/global/user",
                 "api/v1/media/recognize",
             } or re.fullmatch(r"api/v1/system/(?:setting|moduletest)/[A-Za-z0-9_]+", endpoint):
@@ -615,6 +619,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/danmaku/config",
             "api/v1/media/search",
             "api/v1/media/source",
+            "api/v1/rule/groups",
             "api/v1/download/clients",
             "api/v1/download/paths",
             "api/v1/search/last",
@@ -782,6 +787,8 @@ class NativeHandler(BaseHTTPRequestHandler):
                 value = []
         elif endpoint == "api/v1/media/source":
             value = [{"name": "TMDB", "media_source": "themoviedb", "media_types": ["电影", "电视剧"]}]
+        elif endpoint == "api/v1/rule/groups":
+            value = {"rule_groups": [{"name": "4K 优先", "rule_string": "", "media_type": "电影"}]}
         elif endpoint == "api/v1/download/clients":
             value = [{"name": "Qbittorrent", "type": "qbittorrent"}]
         elif endpoint == "api/v1/download/paths":
@@ -1467,17 +1474,6 @@ class NativeHandler(BaseHTTPRequestHandler):
                 },
             })
             return
-        if endpoint == "api/v1/system/logging":
-            raw = (
-                "INFO 2026-11-21 09:50:01 MoviePilot 合成日志服务已就绪\n"
-                "WARNING 2026-11-21 09:50:02 合成节点延迟略高\n"
-            ).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
-            return
         if endpoint == "api/v1/system/runscheduler":
             self.reply(200, {"success": True, "message": "", "data": None})
             return
@@ -1582,6 +1578,61 @@ class NativeHandler(BaseHTTPRequestHandler):
         with self.server.lock:
             self.server.profiles[name]["user_configs"][cfg_key] = payload
         self.reply(200, {"success": True, "message": "", "data": None})
+
+    def logging_endpoint(self, name):
+        """还原资源 Cookie、管理员、倒序快照与正数 length 持续 SSE 的真实日志协议。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/system/logging"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Cookie") != f"MoviePilot={self.resource_token(name)}":
+            return self.reply(401, {"detail": "Not authenticated"})
+        if name != "a":
+            return self.reply(403, {"detail": "用户权限不足"})
+        query = parse_qs(urlsplit(self.path).query)
+        logfile = query.get("logfile", ["moviepilot.log"])[0]
+        if logfile not in {"moviepilot.log", "plugins/demoplugin.log"}:
+            return self.reply(404, {"detail": "Not Found"})
+        if mode == "logs-failed":
+            return self.reply(503, {"detail": "合成日志服务暂不可用"})
+        title = "合成插件日志" if logfile.startswith("plugins/") else "合成系统日志"
+        lines = [] if mode == "logs-empty" else [
+            f"INFO 2026-11-21 09:50:01 {title} {number:03d}"
+            for number in range(450, 0, -1)
+        ]
+        if lines and logfile.startswith("plugins/"):
+            lines[:4] = [
+                "INFO:     [MoviePilot] 2026-11-21 09:50:01,123 [-] demoplugin.py - 合成插件日志 450",
+                "【WARNING】2026-11-21 09:50:01,123 demoplugin.py - 合成插件日志 449",
+                "2026-11-21 09:50:01,123 [ERROR] [-] - demoplugin.py - 合成插件日志 448",
+                "[DEBUG] 2026-11-21 09:50:01,123 [-] - demoplugin.py - 合成插件日志 447",
+            ]
+        if query.get("length") == ["-1"]:
+            with self.server.lock:
+                profile["counts"]["log-snapshot"] += 1
+            raw = ("\n" + "\n\n".join(lines) if lines else "").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(raw)
+            return
+        with self.server.lock:
+            profile["counts"]["log-stream"] += 1
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            for line in lines[:50][::-1]:
+                self.wfile.write(f"data: {line}\n\n".encode())
+            while True:
+                self.wfile.write(b": keepalive\n\n")
+                self.wfile.flush()
+                time.sleep(0.5)
+        except OSError:
+            pass  # 客户端主动取消流后结束本连接，不污染测试输出。
 
     def plugin_list_endpoint(self, name):
         """按管理员权限返回插件市场或已安装原始数组载荷。"""

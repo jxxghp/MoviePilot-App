@@ -18,10 +18,11 @@ def run(*args, **kwargs):
 
 
 def main():
-    """复用 Products 并在专用设备验证登录、权限、Agent 和用户编辑。"""
+    """复用 Products 并在专用设备验证登录、权限、Agent、用户编辑与日志快照。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--derived-data", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--only-test", action="append", help="只重跑指定用例；缺省执行全部 smoke")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     output = args.output_dir.resolve()
@@ -66,7 +67,12 @@ def main():
         else:
             raise RuntimeError("专用 API 夹具就绪超时")
         tests = ["testNativeAgentChatStreamAndSessionHistory", "testNativeBusinessHidesUnpermittedEntries",
-                 "testOTPAndSessionNotRemembered", "testUserEditorPreservesUneditedFields"]
+                 "testOTPAndSessionNotRemembered", "testUserEditorPreservesUneditedFields",
+                 "testPluginLogSnapshotLoadsRefreshesAndRetries", "testNativeDiagnosticsAndShortcutsTools"]
+        if args.only_test:
+            if set(args.only_test) - set(tests):
+                raise ValueError("只能选择已声明的 smoke 用例")
+            tests = list(dict.fromkeys(args.only_test))
         result = scratch / "smoke.xcresult"
         command = ["xcodebuild", "test-without-building", "-xctestrun", str(runs[0]),
                    "-destination", f"platform=iOS Simulator,id={simulator}", "-parallel-testing-enabled", "NO", "-maximum-test-execution-time-allowance", "240",
@@ -83,7 +89,7 @@ def main():
         if completed.returncode or counts.get("passedTests") != len(tests) or counts.get("totalTestCount") != len(tests):
             shutil.copytree(result, output / f"failed-{os.getpid()}.xcresult")
             if not completed.returncode:
-                raise RuntimeError("API 回归未完整执行全部四项测试")
+                raise RuntimeError("API 回归未完整执行全部测试")
         if completed.returncode:
             raise SystemExit(completed.returncode)
     finally:

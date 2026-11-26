@@ -2436,11 +2436,12 @@ class MoviePilotRepository(context: Context) {
         return if (resp.status in 200..299) resp.body else null
     }
 
+    /** 读取有限系统日志快照；后端 `length=-1` 按新到旧返回，正数会开启持续 SSE。 */
     suspend fun fetchSystemLogs(length: Int = 80): List<String> {
-        val resp = authedRequest(listOf("system", "logging"), query = listOf("length" to length.toString())).getOrNull()
+        val resp = authedRequest(listOf("system", "logging"), query = listOf("length" to "-1")).getOrNull()
             ?: return emptyList()
         if (resp.status !in 200..299) return emptyList()
-        return resp.body.lines().filter { it.isNotBlank() }.takeLast(length)
+        return resp.body.lineSequence().filter { it.isNotBlank() }.take(length.coerceAtLeast(0)).toList()
     }
 
     // ==================== 站点管理 + 实时流量聚合 + 单站历史趋势 + 图标 ====================
@@ -3161,13 +3162,13 @@ class MoviePilotRepository(context: Context) {
         return ok to (obj?.str("message")?.takeIf { it.isNotBlank() } ?: if (ok) "插件已重新加载" else "重新加载失败（HTTP ${resp.status}）")
     }
 
-    /** 读取指定插件专属运行日志（`GET /api/v1/system/logging?length={length}&logfile=plugins/{id}.log`）。 */
+    /** 读取插件日志快照；用 `length=-1` 避免等待 SSE 结束，本地截取倒序文本中的最新行。 */
     suspend fun fetchPluginLogs(pluginId: String, length: Int = 200): List<String> {
         val cleanId = pluginId.trim().lowercase()
         if (cleanId.isEmpty() || cleanId.contains("..") || cleanId.contains('/')) return emptyList()
         val resp = authedRequest(
             segments = listOf("system", "logging"),
-            query = listOf("length" to length.coerceIn(20, 500).toString(), "logfile" to "plugins/$cleanId.log"),
+            query = listOf("length" to "-1", "logfile" to "plugins/$cleanId.log"),
         ).getOrNull() ?: return emptyList()
         if (resp.status !in 200..299) return emptyList()
         val body = resp.body.trim()
@@ -3176,7 +3177,8 @@ class MoviePilotRepository(context: Context) {
             val el = json.parseToJsonElement(body)
             el.asObj()?.str("data") ?: el.asPrim()?.content
         }.getOrNull() ?: body
-        return unwrapped.lines().map { it.trimEnd() }.filter { it.isNotBlank() }
+        return unwrapped.lineSequence().map { it.trimEnd() }.filter { it.isNotBlank() }
+            .take(length.coerceIn(20, 500)).toList()
     }
 
     /** 拉取插件通过 `ChainEventType.RecommendSource` 动态注册的额外推荐榜单（`GET /api/v1/recommend/source`）。 */

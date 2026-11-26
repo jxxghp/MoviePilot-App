@@ -219,6 +219,65 @@ class NativeApiRegressionTest {
         }
     }
 
+    /** 插件快照使用有限文本接口，保留最新行、分身文件名和原有行数上下界。 */
+    @Test fun pluginLogsReadFiniteSnapshotsAndKeepNewestLines() = runBlocking {
+        ApiFixture().use { api ->
+            val paths = CopyOnWriteArrayList<String>()
+            var status = 200
+            var body = "\r\n" + (600 downTo 1).joinToString("\r\n \r\n") { "INFO 合成插件日志 $it" }
+            api.route = { exchange ->
+                assertEquals("/a/api/v1/system/logging", exchange.requestURI.path)
+                val query = okhttp3.HttpUrl.Builder().scheme("http").host("127.0.0.1")
+                    .encodedQuery(exchange.requestURI.rawQuery).build()
+                assertEquals("-1", query.queryParameter("length"))
+                assertEquals("plugins/autosignin_copy.log", query.queryParameter("logfile"))
+                assertEquals(listOf("MoviePilot=synthetic-resource"), exchange.requestHeaders["Cookie"])
+                paths += exchange.requestURI.toString()
+                exchange.responseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+                exchange.reply(status, body)
+            }
+            api.currentUser = { exchange ->
+                exchange.responseHeaders.add("Set-Cookie", "MoviePilot=synthetic-resource; Path=/a/; HttpOnly")
+                exchange.reply(200, """{"id":7,"name":"member-7","is_superuser":true,"permissions":{}}""")
+            }
+            val repo = repository(); api.login(repo, "a")
+            val lines = repo.fetchPluginLogs(" AutoSignIn_copy ")
+            assertEquals(200, lines.size)
+            assertEquals("INFO 合成插件日志 600", lines.first())
+            assertEquals("INFO 合成插件日志 401", lines.last())
+            assertEquals(20, repo.fetchPluginLogs("AutoSignIn_copy", 1).size)
+            assertEquals(500, repo.fetchPluginLogs("AutoSignIn_copy", 1_000).size)
+            assertTrue(repo.fetchPluginLogs("../other").isEmpty())
+            assertEquals(3, paths.size)
+
+            body = "\r\n \r\n"
+            assertTrue(repo.fetchPluginLogs("AutoSignIn_copy").isEmpty())
+            status = 404
+            body = "{\"detail\":\"Not Found\"}"
+            assertTrue(repo.fetchPluginLogs("AutoSignIn_copy").isEmpty())
+            status = 200
+            body = "INFO 显式刷新后恢复"
+            assertEquals(listOf(body), repo.fetchPluginLogs("AutoSignIn_copy"))
+        }
+    }
+
+    /** 系统日志也必须用快照；后端已倒序，不能截取末尾而展示最旧记录。 */
+    @Test fun systemLogsReadFiniteSnapshotsAndKeepNewestLines() = runBlocking {
+        ApiFixture().use { api ->
+            api.route = { exchange ->
+                assertEquals("/a/api/v1/system/logging", exchange.requestURI.path)
+                assertEquals("length=-1", exchange.requestURI.rawQuery)
+                exchange.responseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+                exchange.reply(200, "\n" + (100 downTo 1).joinToString("\n\n") { "INFO 合成系统日志 $it" })
+            }
+            val repo = repository(); api.login(repo, "a")
+            val lines = repo.fetchSystemLogs(17)
+            assertEquals(17, lines.size)
+            assertEquals("INFO 合成系统日志 100", lines.first())
+            assertEquals("INFO 合成系统日志 84", lines.last())
+        }
+    }
+
     /** 独立内存存储，关闭凭据持久化以避免调用宿主机不存在的 Android Keystore。 */
     private fun repository(): MoviePilotRepository = MoviePilotRepository(MemoryContext.create()).also {
         it.secretStore.keepLogin = false

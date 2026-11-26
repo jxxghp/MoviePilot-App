@@ -2161,7 +2161,7 @@ private fun PluginSheetActionRow(
 }
 
 /**
- * 插件专属实时日志查看底部弹窗（对齐 iOS `NativePluginLogSheet`：`GET /api/v1/system/logging?length=200&logfile=plugins/{id}.log`）。
+ * 插件日志快照底部弹窗；与 iOS 一致，手动刷新最近 200 行而不等待持续 SSE 结束。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2175,10 +2175,14 @@ private fun PluginLogsSheet(
     var lines by remember(plugin.id) { mutableStateOf<List<String>>(emptyList()) }
     var loading by remember(plugin.id) { mutableStateOf(true) }
 
+    /** 请求完成、失败或取消时均释放加载状态。 */
     suspend fun reloadLogs() {
         loading = true
-        lines = repository.fetchPluginLogs(plugin.id, length = 200)
-        loading = false
+        try {
+            lines = repository.fetchPluginLogs(plugin.id, length = 200)
+        } finally {
+            loading = false
+        }
     }
 
     LaunchedEffect(plugin.id) { reloadLogs() }

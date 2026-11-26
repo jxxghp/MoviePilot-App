@@ -44,6 +44,7 @@ struct NativeDiagnosticsToolsPage: View {
     var id: String { rawValue }
   }
 
+  /// 系统日志与插件日志共用的严格级别筛选。
   private enum LogLevel: String, CaseIterable, Identifiable {
     case all = "全部"
     case error = "ERROR"
@@ -72,6 +73,8 @@ struct NativeDiagnosticsToolsPage: View {
 
   let session: NativeSession
   let initialTool: Tool
+  private let logfile: String
+  private let logTitle: String?
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var tool: Tool
@@ -134,9 +137,15 @@ struct NativeDiagnosticsToolsPage: View {
 
   @State private var feedback: (isError: Bool, text: String)?
 
-  init(session: NativeSession, initialTool: Tool = .health) {
+  /// 日志工具允许指定插件日志文件与标题，其余解析、筛选、跟随和布局全部复用。
+  init(
+    session: NativeSession, initialTool: Tool = .health,
+    logfile: String = "moviepilot.log", logTitle: String? = nil
+  ) {
     self.session = session
     self.initialTool = initialTool
+    self.logfile = logfile
+    self.logTitle = logTitle
     _tool = State(initialValue: initialTool)
   }
 
@@ -185,10 +194,23 @@ struct NativeDiagnosticsToolsPage: View {
       .modifier(NativeSoftTopScrollEdge())
       .accessibilityIdentifier("native-diag-scroll")
     }
-    .navigationTitle(tool.rawValue)
+    .navigationTitle(tool == .liveLog ? (logTitle ?? tool.rawValue) : tool.rawValue)
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
     .toolbar {
+      if tool == .liveLog {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            Task { await fetchLiveLog(silent: false) }
+          } label: {
+            Image(systemName: "arrow.clockwise")
+          }
+          .tint(.primary)
+          .disabled(isLoadingLog)
+          .accessibilityLabel("刷新日志")
+          .accessibilityIdentifier("native-diag-log-refresh")
+        }
+      }
       ToolbarItem(placement: .topBarTrailing) {
         trailingAction
           .tint(.primary)
@@ -258,6 +280,7 @@ struct NativeDiagnosticsToolsPage: View {
         Image(systemName: liveFollow ? "pause.circle" : "play.circle")
       }
       .accessibilityLabel(liveFollow ? "暂停实时跟随" : "恢复实时跟随")
+      .accessibilityIdentifier("native-diag-log-follow")
     case .scheduler:
       Button {
         Task { await loadSchedules() }
@@ -1260,6 +1283,7 @@ struct NativeDiagnosticsToolsPage: View {
             .textFieldStyle(.plain)
             .font(.caption)
             .foregroundStyle(.primary)
+            .accessibilityIdentifier("native-diag-log-filter")
           if !logFilter.isEmpty {
             Button {
               logFilter = ""
@@ -1269,6 +1293,7 @@ struct NativeDiagnosticsToolsPage: View {
                 .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("native-diag-log-clear-filter")
           }
         }
         .padding(.horizontal, 10)
@@ -1311,6 +1336,7 @@ struct NativeDiagnosticsToolsPage: View {
               )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("native-diag-log-level-\(level.rawValue)")
           }
           Text("\(filteredLogEntries.count) 条")
             .font(.caption2.monospacedDigit())
@@ -1842,14 +1868,17 @@ struct NativeDiagnosticsToolsPage: View {
 
   /// 拉取实时日志并通过 4 类正则结构化解析时间戳、级别、来源模块与正文。
   private func fetchLiveLog(silent: Bool) async {
-    if !silent { isLoadingLog = true }
+    if !silent {
+      isLoadingLog = true
+      feedback = nil
+    }
     defer { if !silent { isLoadingLog = false } }
     do {
       let ep = try APIEndpoint(
         path: ["system", "logging"],
         query: [
           URLQueryItem(name: "length", value: "-1"),
-          URLQueryItem(name: "logfile", value: "moviepilot.log"),
+          URLQueryItem(name: "logfile", value: logfile),
         ],
         responseContract: .plainText,
         maximumResponseBytes: 16 * 1024 * 1024)
@@ -1858,7 +1887,8 @@ struct NativeDiagnosticsToolsPage: View {
       ).value
       let text = String(decoding: raw, as: UTF8.self)
       let rawLines = text.split(whereSeparator: \.isNewline).map(String.init)
-      logEntries = NativeLogParser.parse(Array(rawLines.suffix(400)))
+      // 全文快照已倒序，取最新行后还原时间顺序，供解析器归并多行日志。
+      logEntries = NativeLogParser.parse(Array(rawLines.prefix(400).reversed()))
     } catch is CancellationError {
       return
     } catch let urlError as URLError where urlError.code == .cancelled {

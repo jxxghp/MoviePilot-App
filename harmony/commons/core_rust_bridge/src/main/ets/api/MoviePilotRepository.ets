@@ -3250,14 +3250,14 @@ export class MoviePilotRepository {
     return { ok: ok, message: msg };
   }
 
-  /** 读取插件专属运行日志（`GET /api/v1/system/logging?length=200&logfile=plugins/{id}.log`）。 */
+  /** 读取有限插件日志快照；正数 length 会开启持续 SSE，使用 -1 后在本地截取最新行。 */
   async fetchPluginLogs(pluginId: string, length: number = 200): Promise<string[]> {
     const cleanId = (pluginId ?? '').trim().toLowerCase();
     if (!cleanId || cleanId.includes('..') || cleanId.includes('/')) {
       return [];
     }
     const q: Record<string, string> = {};
-    q['length'] = String(Math.max(20, Math.min(500, Math.trunc(length))));
+    q['length'] = '-1';
     q['logfile'] = `plugins/${cleanId}.log`;
     const resp = await this.get(['system', 'logging'], q);
     if (resp.status < 200 || resp.status >= 300) {
@@ -3280,7 +3280,8 @@ export class MoviePilotRepository {
     return textContent
       .split(/\r?\n/)
       .map((ln: string) => ln.trimEnd())
-      .filter((ln: string) => ln.trim().length > 0);
+      .filter((ln: string) => ln.trim().length > 0)
+      .slice(0, Math.max(20, Math.min(500, Math.trunc(length))));
   }
 
   /** 拉取插件动态注册的推荐榜单来源列表（`GET /api/v1/recommend/source`）。 */
@@ -3686,12 +3687,13 @@ export class MoviePilotRepository {
     return out;
   }
 
+  /** 读取系统日志快照；后端已按新到旧返回，保留开头 50 行并避免等待 SSE。 */
   async fetchLiveLogs(): Promise<string[]> {
     const q: Record<string, string> = {};
-    q['length'] = '60';
+    q['length'] = '-1';
     const resp = await this.get(['system', 'logging'], q);
     if (resp.status !== 200) { return []; }
-    return resp.body.split('\n').filter((line: string) => line.trim().length > 0).slice(-50);
+    return resp.body.split(/\r?\n/).filter((line: string) => line.trim().length > 0).slice(0, 50);
   }
 
   async fetchSystemSettingList(key: string): Promise<MpSimpleSettingItem[]> {

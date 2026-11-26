@@ -15,6 +15,8 @@
 - 渠道成员：`GET /authorization/` 的 `data.members`；关联码：`POST /authorization/binding`，到期字段是绝对时间 `expires_at`。审批与撤销使用 `PUT /authorization/{member_id}`，撤销对应 `status=disabled`，并保留成员的 `role/scopes`。
 - 日历：`GET /subscribe/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD&page=1&count=200`。窗口左闭右开，最多 93 天；响应为 `items/total`，每项关联 `subscribe` 与 `episodes`，电影可能没有分集。Android 跟随可见周切换窗口，鸿蒙展示未来 31 天；两端都读取完整分页。
 - 模块诊断：`GET /system/modulelist` 的 `data.modules` 与 `GET /system/moduletest/{module_id}`；合并 `GET /system/module-catalog` 的类型元数据，列表请求失败时显示错误。
+- 日志：`GET /system/logging?length=-1&logfile=plugins/{id}.log` 返回有限 `text/plain` 快照，已按新到旧倒序；客户端过滤空行后取开头的最新记录。正数 `length` 返回持续 SSE，不能用等待完整响应的普通请求读取。系统日志省略 `logfile` 或传 `moviepilot.log`，同样使用 `length=-1`；日志接口要求管理员资源 Cookie。
+- iOS 插件日志弹窗直接复用 `NativeDiagnosticsToolsPage` 的实时日志工具，只传入插件 `logfile` 与标题；四类日志解析、级别/关键字筛选、跟随、刷新和错误状态均由同一页面实现。共用工具栏提供显式刷新，避免在半模态弹窗内将下拉手势误识别为关闭。
 - 站点和工作流入口遵循 manage 分类权限，用户管理等超级管理员入口仍要求 admin。
 
 ## 本地与 CI 验证
@@ -29,6 +31,9 @@ python3 tools/ios/test-api-smoke.py \
   --output-dir /Volumes/DISK/TmpBuild/<任务>/ios-smoke
 ```
 
-所有本机 xcodebuild 命令复用 `-clonedSourcePackagesDirPath /Volumes/DISK/Xcode/SourcePackages`。smoke 脚本复用 Products，在专用模拟器上运行 Agent、权限、OTP/不记住登录和保留用户字段四项交互测试；不访问真实后端、账号或媒体库。为使 XCTest 可稳定等待空闲，测试启动参数关闭动态背景。脚本只清理自己创建的服务、设备和缓存，保留汇总 JSON，并在失败时导出结果包。
+所有本机 xcodebuild 命令复用 `-clonedSourcePackagesDirPath /Volumes/DISK/Xcode/SourcePackages`。smoke 脚本复用 Products，在专用模拟器上运行 Agent、权限、OTP/不记住登录、保留用户字段、插件日志与系统诊断六项交互测试；日志覆盖正常加载、空快照、手动刷新与失败后重试。不访问真实后端、账号或媒体库。为使 XCTest 可稳定等待空闲，测试启动参数关闭动态背景。脚本只清理自己创建的服务、设备和缓存，保留汇总 JSON，并在失败时导出结果包。
+
+关闭动态背景或开启系统减弱动态效果时，渐变直接静态渲染，不保留动画时钟，避免无效帧调度与 XCTest 空闲等待超时。
+本机排查失败时可重复传入 `--only-test <方法名>` 仅重跑对应 smoke；CI 缺省仍执行全部六项并校验实际执行数量。
 
 `tools/ios/native-v2-fixture.py` 必须保持真实接口命名空间、日期必填及完整用户更新语义；未知路径仍返回 404 并计数。工具单测负责验证夹具不会替客户端兜底。Multiplatform CI 在 iOS 构建后实际执行上述 smoke，失败证据通过 Actions artifact 保留。

@@ -48,7 +48,7 @@ class NativeFixtureTests(unittest.TestCase):
         """当前 Agent 命名空间和首页遥测均有显式夹具，旧接口不能悄悄继续成功。"""
         for endpoint in ("message/agent/commands", "message/agent/sessions", "dashboard/cpu",
                          "dashboard/memory", "dashboard/network", "dashboard/downloader",
-                         "dashboard/system", "dashboard/transfer", "github/community"):
+                         "dashboard/system", "dashboard/transfer", "github/community", "rule/groups"):
             self.assertEqual(self.request("/a/api/v1/" + endpoint, token="synthetic-native-a")[0], 200)
         self.assertEqual(self.request("/a/api/v1/agent/commands", token="synthetic-native-a")[0], 404)
 
@@ -162,6 +162,45 @@ class NativeFixtureTests(unittest.TestCase):
         _, dashboard = self.request("/a/api/v1/dashboard/statistic", token="synthetic-native-a")
         self.assertIsNone(dashboard["data"]["episode_count"])
         self.assertEqual(dashboard["data"]["episode_count_month"], 4)
+
+    def test_log_snapshot_is_finite_newest_first_and_resource_authenticated(self):
+        """有限日志文本必须使用资源 Cookie，并保持后端倒序与管理员边界。"""
+        path = self.base + "/a/api/v1/system/logging?length=-1&logfile=plugins/demoplugin.log"
+        with self.assertRaises(HTTPError) as rejected:
+            urlopen(Request(path, headers={"Authorization": "Bearer synthetic-native-a"}), timeout=2)
+        self.assertEqual(rejected.exception.code, 401)
+        rejected.exception.close()
+        cookie = "MoviePilot=" + MODULE.NativeHandler.resource_token("a")
+        with urlopen(Request(path, headers={"Cookie": cookie}), timeout=2) as response:
+            self.assertEqual(response.headers.get_content_type(), "text/plain")
+            lines = [line for line in response.read().decode().splitlines() if line.strip()]
+        self.assertEqual(len(lines), 450)
+        self.assertTrue(lines[0].endswith("合成插件日志 450"))
+        self.assertTrue(lines[-1].endswith("合成插件日志 001"))
+        member_cookie = "MoviePilot=" + MODULE.NativeHandler.resource_token("b")
+        with self.assertRaises(HTTPError) as forbidden:
+            urlopen(Request(path.replace("/a/", "/b/"), headers={"Cookie": member_cookie}), timeout=2)
+        self.assertEqual(forbidden.exception.code, 403)
+        forbidden.exception.close()
+
+    def test_log_stream_empty_failure_and_explicit_retry(self):
+        """正数仍为带心跳的 SSE；空日志、暂时失败和显式重试均有独立真实响应。"""
+        path = self.base + "/a/api/v1/system/logging?length="
+        headers = {"Cookie": "MoviePilot=" + MODULE.NativeHandler.resource_token("a")}
+        with urlopen(Request(path + "200", headers=headers), timeout=2) as response:
+            self.assertEqual(response.headers.get_content_type(), "text/event-stream")
+            self.assertTrue(response.readline().startswith(b"data: "))
+        self.request("/__native/config", b'{"profile":"a","mode":"logs-empty"}')
+        with urlopen(Request(path + "-1", headers=headers), timeout=2) as response:
+            self.assertEqual(response.read(), b"")
+        self.request("/__native/config", b'{"profile":"a","mode":"logs-failed"}')
+        with self.assertRaises(HTTPError) as failed:
+            urlopen(Request(path + "-1", headers=headers), timeout=2)
+        self.assertEqual(failed.exception.code, 503)
+        failed.exception.close()
+        self.request("/__native/config", b'{"profile":"a","mode":"ready"}')
+        with urlopen(Request(path + "-1", headers=headers), timeout=2) as response:
+            self.assertIn("合成系统日志 450", response.read().decode())
 
     def test_initialization_needs_confirmation_and_never_returns_token(self):
         """创建、重复创建与普通登录分开，完整确认字段不可缺少。"""

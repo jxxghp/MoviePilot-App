@@ -1299,10 +1299,14 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(email.waitForExistence(timeout: 10))
     email.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
     let existingEmailLength = (email.value as? String)?.count ?? 0
-    email.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingEmailLength * 2) + "edited@example.test")
+    email.typeText(
+      String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingEmailLength * 2)
+        + "edited@example.test")
     dismissKeyboard(app)
     tap(app.buttons["native-user-editor-save"], app: app)
-    XCTAssertTrue(app.descendants(matching: .any)["native-users-feedback"].firstMatch.waitForExistence(timeout: 10))
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-users-feedback"].firstMatch.waitForExistence(
+        timeout: 10))
     var request = URLRequest(url: URL(string: base + "a/api/v1/user/")!)
     request.setValue("Bearer synthetic-native-a", forHTTPHeaderField: "Authorization")
     let (data, _) = try await URLSession.shared.data(for: request)
@@ -1509,6 +1513,69 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["a"]?["GET api/v1/plugin/install/AutoSignIn"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/plugin/reset/DemoPlugin"], 1)
     XCTAssertEqual(counts["a"]?["DELETE api/v1/plugin/DemoPlugin"], 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// 插件日志复用实时日志的解析卡片、级别筛选、跟随与刷新，并覆盖空日志和错误恢复。
+  func testPluginLogSnapshotLoadsRefreshesAndRetries() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    openOverflowItem("native-overflow-plugin-market", app: app)
+    let card = app.descendants(matching: .any)["native-installed-card-DemoPlugin"].firstMatch
+    XCTAssertTrue(card.waitForExistence(timeout: 10))
+    card.press(forDuration: 1.0)
+    let logs = app.buttons["查看日志"]
+    XCTAssertTrue(logs.waitForExistence(timeout: 8))
+    logs.tap()
+
+    let output = app.descendants(matching: .any)["native-diag-log-output"].firstMatch
+    let refresh = app.buttons["native-diag-log-refresh"]
+    let newest = app.staticTexts["合成插件日志 450"]
+    XCTAssertTrue(output.waitForExistence(timeout: 10))
+    XCTAssertTrue(newest.waitForExistence(timeout: 5))
+    XCTAssertTrue(app.staticTexts["demoplugin.py"].firstMatch.exists)
+    XCTAssertTrue(app.textFields["native-diag-log-filter"].exists)
+    let beforeFollow = try await stats()["a"]?["log-snapshot"] ?? 0
+    try await Task.sleep(nanoseconds: 4_000_000_000)
+    let afterFollow = try await stats()["a"]?["log-snapshot"] ?? 0
+    XCTAssertGreaterThan(afterFollow, beforeFollow)
+    let follow = app.buttons["native-diag-log-follow"]
+    tap(follow, app: app)
+    XCTAssertEqual(follow.label, "恢复实时跟随")
+
+    tap(app.buttons["native-diag-log-level-ERROR"], app: app)
+    XCTAssertTrue(app.staticTexts["合成插件日志 448"].waitForExistence(timeout: 5))
+    XCTAssertFalse(newest.exists)
+    tap(app.buttons["native-diag-log-level-WARNING"], app: app)
+    XCTAssertTrue(app.staticTexts["合成插件日志 449"].waitForExistence(timeout: 5))
+    tap(app.buttons["native-diag-log-level-DEBUG"], app: app)
+    XCTAssertTrue(app.staticTexts["合成插件日志 447"].waitForExistence(timeout: 5))
+    tap(app.buttons["native-diag-log-level-全部"], app: app)
+    XCTAssertTrue(newest.waitForExistence(timeout: 5))
+    capture("native-v2-plugin-log-snapshot")
+
+    try await configure("a", mode: "logs-empty")
+    tap(refresh, app: app)
+    XCTAssertTrue(app.staticTexts["暂无匹配的日志记录"].waitForExistence(timeout: 10))
+
+    try await configure("a", mode: "logs-failed")
+    tap(refresh, app: app)
+    let feedback = app.descendants(matching: .any)["native-diag-feedback"].firstMatch
+    XCTAssertTrue(feedback.waitForExistence(timeout: 10))
+
+    try await configure("a", mode: "ready")
+    tap(refresh, app: app)
+    XCTAssertTrue(output.waitForExistence(timeout: 10))
+    XCTAssertTrue(newest.waitForExistence(timeout: 5))
+    XCTAssertFalse(feedback.exists)
+    tap(app.buttons["native-plugin-log-close"], app: app)
+    XCTAssertTrue(card.waitForExistence(timeout: 8))
+    XCTAssertEqual(app.webViews.count, 0)
+
+    let counts = try await stats()
+    XCTAssertGreaterThanOrEqual(counts["a"]?["GET api/v1/system/logging"] ?? 0, 5)
+    XCTAssertGreaterThanOrEqual(counts["a"]?["log-snapshot"] ?? 0, 4)
+    XCTAssertEqual(counts["a"]?["log-stream"] ?? 0, 0)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
@@ -1796,26 +1863,28 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.scrollViews["native-diag-scroll"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.staticTexts["TMDB 元数据"].waitForExistence(timeout: 10))
 
-    let ruleTab = app.buttons["native-diag-tab-识别与规则"]
-    XCTAssertTrue(ruleTab.waitForExistence(timeout: 8))
-    ruleTab.tap()
+    app.navigationBars.buttons.firstMatch.tap()
+    openOverflowItem("native-shortcut-识别与规则", app: app)
     let titleField = app.textFields["native-diag-test-title"]
     XCTAssertTrue(titleField.waitForExistence(timeout: 8))
     titleField.tap()
     titleField.typeText("The.Matrix.1999.2160p")
+    dismissKeyboard(app)
     let runBtn = app.buttons["native-diag-test-run"]
     XCTAssertTrue(runBtn.waitForExistence(timeout: 8))
-    runBtn.tap()
+    tap(runBtn, app: app)
     XCTAssertTrue(
       app.descendants(matching: .any)["native-diag-test-result"].firstMatch.waitForExistence(
         timeout: 10))
 
-    let logTab = app.buttons["native-diag-tab-实时日志"]
-    XCTAssertTrue(logTab.waitForExistence(timeout: 8))
-    logTab.tap()
+    app.navigationBars.buttons.firstMatch.tap()
+    openOverflowItem("native-shortcut-实时日志", app: app)
     XCTAssertTrue(
       app.descendants(matching: .any)["native-diag-log-output"].firstMatch.waitForExistence(
         timeout: 10))
+    XCTAssertTrue(
+      app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "合成系统日志 450"))
+        .firstMatch.waitForExistence(timeout: 10))
     XCTAssertEqual(app.webViews.count, 0)
 
     let counts = try await stats()
@@ -2186,6 +2255,7 @@ final class NativeV2EntryTests: XCTestCase {
       "Unexpected web requests: \(counts["unexpected"] ?? [:])")
   }
 
+  /// 通过实例选择和真实登录控件建立本案例会话，不绕过认证或继承上一案例状态。
   private func signInToNativeBusiness(
     _ profile: String = "a", mode: String = "ready", extra: [String] = []
   )
