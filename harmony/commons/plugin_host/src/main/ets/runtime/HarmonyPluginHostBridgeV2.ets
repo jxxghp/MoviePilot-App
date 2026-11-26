@@ -32,6 +32,9 @@ export interface HarmonyPluginBridgeCallbacks {
   onPluginMounted: (mountId: string, title: string) => void;
   onPluginError: (stage: string, message: string, recoverable: boolean) => void;
   onPluginClose: () => void;
+  onPluginMinimize?: (requestId: string, payload: Record<string, Object>) => void;
+  onCapsuleUpdate?: (payload: Record<string, Object>) => void;
+  onPluginRestore?: (requestId: string) => void;
   onNavBackResult: (handled: boolean) => void;
   onHeaderUpdate: (title: string, actions: HarmonyPluginHeaderAction[]) => void;
   onToast: (toast: HarmonyPluginToastSpec) => void;
@@ -146,6 +149,17 @@ export class HarmonyPluginHostBridgeV2 {
     this.sendToWeb('host.action', `{"actionId":${JSON.stringify(actionId)}}`);
   }
 
+  sendCapsuleAction(actionId: string): void {
+    this.sendToWeb('capsule.action', `{"actionId":${JSON.stringify(actionId)}}`);
+  }
+
+  sendSimpleResponse(requestId: string, dataJson: string): void {
+    if (requestId.length === 0) {
+      return;
+    }
+    this.sendToWeb('bridge.response', `{"requestId":${JSON.stringify(requestId)},"ok":true,"data":${dataJson}}`);
+  }
+
   sendConfirmResult(id: string, confirmed: boolean): void {
     this.sendToWeb(
       'bridge.response',
@@ -197,6 +211,29 @@ export class HarmonyPluginHostBridgeV2 {
       case 'plugin.close':
         this.callbacks.onPluginClose();
         break;
+      case 'plugin.minimize': {
+        const reqId = typeof payload['requestId'] === 'string' ? (payload['requestId'] as string) : '';
+        if (this.callbacks.onPluginMinimize) {
+          this.callbacks.onPluginMinimize(reqId, payload);
+        } else {
+          this.sendSimpleResponse(reqId, '{"minimized":false}');
+        }
+        break;
+      }
+      case 'plugin.capsule.update':
+        if (this.callbacks.onCapsuleUpdate) {
+          this.callbacks.onCapsuleUpdate(payload);
+        }
+        break;
+      case 'plugin.restore': {
+        const reqId = typeof payload['requestId'] === 'string' ? (payload['requestId'] as string) : '';
+        if (this.callbacks.onPluginRestore) {
+          this.callbacks.onPluginRestore(reqId);
+        } else {
+          this.sendSimpleResponse(reqId, '{"restored":true}');
+        }
+        break;
+      }
       case 'nav.backResult': {
         const handled = typeof payload['handled'] === 'boolean' ? (payload['handled'] as boolean) : false;
         this.callbacks.onNavBackResult(handled);

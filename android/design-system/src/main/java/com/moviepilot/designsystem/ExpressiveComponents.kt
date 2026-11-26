@@ -362,6 +362,7 @@ fun ExpressivePillTabRow(
     fun TabItem(idx: Int, label: String, itemModifier: Modifier) {
         val selected = idx == safeIndex
         val customIcon = tabIcons?.getOrNull(idx)
+        val denseEqualRow = !scrollable && tabs.size >= 3
         val bg by animateColorAsState(
             targetValue = if (selected) scheme.primary else inactiveBg,
             animationSpec = tween(200),
@@ -386,7 +387,7 @@ fun ExpressivePillTabRow(
             Box(
                 modifier = Modifier
                     .then(if (scrollable) Modifier else Modifier.fillMaxWidth())
-                    .heightIn(min = if (compactHeight) 36.dp else 44.dp)
+                    .heightIn(min = if (compactHeight) 36.dp else 42.dp)
                     .clip(CircleShape)
                     .background(bg, CircleShape)
                     .then(
@@ -398,24 +399,29 @@ fun ExpressivePillTabRow(
                     )
                     .clickable { onSelect(idx) }
                     .padding(
-                        horizontal = if (compactHeight) (if (customIcon != null) 14.dp else 16.dp) else (if (customIcon != null) 16.dp else 20.dp),
-                        vertical = if (compactHeight) 5.dp else 10.dp,
+                        horizontal = when {
+                            denseEqualRow -> 10.dp
+                            compactHeight -> if (customIcon != null) 14.dp else 16.dp
+                            else -> if (customIcon != null) 16.dp else 18.dp
+                        },
+                        vertical = if (compactHeight) 5.dp else 9.dp,
                     ),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(if (compactHeight) 6.dp else 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (compactHeight || denseEqualRow) 5.dp else 7.dp),
                 ) {
                     customIcon?.invoke()
                     Text(
                         text = label,
                         color = fg,
                         style = MaterialTheme.typography.labelLarge.copy(
-                            fontSize = if (compactHeight) 13.sp else 14.sp,
+                            fontSize = if (compactHeight || denseEqualRow) 13.sp else 14.sp,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
                         ),
                         maxLines = 1,
+                        softWrap = false,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

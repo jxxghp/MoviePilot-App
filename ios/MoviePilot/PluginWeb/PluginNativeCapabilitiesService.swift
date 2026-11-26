@@ -60,11 +60,26 @@ final class PluginNativeCapabilitiesService: NSObject {
   private var playbackState: String = "idle"
   private var playbackProgressTimer: Timer?
 
-  // MARK: - Status Bar / Lock Screen Now Playing State (#56)
+  // MARK: - Status Bar / Lock Screen Now Playing State (#56 / #77)
+  private struct NowPlayingLyricLine {
+    let timeMs: Int
+    let text: String
+  }
+  private struct NowPlayingCustomAction {
+    let id: String
+    let title: String
+    let active: Bool
+  }
   private var nowPlayingActive: Bool = false
   private var nowPlayingTitle: String = ""
   private var nowPlayingArtist: String = ""
   private var nowPlayingAlbum: String = ""
+  private var nowPlayingLyrics: String = ""
+  private var nowPlayingLyricLines: [NowPlayingLyricLine] = []
+  private var lastDisplayedLyricLine: String = ""
+  private var nowPlayingHasLike: Bool = false
+  private var nowPlayingLiked: Bool = false
+  private var nowPlayingCustomActions: [NowPlayingCustomAction] = []
   private var nowPlayingArtwork: MPMediaItemArtwork?
   private var nowPlayingArtworkURL: String = ""
   private var nowPlayingArtworkTask: Task<Void, Never>?
@@ -256,6 +271,8 @@ final class PluginNativeCapabilitiesService: NSObject {
       "audio.play",
       "audio.nowPlaying",
       "native.audio.nowPlaying",
+      "native.audio.lyrics",
+      "native.audio.customActions",
       "media.playNative",
       "device.info",
       "device.permission",
@@ -318,6 +335,10 @@ final class PluginNativeCapabilitiesService: NSObject {
 
   private func handlePermission(requestId: String, payload: [String: Any]) {
     let perm = (payload["permission"] as? String ?? "").lowercased()
+    if perm == "overlay" {
+      sendSuccess(requestId: requestId, data: ["permission": "overlay", "status": "unsupported"])
+      return
+    }
     let shouldRequest = (payload["request"] as? Bool) ?? false
 
     runManagedTask { [weak self] in
@@ -1039,15 +1060,23 @@ final class PluginNativeCapabilitiesService: NSObject {
       [weak self] _ in
       Task { @MainActor [weak self] in
         guard let self, self.playbackState == "playing", let pid = self.playbackID else { return }
+        let posMs = self.currentPlaybackPositionMs()
         self.sendDeviceEvent(
           "audio.play.progress",
           [
             "playbackId": pid,
-            "positionMs": self.currentPlaybackPositionMs(),
+            "positionMs": posMs,
             "durationMs": self.currentPlaybackDurationMs(),
             "bufferedMs": self.currentPlaybackBufferedMs(),
           ]
         )
+        if self.nowPlayingActive && !self.nowPlayingLyricLines.isEmpty {
+          let matched = self.resolveCurrentLyricLine(positionMs: posMs)
+          if matched != self.lastDisplayedLyricLine {
+            self.lastDisplayedLyricLine = matched
+            self.refreshNowPlayingPlaybackState()
+          }
+        }
       }
     }
   }
@@ -1122,6 +1151,23 @@ final class PluginNativeCapabilitiesService: NSObject {
     let canNext = (payload["canNext"] as? Bool) ?? false
     let canPrevious = (payload["canPrevious"] as? Bool) ?? false
     let canSeek = (payload["canSeek"] as? Bool) ?? true
+    let lyrics = (payload["lyrics"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let rawLines = payload["lyricLines"] as? [[String: Any]] ?? []
+    let lyricLines: [NowPlayingLyricLine] = rawLines.compactMap { item in
+      guard let tMs = (item["timeMs"] as? NSNumber)?.intValue else { return nil }
+      let txt = (item["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      return txt.isEmpty ? nil : NowPlayingLyricLine(timeMs: max(0, tMs), text: txt)
+    }.sorted { $0.timeMs < $1.timeMs }
+    let liked = payload["liked"] as? Bool
+    let rawCustom = payload["customActions"] as? [[String: Any]] ?? []
+    let customActions: [NowPlayingCustomAction] = rawCustom.compactMap { item in
+      let id = (item["id"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !id.isEmpty else { return nil }
+      let cTitle = (item["title"] as? String ?? item["label"] as? String ?? id)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      let active = (item["active"] as? Bool) ?? false
+      return NowPlayingCustomAction(id: id, title: cTitle.isEmpty ? id : cTitle, active: active)
+    }
 
     try? configurePlaybackAudioSession()
     applyNowPlayingMetadata(
@@ -1135,9 +1181,23 @@ final class PluginNativeCapabilitiesService: NSObject {
       rate: rate,
       canNext: canNext,
       canPrevious: canPrevious,
-      canSeek: canSeek
+      canSeek: canSeek,
+      lyrics: lyrics,
+      lyricLines: lyricLines,
+      liked: liked,
+      customActions: customActions
     )
     sendSuccess(requestId: requestId, data: ["registered": true])
+  }
+
+  private func resolveCurrentLyricLine(positionMs: Int) -> String {
+    if !nowPlayingLyricLines.isEmpty,
+      let matched = nowPlayingLyricLines.last(where: { $0.timeMs <= positionMs })?.text,
+      !matched.isEmpty
+    {
+      return matched
+    }
+    return nowPlayingLyrics
   }
 
   private func applyNowPlayingMetadata(
@@ -1151,12 +1211,32 @@ final class PluginNativeCapabilitiesService: NSObject {
     rate: Float,
     canNext: Bool = false,
     canPrevious: Bool = false,
-    canSeek: Bool = true
+    canSeek: Bool = true,
+    lyrics: String = "",
+    lyricLines: [NowPlayingLyricLine] = [],
+    liked: Bool? = nil,
+    customActions: [NowPlayingCustomAction] = []
   ) {
     nowPlayingActive = true
     nowPlayingTitle = title
     nowPlayingArtist = artist
     nowPlayingAlbum = album
+    if !lyrics.isEmpty || !lyricLines.isEmpty {
+      nowPlayingLyrics = lyrics
+      if !lyricLines.isEmpty {
+        nowPlayingLyricLines = lyricLines
+      }
+    }
+    if let liked {
+      nowPlayingHasLike = true
+      nowPlayingLiked = liked
+    }
+    if !customActions.isEmpty {
+      nowPlayingCustomActions = customActions
+    }
+
+    let effectivePositionMs = positionMs ?? currentPlaybackPositionMs()
+    lastDisplayedLyricLine = resolveCurrentLyricLine(positionMs: effectivePositionMs)
 
     var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
     info[MPMediaItemPropertyTitle] = title
@@ -1165,7 +1245,10 @@ final class PluginNativeCapabilitiesService: NSObject {
     } else {
       info.removeValue(forKey: MPMediaItemPropertyArtist)
     }
-    if !album.isEmpty {
+    if !lastDisplayedLyricLine.isEmpty {
+      info[MPMediaItemPropertyLyrics] = lastDisplayedLyricLine
+      info[MPMediaItemPropertyAlbumTitle] = lastDisplayedLyricLine
+    } else if !album.isEmpty {
       info[MPMediaItemPropertyAlbumTitle] = album
     } else {
       info.removeValue(forKey: MPMediaItemPropertyAlbumTitle)
@@ -1174,7 +1257,6 @@ final class PluginNativeCapabilitiesService: NSObject {
     if effectiveDurationMs > 0 {
       info[MPMediaItemPropertyPlaybackDuration] = Double(effectiveDurationMs) / 1000.0
     }
-    let effectivePositionMs = positionMs ?? currentPlaybackPositionMs()
     info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(max(effectivePositionMs, 0)) / 1000.0
     info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(rate) : 0.0
     if let artwork = nowPlayingArtwork, artworkUrl == nowPlayingArtworkURL {
@@ -1221,6 +1303,10 @@ final class PluginNativeCapabilitiesService: NSObject {
     let dur = currentPlaybackDurationMs()
     if dur > 0 {
       info[MPMediaItemPropertyPlaybackDuration] = Double(dur) / 1000.0
+    }
+    if !lastDisplayedLyricLine.isEmpty {
+      info[MPMediaItemPropertyLyrics] = lastDisplayedLyricLine
+      info[MPMediaItemPropertyAlbumTitle] = lastDisplayedLyricLine
     }
     info[MPNowPlayingInfoPropertyElapsedPlaybackTime] =
       Double(max(currentPlaybackPositionMs(), 0)) / 1000.0
@@ -1322,6 +1408,38 @@ final class PluginNativeCapabilitiesService: NSObject {
       }
       return .success
     }
+
+    center.likeCommand.isActive = nowPlayingLiked
+    center.likeCommand.localizedTitle = nowPlayingLiked ? "取消喜欢" : "喜欢"
+    bind(center.likeCommand, enabled: nowPlayingHasLike) { [weak self] _ in
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        self.nowPlayingLiked.toggle()
+        center.likeCommand.isActive = self.nowPlayingLiked
+        center.likeCommand.localizedTitle = self.nowPlayingLiked ? "取消喜欢" : "喜欢"
+        self.sendDeviceEvent(
+          "audio.remoteCommand",
+          ["command": "toggleLike", "liked": self.nowPlayingLiked]
+        )
+      }
+      return .success
+    }
+
+    if let firstCustom = nowPlayingCustomActions.first {
+      center.bookmarkCommand.isActive = firstCustom.active
+      center.bookmarkCommand.localizedTitle = firstCustom.title
+      bind(center.bookmarkCommand, enabled: true) { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?.sendDeviceEvent(
+            "audio.remoteCommand",
+            ["command": "custom", "actionId": firstCustom.id]
+          )
+        }
+        return .success
+      }
+    } else {
+      center.bookmarkCommand.isEnabled = false
+    }
   }
 
   private func removeRemoteCommandTargets() {
@@ -1329,6 +1447,9 @@ final class PluginNativeCapabilitiesService: NSObject {
       command.removeTarget(token)
     }
     remoteCommandTargets.removeAll()
+    let center = MPRemoteCommandCenter.shared()
+    center.likeCommand.isEnabled = false
+    center.bookmarkCommand.isEnabled = false
   }
 
   private func clearNowPlayingMetadata() {
@@ -1339,6 +1460,12 @@ final class PluginNativeCapabilitiesService: NSObject {
     nowPlayingTitle = ""
     nowPlayingArtist = ""
     nowPlayingAlbum = ""
+    nowPlayingLyrics = ""
+    nowPlayingLyricLines = []
+    lastDisplayedLyricLine = ""
+    nowPlayingHasLike = false
+    nowPlayingLiked = false
+    nowPlayingCustomActions = []
     if nowPlayingActive {
       nowPlayingActive = false
       removeRemoteCommandTargets()

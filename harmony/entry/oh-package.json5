@@ -1,6 +1,6 @@
 {
   "name": "entry",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "MoviePilot HarmonyOS NEXT Entry HAP",
   "main": "",
   "dependencies": {

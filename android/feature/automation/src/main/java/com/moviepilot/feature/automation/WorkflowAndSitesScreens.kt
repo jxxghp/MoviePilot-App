@@ -1,9 +1,11 @@
 package com.moviepilot.feature.automation
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,8 +83,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -127,7 +131,7 @@ import kotlin.math.roundToInt
  * - 彻底移除假样本数据兜底，真实展示 `/api/v1/workflow/` 工作流列表与空态提示；
  * - 真实对接 `POST /api/v1/workflow/{id}/{run,start,pause}`、`DELETE /api/v1/workflow/{id}` 与社区 `POST /api/v1/workflow/fork` 一键复用。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun WorkflowsScreen(
     repository: MoviePilotRepository,
@@ -135,6 +139,7 @@ fun WorkflowsScreen(
     onOpenCanvas: (WorkflowItemDto) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val haptic = LocalHapticFeedback.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val scope = rememberCoroutineScope()
@@ -239,7 +244,13 @@ fun WorkflowsScreen(
 
                                     CinematicPanel(
                                         padding = 16.dp,
-                                        modifier = Modifier.clickable { onOpenCanvas(wf) },
+                                        modifier = Modifier.combinedClickable(
+                                            onClick = { onOpenCanvas(wf) },
+                                            onLongClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                rowMenuOpen = true
+                                            },
+                                        ),
                                     ) {
                                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                             Row(
@@ -696,7 +707,7 @@ fun WorkflowCanvasScreen(
  * Android Material 3 站点管理与双向流量图示（统一升级为 `ExpressiveTintedScaffold`）：
  * 全量加载 `/api/v1/site/icon/{id}` 真实站点 Favicon 并以 `logo_site` 兜底，支持聚合实时流量条、连通性测试、CRUD 与 13 天历史趋势弹窗。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SitesScreen(
     repository: MoviePilotRepository,
@@ -786,9 +797,16 @@ fun SitesScreen(
                         val upFraction = if (hasTraffic) (site.uploadBytes / totalTraffic).toFloat().coerceIn(0.02f, 0.98f) else 0.5f
                         var rowMenuOpen by remember { mutableStateOf(false) }
 
+                        val siteHaptic = LocalHapticFeedback.current
                         CinematicPanel(
                             padding = 16.dp,
-                            modifier = Modifier.clickable { selectedSiteForData = site },
+                            modifier = Modifier.combinedClickable(
+                                onClick = { selectedSiteForData = site },
+                                onLongClick = {
+                                    siteHaptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    rowMenuOpen = true
+                                },
+                            ),
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

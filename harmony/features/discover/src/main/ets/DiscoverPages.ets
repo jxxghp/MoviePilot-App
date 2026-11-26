@@ -1,3 +1,4 @@
+import { promptAction } from '@kit.ArkUI';
 import {
   MoviePilotRepository,
   MpMediaItem,
@@ -5,6 +6,7 @@ import {
   MpCastMember,
   MpMediaServerLibrary,
   MpMusicAlbum,
+  MpRecommendSource,
   MpRemoteImage,
   PLAYBACK_SYNC_REVISION_KEY
 } from '@moviepilot/core_rust_bridge';
@@ -149,6 +151,21 @@ struct PosterCard {
   @Prop showPlayBadge: boolean = false;
   onTap: () => void = () => {};
 
+  @Builder
+  private posterContextMenuBuilder() {
+    Menu() {
+      MenuItem({ content: '查看影视详情' })
+        .onClick(() => { this.onTap(); })
+      if (!this.item.inLibrary && this.item.source !== 'mediaserver' && this.item.source !== 'library') {
+        MenuItem({ content: '快捷添加订阅' })
+          .onClick(async () => {
+            const res = await MoviePilotRepository.shared().quickSubscribeMedia(this.item);
+            try { promptAction.showToast({ message: res.message, duration: 2000 }); } catch { /* ignore */ }
+          })
+      }
+    }
+  }
+
   build() {
     Column({ space: 6 }) {
       Stack({ alignContent: Alignment.TopEnd }) {
@@ -238,6 +255,7 @@ struct PosterCard {
     .alignItems(HorizontalAlign.Start)
     .hoverEffect(HoverEffect.Highlight)
     .onClick(() => this.onTap())
+    .bindContextMenu(this.posterContextMenuBuilder(), ResponseType.LongPress)
   }
 }
 
@@ -267,6 +285,8 @@ export struct HarmonyDiscoverPage {
   @State private doubanShowing: MpMediaItem[] = [];
   @State private doubanTop250: MpMediaItem[] = [];
   @State private musicAlbums: MpMusicAlbum[] = [];
+  @State private extraRecommendSources: MpRecommendSource[] = [];
+  @State private pluginRails: Record<string, MpMediaItem[]> = {};
   @State private modules: CustomModulePref[] = DEFAULT_DISCOVER_MODULES;
   @State private showModulesSheet: boolean = false;
   @State private showMusicAlbumSheet: boolean = false;
@@ -309,7 +329,8 @@ export struct HarmonyDiscoverPage {
         repo.fetchRecentlyAdded(),
         repo.fetchRecommend('tmdb_movies'),
         repo.fetchRecommend('tmdb_tvs'),
-        repo.fetchMusicFeed('douban', 1)
+        repo.fetchMusicFeed('douban', 1),
+        repo.fetchRecommendSources()
       ]);
       this.trendingItems = res[0].slice(0, 14);
       this.heroItems = res[0].slice(0, 6);
@@ -319,6 +340,8 @@ export struct HarmonyDiscoverPage {
       this.popularMovies = res[4].slice(0, 14);
       this.popularTvs = res[5].slice(0, 14);
       this.musicAlbums = res[6].slice(0, 14);
+      this.extraRecommendSources = res[7];
+      this.modules = HarmonyAppearanceStore.mergeDiscoverModules(this.modulesRaw, res[7]);
     } catch {
       // keep existing state
     }
@@ -336,14 +359,49 @@ export struct HarmonyDiscoverPage {
     if (showTop250 && this.doubanTop250.length === 0) {
       try { this.doubanTop250 = (await repo.fetchDoubanTop250(1)).slice(0, 14); } catch { /* ignore */ }
     }
+    const enabledPluginMods = this.modules.filter((m: CustomModulePref) =>
+      m.enabled && m.id.startsWith('plugin_recommend:') && Boolean(m.apiPath && m.apiPath.length > 0)
+    );
+    if (enabledPluginMods.length > 0) {
+      const nextMap: Record<string, MpMediaItem[]> = {};
+      const existingKeys = Object.keys(this.pluginRails);
+      for (let k = 0; k < existingKeys.length; k++) {
+        nextMap[existingKeys[k]] = this.pluginRails[existingKeys[k]];
+      }
+      let changed = false;
+      await Promise.all(enabledPluginMods.map(async (mod: CustomModulePref): Promise<void> => {
+        if (!nextMap[mod.id] || nextMap[mod.id].length === 0) {
+          try {
+            const list = (await repo.fetchRecommendByApiPath(mod.apiPath ?? '', 1)).slice(0, 16);
+            if (list.length > 0) {
+              nextMap[mod.id] = list;
+              changed = true;
+            }
+          } catch {
+            // ignore single plugin rail error
+          }
+        }
+      }));
+      if (changed) {
+        this.pluginRails = nextMap;
+      }
+    }
+  }
+
+  private cloneModulePref(m: CustomModulePref, enabledOverride?: boolean): CustomModulePref {
+    return {
+      id: m.id,
+      title: m.title,
+      enabled: enabledOverride !== undefined ? enabledOverride : m.enabled,
+      apiPath: m.apiPath,
+      subtitle: m.subtitle
+    };
   }
 
   private moveModule(idx: number, delta: number): void {
     const target = idx + delta;
     if (target < 0 || target >= this.modules.length) { return; }
-    const copy: CustomModulePref[] = this.modules.map((m: CustomModulePref): CustomModulePref => ({
-      id: m.id, title: m.title, enabled: m.enabled
-    }));
+    const copy: CustomModulePref[] = this.modules.map((m: CustomModulePref): CustomModulePref => this.cloneModulePref(m));
     const tmp = copy[idx];
     copy[idx] = copy[target];
     copy[target] = tmp;
@@ -351,9 +409,9 @@ export struct HarmonyDiscoverPage {
   }
 
   private toggleModule(idx: number, enabled: boolean): void {
-    const copy: CustomModulePref[] = this.modules.map((m: CustomModulePref, i: number): CustomModulePref => ({
-      id: m.id, title: m.title, enabled: i === idx ? enabled : m.enabled
-    }));
+    const copy: CustomModulePref[] = this.modules.map((m: CustomModulePref, i: number): CustomModulePref =>
+      this.cloneModulePref(m, i === idx ? enabled : m.enabled)
+    );
     this.persistModules(copy);
   }
 
@@ -442,12 +500,12 @@ export struct HarmonyDiscoverPage {
         actionText: '恢复默认',
         onCancel: () => { this.showModulesSheet = false; },
         onAction: () => {
-          this.persistModules(DEFAULT_DISCOVER_MODULES.map((m: CustomModulePref): CustomModulePref => ({
-            id: m.id, title: m.title, enabled: m.enabled
-          })));
+          this.persistModules(
+            HarmonyAppearanceStore.mergeDiscoverModules('', this.extraRecommendSources, true)
+          );
         }
       })
-      Text('开关显隐并调整发现页 10 大模块的展示顺序')
+      Text('开关显隐并调整发现页内置与插件推荐模块的展示顺序')
         .fontSize(12)
         .fontColor(mpSecondaryText(this.isDark))
         .width('100%')
@@ -457,11 +515,22 @@ export struct HarmonyDiscoverPage {
           ForEach(this.modules, (mod: CustomModulePref, idx: number) => {
             CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
               Row({ space: 8 }) {
-                Text(mod.title)
-                  .fontSize(15)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(mpPrimaryText(this.isDark))
-                  .layoutWeight(1)
+                Column({ space: 2 }) {
+                  Text(mod.title)
+                    .fontSize(15)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(mpPrimaryText(this.isDark))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  if (mod.id.startsWith('plugin_recommend:')) {
+                    Text(mod.subtitle && mod.subtitle.length > 0 ? `插件推荐 · ${mod.subtitle}` : '插件推荐榜单')
+                      .fontSize(11)
+                      .fontColor(mpSecondaryText(this.isDark))
+                      .maxLines(1)
+                  }
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
 
                 Button({ type: ButtonType.Circle }) {
                   SymbolGlyph($r('sys.symbol.arrow_up'))
@@ -962,6 +1031,14 @@ export struct HarmonyDiscoverPage {
       this.librariesShelf()
     } else if (modId === 'categories') {
       this.categoriesShelf()
+    } else if (modId.startsWith('plugin_recommend:')) {
+      DiscoverMediaShelf({
+        title: this.modules.find((m: CustomModulePref) => m.id === modId)?.title ?? '推荐榜单',
+        items: this.pluginRails[modId] ?? [],
+        exploreKey: `${modId}|${this.modules.find((m: CustomModulePref) => m.id === modId)?.title ?? '推荐榜单'}`,
+        onOpenMedia: (it: MpMediaItem) => this.onOpenMedia(it),
+        onOpenExplore: (src: string) => this.onOpenExplore(src)
+      })
     }
   }
 
@@ -1480,11 +1557,34 @@ export struct HarmonyExplorePage {
     return idx >= 0 ? idx : 0;
   }
 
+  private isPluginRecommendMode(): boolean {
+    return this.activeSource.startsWith('plugin_recommend:');
+  }
+
+  private pluginRecommendApiPath(): string {
+    if (!this.isPluginRecommendMode()) { return ''; }
+    const raw = this.activeSource.substring('plugin_recommend:'.length);
+    const barIdx = raw.indexOf('|');
+    return barIdx >= 0 ? raw.substring(0, barIdx) : raw;
+  }
+
+  private pluginRecommendTitle(): string {
+    if (!this.isPluginRecommendMode()) { return '分类探索'; }
+    const barIdx = this.activeSource.indexOf('|');
+    if (barIdx >= 0) {
+      const t = this.activeSource.substring(barIdx + 1).trim();
+      if (t.length > 0) { return t; }
+    }
+    return '推荐榜单';
+  }
+
   private async fetchCurrent(): Promise<void> {
     this.loading = true;
     const repo = MoviePilotRepository.shared();
     try {
-      if (this.activeSource === 'music') {
+      if (this.isPluginRecommendMode()) {
+        this.items = await repo.fetchRecommendByApiPath(this.pluginRecommendApiPath(), 1);
+      } else if (this.activeSource === 'music') {
         this.albums = await repo.fetchMusicFeed(this.activeMusicFeed, 1);
       } else {
         this.items = await repo.fetchExplore(this.activeSource, this.activeSort, 1);
@@ -1503,31 +1603,33 @@ export struct HarmonyExplorePage {
   build() {
     Column({ space: 10 }) {
       NativeBackHeader({
-        title: '分类探索',
+        title: this.isPluginRecommendMode() ? this.pluginRecommendTitle() : '分类探索',
         onBack: () => this.onBack()
       })
 
-      Scroll() {
-        Row({ space: 8 }) {
-          ForEach(EXPLORE_SOURCES, (s: ExploreSourceDef) => {
-            HarmonyEntityLogoPill({
-              kind: 'media_source',
-              value: s.key === 'music' ? 'musicbrainz' : s.key,
-              title: s.label,
-              selected: this.activeSource === s.key,
-              logoSize: 16,
-              onTap: () => {
-                this.activeSource = s.key;
-                this.fetchCurrent();
-              }
-            })
-          }, (s: ExploreSourceDef) => s.key)
+      if (!this.isPluginRecommendMode()) {
+        Scroll() {
+          Row({ space: 8 }) {
+            ForEach(EXPLORE_SOURCES, (s: ExploreSourceDef) => {
+              HarmonyEntityLogoPill({
+                kind: 'media_source',
+                value: s.key === 'music' ? 'musicbrainz' : s.key,
+                title: s.label,
+                selected: this.activeSource === s.key,
+                logoSize: 16,
+                onTap: () => {
+                  this.activeSource = s.key;
+                  this.fetchCurrent();
+                }
+              })
+            }, (s: ExploreSourceDef) => s.key)
+          }
+          .padding({ left: 16, right: 16 })
         }
-        .padding({ left: 16, right: 16 })
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .width('100%')
       }
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
-      .width('100%')
 
       if (this.activeSource === 'music') {
         Scroll() {

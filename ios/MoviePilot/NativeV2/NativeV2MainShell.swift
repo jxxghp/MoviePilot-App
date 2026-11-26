@@ -32,6 +32,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @ObservedObject private var routeHub = NativeSystemRouteHub.shared
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @ObservedObject private var playbackLauncher = NativeMediaPlaybackLauncher.shared
+  @ObservedObject private var pluginCapsuleManager = PluginCapsuleManager.shared
   @Environment(\.verticalSizeClass) private var verticalSizeClass
   @Environment(\.nativeVerticalBarEdge) private var verticalBarEdge
   @State private var selectedTab: Page = .discover
@@ -51,11 +52,20 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var minePath: [NativeWorkspaceDestination] = []
   @State private var morePath: [NativeWorkspaceDestination] = []
   @State private var searchPath: [NativeMediaIdentity] = []
+  private struct DeepLinkPluginTarget: Identifiable {
+    let id = UUID()
+    let pluginID: String
+    let surface: String?
+  }
+
   @State private var showsAgentSheet = false
   @State private var showsMessagesSheet = false
+  @State private var restoredCapsuleSheetTarget: MinimizedPluginSession?
+  @State private var deepLinkPluginTarget: DeepLinkPluginTarget?
   @State private var userTabAvatar: UIImage?
   @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
   @State private var discoverModules = NativeDiscoverModuleItem.defaults
+  @State private var extraRecommendSources: [RecommendSource] = []
   @State private var showsModuleSheet = false
   @State private var pendingModuleRefetch = false
   @State private var latestServerName: String?
@@ -118,6 +128,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .zIndex(45)
         }
+        if pluginCapsuleManager.currentSession != nil && restoredCapsuleSheetTarget == nil {
+          NativePluginFloatingCapsuleOverlay(manager: pluginCapsuleManager) { sessionToRestore in
+            restoredCapsuleSheetTarget = sessionToRestore
+          }
+          .zIndex(46)
+        }
         if showFloatingAssistant && !usesDuoSideOperationBar && !showsAgentSheet
           && !showsMessagesSheet
         {
@@ -147,6 +163,39 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     .environmentObject(dynamicActionCenter)
     .onAppear { consumeSystemRouteIfNeeded() }
     .onChange(of: routeHub.pendingTarget) { _ in consumeSystemRouteIfNeeded() }
+    .onChange(of: pluginCapsuleManager.restoreRequestNonce) { _ in
+      if let target = pluginCapsuleManager.currentSession {
+        restoredCapsuleSheetTarget = target
+      }
+    }
+    .sheet(item: $restoredCapsuleSheetTarget) { restored in
+      NativeVuePluginSheet(
+        session: session,
+        pluginID: restored.pluginID,
+        pluginName: restored.pluginName,
+        surface: restored.surface,
+        pluginHasPage: restored.pluginHasPage
+      )
+    }
+    .sheet(item: $deepLinkPluginTarget) { target in
+      if target.surface?.lowercased() == "config" {
+        NativeVuePluginSheet(
+          session: session,
+          pluginID: target.pluginID,
+          pluginName: target.pluginID,
+          surface: .config,
+          pluginHasPage: true
+        )
+      } else {
+        NavigationStack {
+          NativePluginDataPageView(
+            session: session,
+            pluginID: target.pluginID,
+            pluginName: target.pluginID
+          )
+        }
+      }
+    }
     .task(id: "\(snapshot.scope)|\(snapshot.user.avatar)") {
       userTabAvatar = await NativeUserAvatarRenderer.loadTabAvatar(
         session: session, avatar: snapshot.user.avatar)
@@ -1684,6 +1733,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         morePath = [.pluginMarket]
       }
 
+    case .pluginDetail(let pluginID, let surface):
+      guard snapshot.user.isSuperuser else {
+        routeHub.postBanner(t("仅管理员可访问插件中心。"))
+        return
+      }
+      deepLinkPluginTarget = DeepLinkPluginTarget(pluginID: pluginID, surface: surface)
+
     case .agent(let prompt):
       pendingAgentPrompt = prompt ?? ""
       showsAgentSheet = true
@@ -2013,18 +2069,30 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
 
     async let modulesTask = try? requestDiscoverModules()
+    async let extraSourcesTask = requestRecommendSources()
     async let moviesTask = try? requestDiscoverMedia("tmdb_movies", page: 1)
     async let tvTask = try? requestDiscoverMedia("tmdb_tvs", page: 1)
     async let trendingTask = try? requestRecommendMedia("tmdb_trending", page: 1)
     async let clientsTask = try? requestMediaServerClients()
-    let (loadedModules, movies, television, trending, clients) = await (
-      modulesTask, moviesTask, tvTask, trendingTask, clientsTask
+    let (loadedModules, loadedExtraSources, movies, television, trending, clients) = await (
+      modulesTask, extraSourcesTask, moviesTask, tvTask, trendingTask, clientsTask
     )
     guard !Task.isCancelled, discoveryGeneration == generation else { return }
 
-    let resolvedModules = NativeDiscoverModuleItem.normalized(loadedModules ?? discoverModules)
+    extraRecommendSources = loadedExtraSources
+    let resolvedModules = NativeDiscoverModuleItem.merged(
+      saved: loadedModules ?? discoverModules,
+      extraSources: loadedExtraSources
+    )
     discoverModules = resolvedModules
     let enabledSet = Set(resolvedModules.filter(\.enabled).map(\.id))
+
+    let enabledPluginSources: [(NativeDiscoverModuleID, RecommendSource)] = loadedExtraSources
+      .compactMap { src in
+        let modID = NativeDiscoverModuleID.pluginRecommend(src.apiPath)
+        return enabledSet.contains(modID) ? (modID, src) : nil
+      }
+    async let pluginRailsTask = fetchEnabledPluginRecommendRails(enabledPluginSources)
 
     async let doubanMusicTask: [NativeDiscoverMusicItem]? =
       enabledSet.contains(.doubanMusic)
@@ -2081,8 +2149,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       latestServerName = nil
     }
 
-    let (doubanMusic, doubanShowing, doubanTop) = await (
-      doubanMusicTask, doubanShowingTask, doubanTopTask
+    let (doubanMusic, doubanShowing, doubanTop, loadedPluginRails) = await (
+      doubanMusicTask, doubanShowingTask, doubanTopTask, pluginRailsTask
     )
     guard !Task.isCancelled, discoveryGeneration == generation else { return }
 
@@ -2145,6 +2213,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       rails.append(
         NativeDiscoverRail(
           id: "latest", title: "最新入库", items: latestItems, hasMore: latestItems.count >= 20))
+    }
+    for entry in loadedPluginRails where !entry.rail.items.isEmpty {
+      rails.append(entry.rail)
+      for (k, v) in entry.identities { identities[k] = v }
+      for (k, v) in entry.musicSeeds { nextMusicSeeds[k] = v }
     }
     musicSeeds = nextMusicSeeds
     mediaServerItems = nextMediaServerItems
@@ -2310,6 +2383,133 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     return wrapper.value
   }
 
+  /// 兼容裸数组 `[T]` 与 `{"success": true, "message": String?, "data": [T]}` 的弹性解码器。
+  private struct FlexibleRecommendEnvelope<Element: Decodable>: Decodable {
+    let items: [Element]
+
+    private enum CodingKeys: String, CodingKey {
+      case success, data
+    }
+
+    init(from decoder: Decoder) throws {
+      if let direct = try? [Element](from: decoder) {
+        self.items = direct
+        return
+      }
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      if let ok = try container.decodeIfPresent(Bool.self, forKey: .success), !ok {
+        self.items = []
+        return
+      }
+      self.items = (try? container.decode([Element].self, forKey: .data)) ?? []
+    }
+  }
+
+  private struct LoadedPluginRecommendRail {
+    let rail: NativeDiscoverRail
+    let identities: [String: NativeMediaIdentity]
+    let musicSeeds: [String: NativeMusicCardItem]
+  }
+
+  /// 读取插件通过 `ChainEventType.RecommendSource` 动态注册的发现页推荐榜单（`GET /api/v1/recommend/source`）。
+  private func requestRecommendSources() async -> [RecommendSource] {
+    guard let endpoint = try? RecommendSourceEndpoint.list(),
+      let raw = try? await session.requestPayload(
+        endpoint, requiring: .init(category: .discovery)
+      ).value,
+      let decoded = try? JSONDecoder().decode(
+        FlexibleRecommendEnvelope<RecommendSource>.self, from: raw)
+    else { return [] }
+    var seen: Set<String> = []
+    return decoded.items.filter { src in
+      let cleanName = src.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !cleanName.isEmpty,
+        (try? RecommendSourceEndpoint.media(apiPath: src.apiPath)) != nil
+      else { return false }
+      return seen.insert(src.apiPath).inserted
+    }
+  }
+
+  /// 并发拉取所有已启用的插件动态推荐榜单首页内容，单条失败互不影响。
+  private func fetchEnabledPluginRecommendRails(
+    _ sources: [(NativeDiscoverModuleID, RecommendSource)]
+  ) async -> [LoadedPluginRecommendRail] {
+    guard !sources.isEmpty else { return [] }
+    return await withTaskGroup(of: (Int, LoadedPluginRecommendRail?).self) { group in
+      for (index, pair) in sources.enumerated() {
+        let (modID, source) = pair
+        group.addTask {
+          guard let pageResult = try? await self.requestPluginRecommendPage(source, page: 1),
+            !pageResult.items.isEmpty
+          else {
+            return (index, nil)
+          }
+          let rail = NativeDiscoverRail(
+            id: modID.rawValue,
+            title: source.name,
+            items: pageResult.items,
+            hasMore: pageResult.hasMore,
+            style: pageResult.style
+          )
+          return (
+            index,
+            LoadedPluginRecommendRail(
+              rail: rail,
+              identities: pageResult.identities,
+              musicSeeds: pageResult.musicSeeds
+            )
+          )
+        }
+      }
+      var ordered: [(Int, LoadedPluginRecommendRail)] = []
+      for await (idx, loaded) in group {
+        if let loaded { ordered.append((idx, loaded)) }
+      }
+      return ordered.sorted { $0.0 < $1.0 }.map(\.1)
+    }
+  }
+
+  /// 按插件声明的受控相对 `api_path` 请求单页推荐数据，自动兼容影视海报与音乐专辑两种载荷。
+  private func requestPluginRecommendPage(_ source: RecommendSource, page: Int) async throws -> (
+    items: [NativeDiscoverMedia],
+    hasMore: Bool,
+    style: NativeDiscoverRail.Style,
+    identities: [String: NativeMediaIdentity],
+    musicSeeds: [String: NativeMusicCardItem]
+  ) {
+    let endpoint = try RecommendSourceEndpoint.media(
+      apiPath: source.apiPath, page: page > 1 ? page : nil)
+    let raw = try await session.requestPayload(
+      endpoint, requiring: .init(category: .discovery)
+    ).value
+    let lowerType = source.type.lowercased()
+    let prefersMusic = lowerType.contains("music") || source.type.contains("音乐")
+    if prefersMusic,
+      let musicEnv = try? JSONDecoder().decode(
+        FlexibleRecommendEnvelope<NativeDiscoverMusicItem>.self, from: raw),
+      !musicEnv.items.isEmpty
+    {
+      var identities: [String: NativeMediaIdentity] = [:]
+      var seeds: [String: NativeMusicCardItem] = [:]
+      let projected = projectMusicPage(musicEnv.items, identities: &identities, seeds: &seeds)
+      return (projected, !musicEnv.items.isEmpty, .square, identities, seeds)
+    }
+    let decoded = try JSONDecoder().decode(
+      FlexibleRecommendEnvelope<NativeDiscoverAPIItem>.self, from: raw)
+    let fallbackType: String =
+      if lowerType.contains("tv") || source.type.contains("剧")
+        || lowerType.contains("anime") || source.type.contains("番")
+      {
+        "电视剧"
+      } else {
+        "电影"
+      }
+    var identities: [String: NativeMediaIdentity] = [:]
+    let projected = projectPage(
+      decoded.items, fallbackType: fallbackType, identities: &identities)
+    return (projected, !decoded.items.isEmpty, .poster, identities, [:])
+  }
+
   /// 单次持久化发现模块显隐与排序，并在需要时重新拉取新启用的豆瓣榜单。
   private func saveDiscoverModules(_ updated: [NativeDiscoverModuleItem]) async -> Bool {
     do {
@@ -2319,7 +2519,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       try await session.perform(endpoint)
       let needsRefetch = updated.contains { item in
         item.enabled
-          && (item.id == .doubanShowing || item.id == .doubanTop250)
+          && (item.id == .doubanShowing || item.id == .doubanTop250 || item.id.isPluginRecommend)
           && !discovery.rails.contains(where: { $0.id == item.id.rawValue })
       }
       discoverModules = updated
@@ -2553,6 +2753,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       for (k, v) in identities { mediaIdentities[k] = v }
       for (k, v) in seeds { musicSeeds[k] = v }
       return (projected, !rows.isEmpty)
+    }
+    if let apiPath = NativeDiscoverModuleID(rawValue: railID).pluginAPIPath {
+      let source =
+        extraRecommendSources.first(where: { $0.apiPath == apiPath })
+        ?? RecommendSource(name: apiPath, apiPath: apiPath, type: "")
+      let loaded = try await requestPluginRecommendPage(source, page: page)
+      for (k, v) in loaded.identities { mediaIdentities[k] = v }
+      for (k, v) in loaded.musicSeeds { musicSeeds[k] = v }
+      return (loaded.items, loaded.hasMore)
     }
     let rows: [NativeDiscoverAPIItem]
     let fallbackType: String

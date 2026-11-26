@@ -72,6 +72,9 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
   var onPluginMounted: ((_ mountId: String, _ title: String) -> Void)?
   var onPluginError: ((_ stage: String, _ message: String, _ recoverable: Bool) -> Void)?
   var onPluginClose: (() -> Void)?
+  var onPluginMinimize: ((_ requestId: String, _ payload: [String: Any]) -> Void)?
+  var onCapsuleUpdate: ((_ payload: [String: Any]) -> Void)?
+  var onPluginRestore: ((_ requestId: String) -> Void)?
   var onNavBackResult: ((_ handled: Bool) -> Void)?
   var onPluginAction: ((_ payload: [String: Any]) -> Void)?
   var onHeaderUpdate: ((_ title: String, _ actions: [NativeVueSheetAction]) -> Void)?
@@ -98,6 +101,9 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
     onPluginMounted = nil
     onPluginError = nil
     onPluginClose = nil
+    onPluginMinimize = nil
+    onCapsuleUpdate = nil
+    onPluginRestore = nil
     onNavBackResult = nil
     onPluginAction = nil
     onHeaderUpdate = nil
@@ -160,6 +166,22 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
 
   func sendHostAction(id: String) {
     sendToWeb(type: "host.action", payload: ["actionId": id])
+  }
+
+  func sendCapsuleAction(id: String) {
+    sendToWeb(type: "capsule.action", payload: ["actionId": id])
+  }
+
+  func sendSimpleResponse(requestId: String, data: [String: Any]) {
+    guard !requestId.isEmpty else { return }
+    sendToWeb(
+      type: "bridge.response",
+      payload: [
+        "requestId": requestId,
+        "ok": true,
+        "data": data,
+      ]
+    )
   }
 
   func sendConfirmResult(id: String, confirmed: Bool) {
@@ -230,6 +252,25 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
 
     case "plugin.close":
       onPluginClose?()
+
+    case "plugin.minimize":
+      let reqId = payload["requestId"] as? String ?? ""
+      if let onPluginMinimize {
+        onPluginMinimize(reqId, payload)
+      } else {
+        sendSimpleResponse(requestId: reqId, data: ["minimized": false])
+      }
+
+    case "plugin.capsule.update":
+      onCapsuleUpdate?(payload)
+
+    case "plugin.restore":
+      let reqId = payload["requestId"] as? String ?? ""
+      if let onPluginRestore {
+        onPluginRestore(reqId)
+      } else {
+        sendSimpleResponse(requestId: reqId, data: ["restored": true])
+      }
 
     case "nav.backResult":
       let handled = (payload["handled"] as? Bool) ?? false

@@ -50,4 +50,4 @@ const __mfImport = (src) =>
   if (__mfReactServerModuleCache?.pendingShareLoads) {
     await Promise.all(__mfReactServerModuleCache.pendingShareLoads);
   }
-})().then(() => __mfImport("./plugin-shell-DaL21s-D.js"));
+})().then(() => __mfImport("./plugin-shell-DEdRp4gV.js"));

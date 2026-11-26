@@ -302,6 +302,10 @@ pub enum AppDeepLink {
     Plugins {
         installed_only: bool,
     },
+    PluginDetail {
+        plugin_id: String,
+        surface: Option<String>,
+    },
     Agent {
         prompt: Option<String>,
     },
@@ -643,11 +647,44 @@ impl AppDeepLink {
             "workflow" | "workflows" => Some(Self::Workflows),
             "site" | "sites" => Some(Self::Sites),
             "message" | "messages" | "notification" | "notifications" => Some(Self::Messages),
-            "plugin" | "plugins" => Some(Self::Plugins {
-                installed_only: second
-                    .as_deref()
-                    .is_some_and(|s| s.eq_ignore_ascii_case("installed")),
-            }),
+            "plugin" | "plugins" => {
+                if third.is_some() {
+                    return None;
+                }
+                if let Some(ref seg) = second {
+                    if seg.eq_ignore_ascii_case("installed") || seg.eq_ignore_ascii_case("local") {
+                        return Some(Self::Plugins {
+                            installed_only: true,
+                        });
+                    }
+                    if seg.eq_ignore_ascii_case("market") {
+                        return Some(Self::Plugins {
+                            installed_only: false,
+                        });
+                    }
+                    if Self::is_valid_plugin_id(seg) {
+                        return Some(Self::PluginDetail {
+                            plugin_id: seg.clone(),
+                            surface: query.get("surface").cloned(),
+                        });
+                    }
+                    return None;
+                }
+                if let Some(raw_id) = query.get("id").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    if Self::is_valid_plugin_id(raw_id) {
+                        return Some(Self::PluginDetail {
+                            plugin_id: raw_id.to_string(),
+                            surface: query.get("surface").cloned(),
+                        });
+                    }
+                    return None;
+                }
+                Some(Self::Plugins {
+                    installed_only: query
+                        .get("tab")
+                        .is_some_and(|t| t.eq_ignore_ascii_case("installed")),
+                })
+            }
             "agent" => Some(Self::Agent {
                 prompt: query.get("prompt").cloned(),
             }),
@@ -661,6 +698,14 @@ impl AppDeepLink {
             "play" => Self::parse_play(query),
             _ => None,
         }
+    }
+
+    fn is_valid_plugin_id(raw: &str) -> bool {
+        let len = raw.len();
+        (1..=128).contains(&len)
+            && raw
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
     }
 
     fn normalize_source(raw: &str) -> String {

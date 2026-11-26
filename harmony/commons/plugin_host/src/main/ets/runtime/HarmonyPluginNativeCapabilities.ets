@@ -60,13 +60,15 @@ export class HarmonyPluginNativeCapabilities {
   private keepAwakeEnabled: boolean = false;
   private base64Helper: util.Base64Helper = new util.Base64Helper();
 
-  // Status bar / AVSession Now Playing state (#56)
+  // Status bar / AVSession Now Playing state (#56 / #77)
   private pluginAvSession: avSession.AVSession | null = null;
   private nowPlayingActive: boolean = false;
   private nowPlayingTitle: string = '';
   private nowPlayingArtist: string = '';
   private nowPlayingAlbum: string = '';
   private nowPlayingDurationMs: number = 0;
+  private nowPlayingLyrics: string = '';
+  private nowPlayingLiked: boolean = false;
 
   constructor(
     getContext: () => common.UIAbilityContext | null,
@@ -220,6 +222,8 @@ export class HarmonyPluginNativeCapabilities {
       'audio.play',
       'audio.nowPlaying',
       'native.audio.nowPlaying',
+      'native.audio.lyrics',
+      'native.audio.customActions',
       'media.playNative',
       'device.info',
       'device.permission',
@@ -284,6 +288,10 @@ export class HarmonyPluginNativeCapabilities {
     if (perm === 'photos') {
       // 鸿蒙 PhotoViewPicker / DocumentViewPicker 安全选择器无需额外存储权限
       this.sendOk(requestId, `{"permission":"photos","status":"granted"}`);
+      return;
+    }
+    if (perm === 'overlay') {
+      this.sendOk(requestId, `{"permission":"overlay","status":"unsupported"}`);
       return;
     }
     if (perm === 'notifications') {
@@ -1173,6 +1181,30 @@ export class HarmonyPluginNativeCapabilities {
     const positionMs = typeof payload['positionMs'] === 'number' ? Math.max(0, Math.floor(payload['positionMs'] as number)) : this.playbackPositionMs;
     const isPlaying = typeof payload['isPlaying'] === 'boolean' ? (payload['isPlaying'] as boolean) : (this.playbackState === 'playing');
     const rate = typeof payload['rate'] === 'number' ? (payload['rate'] as number) : this.playbackRate;
+    let resolvedLyrics = typeof payload['lyrics'] === 'string' ? (payload['lyrics'] as string).trim() : '';
+    if (Array.isArray(payload['lyricLines'])) {
+      const lines = payload['lyricLines'] as Object[];
+      let bestText = '';
+      let bestTime = -1;
+      for (let i = 0; i < lines.length; i++) {
+        const rec = lines[i] as Record<string, Object>;
+        const t = typeof rec['timeMs'] === 'number' ? Math.floor(rec['timeMs'] as number) : -1;
+        const txt = typeof rec['text'] === 'string' ? (rec['text'] as string).trim() : '';
+        if (t >= 0 && t <= positionMs && t >= bestTime && txt.length > 0) {
+          bestTime = t;
+          bestText = txt;
+        }
+      }
+      if (bestText.length > 0) {
+        resolvedLyrics = bestText;
+      }
+    }
+    if (resolvedLyrics.length > 0) {
+      this.nowPlayingLyrics = resolvedLyrics;
+    }
+    if (typeof payload['liked'] === 'boolean') {
+      this.nowPlayingLiked = payload['liked'] as boolean;
+    }
 
     await this.applyNowPlayingSession(title, artist, album, artworkUrl, durationMs, positionMs, isPlaying, rate);
     this.sendOk(requestId, '{"registered":true}');
@@ -1238,6 +1270,22 @@ export class HarmonyPluginNativeCapabilities {
           }
           this.sendDeviceEvent('audio.remoteCommand', `{"command":"seek","positionMs":${target}}`);
         });
+        s.on('toggleFavorite', () => {
+          this.nowPlayingLiked = !this.nowPlayingLiked;
+          this.syncPluginAvSessionState();
+          this.sendDeviceEvent(
+            'audio.remoteCommand',
+            `{"command":"toggleLike","liked":${this.nowPlayingLiked ? 'true' : 'false'}}`
+          );
+        });
+        s.on('commonCommand', (cmdStr: string) => {
+          if (cmdStr && cmdStr.length > 0) {
+            this.sendDeviceEvent(
+              'audio.remoteCommand',
+              `{"command":"custom","actionId":${JSON.stringify(cmdStr)}}`
+            );
+          }
+        });
         await s.activate();
         this.pluginAvSession = s;
       }
@@ -1247,6 +1295,8 @@ export class HarmonyPluginNativeCapabilities {
         title: title,
         artist: artist,
         album: album,
+        lyric: this.nowPlayingLyrics.length > 0 ? this.nowPlayingLyrics : undefined,
+        subtitle: this.nowPlayingLyrics.length > 0 ? this.nowPlayingLyrics : undefined,
         duration: durationMs > 0 ? durationMs : undefined
       };
       if (artworkUrl.startsWith('http://') || artworkUrl.startsWith('https://')) {
@@ -1256,6 +1306,7 @@ export class HarmonyPluginNativeCapabilities {
       await this.pluginAvSession.setAVPlaybackState({
         state: isPlaying ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE,
         speed: isPlaying ? rate : 0,
+        isFavorite: this.nowPlayingLiked,
         position: {
           elapsedTime: Math.max(0, positionMs),
           updateTime: Date.now()
@@ -1275,6 +1326,7 @@ export class HarmonyPluginNativeCapabilities {
       this.pluginAvSession.setAVPlaybackState({
         state: playing ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE,
         speed: playing ? this.playbackRate : 0,
+        isFavorite: this.nowPlayingLiked,
         position: {
           elapsedTime: Math.max(0, this.playbackPositionMs),
           updateTime: Date.now()
@@ -1291,6 +1343,8 @@ export class HarmonyPluginNativeCapabilities {
     this.nowPlayingArtist = '';
     this.nowPlayingAlbum = '';
     this.nowPlayingDurationMs = 0;
+    this.nowPlayingLyrics = '';
+    this.nowPlayingLiked = false;
     if (this.pluginAvSession) {
       const s = this.pluginAvSession;
       this.pluginAvSession = null;

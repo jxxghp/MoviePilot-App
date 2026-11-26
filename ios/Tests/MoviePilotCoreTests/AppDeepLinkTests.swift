@@ -105,6 +105,12 @@ struct AppDeepLinkTests {
       AppDeepLink(url: URL(string: "moviepilot://plugins/installed")!)
         == .plugins(installedOnly: true))
     #expect(
+      AppDeepLink(url: URL(string: "moviepilot://plugin/BrushFlow?surface=data")!)
+        == .pluginDetail(pluginID: "BrushFlow", surface: "data"))
+    #expect(
+      AppDeepLink(route: "/#/plugins?id=MusicBox&surface=config")
+        == .pluginDetail(pluginID: "MusicBox", surface: "config"))
+    #expect(
       AppDeepLink(url: URL(string: "moviepilot://agent?prompt=hello")!) == .agent(prompt: "hello"))
   }
 

@@ -4,15 +4,18 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -61,11 +64,13 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Search
@@ -101,9 +106,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -128,6 +136,7 @@ import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeAppearanceMode
 import com.moviepilot.designsystem.NativeCardListSkeleton
+import com.moviepilot.designsystem.NativeGlassSheet
 import com.moviepilot.designsystem.NativeNetworkEntityLogo
 import com.moviepilot.designsystem.NativeSegmentedControl
 import com.moviepilot.designsystem.NativeSkeletonBlock
@@ -1085,7 +1094,7 @@ fun shouldHideAppPluginTopBar(
  * 市场一键安装与在线更新（`GET /api/v1/plugin/install/{id}`），
  * 图标回退统一使用官方 `logo_plugin`，点击任意插件进入 `PluginDetailScreen`。
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun PluginsCenterScreen(
     repository: MoviePilotRepository,
@@ -1094,6 +1103,8 @@ fun PluginsCenterScreen(
     onOpenPluginDetail: (PluginItemDto, Boolean) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val scope = rememberCoroutineScope()
@@ -1107,7 +1118,8 @@ fun PluginsCenterScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     val installingIds = remember { mutableStateMapOf<String, Boolean>() }
-    var cardMenuPluginId by remember { mutableStateOf<String?>(null) }
+    var actionSheetPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
+    var logSheetPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
     var pendingResetPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
     var pendingUninstallPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
 
@@ -1239,7 +1251,15 @@ fun PluginsCenterScreen(
                             val isInstalling = installingIds[plugin.id] == true
                             CinematicPanel(
                                 padding = 16.dp,
-                                modifier = Modifier.clickable { onOpenPluginDetail(plugin, false) },
+                                modifier = Modifier.combinedClickable(
+                                    onClick = { onOpenPluginDetail(plugin, false) },
+                                    onLongClick = {
+                                        if (plugin.installed) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            actionSheetPlugin = plugin
+                                        }
+                                    },
+                                ),
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1310,80 +1330,16 @@ fun PluginsCenterScreen(
                                                 )
                                             }
                                             if (plugin.installed) {
-                                                val menuKey = "${pageIdx}_${plugin.id}"
-                                                Box {
-                                                    IconButton(
-                                                        onClick = { cardMenuPluginId = menuKey },
-                                                        modifier = Modifier.size(28.dp),
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Rounded.MoreVert,
-                                                            contentDescription = "插件操作",
-                                                            tint = colors.textSecondary,
-                                                            modifier = Modifier.size(18.dp),
-                                                        )
-                                                    }
-                                                    DropdownMenu(
-                                                        expanded = cardMenuPluginId == menuKey,
-                                                        onDismissRequest = { cardMenuPluginId = null },
-                                                    ) {
-                                                        if (plugin.hasPage) {
-                                                            DropdownMenuItem(
-                                                                text = { Text("打开数据页") },
-                                                                leadingIcon = { Icon(Icons.Rounded.Extension, contentDescription = null) },
-                                                                onClick = {
-                                                                    cardMenuPluginId = null
-                                                                    onOpenPluginDetail(plugin, false)
-                                                                },
-                                                            )
-                                                        }
-                                                        DropdownMenuItem(
-                                                            text = { Text("参数配置") },
-                                                            leadingIcon = { Icon(Icons.Rounded.Tune, contentDescription = null) },
-                                                            onClick = {
-                                                                cardMenuPluginId = null
-                                                                onOpenPluginDetail(plugin, true)
-                                                            },
-                                                        )
-                                                        if (plugin.hasUpdate) {
-                                                            DropdownMenuItem(
-                                                                text = { Text("更新插件版本") },
-                                                                leadingIcon = { Icon(Icons.Rounded.Download, contentDescription = null) },
-                                                                onClick = {
-                                                                    cardMenuPluginId = null
-                                                                    if (!isInstalling) {
-                                                                        scope.launch {
-                                                                            installingIds[plugin.id] = true
-                                                                            val (ok, msg) = repository.installPlugin(
-                                                                                pluginId = plugin.id,
-                                                                                repoUrl = plugin.repoUrl,
-                                                                                force = true,
-                                                                            )
-                                                                            if (ok) reloadBoth()
-                                                                            installingIds.remove(plugin.id)
-                                                                            snackbar?.showSnackbar(msg)
-                                                                        }
-                                                                    }
-                                                                },
-                                                            )
-                                                        }
-                                                        DropdownMenuItem(
-                                                            text = { Text("重置插件数据") },
-                                                            leadingIcon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
-                                                            onClick = {
-                                                                cardMenuPluginId = null
-                                                                pendingResetPlugin = plugin
-                                                            },
-                                                        )
-                                                        DropdownMenuItem(
-                                                            text = { Text("卸载此插件", color = colors.danger) },
-                                                            leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = colors.danger) },
-                                                            onClick = {
-                                                                cardMenuPluginId = null
-                                                                pendingUninstallPlugin = plugin
-                                                            },
-                                                        )
-                                                    }
+                                                IconButton(
+                                                    onClick = { actionSheetPlugin = plugin },
+                                                    modifier = Modifier.size(38.dp),
+                                                ) {
+                                                    Icon(
+                                                        Icons.Rounded.MoreVert,
+                                                        contentDescription = "插件更多操作",
+                                                        tint = colors.textSecondary,
+                                                        modifier = Modifier.size(20.dp),
+                                                    )
                                                 }
                                             }
                                         }
@@ -1396,6 +1352,165 @@ fun PluginsCenterScreen(
                 }
             }
         }
+    }
+
+    // 对齐 iOS 插件卡片上下文菜单的原生 Material 3 底部操作面板（支持点击 `⋮` 或长按卡片呼出）
+    actionSheetPlugin?.let { plugin ->
+        val isInstalling = installingIds[plugin.id] == true
+        val validHomeUrl = plugin.repoUrl.trim().takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        NativeGlassSheet(onDismissRequest = { actionSheetPlugin = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    NativeNetworkEntityLogo(
+                        imageUrl = plugin.icon,
+                        kind = "plugin",
+                        value = plugin.name,
+                        size = 44.dp,
+                        cornerRadius = 12.dp,
+                    )
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(plugin.name, color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "v${plugin.version} · ${plugin.author.ifBlank { "MoviePilot" }}",
+                            color = colors.textSecondary,
+                            fontSize = 12.5.sp,
+                            maxLines = 1,
+                        )
+                    }
+                    NativeAdaptiveBadge(
+                        if (plugin.state) "已启用" else "未启用",
+                        tint = if (plugin.state) colors.success else colors.textMuted,
+                    )
+                }
+
+                CinematicPanel(padding = 4.dp, showsShadow = false) {
+                    Column {
+                        if (plugin.hasPage) {
+                            PluginSheetActionRow(
+                                icon = Icons.Rounded.Extension,
+                                title = "打开数据页",
+                                tint = colors.accent,
+                                onClick = {
+                                    actionSheetPlugin = null
+                                    onOpenPluginDetail(plugin, false)
+                                },
+                            )
+                            HorizontalDivider(color = colors.divider)
+                        }
+                        PluginSheetActionRow(
+                            icon = Icons.Rounded.Tune,
+                            title = "参数配置",
+                            onClick = {
+                                actionSheetPlugin = null
+                                onOpenPluginDetail(plugin, true)
+                            },
+                        )
+                        HorizontalDivider(color = colors.divider)
+                        PluginSheetActionRow(
+                            icon = Icons.Rounded.Description,
+                            title = "查看插件日志",
+                            onClick = {
+                                actionSheetPlugin = null
+                                logSheetPlugin = plugin
+                            },
+                        )
+                        HorizontalDivider(color = colors.divider)
+                        PluginSheetActionRow(
+                            icon = Icons.Rounded.Refresh,
+                            title = "重新加载插件",
+                            onClick = {
+                                actionSheetPlugin = null
+                                scope.launch {
+                                    installingIds[plugin.id] = true
+                                    val (ok, msg) = repository.reloadPlugin(plugin.id)
+                                    if (ok) reloadBoth()
+                                    installingIds.remove(plugin.id)
+                                    snackbar?.showSnackbar(msg)
+                                }
+                            },
+                        )
+                        if (plugin.hasUpdate) {
+                            HorizontalDivider(color = colors.divider)
+                            PluginSheetActionRow(
+                                icon = Icons.Rounded.Download,
+                                title = "更新插件版本",
+                                tint = colors.warning,
+                                onClick = {
+                                    actionSheetPlugin = null
+                                    if (!isInstalling) {
+                                        scope.launch {
+                                            installingIds[plugin.id] = true
+                                            val (ok, msg) = repository.installPlugin(
+                                                pluginId = plugin.id,
+                                                repoUrl = plugin.repoUrl,
+                                                force = true,
+                                            )
+                                            if (ok) reloadBoth()
+                                            installingIds.remove(plugin.id)
+                                            snackbar?.showSnackbar(msg)
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                        if (validHomeUrl != null) {
+                            HorizontalDivider(color = colors.divider)
+                            PluginSheetActionRow(
+                                icon = Icons.Rounded.OpenInNew,
+                                title = "项目主页",
+                                onClick = {
+                                    actionSheetPlugin = null
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(validHomeUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                        HorizontalDivider(color = colors.divider)
+                        PluginSheetActionRow(
+                            icon = Icons.Rounded.RestartAlt,
+                            title = "重置插件数据",
+                            tint = colors.warning,
+                            onClick = {
+                                actionSheetPlugin = null
+                                pendingResetPlugin = plugin
+                            },
+                        )
+                        HorizontalDivider(color = colors.divider)
+                        PluginSheetActionRow(
+                            icon = Icons.Rounded.Delete,
+                            title = "卸载此插件",
+                            tint = colors.danger,
+                            isDanger = true,
+                            onClick = {
+                                actionSheetPlugin = null
+                                pendingUninstallPlugin = plugin
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+        }
+    }
+
+    logSheetPlugin?.let { target ->
+        PluginLogsSheet(
+            plugin = target,
+            repository = repository,
+            onDismiss = { logSheetPlugin = null },
+        )
     }
 
     pendingResetPlugin?.let { target ->
@@ -1499,6 +1614,7 @@ fun PluginDetailScreen(
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var showUninstallConfirm by remember { mutableStateOf(false) }
+    var showPluginLogSheet by remember { mutableStateOf(false) }
     val vueChrome = remember(plugin.id) { VuePluginChromeController(plugin.name) }
 
     suspend fun loadPluginResources() {
@@ -1643,6 +1759,28 @@ fun PluginDetailScreen(
                                 },
                             )
                         }
+                        DropdownMenuItem(
+                            text = { Text("查看插件日志") },
+                            leadingIcon = { Icon(Icons.Rounded.Description, contentDescription = null) },
+                            onClick = {
+                                showOverflowMenu = false
+                                showPluginLogSheet = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("重新加载插件") },
+                            leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
+                            onClick = {
+                                showOverflowMenu = false
+                                scope.launch {
+                                    isInstallingOrMutating = true
+                                    val (ok, msg) = repository.reloadPlugin(plugin.id)
+                                    isInstallingOrMutating = false
+                                    if (ok) loadPluginResources()
+                                    snackbar?.showSnackbar(msg)
+                                }
+                            },
+                        )
                         DropdownMenuItem(
                             text = { Text("刷新插件数据") },
                             leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
@@ -1874,6 +2012,14 @@ fun PluginDetailScreen(
     }
     }
 
+    if (showPluginLogSheet) {
+        PluginLogsSheet(
+            plugin = plugin,
+            repository = repository,
+            onDismiss = { showPluginLogSheet = false },
+        )
+    }
+
     if (showResetConfirm) {
         AlertDialog(
             onDismissRequest = { showResetConfirm = false },
@@ -1983,6 +2129,117 @@ fun PluginDetailScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun PluginSheetActionRow(
+    icon: ImageVector,
+    title: String,
+    tint: Color? = null,
+    isDanger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val resolvedTint = tint ?: colors.textPrimary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = resolvedTint, modifier = Modifier.size(20.dp))
+        Text(
+            text = title,
+            color = if (isDanger) colors.danger else colors.textPrimary,
+            fontSize = 15.sp,
+            fontWeight = if (isDanger) FontWeight.SemiBold else FontWeight.Medium,
+        )
+    }
+}
+
+/**
+ * 插件专属实时日志查看底部弹窗（对齐 iOS `NativePluginLogSheet`：`GET /api/v1/system/logging?length=200&logfile=plugins/{id}.log`）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PluginLogsSheet(
+    plugin: PluginItemDto,
+    repository: MoviePilotRepository,
+    onDismiss: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val scope = rememberCoroutineScope()
+    var lines by remember(plugin.id) { mutableStateOf<List<String>>(emptyList()) }
+    var loading by remember(plugin.id) { mutableStateOf(true) }
+
+    suspend fun reloadLogs() {
+        loading = true
+        lines = repository.fetchPluginLogs(plugin.id, length = 200)
+        loading = false
+    }
+
+    LaunchedEffect(plugin.id) { reloadLogs() }
+
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("${plugin.name} · 运行日志", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("plugins/${plugin.id.lowercase()}.log", color = colors.textMuted, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace)
+                }
+                NativeAdaptivePill(
+                    title = if (loading) "刷新中" else "刷新",
+                    selected = false,
+                    icon = Icons.Rounded.Refresh,
+                    onClick = { if (!loading) scope.launch { reloadLogs() } },
+                )
+            }
+
+            if (loading && lines.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = colors.accent, strokeWidth = 2.5.dp, modifier = Modifier.size(26.dp))
+                }
+            } else if (lines.isEmpty()) {
+                CinematicPanel(padding = 20.dp, showsShadow = false) {
+                    Text("当前插件暂无输出日志记录。", color = colors.textSecondary, fontSize = 13.5.sp)
+                }
+            } else {
+                CinematicPanel(padding = 10.dp, showsShadow = false, modifier = Modifier.weight(1f, fill = false)) {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        items(lines.size) { i ->
+                            val ln = lines[i]
+                            val upper = ln.uppercase()
+                            val lineColor = when {
+                                "ERROR" in upper || "CRITICAL" in upper -> colors.danger
+                                "WARN" in upper -> colors.warning
+                                "DEBUG" in upper -> colors.textMuted
+                                else -> colors.textPrimary
+                            }
+                            Text(
+                                text = ln,
+                                color = lineColor,
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
     }
 }
 

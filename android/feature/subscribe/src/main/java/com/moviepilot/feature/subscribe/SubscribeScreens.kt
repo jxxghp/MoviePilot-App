@@ -5,9 +5,11 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,8 +95,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -151,7 +155,7 @@ import java.time.format.DateTimeFormatter
  * - 卡片配备 Android 标准尾部 `⋮` 溢出菜单；暂停/恢复订阅时触发底部非阻塞 Snackbar，支持一键「撤销」；
  * - 删除操作使用 Material 3 `AlertDialog` 确认。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SubscriptionsScreen(
     repository: MoviePilotRepository,
@@ -165,6 +169,7 @@ fun SubscriptionsScreen(
     onOpenServerItem: ((itemId: String, server: String, fallbackTitle: String) -> Unit)? = null,
 ) {
     val colors = LocalMoviePilotColors.current
+    val haptic = LocalHapticFeedback.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val margin = AdaptiveDeviceLayout.horizontalMargin()
@@ -185,6 +190,7 @@ fun SubscriptionsScreen(
     var editingItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
     var viewingFilesItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
     var confirmDeleteItem by remember { mutableStateOf<SubscribeItemDto?>(null) }
+    var actionSheetSub by remember { mutableStateOf<SubscribeItemDto?>(null) }
 
     suspend fun loadSubs(forceRefresh: Boolean = true) {
         items = repository.fetchSubscriptions(forceRefresh = forceRefresh)
@@ -339,7 +345,13 @@ fun SubscriptionsScreen(
 
                             CinematicPanel(
                                 padding = 14.dp,
-                                modifier = Modifier.clickable { viewingFilesItem = sub },
+                                modifier = Modifier.combinedClickable(
+                                    onClick = { viewingFilesItem = sub },
+                                    onLongClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        actionSheetSub = sub
+                                    },
+                                ),
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -472,6 +484,127 @@ fun SubscriptionsScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // 长按订阅卡片弹出的 Material 3 原生快捷操作菜单
+    actionSheetSub?.let { target ->
+        NativeGlassSheet(onDismissRequest = { actionSheetSub = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(target.name, color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    listOfNotNull(target.year.takeIf(String::isNotBlank), target.type, if (target.state == "S") "已暂停" else "订阅中").joinToString(" · "),
+                    color = colors.textSecondary,
+                    fontSize = 12.5.sp,
+                )
+                Spacer(Modifier.height(4.dp))
+                CinematicPanel(padding = 4.dp, showsShadow = false) {
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    actionSheetSub = null
+                                    viewingFilesItem = target
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                            Text("查看关联下载与媒体库文件", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        }
+                        HorizontalDivider(color = colors.divider)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    actionSheetSub = null
+                                    onOpenMedia(
+                                        MediaCardItem(
+                                            title = target.name,
+                                            year = target.year,
+                                            type = target.type,
+                                            posterPath = target.poster,
+                                            backdropPath = target.backdrop,
+                                            voteAverage = target.vote,
+                                            source = target.mediaSource,
+                                            mediaId = target.mediaId,
+                                            season = target.season,
+                                        ),
+                                    )
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(Icons.Rounded.VideoLibrary, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                            Text("查看影视详情", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        }
+                        HorizontalDivider(color = colors.divider)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    actionSheetSub = null
+                                    editingItem = target
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(Icons.Rounded.Edit, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                            Text("编辑订阅规则", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        }
+                        HorizontalDivider(color = colors.divider)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    actionSheetSub = null
+                                    toggleSubWithUndo(target)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(
+                                if (target.state == "S") Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                                contentDescription = null,
+                                tint = colors.textPrimary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                if (target.state == "S") "恢复订阅" else "暂停订阅",
+                                color = colors.textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        HorizontalDivider(color = colors.divider)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    actionSheetSub = null
+                                    confirmDeleteItem = target
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(Icons.Rounded.Delete, contentDescription = null, tint = colors.danger, modifier = Modifier.size(20.dp))
+                            Text("删除此订阅", color = colors.danger, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
             }
         }
     }
@@ -1025,6 +1158,7 @@ fun CalendarScreen(
     onOpenMedia: (MediaCardItem) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
+    val haptic = LocalHapticFeedback.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
     val margin = AdaptiveDeviceLayout.horizontalMargin()
@@ -1357,19 +1491,25 @@ private fun SubscribeCommunityContent(
 
     Column(modifier = modifier) {
         if (!hideInternalTabRow) {
-            Spacer(Modifier.height(10.dp))
-            Box(modifier = Modifier.padding(horizontal = margin)) {
-                ExpressivePillTabRow(
-                    tabs = tabLabels,
-                    selectedIndex = selectedIdx,
-                    onSelect = {
-                        internalIdx = it
-                        onExternalTabSelect?.invoke(it)
-                    },
-                    onTintedHeader = false,
-                )
+            val compactHeight = AdaptiveDeviceLayout.isCompactHeight()
+            LazyRow(
+                contentPadding = PaddingValues(
+                    horizontal = margin,
+                    vertical = if (compactHeight) 6.dp else 10.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(tabLabels.size) { idx ->
+                    NativeAdaptivePill(
+                        title = tabLabels[idx],
+                        selected = selectedIdx == idx,
+                        onClick = {
+                            internalIdx = idx
+                            onExternalTabSelect?.invoke(idx)
+                        },
+                    )
+                }
             }
-            Spacer(Modifier.height(10.dp))
         } else {
             Spacer(Modifier.height(14.dp))
         }
@@ -2381,6 +2521,7 @@ fun SubscribeHistoryScreen(
     onOpenMedia: (MediaCardItem) -> Unit = {},
 ) {
     val colors = LocalMoviePilotColors.current
+    val haptic = LocalHapticFeedback.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
     val cardCols = AdaptiveDeviceLayout.cardGridColumns()

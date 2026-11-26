@@ -21,6 +21,7 @@
     { "url": "moviepilot://workflow", "kind": "workflows" },
     { "url": "moviepilot://sites", "kind": "sites" },
     { "url": "moviepilot://plugins/installed", "kind": "plugins", "installedOnly": true },
+    { "url": "moviepilot://plugin/BrushFlow?surface=data", "kind": "pluginDetail" },
     { "url": "moviepilot://messages", "kind": "messages" },
     { "url": "moviepilot://open?path=%2F%3Fshotcut%3Dmessage", "kind": "messages" },
     { "url": "moviepilot-app://notification?origin=https%3A%2F%2Fmp.example.test&route=%2F%3Fshotcut%3Dmessage&owner=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "kind": "messages" },

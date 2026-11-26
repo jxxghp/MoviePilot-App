@@ -280,7 +280,7 @@ fun LocalPluginShellWebView(
                 dismissHostPage()
             }
             pendingBackFallback.value = fallback
-            backHandler.postDelayed(fallback, 350L)
+            backHandler.postDelayed(fallback, 500L)
             slot.bridge.sendNavBack()
             true
         }
@@ -314,7 +314,125 @@ fun LocalPluginShellWebView(
 
         activeSlot?.let { old ->
             activeSlot = null
-            AndroidPluginWebViewPool.release(old, context)
+            if (!AndroidPluginCapsuleManager.isSlotParked(old)) {
+                AndroidPluginWebViewPool.release(old, context)
+            }
+        }
+
+        fun bindLiveSlotCallbacks(slot: PooledAndroidPluginWebView, resolvedPluginName: String) {
+            slot.bridge.nativeCapabilities.activityHost = activityHost
+            slot.bridge.onOpenRoute = { deepLink ->
+                activityHost.openDeepLink(deepLink)
+            }
+            slot.bridge.onPluginMounted = { _, _ ->
+                isMounted = true
+                errorMessage = null
+                chromeController?.isReady = true
+            }
+            slot.bridge.onPluginError = { _, msg, _ ->
+                isMounted = false
+                errorMessage = msg
+                chromeController?.isReady = false
+            }
+            slot.bridge.onPluginClose = {
+                dismissHostPage()
+            }
+            slot.bridge.onPluginMinimize = { reqId, payload ->
+                val keepOutside = (payload["keepOutsideApp"] as? JsonPrimitive)?.let { it.content == "true" } ?: false
+                val reqOverlay = (payload["requestOverlayPermission"] as? JsonPrimitive)?.let { it.content == "true" } ?: false
+                val overlayGranted = AndroidPluginCapsuleManager.canDrawSystemOverlays(context)
+                if (keepOutside && reqOverlay && !overlayGranted) {
+                    AndroidPluginCapsuleManager.openOverlayPermissionSettings(context)
+                }
+                val snap = PluginCapsuleSnapshot.fromMinimizePayload(
+                    pluginId = pluginId,
+                    fallbackName = chromeController?.title?.takeIf { it.isNotBlank() } ?: resolvedPluginName,
+                    payload = payload,
+                )
+                if (reqId.isNotBlank()) {
+                    slot.bridge.sendSimpleSuccess(
+                        reqId,
+                        "minimized" to true,
+                        "overlaySupported" to true,
+                        "overlayGranted" to overlayGranted,
+                    )
+                }
+                AndroidPluginCapsuleManager.parkSession(
+                    context = context,
+                    session = MinimizedAndroidPluginSession(
+                        pluginId = pluginId,
+                        pluginName = snap.pluginName,
+                        surface = surface,
+                        pluginHasPage = pluginHasPage,
+                        serverUrl = session.serverUrl,
+                        slot = slot,
+                        snapshot = snap,
+                    ),
+                )
+                activeSlot = null
+                dismissHostPage()
+            }
+            slot.bridge.onCapsuleUpdate = { patch ->
+                AndroidPluginCapsuleManager.updateActiveSnapshot(patch)
+            }
+            slot.bridge.onPluginRestore = { reqId ->
+                if (reqId.isNotBlank()) {
+                    slot.bridge.sendSimpleSuccess(reqId, "restored" to true)
+                }
+            }
+            slot.bridge.onNavBackResult = { handled ->
+                pendingBackFallback.value?.let { backHandler.removeCallbacks(it) }
+                pendingBackFallback.value = null
+                if (!handled) {
+                    dismissHostPage()
+                }
+            }
+            slot.bridge.onHeaderUpdate = { title, actions ->
+                if (chromeController != null) {
+                    if (title.isNotBlank()) chromeController.title = title
+                    chromeController.actions = actions
+                }
+            }
+            slot.bridge.onToast = { toast ->
+                activeToast = toast
+            }
+            slot.bridge.onConfirm = { conf ->
+                if (chromeController != null) {
+                    chromeController.confirmation = conf
+                } else {
+                    standaloneConfirm = conf
+                }
+            }
+            slot.onRenderProcessGone = {
+                isMounted = false
+                errorMessage = "插件渲染进程异常中断，请重新加载。"
+                chromeController?.isReady = false
+            }
+
+            if (chromeController != null) {
+                chromeController.invokeActionHandler = { aid -> slot.bridge.sendHostAction(aid) }
+                chromeController.requestCloseHandler = {
+                    dispatchNavBackOrDismiss()
+                }
+                chromeController.respondConfirmationHandler = { cid, confirmed ->
+                    slot.bridge.sendConfirmResult(cid, confirmed)
+                }
+            }
+        }
+
+        // 若该插件正处于最小化胶囊保活状态，零重载直接恢复原 WebView 实例
+        val resumed = AndroidPluginCapsuleManager.consumeMatchingSession(pluginId, session.serverUrl)
+        if (resumed != null) {
+            val slot = resumed.slot
+            slot.interceptor.updateSession(session)
+            slot.bridge.updateSession(session)
+            activeSlot = slot
+            bindLiveSlotCallbacks(slot, resumed.pluginName)
+            slot.bridge.sendVisualTokens(visualTokens)
+            isMounted = true
+            errorMessage = null
+            chromeController?.isReady = true
+            return@LaunchedEffect
         }
 
         val remoteResult = withContext(Dispatchers.IO) {
@@ -335,64 +453,8 @@ fun LocalPluginShellWebView(
         }
 
         val slot = AndroidPluginWebViewPool.acquire(context, session)
-        slot.bridge.nativeCapabilities.activityHost = activityHost
         activeSlot = slot
-
-        slot.bridge.onOpenRoute = { deepLink ->
-            activityHost.openDeepLink(deepLink)
-        }
-
-        slot.bridge.onPluginMounted = { _, _ ->
-            isMounted = true
-            errorMessage = null
-            chromeController?.isReady = true
-        }
-        slot.bridge.onPluginError = { _, msg, _ ->
-            isMounted = false
-            errorMessage = msg
-            chromeController?.isReady = false
-        }
-        slot.bridge.onPluginClose = {
-            dismissHostPage()
-        }
-        slot.bridge.onNavBackResult = { handled ->
-            pendingBackFallback.value?.let { backHandler.removeCallbacks(it) }
-            pendingBackFallback.value = null
-            if (!handled) {
-                dismissHostPage()
-            }
-        }
-        slot.bridge.onHeaderUpdate = { title, actions ->
-            if (chromeController != null) {
-                if (title.isNotBlank()) chromeController.title = title
-                chromeController.actions = actions
-            }
-        }
-        slot.bridge.onToast = { toast ->
-            activeToast = toast
-        }
-        slot.bridge.onConfirm = { conf ->
-            if (chromeController != null) {
-                chromeController.confirmation = conf
-            } else {
-                standaloneConfirm = conf
-            }
-        }
-        slot.onRenderProcessGone = {
-            isMounted = false
-            errorMessage = "插件渲染进程异常中断，请重新加载。"
-            chromeController?.isReady = false
-        }
-
-        if (chromeController != null) {
-            chromeController.invokeActionHandler = { aid -> slot.bridge.sendHostAction(aid) }
-            chromeController.requestCloseHandler = {
-                dispatchNavBackOrDismiss()
-            }
-            chromeController.respondConfirmationHandler = { cid, confirmed ->
-                slot.bridge.sendConfirmResult(cid, confirmed)
-            }
-        }
+        bindLiveSlotCallbacks(slot, descriptor.name ?: pluginId)
 
         val mountPayload = buildMountPayload(
             pluginId = pluginId,
@@ -417,7 +479,9 @@ fun LocalPluginShellWebView(
             chromeController?.respondConfirmationHandler = null
             activeSlot?.let { slot ->
                 activeSlot = null
-                AndroidPluginWebViewPool.release(slot, context)
+                if (!AndroidPluginCapsuleManager.isSlotParked(slot)) {
+                    AndroidPluginWebViewPool.release(slot, context)
+                }
             }
         }
     }

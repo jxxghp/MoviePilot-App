@@ -29,6 +29,7 @@
     "safeArea.update",
     "nav.back",
     "host.action",
+    "capsule.action",
     "bridge.response",
     "device.event"
   ],
@@ -37,6 +38,9 @@
     "plugin.mounted",
     "plugin.error",
     "plugin.close",
+    "plugin.minimize",
+    "plugin.capsule.update",
+    "plugin.restore",
     "plugin.action",
     "api.request",
     "api.abort",
@@ -85,7 +89,9 @@
     "audio.play.progress",
     "audio.play.ended",
     "audio.play.error",
-    "audio.remoteCommand"
+    "audio.remoteCommand",
+    "capsule.action",
+    "capsule.state"
   ],
   "visualTokens": {
     "requiredFields": [

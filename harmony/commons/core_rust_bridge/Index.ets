@@ -80,6 +80,8 @@ export {
   MpTransferHistoryItem,
   MpWorkflowItem,
   MpPluginItem,
+  MpRecommendSource,
+  MpOperationOutcome,
   MpUserItem,
   MpMessageItem,
   MpMediaServerLibrary,

@@ -679,6 +679,29 @@ export struct HarmonySubscriptionsPage {
   }
 
   @Builder
+  private subscribeCardMenuBuilder(sub: MpSubscribeItem) {
+    Menu() {
+      MenuItem({ content: '查看关联文件' })
+        .onClick(() => { this.openFilesSheet(sub); })
+      MenuItem({ content: '查看媒体详情' })
+        .onClick(() => { this.openSubMediaDetail(sub); })
+      MenuItem({ content: '编辑订阅规则' })
+        .onClick(() => { this.openEditor(sub); })
+      MenuItem({ content: sub.state === 'S' ? '恢复订阅' : '暂停订阅' })
+        .onClick(async () => {
+          await MoviePilotRepository.shared().toggleSubscribeState(sub);
+          await this.loadSubscriptions();
+        })
+      MenuItem({ content: '删除订阅' })
+        .contentFontColor('#E84855')
+        .onClick(() => {
+          this.confirmDeleteSub = sub;
+          this.showDeleteConfirm = true;
+        })
+    }
+  }
+
+  @Builder
   editorSheetBuilder() {
     Column({ space: 12 }) {
       HarmonySheetHeader({
@@ -2178,6 +2201,7 @@ export struct HarmonySubscriptionsPage {
                   }
                   .width('100%')
                   .onClick(() => { this.openFilesSheet(sub); })
+                  .bindContextMenu(this.subscribeCardMenuBuilder(sub), ResponseType.LongPress)
                 }
               }, (sub: MpSubscribeItem) => `${sub.id}_${sub.state}_${sub.lackEpisode}`)
             }

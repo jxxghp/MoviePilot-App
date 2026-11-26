@@ -596,6 +596,7 @@ struct NativeDiscoverPage: View {
       case .latest: railsByID["latest"] != nil
       case .mediaLibrary: hasLibrary && !content.providers.isEmpty
       case .categories: !content.categories.isEmpty
+      default: railsByID[module.rawValue] != nil
       }
     }
     ForEach(activeModules, id: \.self) { module in
@@ -620,11 +621,16 @@ struct NativeDiscoverPage: View {
         mediaLibrarySection
       case .categories:
         categoriesSection
+      default:
+        if let rail = railsByID[module.rawValue] { posterRail(rail) }
       }
     }
-    let knownRailIDs: Set<String> = [
-      "movies", "television", "trending", "doubanMusic", "doubanShowing", "doubanTop250", "latest",
-    ]
+    let knownRailIDs: Set<String> = Set(
+      [
+        "movies", "television", "trending", "doubanMusic", "doubanShowing", "doubanTop250",
+        "latest",
+      ] + activeModules.map(\.rawValue)
+    )
     let extraRails = populatedRails.filter { !knownRailIDs.contains($0.id) }
     if !extraRails.isEmpty {
       ForEach(extraRails) { rail in

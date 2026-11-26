@@ -62,6 +62,7 @@ import {
 import { CommunityMedal3DComponent } from '@moviepilot/medal_3d';
 import {
   HarmonyVueChromeController,
+  HarmonyPluginCapsuleManager,
   NativePluginDataPageView,
   NativePluginHostView,
   VueChromeAction
@@ -169,8 +170,10 @@ export struct HarmonyPluginsPage {
   @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
+  @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) safeTopVp: number = 38;
   @StorageProp('mp_plugin_detail_close_req') @Watch('onExternalCloseDetailReq') closeDetailReq: number = 0;
+  @StorageProp('mp_pending_open_plugin_id') @Watch('onPendingOpenPluginChanged') pendingOpenPluginSpec: string = '';
   @Prop serverUrl: string = '';
   @Prop userName: string = 'admin';
   @Prop userAvatar: string = '';
@@ -194,6 +197,12 @@ export struct HarmonyPluginsPage {
   @State private chromeTitle: string = '';
   @State private chromeActions: VueChromeAction[] = [];
   @State private saveNotice: string = '';
+  @State private showPluginActionSheet: boolean = false;
+  @State private actionTargetPlugin: MpPluginItem | null = null;
+  @State private showPluginLogSheet: boolean = false;
+  @State private logTargetPlugin: MpPluginItem | null = null;
+  @State private pluginLogLines: string[] = [];
+  @State private loadingPluginLogs: boolean = false;
   private vueChromeController: HarmonyVueChromeController = new HarmonyVueChromeController();
   onBack: () => void = () => {};
 
@@ -224,6 +233,26 @@ export struct HarmonyPluginsPage {
       this.installedPlugins = [];
     }
     this.loading = false;
+    this.consumePendingOpenPluginIfNeeded();
+  }
+
+  onPendingOpenPluginChanged(): void {
+    this.consumePendingOpenPluginIfNeeded();
+  }
+
+  private consumePendingOpenPluginIfNeeded(): void {
+    const raw = (AppStorage.get<string>('mp_pending_open_plugin_id') ?? '').trim();
+    if (raw.length === 0 || this.installedPlugins.length === 0) {
+      return;
+    }
+    const parts = raw.split('|');
+    const targetId = (parts[0] ?? '').trim();
+    const openConfigFirst = (parts[1] ?? '') === 'config';
+    const matched = this.installedPlugins.find((p: MpPluginItem) => p.id.toLowerCase() === targetId.toLowerCase());
+    AppStorage.setOrCreate('mp_pending_open_plugin_id', '');
+    if (matched) {
+      this.openPluginDetail(matched, openConfigFirst);
+    }
   }
 
   private async loadMarketIfNeeded(force: boolean = false): Promise<void> {
@@ -337,6 +366,17 @@ export struct HarmonyPluginsPage {
   }
 
   private async openPluginDetail(pl: MpPluginItem, openConfigFirst: boolean = false): Promise<void> {
+    const targetSurface = (pl.hasPage && !openConfigFirst) ? 'dataPage' : 'config';
+    if (pl.renderMode.toLowerCase() === 'vue') {
+      HarmonyPluginCapsuleManager.shared().openPlugin(
+        pl.id,
+        pl.pluginName,
+        targetSurface,
+        pl.hasPage,
+        pl.iconUrl ?? ''
+      );
+      return;
+    }
     this.activePlugin = pl;
     this.syncDetailBackFlag(true);
     this.chromeTitle = pl.pluginName;
@@ -345,12 +385,6 @@ export struct HarmonyPluginsPage {
     this.forceWebView = false;
     this.usingLegacyFallback = false;
     this.detailTabIndex = (pl.hasPage && !openConfigFirst) ? 0 : 1;
-    if (pl.renderMode.toLowerCase() === 'vue') {
-      this.activeFormDoc = '{"render_mode":"vue"}';
-      this.activePageDoc = '{"render_mode":"vue"}';
-      this.loadingDetail = false;
-      return;
-    }
     this.loadingDetail = true;
     const repo = MoviePilotRepository.shared();
     try {
@@ -365,6 +399,17 @@ export struct HarmonyPluginsPage {
       this.activePageDoc = '{}';
     }
     this.loadingDetail = false;
+    if (this.isDetectedVuePlugin()) {
+      this.activePlugin = null;
+      this.syncDetailBackFlag(false);
+      HarmonyPluginCapsuleManager.shared().openPlugin(
+        pl.id,
+        pl.pluginName,
+        targetSurface,
+        pl.hasPage,
+        pl.iconUrl ?? ''
+      );
+    }
   }
 
   private isDetectedVuePlugin(): boolean {
@@ -394,21 +439,219 @@ export struct HarmonyPluginsPage {
     this.usingLegacyFallback = false;
   }
 
-  @Builder
-  private installedCardMenuBuilder(pl: MpPluginItem) {
-    Menu() {
-      if (pl.hasPage) {
-        MenuItem({ content: '打开数据页' })
-          .onClick(() => { this.openPluginDetail(pl, false); })
-      }
-      MenuItem({ content: '参数配置' })
-        .onClick(() => { this.openPluginDetail(pl, true); })
-      MenuItem({ content: '重置插件' })
-        .onClick(() => { this.confirmResetPluginItem(pl); })
-      MenuItem({ content: '卸载插件' })
-        .contentFontColor('#E84855')
-        .onClick(() => { this.confirmUninstallPluginItem(pl); })
+  private openActionSheetForPlugin(pl: MpPluginItem): void {
+    this.actionTargetPlugin = pl;
+    this.showPluginActionSheet = true;
+  }
+
+  private async handleReloadPluginItem(pl: MpPluginItem): Promise<void> {
+    if (this.actionBusy) { return; }
+    this.actionBusy = true;
+    const res = await MoviePilotRepository.shared().reloadPlugin(pl.id);
+    this.actionBusy = false;
+    this.listNotice = res.ok ? `已重新加载插件「${pl.pluginName}」` : res.message;
+    if (res.ok) {
+      await this.loadInstalled();
     }
+  }
+
+  private async openLogsForPlugin(pl: MpPluginItem): Promise<void> {
+    this.logTargetPlugin = pl;
+    this.pluginLogLines = [];
+    this.loadingPluginLogs = true;
+    this.showPluginLogSheet = true;
+    this.pluginLogLines = await MoviePilotRepository.shared().fetchPluginLogs(pl.id, 200);
+    this.loadingPluginLogs = false;
+  }
+
+  private logLineColor(line: string): ResourceColor {
+    const upper = line.toUpperCase();
+    if (upper.includes('ERROR') || upper.includes('CRITICAL')) { return '#E84855'; }
+    if (upper.includes('WARN')) { return '#F29B38'; }
+    if (upper.includes('DEBUG')) { return mpSecondaryText(this.isDark); }
+    return mpPrimaryText(this.isDark);
+  }
+
+  @Builder
+  private pluginActionSheetBuilder() {
+    Column({ space: 12 }) {
+      if (this.actionTargetPlugin) {
+        HarmonySheetHeader({
+          title: this.actionTargetPlugin.pluginName,
+          cancelText: '关闭',
+          onCancel: () => { this.showPluginActionSheet = false; }
+        })
+
+        Row({ space: 10 }) {
+          HarmonyPluginCardIcon({
+            iconUrl: this.actionTargetPlugin.iconUrl,
+            pluginName: this.actionTargetPlugin.pluginName
+          })
+          Column({ space: 3 }) {
+            Text(`v${this.actionTargetPlugin.pluginVersion || '1.0.0'} · 作者 ${this.actionTargetPlugin.pluginAuthor || 'MoviePilot'}`)
+              .fontSize(12.5)
+              .fontColor(mpSecondaryText(this.isDark))
+            if (this.actionTargetPlugin.pluginDesc.length > 0) {
+              Text(this.actionTargetPlugin.pluginDesc)
+                .fontSize(12)
+                .fontColor(mpSecondaryText(this.isDark))
+                .maxLines(2)
+            }
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+        }
+        .width('100%')
+
+        CinematicPanel({ panelPadding: 6, cornerRadius: 18 }) {
+          Column() {
+            if (this.actionTargetPlugin.hasPage) {
+              Row({ space: 10 }) {
+                SymbolGlyph($r('sys.symbol.doc_plaintext')).fontSize(17).fontColor([this.accentHex])
+                Text('打开数据页').fontSize(15).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+              }
+              .width('100%')
+              .padding({ left: 12, right: 12, top: 13, bottom: 13 })
+              .onClick(() => {
+                const target = this.actionTargetPlugin;
+                this.showPluginActionSheet = false;
+                if (target) { this.openPluginDetail(target, false); }
+              })
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+            }
+
+            Row({ space: 10 }) {
+              SymbolGlyph($r('sys.symbol.slider_horizontal_2')).fontSize(17).fontColor([mpPrimaryText(this.isDark)])
+              Text('参数配置').fontSize(15).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 13, bottom: 13 })
+            .onClick(() => {
+              const target = this.actionTargetPlugin;
+              this.showPluginActionSheet = false;
+              if (target) { this.openPluginDetail(target, true); }
+            })
+            Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+            Row({ space: 10 }) {
+              SymbolGlyph($r('sys.symbol.doc_text')).fontSize(17).fontColor([mpPrimaryText(this.isDark)])
+              Text('查看插件日志').fontSize(15).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 13, bottom: 13 })
+            .onClick(() => {
+              const target = this.actionTargetPlugin;
+              this.showPluginActionSheet = false;
+              if (target) {
+                setTimeout(() => { this.openLogsForPlugin(target); }, 140);
+              }
+            })
+            Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+            Row({ space: 10 }) {
+              SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(17).fontColor([mpPrimaryText(this.isDark)])
+              Text('重新加载插件').fontSize(15).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 13, bottom: 13 })
+            .onClick(() => {
+              const target = this.actionTargetPlugin;
+              this.showPluginActionSheet = false;
+              if (target) { this.handleReloadPluginItem(target); }
+            })
+            Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+            Row({ space: 10 }) {
+              SymbolGlyph($r('sys.symbol.arrow_counterclockwise')).fontSize(17).fontColor(['#F29B38'])
+              Text('重置插件数据').fontSize(15).fontWeight(FontWeight.Medium).fontColor('#F29B38').layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 13, bottom: 13 })
+            .onClick(() => {
+              const target = this.actionTargetPlugin;
+              this.showPluginActionSheet = false;
+              if (target) {
+                setTimeout(() => { this.confirmResetPluginItem(target); }, 120);
+              }
+            })
+            Divider().color(HarmonyThemeColors.divider(this.isDark))
+
+            Row({ space: 10 }) {
+              SymbolGlyph($r('sys.symbol.trash')).fontSize(17).fontColor(['#E84855'])
+              Text('卸载此插件').fontSize(15).fontWeight(FontWeight.Bold).fontColor('#E84855').layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 13, bottom: 13 })
+            .onClick(() => {
+              const target = this.actionTargetPlugin;
+              this.showPluginActionSheet = false;
+              if (target) {
+                setTimeout(() => { this.confirmUninstallPluginItem(target); }, 120);
+              }
+            })
+          }
+        }
+      }
+    }
+    .padding({ left: 20, right: 20, top: 14, bottom: 28 })
+    .width('100%')
+  }
+
+  @Builder
+  private pluginLogSheetBuilder() {
+    Column({ space: 12 }) {
+      HarmonySheetHeader({
+        title: this.logTargetPlugin ? `${this.logTargetPlugin.pluginName} · 日志` : '插件日志',
+        cancelText: '关闭',
+        actionText: this.loadingPluginLogs ? '加载中' : '刷新',
+        actionEnabled: !this.loadingPluginLogs,
+        onCancel: () => { this.showPluginLogSheet = false; },
+        onAction: () => {
+          if (this.logTargetPlugin) {
+            this.openLogsForPlugin(this.logTargetPlugin);
+          }
+        }
+      })
+
+      if (this.loadingPluginLogs && this.pluginLogLines.length === 0) {
+        Column({ space: 8 }) {
+          LoadingProgress().width(28).height(28).color(this.accentHex)
+          Text('正在读取插件日志…').fontSize(12.5).fontColor(mpSecondaryText(this.isDark))
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.pluginLogLines.length === 0) {
+        Column({ space: 8 }) {
+          SymbolGlyph($r('sys.symbol.doc_plaintext')).fontSize(34).fontColor([mpSecondaryText(this.isDark)])
+          Text('当前插件暂无输出日志记录').fontSize(13.5).fontColor(mpSecondaryText(this.isDark))
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else {
+        Scroll() {
+          Column({ space: 6 }) {
+            ForEach(this.pluginLogLines, (ln: string, idx: number) => {
+              Text(ln)
+                .fontSize(11.5)
+                .fontColor(this.logLineColor(ln))
+                .width('100%')
+            }, (ln: string, idx: number) => `${idx}_${ln.length}`)
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+          .padding(12)
+        }
+        .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+        .borderRadius(16)
+        .layoutWeight(1)
+        .width('100%')
+      }
+    }
+    .padding({ left: 20, right: 20, top: 14, bottom: 24 })
+    .width('100%')
+    .height('100%')
   }
 
   build() {
@@ -633,13 +876,14 @@ export struct HarmonyPluginsPage {
                           })
                           Button({ type: ButtonType.Circle }) {
                             SymbolGlyph($r('sys.symbol.dot_grid_1x2'))
-                              .fontSize(15)
+                              .fontSize(16)
                               .fontColor([mpSecondaryText(this.isDark)])
                           }
-                          .width(28)
-                          .height(28)
+                          .width(34)
+                          .height(34)
                           .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                          .bindMenu(this.installedCardMenuBuilder(pl))
+                          .accessibilityText(`更多操作 ${pl.pluginName}`)
+                          .onClick(() => { this.openActionSheetForPlugin(pl); })
                         }
                       } else if (pl.installed || this.isInstalledInList(pl.id)) {
                         NativeAdaptiveBadge({ text: '已安装', tintHex: '#34C759' })
@@ -655,6 +899,17 @@ export struct HarmonyPluginsPage {
                   }
                 }
                 .width('100%')
+                .gesture(
+                  LongPressGesture({ repeat: false })
+                    .onAction(() => {
+                      if (this.activeTabIdx === 0) {
+                        this.openActionSheetForPlugin(pl);
+                      } else if (this.isInstalledInList(pl.id)) {
+                        const installed = this.installedPlugins.find((x: MpPluginItem) => x.id === pl.id);
+                        if (installed) { this.openActionSheetForPlugin(installed); }
+                      }
+                    })
+                )
                 .onClick(() => {
                   if (this.activeTabIdx === 0) {
                     this.openPluginDetail(pl);
@@ -673,6 +928,24 @@ export struct HarmonyPluginsPage {
           .scrollBar(BarState.Off)
           .layoutWeight(1)
         }
+
+        Blank().width(0).height(0).bindSheet($$this.showPluginActionSheet, this.pluginActionSheetBuilder(), {
+          detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+          preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
+          blurStyle: BlurStyle.COMPONENT_THIN,
+          dragBar: true,
+          showClose: false,
+          backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+        })
+
+        Blank().width(0).height(0).bindSheet($$this.showPluginLogSheet, this.pluginLogSheetBuilder(), {
+          detents: [SheetSize.LARGE],
+          preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
+          blurStyle: BlurStyle.COMPONENT_THIN,
+          dragBar: true,
+          showClose: false,
+          backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+        })
       }
       .width('100%')
       .height('100%')

@@ -754,6 +754,19 @@ export interface MpAgentAttachment {
   sizeBytes: number;
 }
 
+/** 插件通过 `ChainEventType.RecommendSource` 动态注册的推荐榜单来源（`GET /api/v1/recommend/source`）。 */
+export interface MpRecommendSource {
+  name: string;
+  apiPath: string;
+  type: string;
+}
+
+/** 通用布尔执行结果与提示消息。 */
+export interface MpOperationOutcome {
+  ok: boolean;
+  message: string;
+}
+
 export interface MpAgentChoiceButton {
   label: string;
   value: string;
@@ -3192,6 +3205,194 @@ export class MoviePilotRepository {
   async resetPlugin(pluginId: string): Promise<boolean> {
     const resp = await this.get(['plugin', 'reset', pluginId]);
     return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 重新加载插件运行时（`POST /api/v1/plugin/reload/{pluginId}`）。 */
+  async reloadPlugin(pluginId: string): Promise<MpOperationOutcome> {
+    const resp = await this.postJson(['plugin', 'reload', pluginId], '{}');
+    const rec = asRec(parseJsonSafe(resp.body));
+    const ok = rec && rec['success'] !== undefined
+      ? boolVal(rec, 'success', false)
+      : (resp.status >= 200 && resp.status < 300);
+    const msg = strVal(rec, 'message') || (ok ? '插件已重新加载' : '重新加载插件失败，请查看插件日志');
+    return { ok: ok, message: msg };
+  }
+
+  /** 读取插件专属运行日志（`GET /api/v1/system/logging?length=200&logfile=plugins/{id}.log`）。 */
+  async fetchPluginLogs(pluginId: string, length: number = 200): Promise<string[]> {
+    const cleanId = (pluginId ?? '').trim().toLowerCase();
+    if (!cleanId || cleanId.includes('..') || cleanId.includes('/')) {
+      return [];
+    }
+    const q: Record<string, string> = {};
+    q['length'] = String(Math.max(20, Math.min(500, Math.trunc(length))));
+    q['logfile'] = `plugins/${cleanId}.log`;
+    const resp = await this.get(['system', 'logging'], q);
+    if (resp.status < 200 || resp.status >= 300) {
+      return [];
+    }
+    const raw = (resp.body ?? '').trim();
+    if (!raw) {
+      return [];
+    }
+    let textContent = raw;
+    const parsed = parseJsonSafe(raw);
+    if (typeof parsed === 'string') {
+      textContent = parsed;
+    } else {
+      const rec = asRec(parsed);
+      if (rec && typeof rec['data'] === 'string') {
+        textContent = rec['data'] as string;
+      }
+    }
+    return textContent
+      .split(/\r?\n/)
+      .map((ln: string) => ln.trimEnd())
+      .filter((ln: string) => ln.trim().length > 0);
+  }
+
+  /** 拉取插件动态注册的推荐榜单来源列表（`GET /api/v1/recommend/source`）。 */
+  async fetchRecommendSources(): Promise<MpRecommendSource[]> {
+    const resp = await this.get(['recommend', 'source']);
+    if (resp.status < 200 || resp.status >= 300) {
+      return [];
+    }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const seen = new Set<string>();
+    const out: MpRecommendSource[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (!r) { continue; }
+      const name = strVal(r, 'name').trim();
+      const safePath = this.sanitizeRelativeRecommendApiPath(strVal(r, 'api_path'));
+      if (!name || !safePath || seen.has(safePath)) { continue; }
+      seen.add(safePath);
+      out.push({
+        name: name,
+        apiPath: safePath,
+        type: strVal(r, 'type').trim()
+      });
+    }
+    return out;
+  }
+
+  /** 按受控相对 `api_path` 拉取插件推荐榜单媒体条目（严禁外部 URL 与 `..` 路径穿越）。 */
+  async fetchRecommendByApiPath(apiPath: string, page: number = 1): Promise<MpMediaItem[]> {
+    const safe = this.sanitizeRelativeRecommendApiPath(apiPath);
+    if (!safe) { return []; }
+    const qIdx = safe.indexOf('?');
+    const pathPart = qIdx >= 0 ? safe.substring(0, qIdx) : safe;
+    const queryPart = qIdx >= 0 ? safe.substring(qIdx + 1) : '';
+    const segments: string[] = [];
+    const rawSegs = pathPart.split('/');
+    for (let i = 0; i < rawSegs.length; i++) {
+      if (!rawSegs[i]) { continue; }
+      let dec = rawSegs[i];
+      try { dec = decodeURIComponent(rawSegs[i]); } catch { /* keep raw */ }
+      if (!dec || dec === '.' || dec === '..' || dec.includes('/') || dec.includes('\\')) {
+        return [];
+      }
+      segments.push(dec);
+    }
+    if (segments.length === 0) { return []; }
+    const pairs: string[][] = [];
+    if (queryPart.length > 0) {
+      const rawPairs = queryPart.split('&');
+      for (let i = 0; i < rawPairs.length; i++) {
+        const kv = rawPairs[i];
+        if (!kv) { continue; }
+        const eqIdx = kv.indexOf('=');
+        const kRaw = eqIdx >= 0 ? kv.substring(0, eqIdx) : kv;
+        const vRaw = eqIdx >= 0 ? kv.substring(eqIdx + 1) : '';
+        let k = kRaw;
+        let v = vRaw;
+        try { k = decodeURIComponent(kRaw); } catch { /* keep */ }
+        try { v = decodeURIComponent(vRaw); } catch { /* keep */ }
+        if (k.length > 0 && (page <= 1 || k !== 'page')) {
+          pairs.push([k, v]);
+        }
+      }
+    }
+    if (page > 1) {
+      pairs.push(['page', String(Math.trunc(page))]);
+    }
+    const resp = await this.getMultiQuery(segments, pairs);
+    if (resp.status < 200 || resp.status >= 300) {
+      return [];
+    }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const lowerPath = pathPart.toLowerCase();
+    const fallbackSrc = lowerPath.includes('douban')
+      ? 'douban'
+      : (lowerPath.includes('bangumi') ? 'bangumi' : (lowerPath.includes('imdb') ? 'imdb' : 'themoviedb'));
+    const out: MpMediaItem[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const it = this.parseMediaItem(arr[i], fallbackSrc);
+      if (it) { out.push(it); }
+    }
+    return out;
+  }
+
+  /** 从海报卡片快捷订阅影视/音乐条目（`POST /api/v1/subscribe/`）。 */
+  async quickSubscribeMedia(item: MpMediaItem): Promise<MpOperationOutcome> {
+    const ident = this.resolveCanonicalMediaIdentity(item);
+    const mtype = normalizeMediaTypeForV3(item.type);
+    const payload: Record<string, Object> = {};
+    payload['name'] = item.title;
+    payload['type'] = mtype;
+    if (item.year.trim().length > 0) {
+      payload['year'] = item.year.trim();
+    }
+    if (ident.mediaSource.length > 0 && ident.rawMediaId.length > 0) {
+      payload['media_source'] = ident.mediaSource;
+      payload['media_id'] = ident.rawMediaId;
+      if (ident.mediaSource === 'themoviedb') {
+        const numId = Number(ident.rawMediaId);
+        if (Number.isFinite(numId) && numId > 0) {
+          payload['tmdbid'] = Math.trunc(numId);
+        }
+      } else if (ident.mediaSource === 'douban' || ident.mediaSource === 'doubanmusic') {
+        payload['doubanid'] = ident.rawMediaId;
+      }
+    }
+    if (mtype === '电视剧') {
+      payload['season'] = 1;
+    }
+    const resp = await this.postJson(['subscribe'], JSON.stringify(payload), true);
+    const rec = asRec(parseJsonSafe(resp.body));
+    const ok = rec && rec['success'] !== undefined
+      ? boolVal(rec, 'success', false)
+      : (resp.status >= 200 && resp.status < 300);
+    if (ok) {
+      this.cachedSubscriptions = null;
+    }
+    const msg = strVal(rec, 'message') || (ok ? `已添加订阅「${item.title}」` : `添加订阅失败（HTTP ${resp.status}）`);
+    return { ok: ok, message: msg };
+  }
+
+  private sanitizeRelativeRecommendApiPath(raw: string): string {
+    const trimmed = (raw ?? '').trim();
+    if (!trimmed || trimmed.length > 4096) { return ''; }
+    if (trimmed.includes('://') || trimmed.startsWith('//') || trimmed.includes('\\') || trimmed.includes('#')) {
+      return '';
+    }
+    const qIdx = trimmed.indexOf('?');
+    let pathPart = (qIdx >= 0 ? trimmed.substring(0, qIdx) : trimmed).replace(/^\/+/, '');
+    if (pathPart.startsWith('api/v1/')) {
+      pathPart = pathPart.substring('api/v1/'.length);
+    }
+    const queryPart = qIdx >= 0 ? trimmed.substring(qIdx + 1) : '';
+    if (!pathPart || pathPart.includes('//')) { return ''; }
+    const segs = pathPart.split('/').filter((s: string) => s.length > 0);
+    if (segs.length === 0) { return ''; }
+    for (let i = 0; i < segs.length; i++) {
+      let dec = segs[i];
+      try { dec = decodeURIComponent(segs[i]); } catch { /* keep */ }
+      if (dec === '.' || dec === '..' || dec.includes('/') || dec.includes('\\')) {
+        return '';
+      }
+    }
+    return queryPart.length > 0 ? `${segs.join('/')}?${queryPart}` : segs.join('/');
   }
 
   async fetchPluginFormJson(pluginId: string): Promise<string> {

@@ -32,6 +32,7 @@ import com.moviepilot.designsystem.NativeAppearanceStore
 import com.moviepilot.media.LocalMediaMetadataExtractor
 import com.moviepilot.media.MediaPlaybackRequest
 import com.moviepilot.media.PlaybackPipBridge
+import com.moviepilot.pluginhost.runtime.AndroidPluginCapsuleManager
 import com.moviepilot.rustbridge.CloudflareAccessOAuthManager
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.SessionState
@@ -123,6 +124,18 @@ class MainActivity : ComponentActivity() {
                     onConsumeExternalMedia = { pendingExternalMedia = null },
                 )
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AndroidPluginCapsuleManager.onHostAppForegrounded(applicationContext)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) {
+            AndroidPluginCapsuleManager.onHostAppBackgrounded(applicationContext)
         }
     }
 

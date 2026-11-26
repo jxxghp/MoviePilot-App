@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "protocol": "moviepilot.pluginHost",
   "protocolMajor": 2,
-  "shellVersion": "0b3253a025df4113",
-  "bundleHash": "0b3253a025df4113",
+  "shellVersion": "66e9e1b67d76a4d0",
+  "bundleHash": "66e9e1b67d76a4d0",
   "entry": "plugin-shell.html",
   "files": {
     "assets/_virtual_mf-localSharedImportMap___mfe_internal__MoviePilot__mf_owner__1-oUjPmI8N.js": {
@@ -26,8 +26,8 @@
       "sha256": "a95c25c5bee9da89c287aab060c455f1f74cd73db815037339fc8de297e9de63",
       "size": 5827
     },
-    "assets/icons-bundle-DAOAO-YE.js": {
-      "sha256": "015bd3257122ebf89adca4edd45afb66c4f55b4def047d617fed7ee4f4a90712",
+    "assets/icons-bundle-CT0KoEYn.js": {
+      "sha256": "72fd1b932176a96136c44925973193ba7638f0d475cbd1ab32d9f531a7034100",
       "size": 170611
     },
     "assets/index-BDPrJYKc.js": {
@@ -38,17 +38,17 @@
       "sha256": "6197a049c4b9a80c57ccc74e4bd3ab685dcdafd9fec393ff745660db6e58d09c",
       "size": 64799
     },
-    "assets/mf-entry-bootstrap-0-23ca6a96.js": {
-      "sha256": "23ca6a9686be2e4e29af1e42bca9246a1e3b5dc102f18ccc001c7e64b7efe30b",
+    "assets/mf-entry-bootstrap-0-3f9bcc28.js": {
+      "sha256": "3f9bcc28015030d2ef8817174e9b6954325c7f2d1524d45bdfcade379fd06753",
       "size": 2169
     },
     "assets/pendingShares-Z26BYMvs.js": {
       "sha256": "9b57da3cd61f4e43b718e0194447e02c5b7c483f7e01f57b7b98f6ca9e6816ea",
       "size": 1654
     },
-    "assets/plugin-shell-DaL21s-D.js": {
-      "sha256": "0954d042d8f2c940229ad552b18c18e3c7ef31e08495c4c7dd115e743376fe78",
-      "size": 446473
+    "assets/plugin-shell-DEdRp4gV.js": {
+      "sha256": "de3f43e1f31032cc5f89679d222bba95143f18ce7e18112418edc1be22f712ce",
+      "size": 449419
     },
     "assets/style-D5ihmPCr.css": {
       "sha256": "4a9ec45338f11eb05bf5d226cd68684676fe7f76a2774f7afa6e5ec583513619",
@@ -59,7 +59,7 @@
       "size": 1113
     },
     "plugin-shell.html": {
-      "sha256": "34304cb5bcfc60ecb7a7a86f92a8dc6ae16f84afcdd3167ab4bbe1cd81d69646",
+      "sha256": "ad738ffb80c7fe1158b855d59dc56d2474c28b2c117d70c21910a175c91267f6",
       "size": 1843
     },
     "remoteEntry.js": {

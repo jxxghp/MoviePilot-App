@@ -11,3 +11,10 @@ export {
 } from './src/main/ets/NativePluginFormView';
 export { HarmonyLocalPluginShellView } from './src/main/ets/runtime/HarmonyLocalPluginShellView';
 export { HarmonyPluginRemoteCache } from './src/main/ets/runtime/HarmonyPluginRemoteCache';
+export {
+  HarmonyPluginCapsuleAction,
+  HarmonyPluginCapsuleState,
+  HarmonyPluginCapsuleManager,
+  HarmonyGlobalVuePluginOverlay,
+  HarmonyPluginFloatingCapsule
+} from './src/main/ets/runtime/HarmonyPluginCapsule';

@@ -137,7 +137,10 @@ import com.moviepilot.media.QueueTrackSpec
 import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.media.buildConfiguredExoPlayer
 import com.moviepilot.pluginhost.clearIsolatedPluginWebViewSession
+import com.moviepilot.pluginhost.VuePluginSurface
+import com.moviepilot.pluginhost.runtime.AndroidPluginCapsuleManager
 import com.moviepilot.pluginhost.runtime.AndroidPluginWebViewPool
+import com.moviepilot.pluginhost.runtime.PluginFloatingCapsuleOverlay
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaPersonDto
 import com.moviepilot.rustbridge.MediaSeasonDto
@@ -1266,6 +1269,34 @@ fun MoviePilotRootShell(
                     "workflows" -> pushRoute(AppRoute.Workflows, MainTab.Workspace)
                     "sites" -> pushRoute(AppRoute.Sites, MainTab.Workspace)
                     "plugins" -> pushRoute(AppRoute.Plugins(obj["installed_only"]?.jsonPrimitive?.booleanOrNull ?: true), MainTab.Workspace)
+                    "pluginDetail" -> {
+                        val targetId = obj["plugin_id"]?.jsonPrimitive?.content?.takeIf { it != "null" && it.isNotBlank() }.orEmpty()
+                        val surf = obj["surface"]?.jsonPrimitive?.content?.takeIf { it != "null" }?.lowercase().orEmpty()
+                        if (targetId.isNotBlank()) {
+                            val matched = runCatching { repository.fetchPlugins(true) }.getOrDefault(emptyList())
+                                .firstOrNull { it.id.equals(targetId, ignoreCase = true) }
+                            val pluginItem = matched ?: PluginItemDto(
+                                id = targetId,
+                                name = targetId,
+                                desc = "",
+                                version = "",
+                                author = "",
+                                icon = null,
+                                labels = emptyList(),
+                                installed = true,
+                                state = true,
+                                hasPage = true,
+                                hasUpdate = false,
+                            )
+                            pushRoute(
+                                AppRoute.PluginDetail(
+                                    plugin = pluginItem,
+                                    openConfigFirst = surf == "config",
+                                ),
+                                MainTab.Workspace,
+                            )
+                        }
+                    }
                     "agent" -> pushRoute(AppRoute.Agent(obj["prompt"]?.jsonPrimitive?.content?.takeIf { it != "null" }.orEmpty()))
                     "music" -> pushRoute(AppRoute.Music, MainTab.Discover)
                     "shortcuts" -> pushRoute(AppRoute.Diagnostics("词表"), MainTab.Workspace)
@@ -1714,6 +1745,80 @@ fun MoviePilotRootShell(
                                 .align(Alignment.BottomEnd)
                                 .navigationBarsPadding()
                                 .padding(end = 16.dp, bottom = mascotBottom),
+                        )
+                    }
+
+                    // 3.5 联邦插件最小化悬浮胶囊与快捷操作小窗（跨一级 Tab 与子页面保活）
+                    val minimizedPluginSession = AndroidPluginCapsuleManager.currentSession
+                    val isViewingSameMinimizedPlugin = minimizedPluginSession != null &&
+                        (currentRoute as? AppRoute.PluginDetail)?.plugin?.id?.equals(minimizedPluginSession.pluginId, ignoreCase = true) == true
+                    LaunchedEffect(AndroidPluginCapsuleManager.restoreRequestNonce) {
+                        val targetId = AndroidPluginCapsuleManager.pendingRestorePluginId
+                        val parked = AndroidPluginCapsuleManager.currentSession
+                        if (!targetId.isNullOrBlank() && parked != null && parked.pluginId.equals(targetId, ignoreCase = true)) {
+                            AndroidPluginCapsuleManager.clearPendingRestoreRequest()
+                            pushRoute(
+                                AppRoute.PluginDetail(
+                                    plugin = PluginItemDto(
+                                        id = parked.pluginId,
+                                        name = parked.pluginName,
+                                        desc = parked.snapshot.subtitle,
+                                        version = "",
+                                        author = "",
+                                        icon = parked.snapshot.iconUrl,
+                                        labels = emptyList(),
+                                        installed = true,
+                                        state = true,
+                                        hasPage = parked.pluginHasPage,
+                                        hasUpdate = false,
+                                        renderMode = "vue",
+                                    ),
+                                    openConfigFirst = parked.surface == VuePluginSurface.Config,
+                                ),
+                                MainTab.Workspace,
+                            )
+                        }
+                    }
+                    if (authSession != null && !isSwitchingServer && minimizedPluginSession != null && !isViewingSameMinimizedPlugin && activeMedalShowcase == null && activePlayerRequest == null && !isInPipMode) {
+                        val capsuleBottom = when {
+                            showBottomNav && showMiniMusicBar -> 166.dp
+                            showBottomNav -> 96.dp
+                            showMiniMusicBar -> 92.dp
+                            else -> 24.dp
+                        }
+                        PluginFloatingCapsuleOverlay(
+                            session = minimizedPluginSession,
+                            isExpanded = AndroidPluginCapsuleManager.isMiniCardExpanded,
+                            onToggleExpanded = { AndroidPluginCapsuleManager.isMiniCardExpanded = it },
+                            onOpenPluginWindow = {
+                                AndroidPluginCapsuleManager.isMiniCardExpanded = false
+                                pushRoute(
+                                    AppRoute.PluginDetail(
+                                        plugin = PluginItemDto(
+                                            id = minimizedPluginSession.pluginId,
+                                            name = minimizedPluginSession.pluginName,
+                                            desc = minimizedPluginSession.snapshot.subtitle,
+                                            version = "",
+                                            author = "",
+                                            icon = minimizedPluginSession.snapshot.iconUrl,
+                                            labels = emptyList(),
+                                            installed = true,
+                                            state = true,
+                                            hasPage = minimizedPluginSession.pluginHasPage,
+                                            hasUpdate = false,
+                                            renderMode = "vue",
+                                        ),
+                                        openConfigFirst = minimizedPluginSession.surface == VuePluginSurface.Config,
+                                    ),
+                                    MainTab.Workspace,
+                                )
+                            },
+                            onDispatchAction = { actionId -> AndroidPluginCapsuleManager.dispatchAction(actionId) },
+                            onCloseCapsule = { AndroidPluginCapsuleManager.closeAndRelease(context) },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .navigationBarsPadding()
+                                .padding(end = 16.dp, bottom = capsuleBottom),
                         )
                     }
 

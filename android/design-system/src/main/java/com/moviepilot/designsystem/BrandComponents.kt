@@ -3,13 +3,16 @@ package com.moviepilot.designsystem
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -38,6 +41,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
@@ -79,6 +83,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -86,6 +91,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
@@ -731,7 +737,11 @@ fun NativeBrandDrawable(
     }
 }
 
-/** 通用 2:3 竖版影视海报卡（像素级对齐 iOS：右上角高对比绿圆白勾已入库标 / 黑透评分胶囊，底部居中标题与年份）。 */
+/**
+ * 通用 2:3 竖版影视海报卡（像素级对齐 iOS：右上角高对比绿圆白勾已入库标 / 黑透评分胶囊，底部居中标题与年份；
+ * 支持可选长按震动反馈 + 原生 `DropdownMenu` 快捷上下文菜单，保持海报构图干净无遮挡）。
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NativePosterCard(
     title: String,
@@ -741,18 +751,43 @@ fun NativePosterCard(
     inLibrary: Boolean = false,
     bottomBadgeText: String? = null,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    contextMenuContent: (@Composable ColumnScope.(dismiss: () -> Unit) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
+    val haptic = LocalHapticFeedback.current
     val isPureBlack = LocalAppearanceStore.current.pureBlackDark
     val skelPalette = remember(colors, isPureBlack) { resolveSkeletonPalette(colors, isPureBlack) }
     val shape = RoundedCornerShape((colors.cardRadiusDp - 4).coerceIn(12, 20).dp)
     var imageFailed by remember(posterUrl) { mutableStateOf(false) }
     var imageLoaded by remember(posterUrl) { mutableStateOf(false) }
-    Column(
-        modifier = modifier.clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val hasLongPress = contextMenuContent != null || onLongClick != null
+
+    Box(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (hasLongPress) {
+                        Modifier.combinedClickable(
+                            onClick = onClick,
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (contextMenuContent != null) {
+                                    menuExpanded = true
+                                } else {
+                                    onLongClick?.invoke()
+                                }
+                            },
+                        )
+                    } else {
+                        Modifier.clickable(onClick = onClick)
+                    },
+                ),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -876,6 +911,15 @@ fun NativePosterCard(
                 fontSize = 11.sp,
                 maxLines = 1,
             )
+        }
+        }
+        if (contextMenuContent != null) {
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+            ) {
+                contextMenuContent { menuExpanded = false }
+            }
         }
     }
 }

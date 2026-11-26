@@ -584,6 +584,7 @@ class NativeHandler(BaseHTTPRequestHandler):
         """列出 smoke 验收允许的媒体、来源与管理员仪表盘只读端点。"""
         return {
             "api/v1/discover/source",
+            "api/v1/recommend/source",
             "api/v1/discover/tmdb_movies",
             "api/v1/discover/tmdb_tvs",
             "api/v1/discover/douban_movies",
@@ -668,7 +669,9 @@ class NativeHandler(BaseHTTPRequestHandler):
         }:
             self.reply(503, {"success": False})
             return
-        if endpoint in {"api/v1/discover/tmdb_movies", "api/v1/discover/tmdb_tvs"}:
+        if endpoint == "api/v1/recommend/source":
+            value = []
+        elif endpoint in {"api/v1/discover/tmdb_movies", "api/v1/discover/tmdb_tvs"}:
             is_movie = endpoint.endswith("tmdb_movies")
             first_id = 101 if is_movie else 111
             ids = range(first_id, first_id + 12) if page == "1" else [first_id + 12] if page == "2" else []

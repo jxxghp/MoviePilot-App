@@ -98,11 +98,19 @@ export const HARMONY_PALETTES: HarmonyPalettePreset[] = [
   }
 ];
 
-/** 模块自定义配置项（用于「发现」10 模块与「我的」8 模块的显隐与顺序编排）。 */
+/** 模块自定义配置项（用于「发现」10 大内置模块 + 插件动态推荐榜单模块，以及「我的」8 模块的显隐与顺序编排）。 */
 export interface CustomModulePref {
   id: string;
   title: string;
   enabled: boolean;
+  apiPath?: string;
+  subtitle?: string;
+}
+
+export interface ExtraDiscoverRecommendMeta {
+  name: string;
+  apiPath: string;
+  type: string;
 }
 
 export const DEFAULT_DISCOVER_MODULES: CustomModulePref[] = [
@@ -313,6 +321,16 @@ export class HarmonyAppearanceStore {
         if (def && !seen.has(id)) {
           seen.add(id);
           out.push({ id: def.id, title: def.title, enabled: Boolean(rec['enabled']) });
+        } else if (id.startsWith('plugin_recommend:') && !seen.has(id)) {
+          seen.add(id);
+          const apiPath = id.substring('plugin_recommend:'.length);
+          out.push({
+            id: id,
+            title: String(rec['title'] ?? apiPath),
+            enabled: Boolean(rec['enabled']),
+            apiPath: apiPath,
+            subtitle: typeof rec['subtitle'] === 'string' ? (rec['subtitle'] as string) : ''
+          });
         }
       }
       for (let i = 0; i < fallback.length; i++) {
@@ -324,6 +342,64 @@ export class HarmonyAppearanceStore {
     } catch {
       return fallback.map((m: CustomModulePref): CustomModulePref => ({ id: m.id, title: m.title, enabled: m.enabled }));
     }
+  }
+
+  /** 将已保存的发现页模块顺序与服务端插件动态注册的 `RecommendSource` 列表合并，自动剔除已撤销插件源。 */
+  static mergeDiscoverModules(
+    rawJson: string,
+    extraSources: ExtraDiscoverRecommendMeta[],
+    resetDefaults: boolean = false
+  ): CustomModulePref[] {
+    const base = resetDefaults
+      ? DEFAULT_DISCOVER_MODULES.map((m: CustomModulePref): CustomModulePref => ({ id: m.id, title: m.title, enabled: m.enabled }))
+      : HarmonyAppearanceStore.parseModules(rawJson, DEFAULT_DISCOVER_MODULES);
+    const extraById = new Map<string, ExtraDiscoverRecommendMeta>();
+    for (let i = 0; i < extraSources.length; i++) {
+      extraById.set(`plugin_recommend:${extraSources[i].apiPath}`, extraSources[i]);
+    }
+    const seen = new Set<string>();
+    const out: CustomModulePref[] = [];
+    for (let i = 0; i < base.length; i++) {
+      const item = base[i];
+      if (item.id.startsWith('plugin_recommend:')) {
+        const matched = extraById.get(item.id);
+        if (!matched) {
+          continue;
+        }
+        seen.add(item.id);
+        out.push({
+          id: item.id,
+          title: matched.name,
+          enabled: item.enabled,
+          apiPath: matched.apiPath,
+          subtitle: matched.type
+        });
+      } else if (!seen.has(item.id)) {
+        seen.add(item.id);
+        out.push({ id: item.id, title: item.title, enabled: item.enabled });
+      }
+    }
+    for (let i = 0; i < extraSources.length; i++) {
+      const src = extraSources[i];
+      const modId = `plugin_recommend:${src.apiPath}`;
+      if (!seen.has(modId)) {
+        seen.add(modId);
+        const created: CustomModulePref = {
+          id: modId,
+          title: src.name,
+          enabled: true,
+          apiPath: src.apiPath,
+          subtitle: src.type
+        };
+        const anchorIdx = out.findIndex((m: CustomModulePref) => m.id === 'libraries' || m.id === 'categories');
+        if (anchorIdx >= 0) {
+          out.splice(anchorIdx, 0, created);
+        } else {
+          out.push(created);
+        }
+      }
+    }
+    return out;
   }
 
   static getStops(presetId: string, isDark: boolean): string[] {

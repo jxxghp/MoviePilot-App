@@ -1,67 +1,147 @@
 import Foundation
+import MoviePilotAPI
 import SwiftUI
 
-/// 发现页可编排模块的受控标识，与 MoviePilot 发现轨道和媒体服务器区块一一对应。
-enum NativeDiscoverModuleID: String, CaseIterable, Codable, Identifiable, Sendable {
-  case continueWatching
-  case movies
-  case television
-  case trending
-  case doubanMusic
-  case doubanShowing
-  case doubanTop250
-  case latest
-  case mediaLibrary
-  case categories
+/// 发现页可编排模块的受控标识：兼容内置 10 大发现区块与插件通过 `RecommendSource` 动态注册的推荐榜单模块。
+struct NativeDiscoverModuleID: RawRepresentable, Hashable, Codable, Identifiable, Sendable {
+  static let pluginPrefix = "plugin_recommend:"
+
+  let rawValue: String
+
+  init(rawValue: String) {
+    self.rawValue = rawValue
+  }
+
+  static let continueWatching = NativeDiscoverModuleID(rawValue: "continueWatching")
+  static let movies = NativeDiscoverModuleID(rawValue: "movies")
+  static let television = NativeDiscoverModuleID(rawValue: "television")
+  static let trending = NativeDiscoverModuleID(rawValue: "trending")
+  static let doubanMusic = NativeDiscoverModuleID(rawValue: "doubanMusic")
+  static let doubanShowing = NativeDiscoverModuleID(rawValue: "doubanShowing")
+  static let doubanTop250 = NativeDiscoverModuleID(rawValue: "doubanTop250")
+  static let latest = NativeDiscoverModuleID(rawValue: "latest")
+  static let mediaLibrary = NativeDiscoverModuleID(rawValue: "mediaLibrary")
+  static let categories = NativeDiscoverModuleID(rawValue: "categories")
+
+  /// 内置 10 大默认模块顺序。
+  static let allCases: [NativeDiscoverModuleID] = [
+    .continueWatching,
+    .movies,
+    .television,
+    .trending,
+    .doubanMusic,
+    .doubanShowing,
+    .doubanTop250,
+    .latest,
+    .mediaLibrary,
+    .categories,
+  ]
+
+  /// 构造插件动态推荐榜单模块标识（`plugin_recommend:<api_path>`）。
+  static func pluginRecommend(_ apiPath: String) -> NativeDiscoverModuleID {
+    NativeDiscoverModuleID(rawValue: "\(pluginPrefix)\(apiPath)")
+  }
 
   /// 稳定模块键。
   var id: String { rawValue }
 
-  /// 模块中文标题。
+  /// 是否为插件动态注册的推荐榜单模块。
+  var isPluginRecommend: Bool { rawValue.hasPrefix(Self.pluginPrefix) }
+
+  /// 提取插件推荐榜单的相对 `api_path`。
+  var pluginAPIPath: String? {
+    guard isPluginRecommend else { return nil }
+    let sub = String(rawValue.dropFirst(Self.pluginPrefix.count))
+    return sub.isEmpty ? nil : sub
+  }
+
+  /// 模块默认中文标题（插件动态模块优先使用 `NativeDiscoverModuleItem.displayTitle`）。
   var title: String {
-    switch self {
-    case .continueWatching: "继续观看"
-    case .movies: "热门电影"
-    case .television: "热门剧集"
-    case .trending: "本周趋势"
-    case .doubanMusic: "热门音乐"
-    case .doubanShowing: "豆瓣热映"
-    case .doubanTop250: "豆瓣 Top250"
-    case .latest: "最新入库"
-    case .mediaLibrary: "媒体库"
-    case .categories: "分类浏览"
+    switch rawValue {
+    case Self.continueWatching.rawValue: "继续观看"
+    case Self.movies.rawValue: "热门电影"
+    case Self.television.rawValue: "热门剧集"
+    case Self.trending.rawValue: "本周趋势"
+    case Self.doubanMusic.rawValue: "热门音乐"
+    case Self.doubanShowing.rawValue: "豆瓣热映"
+    case Self.doubanTop250.rawValue: "豆瓣 Top250"
+    case Self.latest.rawValue: "最新入库"
+    case Self.mediaLibrary.rawValue: "媒体库"
+    case Self.categories.rawValue: "分类浏览"
+    default:
+      pluginAPIPath ?? rawValue
     }
   }
 
   /// 模块列表前置 SF Symbol。
   var symbol: String {
-    switch self {
-    case .continueWatching: "play.circle"
-    case .movies: "film"
-    case .television: "tv"
-    case .trending: "flame"
-    case .doubanMusic: "music.note.list"
-    case .doubanShowing: "ticket"
-    case .doubanTop250: "star.circle"
-    case .latest: "clock.arrow.circlepath"
-    case .mediaLibrary: "rectangle.stack"
-    case .categories: "square.grid.2x2"
+    switch rawValue {
+    case Self.continueWatching.rawValue: "play.circle"
+    case Self.movies.rawValue: "film"
+    case Self.television.rawValue: "tv"
+    case Self.trending.rawValue: "flame"
+    case Self.doubanMusic.rawValue: "music.note.list"
+    case Self.doubanShowing.rawValue: "ticket"
+    case Self.doubanTop250.rawValue: "star.circle"
+    case Self.latest.rawValue: "clock.arrow.circlepath"
+    case Self.mediaLibrary.rawValue: "rectangle.stack"
+    case Self.categories.rawValue: "square.grid.2x2"
+    default: "sparkles.rectangle.stack"
     }
   }
 
-  /// 默认是否开启，保持首屏加载轻快的同时允许随时开启额外榜单。
+  /// 默认是否开启：保持内置豆瓣扩展默认按需开启，同时让已启用插件注册的榜单立即可见。
   var defaultEnabled: Bool {
-    switch self {
-    case .doubanShowing, .doubanTop250: false
+    switch rawValue {
+    case Self.doubanShowing.rawValue, Self.doubanTop250.rawValue: false
     default: true
     }
   }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    self.rawValue = try container.decode(String.self)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(rawValue)
+  }
 }
 
-/// 单条可持久化的发现模块显隐与顺序配置。
+/// 单条可持久化的发现模块显隐与顺序配置（兼容内置模块与插件动态推荐榜单模块）。
 struct NativeDiscoverModuleItem: Identifiable, Codable, Equatable, Sendable {
   let id: NativeDiscoverModuleID
   var enabled: Bool
+  var customTitle: String?
+  var customCategory: String?
+
+  init(
+    id: NativeDiscoverModuleID,
+    enabled: Bool,
+    customTitle: String? = nil,
+    customCategory: String? = nil
+  ) {
+    self.id = id
+    self.enabled = enabled
+    self.customTitle = customTitle
+    self.customCategory = customCategory
+  }
+
+  /// 用于「管理发现模块」列表展示的标题。
+  var displayTitle: String {
+    if let customTitle, !customTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return customTitle
+    }
+    return id.title
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case enabled
+    case customTitle = "title"
+    case customCategory = "category"
+  }
 
   /// 生成完整默认模块顺序。
   static var defaults: [NativeDiscoverModuleItem] {
@@ -70,7 +150,7 @@ struct NativeDiscoverModuleItem: Identifiable, Codable, Equatable, Sendable {
     }
   }
 
-  /// 合并服务端保存的配置与新增默认模块，确保不丢失未知未来模块且不重复。
+  /// 合并服务端保存的配置与内置默认模块。
   static func normalized(_ raw: [NativeDiscoverModuleItem]?) -> [NativeDiscoverModuleItem] {
     guard let raw, !raw.isEmpty else { return defaults }
     var seen: Set<NativeDiscoverModuleID> = []
@@ -87,6 +167,57 @@ struct NativeDiscoverModuleItem: Identifiable, Codable, Equatable, Sendable {
         result.append(fallback)
       }
     }
+    return result
+  }
+
+  /// 将持久化模块配置与 `GET /api/v1/recommend/source` 返回的插件推荐榜单动态合并：
+  /// - 保留用户已保存的显隐开关与排序位置；
+  /// - 新发现的插件推荐榜单默认开启并插入到「媒体库 / 分类浏览」之前；
+  /// - 已卸载或停用插件撤销的推荐源自动从当前可见列表中剔除。
+  static func merged(
+    saved: [NativeDiscoverModuleItem]?,
+    extraSources: [RecommendSource]
+  ) -> [NativeDiscoverModuleItem] {
+    let base = normalized(saved)
+    let extraByID: [NativeDiscoverModuleID: RecommendSource] = Dictionary(
+      uniqueKeysWithValues: extraSources.map {
+        (NativeDiscoverModuleID.pluginRecommend($0.apiPath), $0)
+      }
+    )
+
+    var seen: Set<NativeDiscoverModuleID> = []
+    var result: [NativeDiscoverModuleItem] = []
+
+    for var item in base {
+      if item.id.isPluginRecommend {
+        guard let matched = extraByID[item.id] else {
+          continue
+        }
+        item.customTitle = matched.name
+        item.customCategory = matched.type
+      }
+      if seen.insert(item.id).inserted {
+        result.append(item)
+      }
+    }
+
+    for source in extraSources {
+      let modID = NativeDiscoverModuleID.pluginRecommend(source.apiPath)
+      guard seen.insert(modID).inserted else { continue }
+      let newItem = NativeDiscoverModuleItem(
+        id: modID,
+        enabled: true,
+        customTitle: source.name,
+        customCategory: source.type
+      )
+      if let anchorIdx = result.firstIndex(where: { $0.id == .mediaLibrary || $0.id == .categories })
+      {
+        result.insert(newItem, at: anchorIdx)
+      } else {
+        result.append(newItem)
+      }
+    }
+
     return result
   }
 }
@@ -142,9 +273,20 @@ struct NativeDiscoverModulesSheet: View {
                   .font(.body.weight(.medium))
                   .foregroundStyle(appearance.accentColor)
                   .frame(width: 24)
-                Text(item.id.title)
-                  .font(.subheadline.weight(.medium))
-                  .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(item.displayTitle)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                  if item.id.isPluginRecommend {
+                    Text(
+                      (item.customCategory?.isEmpty == false)
+                        ? "插件推荐 · \(item.customCategory!)"
+                        : "插件推荐榜单"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                  }
+                }
                 Spacer(minLength: 8)
                 Toggle("", isOn: $item.enabled)
                   .labelsHidden()

@@ -111,6 +111,9 @@ class AndroidPluginHostBridgeV2(
     var onPluginMounted: ((mountId: String, title: String) -> Unit)? = null
     var onPluginError: ((stage: String, message: String, recoverable: Boolean) -> Unit)? = null
     var onPluginClose: (() -> Unit)? = null
+    var onPluginMinimize: ((requestId: String, payload: JsonObject) -> Unit)? = null
+    var onCapsuleUpdate: ((payload: JsonObject) -> Unit)? = null
+    var onPluginRestore: ((requestId: String) -> Unit)? = null
     var onNavBackResult: ((handled: Boolean) -> Unit)? = null
     var onHeaderUpdate: ((title: String, actions: List<VuePluginSheetAction>) -> Unit)? = null
     var onToast: ((AndroidPluginToast) -> Unit)? = null
@@ -126,6 +129,9 @@ class AndroidPluginHostBridgeV2(
         onPluginMounted = null
         onPluginError = null
         onPluginClose = null
+        onPluginMinimize = null
+        onCapsuleUpdate = null
+        onPluginRestore = null
         onNavBackResult = null
         onHeaderUpdate = null
         onToast = null
@@ -173,6 +179,27 @@ class AndroidPluginHostBridgeV2(
         sendToWeb(type = "host.action", payload = buildJsonObject { put("actionId", actionId) })
     }
 
+    fun sendCapsuleAction(actionId: String) {
+        sendToWeb(type = "capsule.action", payload = buildJsonObject { put("actionId", actionId) })
+    }
+
+    fun sendSimpleSuccess(requestId: String, vararg fields: Pair<String, Boolean>) {
+        if (requestId.isBlank()) return
+        sendToWeb(
+            type = "bridge.response",
+            payload = buildJsonObject {
+                put("requestId", requestId)
+                put("ok", true)
+                put(
+                    "data",
+                    buildJsonObject {
+                        fields.forEach { (k, v) -> put(k, v) }
+                    },
+                )
+            },
+        )
+    }
+
     fun sendConfirmResult(id: String, confirmed: Boolean) {
         sendToWeb(
             type = "bridge.response",
@@ -215,6 +242,29 @@ class AndroidPluginHostBridgeV2(
                 mainHandler.post { onPluginError?.invoke(stage, msg, rec) }
             }
             "plugin.close" -> mainHandler.post { onPluginClose?.invoke() }
+            "plugin.minimize" -> {
+                val reqId = payload["requestId"]?.strOrNull().orEmpty()
+                mainHandler.post {
+                    val handler = onPluginMinimize
+                    if (handler != null) {
+                        handler(reqId, payload)
+                    } else if (reqId.isNotBlank()) {
+                        sendSimpleSuccess(reqId, "minimized" to false)
+                    }
+                }
+            }
+            "plugin.capsule.update" -> mainHandler.post { onCapsuleUpdate?.invoke(payload) }
+            "plugin.restore" -> {
+                val reqId = payload["requestId"]?.strOrNull().orEmpty()
+                mainHandler.post {
+                    val handler = onPluginRestore
+                    if (handler != null) {
+                        handler(reqId)
+                    } else if (reqId.isNotBlank()) {
+                        sendSimpleSuccess(reqId, "restored" to true)
+                    }
+                }
+            }
             "nav.backResult" -> {
                 val handled = (payload["handled"] as? JsonPrimitive)?.booleanOrNull ?: false
                 mainHandler.post { onNavBackResult?.invoke(handled) }

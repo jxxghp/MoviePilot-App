@@ -65,4 +65,50 @@ struct DiscoverSourceTests {
   private func source(_ json: String) throws -> DiscoverSource {
     try JSONDecoder().decode(DiscoverSource.self, from: Data(json.utf8))
   }
+
+  /// 插件动态推荐榜单来源列表固定走 `/api/v1/recommend/source`。
+  @Test
+  func recommendSourceListUsesExpectedPath() throws {
+    let endpoint = try RecommendSourceEndpoint.list()
+    #expect(endpoint.path == ["recommend", "source"])
+    #expect(endpoint.responseContract == .payload)
+  }
+
+  /// 插件推荐榜单支持带查询参数的相对路径与翻页覆盖，且首页保留原查询参数。
+  @Test
+  func recommendSourceMediaEndpointSupportsPluginPathAndPagination() throws {
+    let decoded = try JSONDecoder().decode(
+      RecommendSource.self,
+      from: Data(
+        #"{"name":"IMDb Sci-Fi","api_path":"plugin/ImdbSource/trending?interest=Sci-Fi","type":"Rankings"}"#
+          .utf8)
+    )
+    #expect(decoded.name == "IMDb Sci-Fi")
+    #expect(decoded.type == "Rankings")
+
+    let firstPage = try RecommendSourceEndpoint.media(apiPath: decoded.apiPath)
+    #expect(firstPage.path == ["plugin", "ImdbSource", "trending"])
+    #expect(firstPage.query == [URLQueryItem(name: "interest", value: "Sci-Fi")])
+
+    let secondPage = try RecommendSourceEndpoint.media(apiPath: decoded.apiPath, page: 2)
+    #expect(secondPage.path == ["plugin", "ImdbSource", "trending"])
+    #expect(
+      secondPage.query == [
+        URLQueryItem(name: "interest", value: "Sci-Fi"),
+        URLQueryItem(name: "page", value: "2"),
+      ])
+  }
+
+  /// 外部域名、协议相对路径、锚点与目录穿越一律拒绝。
+  @Test(arguments: [
+    "https://evil.example/recommend",
+    "//evil.example/recommend",
+    "plugin/../system/env",
+    "plugin/ImdbSource/trending#frag",
+  ])
+  func recommendSourceMediaRejectsUnsafePaths(_ unsafePath: String) throws {
+    #expect(throws: DiscoverSourceEndpointError.invalidSourcePath) {
+      try RecommendSourceEndpoint.media(apiPath: unsafePath, page: 1)
+    }
+  }
 }

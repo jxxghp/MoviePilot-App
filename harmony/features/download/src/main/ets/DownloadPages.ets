@@ -1370,6 +1370,25 @@ export struct HarmonyDownloadsPage {
     return s.includes('pause') || s.includes('stop');
   }
 
+  @Builder
+  private downloadTaskMenuBuilder(task: MpDownloadTask) {
+    Menu() {
+      MenuItem({ content: this.isPaused(task.state) ? '恢复任务' : '暂停任务' })
+        .onClick(async () => {
+          const ok = await MoviePilotRepository.shared().toggleDownloadTask(task.hash, task.downloader, !this.isPaused(task.state));
+          this.notice = ok ? (this.isPaused(task.state) ? '已恢复任务' : '已暂停任务') : '操作失败';
+          await this.loadDownloads();
+        })
+      MenuItem({ content: '删除下载任务' })
+        .contentFontColor('#E84855')
+        .onClick(async () => {
+          const ok = await MoviePilotRepository.shared().deleteDownloadTask(task.hash, task.downloader);
+          this.notice = ok ? '已删除下载任务' : '删除失败';
+          await this.loadDownloads();
+        })
+    }
+  }
+
   build() {
     Column({ space: 12 }) {
       NativeBackHeader({
@@ -1407,7 +1426,8 @@ export struct HarmonyDownloadsPage {
         Grid() {
           ForEach(this.tasks, (task: MpDownloadTask) => {
             GridItem() {
-              CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
+              Column() {
+              CinematicPanel({ panelPadding: 15, cornerRadius: 18, interactive: true }) {
                 Column({ space: 8 }) {
                   Row({ space: 8 }) {
                     HarmonyEntityLogo({
@@ -1456,6 +1476,9 @@ export struct HarmonyDownloadsPage {
                   }.width('100%')
                 }
               }
+              }
+              .width('100%')
+              .bindContextMenu(this.downloadTaskMenuBuilder(task), ResponseType.LongPress)
             }
           }, (task: MpDownloadTask) => task.hash || task.title)
         }

@@ -1333,6 +1333,14 @@ data class MediaServerItemDetailDto(
     val canPlay: Boolean = false,
 )
 
+/** 插件动态注册的推荐榜单数据源（对应 `GET /api/v1/recommend/source`）。 */
+@Serializable
+data class RecommendSourceDto(
+    val name: String = "",
+    @SerialName("api_path") val apiPath: String = "",
+    val type: String = "",
+)
+
 /** 发现页内存会话快照（用于切 Tab 与详情返回时零闪烁保留滚动位置与已加载内容）。 */
 data class DiscoverSessionSnapshot(
     val trending: List<MediaCardItem> = emptyList(),
@@ -1345,6 +1353,8 @@ data class DiscoverSessionSnapshot(
     val latestItems: List<MediaCardItem> = emptyList(),
     val libraries: List<MediaServerLibraryDto> = emptyList(),
     val heroLogos: Map<String, String> = emptyMap(),
+    val extraSources: List<RecommendSourceDto> = emptyList(),
+    val extraRails: Map<String, List<MediaCardItem>> = emptyMap(),
 )
 
 /** 探索页筛选维度内存快照。 */

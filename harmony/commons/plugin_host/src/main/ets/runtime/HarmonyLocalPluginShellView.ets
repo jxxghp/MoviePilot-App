@@ -12,6 +12,7 @@ import {
 } from './HarmonyPluginHostBridgeV2';
 import { HarmonyPluginRemoteCache } from './HarmonyPluginRemoteCache';
 import { buildHarmonyPluginVisualTokens } from './HarmonyPluginVisualTokens';
+import { HarmonyPluginCapsuleManager } from './HarmonyPluginCapsule';
 
 interface RemoteDescriptorItem {
   id: string;
@@ -101,6 +102,37 @@ export struct HarmonyLocalPluginShellView {
           this.clearBackFallbackTimer();
           this.onRequestDismiss();
         },
+        onPluginMinimize: (reqId: string, payload: Record<string, Object>) => {
+          this.clearBackFallbackTimer();
+          this.bridge?.sendSimpleResponse(
+            reqId,
+            '{"minimized":true,"overlaySupported":false,"overlayGranted":false}'
+          );
+          // 确保当前插件先作为全局保活层托管，再切入胶囊态
+          const cur = HarmonyPluginCapsuleManager.shared().currentState();
+          if (!cur || cur.pluginId.toLowerCase() !== this.pluginId.toLowerCase()) {
+            HarmonyPluginCapsuleManager.shared().openPlugin(
+              this.pluginId,
+              this.pluginName || this.pluginId,
+              this.surface,
+              this.pluginHasPage,
+              '',
+              this.navKey
+            );
+          }
+          HarmonyPluginCapsuleManager.shared().minimizeActive(
+            payload,
+            this.pluginId,
+            this.pluginName || this.pluginId
+          );
+        },
+        onCapsuleUpdate: (payload: Record<string, Object>) => {
+          HarmonyPluginCapsuleManager.shared().updateCapsule(payload);
+        },
+        onPluginRestore: (reqId: string) => {
+          this.bridge?.sendSimpleResponse(reqId, '{"restored":true}');
+          HarmonyPluginCapsuleManager.shared().restoreFullWindow();
+        },
         onNavBackResult: (handled: boolean) => {
           this.clearBackFallbackTimer();
           if (!handled) {
@@ -126,28 +158,36 @@ export struct HarmonyLocalPluginShellView {
       },
       () => this.getAbilityContext()
     );
+    const requestCloseOrBack = (): boolean => {
+      if (!this.isMounted || !this.bridge) {
+        return false;
+      }
+      this.clearBackFallbackTimer();
+      this.backFallbackTimer = setTimeout(() => {
+        this.backFallbackTimer = -1;
+        this.onRequestDismiss();
+      }, 500);
+      this.bridge.sendNavBack();
+      return true;
+    };
     this.onRegisterActions(
       (actionId: string) => {
         this.bridge?.sendHostAction(actionId);
       },
-      () => {
-        if (!this.isMounted || !this.bridge) {
-          return false;
-        }
-        this.clearBackFallbackTimer();
-        this.backFallbackTimer = setTimeout(() => {
-          this.backFallbackTimer = -1;
-          this.onRequestDismiss();
-        }, 350);
-        this.bridge.sendNavBack();
-        return true;
-      }
+      requestCloseOrBack
+    );
+    HarmonyPluginCapsuleManager.shared().bindRuntimeHandlers(
+      (actionId: string) => {
+        this.bridge?.sendCapsuleAction(actionId);
+      },
+      requestCloseOrBack
     );
     this.prepareMountPayload();
   }
 
   aboutToDisappear(): void {
     this.clearBackFallbackTimer();
+    HarmonyPluginCapsuleManager.shared().bindRuntimeHandlers(null, null);
     if (this.toastTimer !== -1) {
       clearTimeout(this.toastTimer);
       this.toastTimer = -1;

@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- 声明外部播放器与各媒体服务器原生客户端包可见性（Android 11+） -->
@@ -119,6 +120,28 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/moviepilot_widget_info" />
+        </receiver>
+
+        <!-- 自定义插件快捷直达与插件仪表盘桌面小组件 -->
+        <activity
+            android:name="com.moviepilot.widget.PluginWidgetConfigureActivity"
+            android:exported="true"
+            android:theme="@style/Theme.MoviePilot">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name="com.moviepilot.widget.MoviePilotPluginWidgetReceiver"
+            android:exported="true"
+            android:label="@string/mp_plugin_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/moviepilot_plugin_widget_info" />
         </receiver>
 
         <!-- 受管缓存文件安全共享（用于 3D 社区勋章荣誉海报分享回退） -->

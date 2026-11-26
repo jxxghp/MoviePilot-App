@@ -98,7 +98,24 @@ class AndroidPluginNativeCapabilities(
         private const val ACTION_MEDIA_PREV = "com.moviepilot.plugin.MEDIA_PREV"
         private const val ACTION_MEDIA_NEXT = "com.moviepilot.plugin.MEDIA_NEXT"
         private const val ACTION_MEDIA_STOP = "com.moviepilot.plugin.MEDIA_STOP"
+        private const val ACTION_MEDIA_LIKE = "com.moviepilot.plugin.MEDIA_LIKE"
+        private const val ACTION_MEDIA_CUSTOM = "com.moviepilot.plugin.MEDIA_CUSTOM"
+        private const val EXTRA_CUSTOM_ACTION_ID = "custom_action_id"
+        private const val CUSTOM_ACTION_TOGGLE_LIKE = "mp_toggle_like"
+        private const val CUSTOM_ACTION_PREFIX = "mp_custom:"
     }
+
+    private data class NowPlayingLyricLine(
+        val timeMs: Long,
+        val text: String,
+    )
+
+    private data class NowPlayingCustomAction(
+        val id: String,
+        val title: String,
+        val icon: String? = null,
+        val active: Boolean = false,
+    )
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -140,6 +157,15 @@ class AndroidPluginNativeCapabilities(
     private var nowPlayingAlbum: String = ""
     private var nowPlayingCanNext: Boolean = false
     private var nowPlayingCanPrevious: Boolean = false
+    private var nowPlayingCanSeek: Boolean = true
+    private var nowPlayingDurationMs: Long = 0L
+    private var nowPlayingPositionMs: Long = 0L
+    private var nowPlayingLyrics: String = ""
+    private var nowPlayingLyricLines: List<NowPlayingLyricLine> = emptyList()
+    private var lastDisplayedLyricLine: String = ""
+    private var nowPlayingHasLike: Boolean = false
+    private var nowPlayingLiked: Boolean = false
+    private var nowPlayingCustomActions: List<NowPlayingCustomAction> = emptyList()
     private var nowPlayingArtworkUrl: String = ""
     private var nowPlayingArtworkBitmap: Bitmap? = null
 
@@ -212,9 +238,12 @@ class AndroidPluginNativeCapabilities(
             "audio.play",
             "audio.nowPlaying",
             "native.audio.nowPlaying",
+            "native.audio.lyrics",
+            "native.audio.customActions",
             "media.playNative",
             "device.info",
             "device.permission",
+            "device.overlay",
             "device.haptic",
             "device.clipboard",
             "device.clipboard.read",
@@ -276,6 +305,20 @@ class AndroidPluginNativeCapabilities(
             "photos" -> {
                 // 系统照片/文件选择器（SAF/OpenDocument）与 MediaStore 写入在 Android 10+ 无需存储权限
                 sendSuccess(requestId, buildJsonObject { put("permission", perm); put("status", "granted") })
+                return
+            }
+            "overlay" -> {
+                val canDraw = AndroidPluginCapsuleManager.canDrawSystemOverlays(appContext)
+                if (!canDraw && shouldRequest) {
+                    AndroidPluginCapsuleManager.openOverlayPermissionSettings(appContext)
+                }
+                sendSuccess(
+                    requestId,
+                    buildJsonObject {
+                        put("permission", perm)
+                        put("status", if (canDraw) "granted" else "denied")
+                    },
+                )
                 return
             }
             else -> {
@@ -1117,6 +1160,16 @@ class AndroidPluginNativeCapabilities(
                             put("durationMs", dur)
                         },
                     )
+                    if (nowPlayingActive && nowPlayingLyricLines.isNotEmpty()) {
+                        val matched = resolveCurrentLyricLine(pos.toLong())
+                        if (matched != lastDisplayedLyricLine) {
+                            lastDisplayedLyricLine = matched
+                            mediaSession?.let { sess ->
+                                sess.setMetadata(buildNowPlayingMediaMetadata(dur.toLong()))
+                                postMediaStyleNotification(sess, true)
+                            }
+                        }
+                    }
                     mainHandler.postDelayed(this, 250L)
                 }
             }
@@ -1169,6 +1222,27 @@ class AndroidPluginNativeCapabilities(
         val canNext = (payload["canNext"] as? JsonPrimitive)?.booleanOrNull ?: false
         val canPrevious = (payload["canPrevious"] as? JsonPrimitive)?.booleanOrNull ?: false
         val canSeek = (payload["canSeek"] as? JsonPrimitive)?.booleanOrNull ?: true
+        val lyrics = payload["lyrics"]?.strOrNull()?.trim().orEmpty()
+        val lyricLines = (payload["lyricLines"] as? JsonArray)?.mapNotNull { el ->
+            val obj = el as? JsonObject ?: return@mapNotNull null
+            val tMs = (obj["timeMs"] as? JsonPrimitive)?.doubleOrNull?.toLong() ?: return@mapNotNull null
+            val txt = obj["text"]?.strOrNull()?.trim().orEmpty()
+            if (txt.isEmpty()) null else NowPlayingLyricLine(tMs.coerceAtLeast(0L), txt)
+        }?.sortedBy { it.timeMs }.orEmpty()
+        val likedExplicit = (payload["liked"] as? JsonPrimitive)?.booleanOrNull
+        val customActions = (payload["customActions"] as? JsonArray)?.mapNotNull { el ->
+            val obj = el as? JsonObject ?: return@mapNotNull null
+            val id = obj["id"]?.strOrNull()?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val label = obj["title"]?.strOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+                ?: obj["label"]?.strOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+                ?: id
+            NowPlayingCustomAction(
+                id = id,
+                title = label,
+                icon = obj["icon"]?.strOrNull()?.trim(),
+                active = (obj["active"] as? JsonPrimitive)?.booleanOrNull ?: false,
+            )
+        }.orEmpty()
 
         applyNowPlayingNotification(
             title = title,
@@ -1182,8 +1256,110 @@ class AndroidPluginNativeCapabilities(
             canNext = canNext,
             canPrevious = canPrevious,
             canSeek = canSeek,
+            lyrics = lyrics,
+            lyricLines = lyricLines,
+            liked = likedExplicit,
+            customActions = customActions,
         )
         sendSuccess(requestId, buildJsonObject { put("registered", true) })
+    }
+
+    private fun resolveCurrentLyricLine(positionMs: Long): String {
+        if (nowPlayingLyricLines.isNotEmpty()) {
+            val matched = nowPlayingLyricLines.lastOrNull { it.timeMs <= positionMs }?.text
+            if (!matched.isNullOrBlank()) return matched
+        }
+        return nowPlayingLyrics
+    }
+
+    private fun resolveCustomActionIconRes(iconHint: String?, active: Boolean): Int {
+        val lower = iconHint?.lowercase().orEmpty()
+        return when {
+            lower.contains("heart") || lower.contains("like") || lower.contains("star") ->
+                if (active) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off
+            lower.contains("repeat") || lower.contains("loop") || lower.contains("sync") || lower.contains("refresh") ->
+                android.R.drawable.ic_popup_sync
+            lower.contains("close") || lower.contains("stop") || lower.contains("delete") ->
+                android.R.drawable.ic_menu_close_clear_cancel
+            lower.contains("info") || lower.contains("lyric") ->
+                android.R.drawable.ic_menu_info_details
+            else -> android.R.drawable.ic_menu_sort_by_size
+        }
+    }
+
+    private fun buildNowPlayingMediaMetadata(effectiveDurationMs: Long): MediaMetadata {
+        val lyricLine = lastDisplayedLyricLine
+        val metaBuilder = MediaMetadata.Builder()
+            .putString(MediaMetadata.METADATA_KEY_TITLE, nowPlayingTitle)
+            .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, nowPlayingTitle)
+        if (nowPlayingArtist.isNotBlank()) metaBuilder.putString(MediaMetadata.METADATA_KEY_ARTIST, nowPlayingArtist)
+        if (nowPlayingAlbum.isNotBlank()) metaBuilder.putString(MediaMetadata.METADATA_KEY_ALBUM, nowPlayingAlbum)
+        if (lyricLine.isNotBlank()) {
+            metaBuilder.putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, lyricLine)
+            val secondaryDesc = listOf(nowPlayingArtist, nowPlayingAlbum).filter { it.isNotBlank() }.joinToString(" · ")
+            if (secondaryDesc.isNotBlank()) {
+                metaBuilder.putString(MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION, secondaryDesc)
+            }
+        }
+        if (effectiveDurationMs > 0L) metaBuilder.putLong(MediaMetadata.METADATA_KEY_DURATION, effectiveDurationMs)
+        nowPlayingArtworkBitmap?.let { metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, it) }
+        return metaBuilder.build()
+    }
+
+    private fun buildNowPlayingPlaybackState(isPlaying: Boolean, positionMs: Long, rate: Float): PlaybackState {
+        var actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_STOP
+        if (nowPlayingCanNext) actions = actions or PlaybackState.ACTION_SKIP_TO_NEXT
+        if (nowPlayingCanPrevious) actions = actions or PlaybackState.ACTION_SKIP_TO_PREVIOUS
+        if (nowPlayingCanSeek) actions = actions or PlaybackState.ACTION_SEEK_TO
+        val stateBuilder = PlaybackState.Builder()
+            .setActions(actions)
+            .setState(
+                if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
+                positionMs.coerceAtLeast(0L),
+                if (isPlaying) rate else 0f,
+            )
+        if (nowPlayingHasLike) {
+            stateBuilder.addCustomAction(
+                PlaybackState.CustomAction.Builder(
+                    CUSTOM_ACTION_TOGGLE_LIKE,
+                    if (nowPlayingLiked) "取消喜欢" else "喜欢",
+                    if (nowPlayingLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off,
+                ).build(),
+            )
+        }
+        nowPlayingCustomActions.take(3).forEach { act ->
+            stateBuilder.addCustomAction(
+                PlaybackState.CustomAction.Builder(
+                    "$CUSTOM_ACTION_PREFIX${act.id}",
+                    act.title,
+                    resolveCustomActionIconRes(act.icon, act.active),
+                ).build(),
+            )
+        }
+        return stateBuilder.build()
+    }
+
+    private fun dispatchToggleLikeFromRemote() {
+        nowPlayingLiked = !nowPlayingLiked
+        updateNowPlayingPlaybackState()
+        sendDeviceEvent(
+            "audio.remoteCommand",
+            buildJsonObject {
+                put("command", "toggleLike")
+                put("liked", nowPlayingLiked)
+            },
+        )
+    }
+
+    private fun dispatchCustomRemoteAction(actionId: String) {
+        if (actionId.isBlank()) return
+        sendDeviceEvent(
+            "audio.remoteCommand",
+            buildJsonObject {
+                put("command", "custom")
+                put("actionId", actionId)
+            },
+        )
     }
 
     private fun ensureMediaSessionAndReceiver(): MediaSession {
@@ -1233,7 +1409,12 @@ class AndroidPluginNativeCapabilities(
                     override fun onSeekTo(pos: Long) {
                         val targetMs = pos.coerceAtLeast(0L)
                         mainHandler.post {
+                            nowPlayingPositionMs = targetMs
                             mediaPlayer?.let { runCatching { it.seekTo(targetMs.toInt()) } }
+                            if (nowPlayingLyricLines.isNotEmpty()) {
+                                lastDisplayedLyricLine = resolveCurrentLyricLine(targetMs)
+                                mediaSession?.setMetadata(buildNowPlayingMediaMetadata(nowPlayingDurationMs))
+                            }
                             updateNowPlayingPlaybackState()
                             sendDeviceEvent(
                                 "audio.remoteCommand",
@@ -1242,6 +1423,16 @@ class AndroidPluginNativeCapabilities(
                                     put("positionMs", targetMs)
                                 },
                             )
+                        }
+                    }
+
+                    override fun onCustomAction(action: String, extras: android.os.Bundle?) {
+                        mainHandler.post {
+                            when {
+                                action == CUSTOM_ACTION_TOGGLE_LIKE -> dispatchToggleLikeFromRemote()
+                                action.startsWith(CUSTOM_ACTION_PREFIX) ->
+                                    dispatchCustomRemoteAction(action.removePrefix(CUSTOM_ACTION_PREFIX))
+                            }
                         }
                     }
                 },
@@ -1265,6 +1456,8 @@ class AndroidPluginNativeCapabilities(
                         }
                         ACTION_MEDIA_PREV -> sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "previous") })
                         ACTION_MEDIA_NEXT -> sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "next") })
+                        ACTION_MEDIA_LIKE -> dispatchToggleLikeFromRemote()
+                        ACTION_MEDIA_CUSTOM -> dispatchCustomRemoteAction(intent.getStringExtra(EXTRA_CUSTOM_ACTION_ID).orEmpty())
                         ACTION_MEDIA_STOP -> {
                             stopInlinePlayback(emitEvent = true)
                             clearNowPlayingNotification()
@@ -1277,6 +1470,8 @@ class AndroidPluginNativeCapabilities(
                 addAction(ACTION_MEDIA_TOGGLE)
                 addAction(ACTION_MEDIA_PREV)
                 addAction(ACTION_MEDIA_NEXT)
+                addAction(ACTION_MEDIA_LIKE)
+                addAction(ACTION_MEDIA_CUSTOM)
                 addAction(ACTION_MEDIA_STOP)
             }
             runCatching {
@@ -1304,6 +1499,10 @@ class AndroidPluginNativeCapabilities(
         canNext: Boolean,
         canPrevious: Boolean,
         canSeek: Boolean,
+        lyrics: String = "",
+        lyricLines: List<NowPlayingLyricLine> = emptyList(),
+        liked: Boolean? = null,
+        customActions: List<NowPlayingCustomAction> = emptyList(),
     ) {
         nowPlayingActive = true
         nowPlayingTitle = title
@@ -1311,35 +1510,33 @@ class AndroidPluginNativeCapabilities(
         nowPlayingAlbum = album
         nowPlayingCanNext = canNext
         nowPlayingCanPrevious = canPrevious
+        nowPlayingCanSeek = canSeek
+        if (lyrics.isNotEmpty() || lyricLines.isNotEmpty()) {
+            nowPlayingLyrics = lyrics
+            if (lyricLines.isNotEmpty()) {
+                nowPlayingLyricLines = lyricLines
+            }
+        }
+        if (liked != null) {
+            nowPlayingHasLike = true
+            nowPlayingLiked = liked
+        }
+        if (customActions.isNotEmpty()) {
+            nowPlayingCustomActions = customActions
+        }
 
         val session = ensureMediaSessionAndReceiver()
-        val effectiveDur = durationMs ?: runCatching { mediaPlayer?.duration?.toLong() ?: 0L }.getOrDefault(0L)
-        val effectivePos = positionMs ?: runCatching { mediaPlayer?.currentPosition?.toLong() ?: 0L }.getOrDefault(0L)
+        val effectiveDur = durationMs ?: runCatching { mediaPlayer?.duration?.toLong() ?: nowPlayingDurationMs }.getOrDefault(nowPlayingDurationMs)
+        val effectivePos = positionMs ?: runCatching { mediaPlayer?.currentPosition?.toLong() ?: nowPlayingPositionMs }.getOrDefault(nowPlayingPositionMs)
+        nowPlayingDurationMs = effectiveDur
+        nowPlayingPositionMs = effectivePos
+        lastDisplayedLyricLine = resolveCurrentLyricLine(effectivePos)
 
-        val metaBuilder = MediaMetadata.Builder()
-            .putString(MediaMetadata.METADATA_KEY_TITLE, title)
-        if (artist.isNotBlank()) metaBuilder.putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
-        if (album.isNotBlank()) metaBuilder.putString(MediaMetadata.METADATA_KEY_ALBUM, album)
-        if (effectiveDur > 0L) metaBuilder.putLong(MediaMetadata.METADATA_KEY_DURATION, effectiveDur)
-        if (artworkUrl == nowPlayingArtworkUrl && nowPlayingArtworkBitmap != null) {
-            metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, nowPlayingArtworkBitmap)
+        if (artworkUrl.isBlank() || artworkUrl != nowPlayingArtworkUrl) {
+            if (artworkUrl.isBlank()) nowPlayingArtworkBitmap = null
         }
-        session.setMetadata(metaBuilder.build())
-
-        var actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_STOP
-        if (canNext) actions = actions or PlaybackState.ACTION_SKIP_TO_NEXT
-        if (canPrevious) actions = actions or PlaybackState.ACTION_SKIP_TO_PREVIOUS
-        if (canSeek) actions = actions or PlaybackState.ACTION_SEEK_TO
-        session.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(actions)
-                .setState(
-                    if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
-                    effectivePos.coerceAtLeast(0L),
-                    if (isPlaying) rate else 0f,
-                )
-                .build(),
-        )
+        session.setMetadata(buildNowPlayingMediaMetadata(effectiveDur))
+        session.setPlaybackState(buildNowPlayingPlaybackState(isPlaying, effectivePos, rate))
         postMediaStyleNotification(session, isPlaying)
 
         if (artworkUrl.isNotBlank() && artworkUrl != nowPlayingArtworkUrl) {
@@ -1362,15 +1559,7 @@ class AndroidPluginNativeCapabilities(
                                     if (nowPlayingActive && nowPlayingArtworkUrl == artworkUrl) {
                                         nowPlayingArtworkBitmap = bmp
                                         mediaSession?.let { activeSess ->
-                                            val updatedMeta = MediaMetadata.Builder()
-                                                .putString(MediaMetadata.METADATA_KEY_TITLE, nowPlayingTitle)
-                                                .apply {
-                                                    if (nowPlayingArtist.isNotBlank()) putString(MediaMetadata.METADATA_KEY_ARTIST, nowPlayingArtist)
-                                                    if (nowPlayingAlbum.isNotBlank()) putString(MediaMetadata.METADATA_KEY_ALBUM, nowPlayingAlbum)
-                                                    putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, bmp)
-                                                }
-                                                .build()
-                                            activeSess.setMetadata(updatedMeta)
+                                            activeSess.setMetadata(buildNowPlayingMediaMetadata(nowPlayingDurationMs))
                                             postMediaStyleNotification(activeSess, playbackState == "playing")
                                         }
                                     }
@@ -1386,20 +1575,8 @@ class AndroidPluginNativeCapabilities(
     private fun updateNowPlayingPlaybackState() {
         val session = mediaSession ?: return
         val isPlaying = playbackState == "playing"
-        val pos = runCatching { mediaPlayer?.currentPosition?.toLong() ?: 0L }.getOrDefault(0L)
-        var actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_STOP or PlaybackState.ACTION_SEEK_TO
-        if (nowPlayingCanNext) actions = actions or PlaybackState.ACTION_SKIP_TO_NEXT
-        if (nowPlayingCanPrevious) actions = actions or PlaybackState.ACTION_SKIP_TO_PREVIOUS
-        session.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(actions)
-                .setState(
-                    if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
-                    pos.coerceAtLeast(0L),
-                    if (isPlaying) playbackRate else 0f,
-                )
-                .build(),
-        )
+        val pos = runCatching { mediaPlayer?.currentPosition?.toLong() ?: nowPlayingPositionMs }.getOrDefault(nowPlayingPositionMs)
+        session.setPlaybackState(buildNowPlayingPlaybackState(isPlaying, pos, playbackRate))
         postMediaStyleNotification(session, isPlaying)
     }
 
@@ -1420,13 +1597,18 @@ class AndroidPluginNativeCapabilities(
             nm.createNotificationChannel(ch)
         }
         val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        fun actionIntent(action: String, reqCode: Int): PendingIntent =
+        fun actionIntent(action: String, reqCode: Int, extraActionId: String? = null): PendingIntent =
             PendingIntent.getBroadcast(
                 appContext,
                 reqCode,
-                Intent(action).setPackage(appContext.packageName),
+                Intent(action).setPackage(appContext.packageName).apply {
+                    if (!extraActionId.isNullOrBlank()) putExtra(EXTRA_CUSTOM_ACTION_ID, extraActionId)
+                },
                 piFlags,
             )
+
+        val artistAlbumLine = listOf(nowPlayingArtist, nowPlayingAlbum).filter { it.isNotBlank() }.joinToString(" · ")
+        val contentLine = lastDisplayedLyricLine.ifBlank { artistAlbumLine.ifBlank { "插件正在播放" } }
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(appContext, MEDIA_NOTIF_CHANNEL_ID)
@@ -1435,13 +1617,28 @@ class AndroidPluginNativeCapabilities(
         }
         builder.setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(nowPlayingTitle)
-            .setContentText(listOf(nowPlayingArtist, nowPlayingAlbum).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "插件正在播放" })
+            .setContentText(contentLine)
+            .apply {
+                if (lastDisplayedLyricLine.isNotBlank() && artistAlbumLine.isNotBlank()) {
+                    setSubText(artistAlbumLine)
+                }
+            }
             .setOngoing(isPlaying)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
         nowPlayingArtworkBitmap?.let { builder.setLargeIcon(it) }
 
         val compactIndices = mutableListOf<Int>()
         var idx = 0
+        if (nowPlayingHasLike) {
+            builder.addAction(
+                Notification.Action.Builder(
+                    if (nowPlayingLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off,
+                    if (nowPlayingLiked) "已喜欢" else "喜欢",
+                    actionIntent(ACTION_MEDIA_LIKE, 10),
+                ).build(),
+            )
+            idx++
+        }
         if (nowPlayingCanPrevious) {
             builder.addAction(Notification.Action.Builder(android.R.drawable.ic_media_previous, "上一首", actionIntent(ACTION_MEDIA_PREV, 1)).build())
             compactIndices += idx++
@@ -1458,6 +1655,18 @@ class AndroidPluginNativeCapabilities(
             builder.addAction(Notification.Action.Builder(android.R.drawable.ic_media_next, "下一首", actionIntent(ACTION_MEDIA_NEXT, 3)).build())
             compactIndices += idx++
         }
+        if (nowPlayingHasLike && compactIndices.size < 3) {
+            compactIndices.add(0, 0)
+        }
+        nowPlayingCustomActions.take(2).forEachIndexed { cIdx, cAct ->
+            builder.addAction(
+                Notification.Action.Builder(
+                    resolveCustomActionIconRes(cAct.icon, cAct.active),
+                    cAct.title,
+                    actionIntent(ACTION_MEDIA_CUSTOM, 20 + cIdx, cAct.id),
+                ).build(),
+            )
+        }
         builder.addAction(Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "停止", actionIntent(ACTION_MEDIA_STOP, 4)).build())
 
         val style = Notification.MediaStyle()
@@ -1472,6 +1681,14 @@ class AndroidPluginNativeCapabilities(
         nowPlayingTitle = ""
         nowPlayingArtist = ""
         nowPlayingAlbum = ""
+        nowPlayingDurationMs = 0L
+        nowPlayingPositionMs = 0L
+        nowPlayingLyrics = ""
+        nowPlayingLyricLines = emptyList()
+        lastDisplayedLyricLine = ""
+        nowPlayingHasLike = false
+        nowPlayingLiked = false
+        nowPlayingCustomActions = emptyList()
         nowPlayingArtworkUrl = ""
         nowPlayingArtworkBitmap = null
         mediaSession?.let {

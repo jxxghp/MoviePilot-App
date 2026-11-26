@@ -335,6 +335,8 @@ public enum AppDeepLink: Equatable, Hashable, Sendable {
   case messages
   /// 插件中心；`installedOnly` 为真时打开已安装插件视图，否则打开插件市场。
   case plugins(installedOnly: Bool)
+  /// 直达指定插件详情弹窗/配置页（`surface`: `data`/`config`）。
+  case pluginDetail(pluginID: String, surface: String?)
   /// 智能助手，可选预填输入草稿（绝不自动发送）。
   case agent(prompt: String?)
   /// 音乐中心。
@@ -774,6 +776,15 @@ public enum AppDeepLink: Equatable, Hashable, Sendable {
 
     case "plugin", "plugins", "apps":
       if lower.count == 1 {
+        if let rawID = queryValue(in: queryItems, keys: ["id"])?
+          .trimmingCharacters(in: .whitespacesAndNewlines),
+          !rawID.isEmpty
+        {
+          guard isValidIdentifier(rawID, maxLength: 128) else { return nil }
+          let surf = sanitizeOptionalText(
+            queryValue(in: queryItems, keys: ["surface"]), maxUTF8: 32)
+          return .pluginDetail(pluginID: rawID, surface: surf)
+        }
         let tab = queryValue(in: queryItems, keys: ["tab"])?.lowercased()
         if let tab, !tab.isEmpty {
           guard tab == "installed" || tab == "market" else { return nil }
@@ -788,7 +799,11 @@ public enum AppDeepLink: Equatable, Hashable, Sendable {
       case "installed", "local":
         return .plugins(installedOnly: true)
       default:
-        return nil
+        let rawSeg = segments[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidIdentifier(rawSeg, maxLength: 128) else { return nil }
+        let surf = sanitizeOptionalText(
+          queryValue(in: queryItems, keys: ["surface"]), maxUTF8: 32)
+        return .pluginDetail(pluginID: rawSeg, surface: surf)
       }
 
     case "agent", "assistant", "ai":

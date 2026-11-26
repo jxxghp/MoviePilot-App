@@ -213,6 +213,29 @@ export struct HarmonyWorkflowCanvasPage {
     return st === 'P' || st === 'PAUSE' || st === 'S' || st === 'STOP';
   }
 
+  @Builder
+  private workflowCardMenuBuilder(wf: MpWorkflowItem) {
+    Menu() {
+      MenuItem({ content: '立即运行一次' })
+        .onClick(() => { this.handleRun(wf); })
+      MenuItem({ content: this.isPaused(wf) ? '启用工作流' : '暂停工作流' })
+        .onClick(() => { this.handleToggleState(wf); })
+      MenuItem({ content: '在画布中查看' })
+        .onClick(() => {
+          this.activeWorkflowId = wf.id;
+          this.offsetX = 12;
+          this.offsetY = 18;
+          this.scaleVal = 1.0;
+          const nodes = this.activeNodes();
+          this.selectedNode = nodes.length > 0 ? nodes[0].name : '';
+          this.drawEdges();
+        })
+      MenuItem({ content: '删除工作流' })
+        .contentFontColor('#E84855')
+        .onClick(() => { this.confirmDeleteWorkflow(wf); })
+    }
+  }
+
   private async handleRun(wf: MpWorkflowItem): Promise<void> {
     if (this.busyWfId === wf.id) { return; }
     this.busyWfId = wf.id;
@@ -334,7 +357,8 @@ export struct HarmonyWorkflowCanvasPage {
               Grid() {
                 ForEach(this.workflows, (wf: MpWorkflowItem) => {
                   GridItem() {
-                    CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
+                    Column() {
+                    CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: true }) {
                       Column({ space: 8 }) {
                         Row({ space: 8 }) {
                           Text(wf.name)
@@ -412,6 +436,9 @@ export struct HarmonyWorkflowCanvasPage {
                         }.width('100%')
                       }
                     }
+                    }
+                    .width('100%')
+                    .bindContextMenu(this.workflowCardMenuBuilder(wf), ResponseType.LongPress)
                   }
                 }, (wf: MpWorkflowItem) => `${wf.id}_${wf.state}_${wf.runCount}`)
               }
@@ -722,6 +749,31 @@ export struct HarmonySitesPage {
   }
 
   @Builder
+  private siteCardMenuBuilder(s: MpSiteItem) {
+    Menu() {
+      MenuItem({ content: '查看流量详情' })
+        .onClick(() => {
+          this.selectedSite = s;
+          this.showDetail = true;
+        })
+      MenuItem({ content: '编辑站点配置' })
+        .onClick(() => { this.openEditSite(s); })
+      MenuItem({ content: '测试站点连通性' })
+        .onClick(async () => {
+          const msg = await MoviePilotRepository.shared().testSiteConnectivity(s.id);
+          this.notice = `${s.name}：${msg}`;
+        })
+      MenuItem({ content: '删除站点' })
+        .contentFontColor('#E84855')
+        .onClick(() => {
+          this.edId = s.id;
+          this.edName = s.name;
+          this.confirmDeleteCurrentSite();
+        })
+    }
+  }
+
+  @Builder
   trafficBarBuilder(s: MpSiteItem) {
     if (s.uploadBytes <= 0 && s.downloadBytes <= 0) {
       // 0 B 上传且 0 B 下载：渲染 0% 纯中性空槽，绝不伪造绿/粉假条
@@ -1022,6 +1074,7 @@ export struct HarmonySitesPage {
                 this.selectedSite = s;
                 this.showDetail = true;
               })
+              .bindContextMenu(this.siteCardMenuBuilder(s), ResponseType.LongPress)
             }
           }, (s: MpSiteItem) => `${s.id}_${s.name}_${s.isActive}_${s.iconDataUri.length}`)
         }

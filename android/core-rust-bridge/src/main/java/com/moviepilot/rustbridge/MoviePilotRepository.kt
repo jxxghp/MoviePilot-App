@@ -2258,28 +2258,52 @@ class MoviePilotRepository(context: Context) {
         }
     }
 
-    /** 拉取系统模块列表（`GET /api/v1/module/modulelist`）。 */
-    suspend fun fetchSystemModules(): List<SystemModuleStatusDto> {
-        val resp = authedRequest(listOf("module", "modulelist")).getOrNull() ?: return emptyList()
-        return extractArray(resp.body).mapNotNull { el ->
+    /** 拉取系统已启用模块健康检查列表（`GET /api/v1/system/modulelist`，并合并 `system/module-catalog` 类型元数据）。 */
+    suspend fun fetchSystemModules(): List<SystemModuleStatusDto> = coroutineScope {
+        val listDef = async { authedRequest(listOf("system", "modulelist")).getOrNull() }
+        val catalogDef = async {
+            runCatching { authedRequest(listOf("system", "module-catalog")).getOrNull() }.getOrNull()
+        }
+        val resp = listDef.await() ?: return@coroutineScope emptyList()
+        if (resp.status !in 200..299) return@coroutineScope emptyList()
+
+        val catalogMap = mutableMapOf<String, Pair<String, String>>()
+        val catBody = catalogDef.await()?.takeIf { it.status in 200..299 }?.body
+        if (!catBody.isNullOrBlank()) {
+            val catArr = (extractObject(catBody)?.get("modules") as? JsonArray) ?: extractArray(catBody)
+            catArr.forEach { el ->
+                val obj = el.asObj() ?: return@forEach
+                val id = obj.str("id") ?: return@forEach
+                val mType = obj.str("type") ?: obj.str("module_type").orEmpty()
+                val subType = obj.str("subtype") ?: obj.str("module_subtype") ?: obj.str("sub_type").orEmpty()
+                catalogMap[id] = mType to subType
+            }
+        }
+
+        val moduleArr = (extractObject(resp.body)?.get("modules") as? JsonArray) ?: extractArray(resp.body)
+        moduleArr.mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
             val id = obj.str("id") ?: return@mapNotNull null
+            val (catType, catSub) = catalogMap[id] ?: ("" to "")
             SystemModuleStatusDto(
                 id = id,
-                name = obj.str("name") ?: id,
-                moduleType = obj.str("module_type") ?: obj.str("type").orEmpty(),
-                subType = obj.str("module_subtype") ?: obj.str("sub_type").orEmpty(),
+                name = obj.str("name_i18n")?.takeIf { it.isNotBlank() }
+                    ?: obj.str("name")?.takeIf { it.isNotBlank() }
+                    ?: id,
+                moduleType = obj.str("type") ?: obj.str("module_type") ?: catType,
+                subType = obj.str("subtype") ?: obj.str("module_subtype") ?: obj.str("sub_type") ?: catSub,
             )
         }
     }
 
-    /** 对单个系统模块执行真实连通/健康自检（`GET /api/v1/module/moduletest/{id}`）。 */
+    /** 对单个系统模块执行真实连通/健康自检（`GET /api/v1/system/moduletest/{id}`）。 */
     suspend fun testSystemModule(moduleId: String): Pair<Boolean, String> {
-        val resp = authedRequest(listOf("module", "moduletest", moduleId)).getOrNull()
+        val resp = authedRequest(listOf("system", "moduletest", moduleId)).getOrNull()
             ?: return false to "请求失败"
         val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
         val ok = obj?.bool("success") ?: (resp.status in 200..299)
-        val msg = obj?.str("message") ?: if (ok) "模块运行正常" else "检测未通过（HTTP ${resp.status}）"
+        val msg = obj?.str("message")?.takeIf { it.isNotBlank() }
+            ?: if (ok) "模块运行正常" else "检测未通过（HTTP ${resp.status}）"
         return ok to msg
     }
 
@@ -3119,6 +3143,137 @@ class MoviePilotRepository(context: Context) {
         val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
         val ok = obj?.bool("success") ?: (resp.status in 200..299)
         return ok to (obj?.str("message") ?: if (ok) "插件已重置" else "重置失败（HTTP ${resp.status}）")
+    }
+
+    /** 重新加载指定插件运行时（`POST /api/v1/plugin/reload/{plugin_id}`）。 */
+    suspend fun reloadPlugin(pluginId: String): Pair<Boolean, String> {
+        val resp = authedRequest(listOf("plugin", "reload", pluginId), method = "POST", body = "{}").getOrNull()
+            ?: return false to "重新加载请求失败"
+        val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
+        val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        return ok to (obj?.str("message")?.takeIf { it.isNotBlank() } ?: if (ok) "插件已重新加载" else "重新加载失败（HTTP ${resp.status}）")
+    }
+
+    /** 读取指定插件专属运行日志（`GET /api/v1/system/logging?length={length}&logfile=plugins/{id}.log`）。 */
+    suspend fun fetchPluginLogs(pluginId: String, length: Int = 200): List<String> {
+        val cleanId = pluginId.trim().lowercase()
+        if (cleanId.isEmpty() || cleanId.contains("..") || cleanId.contains('/')) return emptyList()
+        val resp = authedRequest(
+            segments = listOf("system", "logging"),
+            query = listOf("length" to length.coerceIn(20, 500).toString(), "logfile" to "plugins/$cleanId.log"),
+        ).getOrNull() ?: return emptyList()
+        if (resp.status !in 200..299) return emptyList()
+        val body = resp.body.trim()
+        if (body.isEmpty()) return emptyList()
+        val unwrapped = runCatching {
+            val el = json.parseToJsonElement(body)
+            el.asObj()?.str("data") ?: el.asPrim()?.content
+        }.getOrNull() ?: body
+        return unwrapped.lines().map { it.trimEnd() }.filter { it.isNotBlank() }
+    }
+
+    /** 拉取插件通过 `ChainEventType.RecommendSource` 动态注册的额外推荐榜单（`GET /api/v1/recommend/source`）。 */
+    suspend fun fetchRecommendSources(): List<RecommendSourceDto> {
+        val resp = authedRequest(listOf("recommend", "source")).getOrNull() ?: return emptyList()
+        if (resp.status !in 200..299) return emptyList()
+        val seen = HashSet<String>()
+        return extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val name = obj.str("name")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val rawApiPath = obj.str("api_path")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val safePath = sanitizeRelativeRecommendApiPath(rawApiPath) ?: return@mapNotNull null
+            if (!seen.add(safePath)) return@mapNotNull null
+            RecommendSourceDto(
+                name = name,
+                apiPath = safePath,
+                type = obj.str("type")?.trim().orEmpty(),
+            )
+        }
+    }
+
+    /**
+     * 按受控相对 `api_path` 拉取插件推荐榜单媒体列表：
+     * 严禁访问外部域名、协议相对路径或 `..` 穿越段；仅允许同源 `/api/v1/` 子路径。
+     */
+    suspend fun fetchRecommendByApiPath(apiPath: String, page: Int = 1): List<MediaCardItem> {
+        val parsed = parseSafeRelativeApiPath(apiPath, page = page) ?: return emptyList()
+        return fetchMediaList(parsed.first, parsed.second)
+    }
+
+    /** 从海报卡片长按菜单一键快捷添加订阅（`POST /api/v1/subscribe/`）。 */
+    suspend fun quickSubscribeMediaCard(item: MediaCardItem): Pair<Boolean, String> {
+        val identity = normalizeCanonicalMediaIdentity(
+            source = item.source,
+            mediaId = item.mediaId,
+            tmdbId = item.tmdbId,
+            doubanId = item.doubanId,
+            bangumiId = item.bangumiId,
+            imdbId = item.imdbId,
+            tvdbId = item.tvdbId,
+        )
+        val canonicalType = canonicalMediaType(item.type)
+        val sub = SubscribeItemDto(
+            name = item.title,
+            year = item.year,
+            type = canonicalType,
+            season = if (isTvType(canonicalType)) (item.season ?: 1) else null,
+            mediaSource = identity?.first ?: item.source.ifBlank { "themoviedb" },
+            mediaId = identity?.second ?: item.mediaId.orEmpty(),
+        )
+        return createOrUpdateSubscriptionWithMessage(sub, isUpdate = false)
+    }
+
+    private fun sanitizeRelativeRecommendApiPath(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || trimmed.length > 4096) return null
+        if (trimmed.contains("://") || trimmed.startsWith("//") || trimmed.contains('\\') || trimmed.contains('#')) return null
+        if (trimmed.any { it.isISOControl() }) return null
+        val pathPart = trimmed.substringBefore('?').trimStart('/').let {
+            if (it.startsWith("api/v1/")) it.removePrefix("api/v1/") else it
+        }
+        val queryPart = if ('?' in trimmed) trimmed.substringAfter('?') else ""
+        if (pathPart.isEmpty() || pathPart.contains("//")) return null
+        val segments = pathPart.split('/').filter { it.isNotEmpty() }
+        if (segments.isEmpty() || segments.any { seg ->
+                val dec = runCatching { java.net.URLDecoder.decode(seg, "UTF-8") }.getOrDefault(seg)
+                dec == "." || dec == ".." || dec.contains('/') || dec.contains('\\')
+            }
+        ) {
+            return null
+        }
+        return if (queryPart.isNotEmpty()) "${segments.joinToString("/")}?$queryPart" else segments.joinToString("/")
+    }
+
+    private fun parseSafeRelativeApiPath(
+        apiPath: String,
+        page: Int = 1,
+    ): Pair<List<String>, List<Pair<String, String>>>? {
+        val clean = sanitizeRelativeRecommendApiPath(apiPath) ?: return null
+        val pathPart = clean.substringBefore('?')
+        val queryPart = if ('?' in clean) clean.substringAfter('?') else ""
+        val segments = pathPart.split('/').filter { it.isNotEmpty() }.map { seg ->
+            runCatching { java.net.URLDecoder.decode(seg, "UTF-8") }.getOrDefault(seg)
+        }
+        if (segments.isEmpty() || segments.any { it == "." || it == ".." || it.contains('/') || it.contains('\\') }) {
+            return null
+        }
+        val query = mutableListOf<Pair<String, String>>()
+        if (queryPart.isNotBlank()) {
+            queryPart.split('&').forEach { pair ->
+                if (pair.isBlank()) return@forEach
+                val kRaw = pair.substringBefore('=')
+                val vRaw = if ('=' in pair) pair.substringAfter('=') else ""
+                val k = runCatching { java.net.URLDecoder.decode(kRaw, "UTF-8") }.getOrDefault(kRaw)
+                val v = runCatching { java.net.URLDecoder.decode(vRaw, "UTF-8") }.getOrDefault(vRaw)
+                if (k.isNotBlank() && (page <= 1 || k != "page")) {
+                    query += k to v
+                }
+            }
+        }
+        if (page > 1) {
+            query += "page" to page.toString()
+        }
+        return segments to query
     }
 
     suspend fun fetchPluginFormJson(pluginId: String): String? {

@@ -147,3 +147,122 @@ public enum DiscoverSourceEndpointError: Error, Equatable, Sendable {
   case tooManyFilterParameters
   case unsupportedFilterValue
 }
+
+/// 插件通过 `ChainEventType.RecommendSource` 动态注册的推荐榜单来源（`GET /api/v1/recommend/source`）。
+public struct RecommendSource: Codable, Equatable, Hashable, Sendable, CustomDebugStringConvertible
+{
+  public let name: String
+  public let apiPath: String
+  public let type: String
+
+  public init(name: String, apiPath: String, type: String = "") {
+    self.name = name
+    self.apiPath = apiPath
+    self.type = type
+  }
+
+  public var debugDescription: String {
+    "RecommendSource(name: \(String(reflecting: name)), type: \(String(reflecting: type)))"
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case name
+    case apiPath = "api_path"
+    case type
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.name = try container.decode(String.self, forKey: .name)
+    self.apiPath = try container.decode(String.self, forKey: .apiPath)
+    self.type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
+  }
+}
+
+/// 构造同一服务 API 的插件推荐榜单请求；严格校验相对路径并拒绝任意外部 URL 或目录穿越。
+public enum RecommendSourceEndpoint {
+  /// 读取当前实例已启用插件贡献的动态推荐榜单列表（`GET /api/v1/recommend/source`）。
+  public static func list() throws -> APIEndpoint {
+    try APIEndpoint(path: ["recommend", "source"], responseContract: .payload)
+  }
+
+  /// 将插件声明的 `api_path` 解析为受控的同源 `/api/v1/` 请求端点。
+  public static func media(apiPath: String, page: Int? = nil) throws -> APIEndpoint {
+    if let page, !(1...10_000).contains(page) {
+      throw DiscoverSourceEndpointError.invalidSourcePath
+    }
+    let trimmed = apiPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed.utf8.count <= 16_384,
+      !trimmed.contains("://"), !trimmed.hasPrefix("//"), !trimmed.contains("\\"),
+      !trimmed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+    else {
+      throw DiscoverSourceEndpointError.invalidSourcePath
+    }
+
+    let normalizedInput: String
+    if trimmed.hasPrefix("/api/v1/") {
+      normalizedInput = String(trimmed.dropFirst("/api/v1/".count))
+    } else if trimmed.hasPrefix("api/v1/") {
+      normalizedInput = String(trimmed.dropFirst("api/v1/".count))
+    } else if trimmed.hasPrefix("/") {
+      normalizedInput = String(trimmed.dropFirst())
+    } else {
+      normalizedInput = trimmed
+    }
+
+    guard let components = URLComponents(string: normalizedInput),
+      components.scheme == nil, components.host == nil, components.user == nil,
+      components.password == nil, components.port == nil, components.fragment == nil,
+      !components.percentEncodedPath.isEmpty, !components.percentEncodedPath.hasPrefix("/"),
+      !components.percentEncodedPath.contains("//"), !components.percentEncodedPath.contains("\\")
+    else {
+      throw DiscoverSourceEndpointError.invalidSourcePath
+    }
+
+    let trailingSlash = components.percentEncodedPath.hasSuffix("/")
+    let encodedSegments = components.percentEncodedPath.split(separator: "/")
+    guard (1...64).contains(encodedSegments.count) else {
+      throw DiscoverSourceEndpointError.invalidSourcePath
+    }
+    let path = try encodedSegments.map { encoded -> String in
+      guard let segment = String(encoded).removingPercentEncoding,
+        !segment.isEmpty, segment != ".", segment != "..",
+        !segment.contains("/"), !segment.contains("\\"),
+        !segment.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+      else {
+        throw DiscoverSourceEndpointError.invalidSourcePath
+      }
+      return segment
+    }
+
+    let staticQuery = components.queryItems ?? []
+    guard staticQuery.count <= 128,
+      staticQuery.allSatisfy({ item in
+        item.name.utf8.count <= 1024 && (item.value?.utf8.count ?? 0) <= 4096
+          && !item.name.unicodeScalars.contains(where: {
+            CharacterSet.controlCharacters.contains($0)
+          })
+          && !(item.value ?? "").unicodeScalars.contains(where: {
+            CharacterSet.controlCharacters.contains($0)
+          })
+      })
+    else {
+      throw DiscoverSourceEndpointError.invalidSourcePath
+    }
+
+    var query: [URLQueryItem]
+    if let page, page > 1 {
+      query = staticQuery.filter { $0.name != "page" }
+      query.append(URLQueryItem(name: "page", value: String(page)))
+    } else {
+      query = staticQuery
+    }
+
+    do {
+      return try APIEndpoint(
+        path: path, query: query, responseContract: .payload, trailingSlash: trailingSlash)
+    } catch {
+      throw DiscoverSourceEndpointError.invalidSourcePath
+    }
+  }
+}

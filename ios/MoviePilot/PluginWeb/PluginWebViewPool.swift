@@ -155,6 +155,7 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
 
   /// 退出登录、令牌失效或切换服务实例时彻底销毁池中槽并清空当前上下文。
   func resetForSessionChange() {
+    PluginCapsuleManager.shared.closeAndRelease()
     prewarmTask?.cancel()
     prewarmTask = nil
     if let idle = idleSlot {
@@ -289,5 +290,226 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
       active.state = .disposed
       active.onProcessTerminated?()
     }
+  }
+}
+
+/// 最小化悬浮胶囊上的单个插件快捷按钮定义。
+struct PluginCapsuleActionItem: Identifiable, Equatable {
+  let id: String
+  let label: String
+  let icon: String?
+  let active: Bool
+  let destructive: Bool
+}
+
+/// 联邦插件最小化胶囊实时展示模型。
+struct PluginCapsuleSnapshot: Equatable {
+  var pluginID: String
+  var pluginName: String
+  var title: String
+  var subtitle: String
+  var statusText: String
+  var iconURL: String?
+  var mode: String  // "jump" | "mini"
+  var isPlaying: Bool
+  var actions: [PluginCapsuleActionItem]
+
+  var isMiniWindowMode: Bool {
+    mode.lowercased() == "mini" || !actions.isEmpty
+  }
+
+  static func from(
+    pluginID: String,
+    fallbackName: String,
+    payload: [String: Any]
+  ) -> PluginCapsuleSnapshot {
+    let resolvedName =
+      (payload["pluginName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        .nonEmptyOrNil ?? (fallbackName.isEmpty ? pluginID : fallbackName)
+    let resolvedTitle =
+      (payload["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        .nonEmptyOrNil ?? resolvedName
+    let actions = parseActions(payload["actions"])
+    let rawMode = (payload["mode"] as? String)?.lowercased()
+    let mode: String
+    if rawMode == "mini" || rawMode == "jump", let rawMode {
+      mode = rawMode
+    } else {
+      mode = actions.isEmpty ? "jump" : "mini"
+    }
+    return PluginCapsuleSnapshot(
+      pluginID: pluginID,
+      pluginName: resolvedName,
+      title: resolvedTitle,
+      subtitle: (payload["subtitle"] as? String) ?? "",
+      statusText: (payload["statusText"] as? String) ?? "",
+      iconURL: (payload["iconUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        .nonEmptyOrNil,
+      mode: mode,
+      isPlaying: (payload["isPlaying"] as? Bool) ?? false,
+      actions: actions
+    )
+  }
+
+  mutating func mergePatch(_ payload: [String: Any]) {
+    if let nextTitle = (payload["title"] as? String)?.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    ).nonEmptyOrNil {
+      title = nextTitle
+    }
+    if let nextSub = payload["subtitle"] as? String {
+      subtitle = nextSub
+    }
+    if let nextStatus = payload["statusText"] as? String {
+      statusText = nextStatus
+    }
+    if let nextIcon = (payload["iconUrl"] as? String)?.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    ).nonEmptyOrNil {
+      iconURL = nextIcon
+    }
+    if let nextMode = (payload["mode"] as? String)?.lowercased(),
+      nextMode == "jump" || nextMode == "mini"
+    {
+      mode = nextMode
+    }
+    if let playing = payload["isPlaying"] as? Bool {
+      isPlaying = playing
+    }
+    if payload["actions"] != nil {
+      actions = Self.parseActions(payload["actions"])
+    }
+  }
+
+  private static func parseActions(_ raw: Any?) -> [PluginCapsuleActionItem] {
+    guard let list = raw as? [[String: Any]] else { return [] }
+    return list.compactMap { item in
+      guard
+        let id = (item["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+          .nonEmptyOrNil
+      else { return nil }
+      let label =
+        (item["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil
+        ?? (item["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil
+        ?? id
+      let icon = (item["icon"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        .nonEmptyOrNil
+      let active = (item["active"] as? Bool) ?? false
+      let destructive = (item["destructive"] as? Bool) ?? false
+      return PluginCapsuleActionItem(
+        id: id, label: label, icon: icon, active: active, destructive: destructive)
+    }
+  }
+}
+
+private extension String {
+  var nonEmptyOrNil: String? {
+    isEmpty ? nil : self
+  }
+}
+
+/// 保活中的最小化联邦插件会话（持有未卸载的实时 `PooledPluginWebView`）。
+@MainActor
+final class MinimizedPluginSession: Identifiable {
+  let id: String
+  let pluginID: String
+  let pluginName: String
+  let surface: NativeVuePluginWebContainer.Surface
+  let pluginHasPage: Bool
+  let serverURL: URL
+  let slot: PooledPluginWebView
+  var snapshot: PluginCapsuleSnapshot
+
+  init(
+    pluginID: String,
+    pluginName: String,
+    surface: NativeVuePluginWebContainer.Surface,
+    pluginHasPage: Bool,
+    serverURL: URL,
+    slot: PooledPluginWebView,
+    snapshot: PluginCapsuleSnapshot
+  ) {
+    self.id = "\(pluginID):\(UUID().uuidString)"
+    self.pluginID = pluginID
+    self.pluginName = pluginName
+    self.surface = surface
+    self.pluginHasPage = pluginHasPage
+    self.serverURL = serverURL
+    self.slot = slot
+    self.snapshot = snapshot
+  }
+}
+
+/// iOS 联邦插件最小化悬浮胶囊保活管理器：
+/// 最小化时不销毁 `WKWebView` 与 Vue 实例，支持全应用跨标签显示跳转胶囊或展开快捷操作小悬浮窗。
+@MainActor
+final class PluginCapsuleManager: ObservableObject {
+  static let shared = PluginCapsuleManager()
+
+  @Published private(set) var currentSession: MinimizedPluginSession?
+  @Published var isMiniCardExpanded: Bool = false
+  @Published var restoreRequestNonce: Int = 0
+
+  private init() {}
+
+  func isSlotParked(_ slot: PooledPluginWebView) -> Bool {
+    currentSession?.slot === slot
+  }
+
+  func parkSession(_ session: MinimizedPluginSession) {
+    if let existing = currentSession, existing.slot !== session.slot {
+      PluginWebViewPool.shared.release(existing.slot)
+    }
+    session.slot.webView.removeFromSuperview()
+    currentSession = session
+    isMiniCardExpanded = false
+
+    session.slot.bridge.onCapsuleUpdate = { [weak self, weak session] patch in
+      guard let self, let session, self.currentSession === session else { return }
+      session.snapshot.mergePatch(patch)
+      self.objectWillChange.send()
+    }
+    session.slot.bridge.onPluginRestore = { [weak self, weak session] reqId in
+      guard let self, let session, self.currentSession === session else { return }
+      session.slot.bridge.sendSimpleResponse(requestId: reqId, data: ["restored": true])
+      self.requestRestore()
+    }
+    session.slot.bridge.onPluginClose = { [weak self, weak session] in
+      guard let self, let session, self.currentSession === session else { return }
+      self.closeAndRelease()
+    }
+  }
+
+  func updateActiveSnapshot(_ patch: [String: Any]) {
+    guard let currentSession else { return }
+    currentSession.snapshot.mergePatch(patch)
+    objectWillChange.send()
+  }
+
+  func consumeMatchingSession(pluginID: String, serverURL: URL) -> MinimizedPluginSession? {
+    guard let cur = currentSession,
+      cur.pluginID.caseInsensitiveCompare(pluginID) == .orderedSame,
+      cur.serverURL.absoluteString == serverURL.absoluteString
+    else { return nil }
+    currentSession = nil
+    isMiniCardExpanded = false
+    return cur
+  }
+
+  func dispatchAction(_ actionID: String) {
+    currentSession?.slot.bridge.sendCapsuleAction(id: actionID)
+  }
+
+  func requestRestore() {
+    guard currentSession != nil else { return }
+    isMiniCardExpanded = false
+    restoreRequestNonce += 1
+  }
+
+  func closeAndRelease() {
+    guard let cur = currentSession else { return }
+    currentSession = nil
+    isMiniCardExpanded = false
+    PluginWebViewPool.shared.release(cur.slot)
   }
 }

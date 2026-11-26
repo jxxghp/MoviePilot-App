@@ -56,6 +56,11 @@ import { HarmonyDashboardPage, HarmonyDiagnosticsPage, HarmonyMoreHubPage } from
 import { HarmonyWorkflowCanvasPage, HarmonySitesPage } from '@moviepilot/automation';
 import { HarmonyAgentChatPage } from '@moviepilot/agent';
 import { HarmonySettingsHubPage, HarmonyPluginsPage } from '@moviepilot/settings';
+import {
+  HarmonyGlobalVuePluginOverlay,
+  HarmonyPluginCapsuleManager,
+  HarmonyPluginFloatingCapsule
+} from '@moviepilot/plugin_host';
 
 import EntryAbility from '../entryability/EntryAbility';
 
@@ -318,6 +323,22 @@ struct Index {
         this.routeStack = ['sites'];
       } else if (kind === 'plugins') {
         this.routeStack = ['plugins'];
+      } else if (kind === 'pluginDetail') {
+        const pid = String(obj['plugin_id'] ?? '').trim();
+        const surf = String(obj['surface'] ?? '').toLowerCase() === 'config' ? 'config' : 'dataPage';
+        if (pid.length > 0) {
+          this.routeStack = ['plugins'];
+          MoviePilotRepository.shared().fetchPlugins('installed').then((list) => {
+            const found = list.find((p) => p.id.toLowerCase() === pid.toLowerCase());
+            if (found && found.renderMode.toLowerCase() === 'vue') {
+              HarmonyPluginCapsuleManager.shared().openPlugin(found.id, found.pluginName, surf, found.hasPage, found.iconUrl ?? '');
+            } else {
+              AppStorage.setOrCreate('mp_pending_open_plugin_id', `${pid}|${surf}`);
+            }
+          }).catch(() => {
+            AppStorage.setOrCreate('mp_pending_open_plugin_id', `${pid}|${surf}`);
+          });
+        }
       } else if (kind === 'agent') {
         this.routeStack = ['agent'];
       } else if (kind === 'music') {
@@ -576,6 +597,7 @@ struct Index {
     }
 
     if (returningFromMain && url !== this.serverUrl) {
+      HarmonyPluginCapsuleManager.shared().closeAndDestroy();
       if (HarmonyAudioSession.shared().stopIfSessionBound()) {
         this.miniMusic = null;
       }
@@ -612,6 +634,7 @@ struct Index {
       return;
     }
     this.serverSwitchReturnStage = '';
+    HarmonyPluginCapsuleManager.shared().closeAndDestroy();
     if (HarmonyAudioSession.shared().stopIfSessionBound()) {
       this.miniMusic = null;
     }
@@ -654,6 +677,9 @@ struct Index {
       } else {
         this.activePlayer = null;
       }
+      return true;
+    }
+    if (this.authStage === 'main' && HarmonyPluginCapsuleManager.shared().handleSystemBackPress()) {
       return true;
     }
     if (this.serverSwitchReturnStage.length > 0) {
@@ -1187,6 +1213,25 @@ struct Index {
           }
         })
           .margin({ bottom: Math.max(16, this.safeBottomVp + 8) })
+      }
+
+      if (!this.hydratingSession && this.authStage === 'main' && !this.activePlayer) {
+        HarmonyPluginFloatingCapsule()
+          .position({
+            right: 16 + this.safeRightVp,
+            bottom: (this.routeStack.length === 0 && !this.isWideLayout() ? 94 : 24) + Math.max(10, this.safeBottomVp)
+          })
+
+        HarmonyGlobalVuePluginOverlay({
+          serverUrl: this.serverUrl,
+          authToken: MoviePilotRepository.shared().token,
+          userName: this.userName,
+          userAvatar: this.userAvatar,
+          isSuperuser: this.isSuperuser,
+          onFallbackToLegacy: (_pid: string, _surf: string) => {
+            this.routeStack = ['plugins'];
+          }
+        })
       }
 
       if (this.activePlayer) {

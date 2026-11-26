@@ -1,8 +1,13 @@
 package com.moviepilot.feature.download
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,6 +78,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -1351,13 +1359,15 @@ fun ResourceSearchScreen(
  * - 展示 qBittorrent / Transmission / rTorrent 下载器品牌图标；
  * - 页面前台可见期间每 4 秒自动无感轮询进度与速度。
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun DownloadsScreen(
     repository: MoviePilotRepository,
     onBack: () -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val bottomOverlayInset = LocalBottomOverlayInset.current
     val snackbar = LocalSnackbarHostState.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1370,6 +1380,7 @@ fun DownloadsScreen(
     var selectedDownloaderFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var showFilterSheet by remember { mutableStateOf(false) }
     var confirmDeleteTask by remember { mutableStateOf<DownloadTaskDto?>(null) }
+    var actionSheetTask by remember { mutableStateOf<DownloadTaskDto?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
 
@@ -1465,7 +1476,17 @@ fun DownloadsScreen(
                         val isPaused = task.state.contains("pause", ignoreCase = true) ||
                             task.state.contains("stop", ignoreCase = true)
                         val dlCfg = downloaders.firstOrNull { it.name.equals(task.downloader, ignoreCase = true) }
-                        CinematicPanel(padding = 14.dp, showsShadow = false) {
+                        CinematicPanel(
+                            padding = 14.dp,
+                            showsShadow = false,
+                            modifier = Modifier.combinedClickable(
+                                onClick = { actionSheetTask = task },
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    actionSheetTask = task
+                                },
+                            ),
+                        ) {
                             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1611,6 +1632,93 @@ fun DownloadsScreen(
                     }
                 }
                 Spacer(Modifier.height(20.dp))
+            }
+        }
+    }
+
+    // 下载任务快捷操作底部菜单（点击或长按任务卡片呼出）
+    actionSheetTask?.let { target ->
+        val paused = target.state.contains("pause", ignoreCase = true) ||
+            target.state.contains("stop", ignoreCase = true)
+        val displayTitle = target.name.ifBlank { target.title }
+        NativeGlassSheet(onDismissRequest = { actionSheetTask = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(displayTitle, color = colors.textPrimary, fontSize = 16.5.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOfNotNull(target.downloader.takeIf(String::isNotBlank), formatBytes(target.size), "${String.format("%.1f", target.progress)}%").joinToString(" · "),
+                    color = colors.textSecondary,
+                    fontSize = 12.5.sp,
+                )
+                Spacer(Modifier.height(4.dp))
+                CinematicPanel(padding = 4.dp, showsShadow = false) {
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    actionSheetTask = null
+                                    scope.launch {
+                                        val (ok, msg) = if (paused) {
+                                            repository.startDownload(target.hash, target.downloader)
+                                        } else {
+                                            repository.stopDownload(target.hash, target.downloader)
+                                        }
+                                        if (ok) {
+                                            val next = if (paused) "downloading" else "paused"
+                                            tasks = tasks.map { if (it.hash == target.hash) it.copy(state = next) else it }
+                                        }
+                                        snackbar?.showSnackbar(msg)
+                                    }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(if (paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                            Text(if (paused) "恢复下载任务" else "暂停下载任务", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        }
+                        HorizontalDivider(color = colors.divider)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    actionSheetTask = null
+                                    runCatching {
+                                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        cm?.setPrimaryClip(ClipData.newPlainText("torrent_title", displayTitle))
+                                    }
+                                    scope.launch { snackbar?.showSnackbar("已复制任务标题") }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                            Text("复制任务名称", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        }
+                        HorizontalDivider(color = colors.divider)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    actionSheetTask = null
+                                    confirmDeleteTask = target
+                                }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Icon(Icons.Rounded.Delete, contentDescription = null, tint = colors.danger, modifier = Modifier.size(20.dp))
+                            Text("删除下载任务", color = colors.danger, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
             }
         }
     }
