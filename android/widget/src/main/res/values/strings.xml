@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="mp_plugin_widget_label">插件与仪表盘小组件</string>
-    <string name="mp_plugin_widget_description">自定义绑定已安装插件快捷入口或插件仪表盘实时数据卡片，点击直达插件弹窗</string>
+    <string name="mp_main_widget_label">MoviePilot</string>
+    <string name="mp_main_widget_description">查看系统概览、下载状态、近期入库与订阅进度，支持尺寸自适应与隐私脱敏</string>
+    <string name="mp_now_playing_widget_label">MoviePilot 正在播放</string>
+    <string name="mp_now_playing_widget_description">实时查看正在播放的插件音频、专辑封面与同步歌词，并在桌面直接播控</string>
+    <string name="mp_plugin_widget_label">MoviePilot 插件</string>
+    <string name="mp_plugin_widget_description">自定义绑定插件预设指标、任务进度列表、海报或声明式自定义布局卡片</string>
 </resources>

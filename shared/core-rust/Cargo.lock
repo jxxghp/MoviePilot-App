@@ -543,7 +543,7 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "mp-core-api"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "mp-core-model",
  "serde",
@@ -554,7 +554,7 @@ dependencies = [
 
 [[package]]
 name = "mp-core-model"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "base64",
  "serde",
@@ -565,7 +565,7 @@ dependencies = [
 
 [[package]]
 name = "mp-core-plugin"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "mp-core-session"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "base64",
  "mp-core-api",
@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "mp-ffi-ohos"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "base64",
  "mp-core-api",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "mp-ffi-uniffi"
-version = "2.0.6"
+version = "2.0.7"
 dependencies = [
  "mp-core-api",
  "mp-core-model",

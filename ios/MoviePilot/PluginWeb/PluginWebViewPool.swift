@@ -1,4 +1,5 @@
 import Foundation
+import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotSession
 import UIKit
@@ -18,6 +19,9 @@ final class PooledPluginWebView: NSObject {
   let webView: WKWebView
   let schemeHandler: PluginShellSchemeHandler
   let bridge: PluginHostBridgeV2
+  var sessionContext: PluginShellSchemeHandler.SessionContext?
+  var activePluginID: String = ""
+  var activePluginName: String = ""
   var state: State = .cold
   var reuseCount: Int = 0
   var isShellReady: Bool = false
@@ -33,6 +37,31 @@ final class PooledPluginWebView: NSObject {
     self.schemeHandler = schemeHandler
     self.bridge = bridge
     super.init()
+  }
+
+  /// 绑定当前槽位对应的联邦插件标识与显示名称，并经壳桥接同步至底层原生能力实例。
+  func bindActivePlugin(id: String, name: String) {
+    activePluginID = id
+    activePluginName = name
+    PluginNativeCapabilitiesService.registerActivePlugin(id: id, name: name)
+    whenShellReady { [weak self] in
+      guard let self else { return }
+      let envelope: [String: Any] = [
+        "protocol": PluginHostBridgeV2.protocolName,
+        "major": PluginHostBridgeV2.protocolMajor,
+        "type": "plugin.context.sync",
+        "payload": [
+          "pluginId": id,
+          "pluginName": name,
+        ],
+      ]
+      guard let data = try? JSONSerialization.data(withJSONObject: envelope),
+        let json = String(data: data, encoding: .utf8)
+      else { return }
+      let script =
+        "window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(PluginHostBridgeV2.handlerName) && window.webkit.messageHandlers.\(PluginHostBridgeV2.handlerName).postMessage(\(json));"
+      self.webView.evaluateJavaScript(script, completionHandler: nil)
+    }
   }
 
   func markShellReady() {
@@ -112,10 +141,16 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
     slot.state = .active
     slot.reuseCount += 1
+    slot.sessionContext = context
     slot.schemeHandler.updateSessionContext(context)
     slot.bridge.updateSessionContext(context)
     activeSlot = slot
     return slot
+  }
+
+  /// 返回当前前台活跃的 `PooledPluginWebView` 槽（供原生能力读取插件标识兜底）。
+  var currentActiveSlot: PooledPluginWebView? {
+    activeSlot
   }
 
   /// 归还 `WKWebView` 槽：先发送 `plugin.unmount` 并中断所有在途请求与会话上下文，符合配额则回池复用。
@@ -127,6 +162,9 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
     slot.bridge.updateSessionContext(nil)
     slot.schemeHandler.cancelAllRequests()
     slot.schemeHandler.updateSessionContext(nil)
+    slot.sessionContext = nil
+    slot.activePluginID = ""
+    slot.activePluginName = ""
     slot.onProcessTerminated = nil
     slot.onShellReadyCallbacks.removeAll()
     if activeSlot === slot {
@@ -168,6 +206,9 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
       active.bridge.updateSessionContext(nil)
       active.schemeHandler.cancelAllRequests()
       active.schemeHandler.updateSessionContext(nil)
+      active.sessionContext = nil
+      active.activePluginID = ""
+      active.activePluginName = ""
       active.state = .disposed
     }
   }
@@ -231,6 +272,9 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
     slot.bridge.updateSessionContext(nil)
     slot.schemeHandler.cancelAllRequests()
     slot.schemeHandler.updateSessionContext(nil)
+    slot.sessionContext = nil
+    slot.activePluginID = ""
+    slot.activePluginName = ""
     slot.webView.stopLoading()
     slot.webView.configuration.userContentController.removeScriptMessageHandler(
       forName: PluginHostBridgeV2.handlerName)
@@ -293,6 +337,19 @@ final class PluginWebViewPool: NSObject, WKNavigationDelegate, WKUIDelegate {
   }
 }
 
+/// 胶囊内联快捷动作语义分类。
+enum PluginCapsuleInlineActionKind: Equatable {
+  case previous
+  case playPause
+  case next
+  case heart
+  case repeatOne
+  case repeatAll
+  case shuffle
+  case lyrics
+  case generic
+}
+
 /// 最小化悬浮胶囊上的单个插件快捷按钮定义。
 struct PluginCapsuleActionItem: Identifiable, Equatable {
   let id: String
@@ -300,6 +357,54 @@ struct PluginCapsuleActionItem: Identifiable, Equatable {
   let icon: String?
   let active: Bool
   let destructive: Bool
+
+  /// 根据 `id` 与 `icon` 识别内联播控按钮类型。
+  var inlineKind: PluginCapsuleInlineActionKind {
+    let combined = "\(id) \(icon ?? "")".lowercased()
+    if combined.contains("prev") || combined.contains("skip-previous")
+      || combined.contains("step-backward")
+    {
+      return .previous
+    }
+    if combined.contains("play") || combined.contains("pause") || combined.contains("toggle") {
+      return .playPause
+    }
+    if combined.contains("next") || combined.contains("skip-next")
+      || combined.contains("step-forward")
+    {
+      return .next
+    }
+    if combined.contains("heart") || combined.contains("like") || combined.contains("fav") {
+      return .heart
+    }
+    if combined.contains("repeat-one") || combined.contains("repeat_one")
+      || combined.contains("repeat-once") || combined.contains("repeat_once")
+      || combined.contains("loop-one") || combined.contains("loop_one")
+    {
+      return .repeatOne
+    }
+    if combined.contains("repeat") || combined.contains("loop") {
+      return .repeatAll
+    }
+    if combined.contains("shuffle") || combined.contains("random") {
+      return .shuffle
+    }
+    if combined.contains("lyric") || combined.contains("lrc") {
+      return .lyrics
+    }
+    return .generic
+  }
+
+  /// 返回同步更新 `active` 标记后的副本。
+  func withActive(_ nextActive: Bool) -> PluginCapsuleActionItem {
+    PluginCapsuleActionItem(
+      id: id,
+      label: label,
+      icon: icon,
+      active: nextActive,
+      destructive: destructive
+    )
+  }
 }
 
 /// 联邦插件最小化胶囊实时展示模型。
@@ -318,6 +423,16 @@ struct PluginCapsuleSnapshot: Equatable {
     mode.lowercased() == "mini" || !actions.isEmpty
   }
 
+  /// 同步更新动作数组中播放控制项的 `active` 状态。
+  static func syncPlayActions(
+    _ items: [PluginCapsuleActionItem],
+    isPlaying: Bool
+  ) -> [PluginCapsuleActionItem] {
+    items.map { item in
+      item.inlineKind == .playPause ? item.withActive(isPlaying) : item
+    }
+  }
+
   static func from(
     pluginID: String,
     fallbackName: String,
@@ -325,10 +440,10 @@ struct PluginCapsuleSnapshot: Equatable {
   ) -> PluginCapsuleSnapshot {
     let resolvedName =
       (payload["pluginName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        .nonEmptyOrNil ?? (fallbackName.isEmpty ? pluginID : fallbackName)
+      .nonEmptyOrNil ?? (fallbackName.isEmpty ? pluginID : fallbackName)
     let resolvedTitle =
       (payload["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        .nonEmptyOrNil ?? resolvedName
+      .nonEmptyOrNil ?? resolvedName
     let actions = parseActions(payload["actions"])
     let rawMode = (payload["mode"] as? String)?.lowercased()
     let mode: String
@@ -337,6 +452,10 @@ struct PluginCapsuleSnapshot: Equatable {
     } else {
       mode = actions.isEmpty ? "jump" : "mini"
     }
+    let resolvedPlaying =
+      (payload["isPlaying"] as? Bool)
+      ?? actions.first(where: { $0.inlineKind == .playPause })?.active
+      ?? false
     return PluginCapsuleSnapshot(
       pluginID: pluginID,
       pluginName: resolvedName,
@@ -346,8 +465,8 @@ struct PluginCapsuleSnapshot: Equatable {
       iconURL: (payload["iconUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         .nonEmptyOrNil,
       mode: mode,
-      isPlaying: (payload["isPlaying"] as? Bool) ?? false,
-      actions: actions
+      isPlaying: resolvedPlaying,
+      actions: syncPlayActions(actions, isPlaying: resolvedPlaying)
     )
   }
 
@@ -373,12 +492,18 @@ struct PluginCapsuleSnapshot: Equatable {
     {
       mode = nextMode
     }
-    if let playing = payload["isPlaying"] as? Bool {
-      isPlaying = playing
-    }
+    var nextActions = actions
     if payload["actions"] != nil {
-      actions = Self.parseActions(payload["actions"])
+      nextActions = Self.parseActions(payload["actions"])
     }
+    if let explicitPlaying = payload["isPlaying"] as? Bool {
+      isPlaying = explicitPlaying
+    } else if payload["actions"] != nil,
+      let inferred = nextActions.first(where: { $0.inlineKind == .playPause })?.active
+    {
+      isPlaying = inferred
+    }
+    actions = Self.syncPlayActions(nextActions, isPlaying: isPlaying)
   }
 
   private static func parseActions(_ raw: Any?) -> [PluginCapsuleActionItem] {
@@ -402,8 +527,8 @@ struct PluginCapsuleSnapshot: Equatable {
   }
 }
 
-private extension String {
-  var nonEmptyOrNil: String? {
+extension String {
+  fileprivate var nonEmptyOrNil: String? {
     isEmpty ? nil : self
   }
 }
@@ -440,8 +565,8 @@ final class MinimizedPluginSession: Identifiable {
   }
 }
 
-/// iOS 联邦插件最小化悬浮胶囊保活管理器：
-/// 最小化时不销毁 `WKWebView` 与 Vue 实例，支持全应用跨标签显示跳转胶囊或展开快捷操作小悬浮窗。
+/// iOS 联邦插件最小化紧凑单行胶囊保活管理器：
+/// 最小化时不销毁 `WKWebView` 与 Vue 实例，支持同源鉴权封面拉取及原生音频播放态实时联动。
 @MainActor
 final class PluginCapsuleManager: ObservableObject {
   static let shared = PluginCapsuleManager()
@@ -449,6 +574,17 @@ final class PluginCapsuleManager: ObservableObject {
   @Published private(set) var currentSession: MinimizedPluginSession?
   @Published var isMiniCardExpanded: Bool = false
   @Published var restoreRequestNonce: Int = 0
+  @Published private(set) var iconCacheRevision: Int = 0
+
+  private var iconCache: [String: UIImage] = [:]
+  private var inflightIconKeys: Set<String> = []
+  private let iconURLSession: URLSession = {
+    let config = URLSessionConfiguration.ephemeral
+    config.timeoutIntervalForRequest = 15
+    config.httpCookieAcceptPolicy = .never
+    config.httpShouldSetCookies = false
+    return URLSession(configuration: config)
+  }()
 
   private init() {}
 
@@ -456,17 +592,105 @@ final class PluginCapsuleManager: ObservableObject {
     currentSession?.slot === slot
   }
 
+  /// 生成实例隔离的胶囊封面内存缓存键。
+  private func makeIconCacheKey(serverURL: URL, rawIconURL: String?) -> String? {
+    guard let trimmed = rawIconURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !trimmed.isEmpty
+    else { return nil }
+    return "\(serverURL.absoluteString)|\(trimmed)"
+  }
+
+  /// 读取当前保活会话已缓存的圆形封面图。
+  func cachedIcon(for session: MinimizedPluginSession) -> UIImage? {
+    guard
+      let key = makeIconCacheKey(serverURL: session.serverURL, rawIconURL: session.snapshot.iconURL)
+    else { return nil }
+    return iconCache[key]
+  }
+
+  /// 异步加载胶囊封面图：对 `/...` 相对受保护路径或同源地址自动附加会话凭据请求。
+  func ensureIconLoaded(for session: MinimizedPluginSession) {
+    guard let raw = session.snapshot.iconURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !raw.isEmpty,
+      let key = makeIconCacheKey(serverURL: session.serverURL, rawIconURL: raw)
+    else { return }
+    if iconCache[key] != nil || inflightIconKeys.contains(key) {
+      return
+    }
+
+    let resolvedURL: URL?
+    let attachAuth: Bool
+    let ctx = session.slot.sessionContext
+    if raw.hasPrefix("/") {
+      var base = session.serverURL.absoluteString
+      while base.hasSuffix("/") { base.removeLast() }
+      resolvedURL = URL(string: base + raw)
+      attachAuth = true
+    } else if let parsed = URL(string: raw),
+      let scheme = parsed.scheme?.lowercased(),
+      scheme == "http" || scheme == "https"
+    {
+      resolvedURL = parsed
+      if let ctx {
+        attachAuth = ctx.address.contains(parsed)
+      } else {
+        attachAuth = parsed.host?.lowercased() == session.serverURL.host?.lowercased()
+      }
+    } else {
+      resolvedURL = nil
+      attachAuth = false
+    }
+
+    guard let targetURL = resolvedURL else { return }
+    inflightIconKeys.insert(key)
+
+    var request = URLRequest(url: targetURL)
+    if attachAuth {
+      if let ctx {
+        request.setValue("Bearer \(ctx.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(ctx.locale, forHTTPHeaderField: "X-MoviePilot-Locale")
+        if let cookie = ctx.resourceCookie {
+          request.setValue("\(cookie.name)=\(cookie.value)", forHTTPHeaderField: "Cookie")
+        }
+        CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: ctx.address)
+      } else if let auth = try? session.slot.bridge.nativeSession?.playbackAuthorization() {
+        request.setValue("Bearer \(auth.accessToken)", forHTTPHeaderField: "Authorization")
+        CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &request, for: auth.address)
+      }
+    }
+
+    let urlSession = iconURLSession
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      defer { self.inflightIconKeys.remove(key) }
+      guard let (data, resp) = try? await urlSession.data(for: request),
+        let http = resp as? HTTPURLResponse,
+        (200..<300).contains(http.statusCode),
+        let image = UIImage(data: data)
+      else { return }
+      if self.iconCache.count >= 24, let firstKey = self.iconCache.keys.first {
+        self.iconCache.removeValue(forKey: firstKey)
+      }
+      self.iconCache[key] = image
+      self.iconCacheRevision += 1
+    }
+  }
+
   func parkSession(_ session: MinimizedPluginSession) {
     if let existing = currentSession, existing.slot !== session.slot {
       PluginWebViewPool.shared.release(existing.slot)
     }
     session.slot.webView.removeFromSuperview()
+    session.slot.activePluginID = session.pluginID
+    session.slot.activePluginName = session.pluginName
     currentSession = session
     isMiniCardExpanded = false
+    ensureIconLoaded(for: session)
 
     session.slot.bridge.onCapsuleUpdate = { [weak self, weak session] patch in
       guard let self, let session, self.currentSession === session else { return }
       session.snapshot.mergePatch(patch)
+      self.ensureIconLoaded(for: session)
       self.objectWillChange.send()
     }
     session.slot.bridge.onPluginRestore = { [weak self, weak session] reqId in
@@ -483,7 +707,41 @@ final class PluginCapsuleManager: ObservableObject {
   func updateActiveSnapshot(_ patch: [String: Any]) {
     guard let currentSession else { return }
     currentSession.snapshot.mergePatch(patch)
+    ensureIconLoaded(for: currentSession)
     objectWillChange.send()
+  }
+
+  /// 当原生音频播放状态变化或调用 `setNowPlaying` 时，实时联动活跃胶囊的播放状态与曲目封面。
+  func syncAudioPlaybackState(
+    pluginID: String,
+    isPlaying: Bool,
+    title: String? = nil,
+    subtitle: String? = nil,
+    iconURL: String? = nil
+  ) {
+    guard let currentSession else { return }
+    if !pluginID.isEmpty,
+      currentSession.pluginID.caseInsensitiveCompare(pluginID) != .orderedSame
+    {
+      return
+    }
+    var next = currentSession.snapshot
+    if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+      next.title = title
+    }
+    if let subtitle = subtitle?.trimmingCharacters(in: .whitespacesAndNewlines), !subtitle.isEmpty {
+      next.subtitle = subtitle
+    }
+    if let iconURL = iconURL?.trimmingCharacters(in: .whitespacesAndNewlines), !iconURL.isEmpty {
+      next.iconURL = iconURL
+    }
+    next.isPlaying = isPlaying
+    next.actions = PluginCapsuleSnapshot.syncPlayActions(next.actions, isPlaying: isPlaying)
+    if next != currentSession.snapshot {
+      currentSession.snapshot = next
+      ensureIconLoaded(for: currentSession)
+      objectWillChange.send()
+    }
   }
 
   func consumeMatchingSession(pluginID: String, serverURL: URL) -> MinimizedPluginSession? {

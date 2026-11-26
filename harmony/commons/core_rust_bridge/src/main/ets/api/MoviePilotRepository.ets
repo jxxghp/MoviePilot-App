@@ -4509,37 +4509,61 @@ export class MoviePilotRepository {
   }
 
   /**
-   * 拉取同源外挂字幕（上限 16MB）或 LRC 歌词文本（上限 2MB），自动兼容 UTF-8 与 UTF-16 BOM 解码。
+   * 拉取同源外挂字幕（上限 64MB、超时 90 秒，兼容实时字体子集化大体积 ASS）或 LRC 歌词文本（上限 2MB），
+   * 支持 UTF-8 BOM、UTF-16 LE/BE、严格 UTF-8 与 GB18030 / GBK 中文回退解码。
    */
   async fetchSubtitleOrLyricsText(url: string, isLyrics: boolean = false): Promise<string> {
     const trusted = this.resolveTrustedSameOriginUrl(url);
     if (!trusted) {
       return '';
     }
-    const maxBytes = isLyrics ? (2 * 1024 * 1024) : (16 * 1024 * 1024);
-    const buf = await this.transport.fetchBytesBounded(trusted, this.token, maxBytes);
+    const maxBytes = isLyrics ? (2 * 1024 * 1024) : (64 * 1024 * 1024);
+    const readTimeoutMs = isLyrics ? 30000 : 90000;
+    const buf = await this.transport.fetchBytesBounded(trusted, this.token, maxBytes, readTimeoutMs);
     if (!buf || buf.byteLength === 0) {
       return '';
     }
     const bytes = new Uint8Array(buf);
-    try {
-      if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
-        const dec16Le = util.TextDecoder.create('utf-16le', { ignoreBOM: true });
-        return dec16Le.decodeToString(bytes);
-      }
-      if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
-        const dec16Be = util.TextDecoder.create('utf-16be', { ignoreBOM: true });
-        return dec16Be.decodeToString(bytes);
-      }
-      const dec8 = util.TextDecoder.create('utf-8', { ignoreBOM: true });
-      return dec8.decodeToString(bytes);
-    } catch {
+    if (bytes.byteLength >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
       try {
-        const fallbackDec = util.TextDecoder.create('utf-16le', { ignoreBOM: true });
-        return fallbackDec.decodeToString(bytes);
+        return util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes);
       } catch {
-        return '';
+        // continue
       }
+    }
+    if (bytes.byteLength >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+      try {
+        return util.TextDecoder.create('utf-16le', { ignoreBOM: true }).decodeToString(bytes);
+      } catch {
+        // continue
+      }
+    }
+    if (bytes.byteLength >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+      try {
+        return util.TextDecoder.create('utf-16be', { ignoreBOM: true }).decodeToString(bytes);
+      } catch {
+        // continue
+      }
+    }
+    try {
+      return util.TextDecoder.create('utf-8', { fatal: true, ignoreBOM: true }).decodeToString(bytes);
+    } catch {
+      // 非 UTF-8 字节流回退 GB18030 / GBK 中文编码解码
+    }
+    try {
+      return util.TextDecoder.create('gb18030', { ignoreBOM: true }).decodeToString(bytes);
+    } catch {
+      // continue
+    }
+    try {
+      return util.TextDecoder.create('gbk', { ignoreBOM: true }).decodeToString(bytes);
+    } catch {
+      // continue
+    }
+    try {
+      return util.TextDecoder.create('utf-8', { ignoreBOM: true }).decodeToString(bytes);
+    } catch {
+      return '';
     }
   }
 

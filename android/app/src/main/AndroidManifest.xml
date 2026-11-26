@@ -110,10 +110,20 @@
             </intent-filter>
         </service>
 
-        <!-- Jetpack Glance 桌面小组件 -->
+        <!-- Jetpack Glance APP 主体桌面小组件与可选配置页 -->
+        <activity
+            android:name="com.moviepilot.widget.AppWidgetConfigureActivity"
+            android:exported="true"
+            android:theme="@style/Theme.MoviePilot">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <receiver
             android:name="com.moviepilot.widget.MoviePilotWidgetReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/mp_main_widget_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -122,7 +132,21 @@
                 android:resource="@xml/moviepilot_widget_info" />
         </receiver>
 
-        <!-- 自定义插件快捷直达与插件仪表盘桌面小组件 -->
+        <!-- 固定音频播控「正在播放」桌面小组件 -->
+        <receiver
+            android:name="com.moviepilot.widget.MoviePilotNowPlayingWidgetReceiver"
+            android:exported="true"
+            android:label="@string/mp_now_playing_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.moviepilot.widget.ACTION_NOW_PLAYING_UPDATED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/moviepilot_now_playing_widget_info" />
+        </receiver>
+
+        <!-- 自定义插件预设模板与声明式布局桌面小组件 -->
         <activity
             android:name="com.moviepilot.widget.PluginWidgetConfigureActivity"
             android:exported="true"
@@ -138,6 +162,7 @@
             android:label="@string/mp_plugin_widget_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.moviepilot.widget.ACTION_PLUGIN_WIDGET_RUNTIME_UPDATED" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

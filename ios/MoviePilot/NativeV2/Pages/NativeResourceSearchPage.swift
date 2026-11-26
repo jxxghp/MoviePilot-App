@@ -196,17 +196,6 @@ struct NativeResourceSearchPage: View {
           .tint(.primary)
           .accessibilityLabel("排序方式")
           .accessibilityIdentifier("native-resource-search-sort-menu")
-
-          Button {
-            showsAllFiltersSheet = true
-          } label: {
-            Image(
-              systemName: filter.activeCount > 0
-                ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-          }
-          .tint(.primary)
-          .accessibilityLabel("全部筛选条件")
-          .accessibilityIdentifier("native-resource-search-filter-menu")
         }
       }
     }
@@ -1299,7 +1288,8 @@ private struct NativeDownloadConfirmSheet: View {
                 .padding(.horizontal, 6)
                 CinematicPanel(padding: 0) {
                   VStack(spacing: 0) {
-                    ForEach(Array(sameSpecVariants.enumerated()), id: \.element.id) { idx, variant in
+                    ForEach(Array(sameSpecVariants.enumerated()), id: \.element.id) {
+                      idx, variant in
                       if idx > 0 { CinematicFormDivider() }
                       let checked = selectedVariantIDs.contains(variant.id)
                       Button {
@@ -1466,7 +1456,7 @@ private struct NativeDownloadConfirmSheet: View {
                     : (selectedVariants.count > 1
                       ? "批量添加到下载（\(selectedVariants.count) 个源）" : "添加到下载")
                 )
-                  .font(.subheadline.weight(.bold))
+                .font(.subheadline.weight(.bold))
               }
               .foregroundStyle(.white)
               .frame(maxWidth: .infinity, minHeight: 48)

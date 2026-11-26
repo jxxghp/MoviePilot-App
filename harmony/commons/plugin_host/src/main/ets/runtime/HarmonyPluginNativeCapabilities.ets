@@ -1,9 +1,12 @@
 import { abilityAccessCtrl, bundleManager, common, Permissions, wantAgent } from '@kit.AbilityKit';
+import { preferences } from '@kit.ArkData';
 import { util } from '@kit.ArkTS';
 import { display, window } from '@kit.ArkUI';
+import { audio } from '@kit.AudioKit';
 import { avSession } from '@kit.AVSessionKit';
 import { deviceInfo, pasteboard } from '@kit.BasicServicesKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
+import { formBindingData, formProvider } from '@kit.FormKit';
 import { image } from '@kit.ImageKit';
 import { media } from '@kit.MediaKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
@@ -13,6 +16,7 @@ import { notificationManager } from '@kit.NotificationKit';
 import { userAuth } from '@kit.UserAuthenticationKit';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { RustCoreBridge, MoviePilotRepository, CloudflareAccessOAuthManager } from '@moviepilot/core_rust_bridge';
+import { HarmonyPluginCapsuleManager } from './HarmonyPluginCapsule';
 
 /**
  * 鸿蒙端 Vue 联邦插件全量原生本地能力服务：
@@ -23,6 +27,14 @@ import { RustCoreBridge, MoviePilotRepository, CloudflareAccessOAuthManager } fr
  */
 export class HarmonyPluginNativeCapabilities {
   static readonly MAX_BASE64_BYTES = 15 * 1024 * 1024;
+  private static readonly SECURE_PREF_NAME = 'mp_harmony_secure_store';
+  private static readonly KEY_NOW_PLAYING_WIDGET = 'mp_now_playing_widget_v1';
+  private static readonly KEY_PLUGIN_RUNTIME_WIDGETS = 'mp_plugin_runtime_widgets_v1';
+  private static readonly KEY_ACTIVE_FORM_BINDINGS = 'mp_active_form_bindings_v1';
+  private static readonly KEY_PENDING_WIDGET_EVENT = 'mp_pending_widget_plugin_event';
+  private static readonly MAX_WIDGET_PAYLOAD_BYTES = 32 * 1024;
+  private static readonly MAX_WIDGET_LAYOUT_DEPTH = 5;
+  private static readonly MAX_WIDGET_LAYOUT_NODES = 40;
 
   private getContext: () => common.UIAbilityContext | null;
   private getServerUrl: () => string;
@@ -61,8 +73,9 @@ export class HarmonyPluginNativeCapabilities {
   private keepAwakeEnabled: boolean = false;
   private base64Helper: util.Base64Helper = new util.Base64Helper();
 
-  // Status bar / AVSession Now Playing state (#56 / #77)
+  // Status bar / AVSession Now Playing & Widget state (#56 / #77 / #82)
   private activePluginId: string = '';
+  private activePluginName: string = '';
   private pluginAvSession: avSession.AVSession | null = null;
   private nowPlayingActive: boolean = false;
   private nowPlayingTitle: string = '';
@@ -71,11 +84,24 @@ export class HarmonyPluginNativeCapabilities {
   private nowPlayingDurationMs: number = 0;
   private nowPlayingLyrics: string = '';
   private nowPlayingLiked: boolean = false;
+  private nowPlayingHasLike: boolean = false;
+  private nowPlayingCanNext: boolean = false;
+  private nowPlayingCanPrevious: boolean = false;
   private nowPlayingArtworkKey: string = '';
   private nowPlayingArtworkPixelMap: image.PixelMap | null = null;
+  private nowPlayingWidgetArtworkPath: string = '';
+  private volumeListenerRegistered: boolean = false;
+  private lastEmittedVolumeSteps: number = -1;
+  private widgetEventPollTimer: number = -1;
+  private textEncoder: util.TextEncoder = new util.TextEncoder();
 
-  setActivePluginId(pluginId: string): void {
+  setActivePluginId(pluginId: string, pluginName: string = ''): void {
     this.activePluginId = pluginId.trim();
+    if (pluginName.trim().length > 0) {
+      this.activePluginName = pluginName.trim();
+    }
+    this.ensureWidgetEventPoller();
+    this.consumePendingWidgetPluginEvent();
   }
 
   constructor(
@@ -98,6 +124,8 @@ export class HarmonyPluginNativeCapabilities {
     this.cancelActiveRecording(false).catch(() => {});
     this.stopInlinePlayback(false).catch(() => {});
     this.clearNowPlayingSession().catch(() => {});
+    this.unregisterVolumeListener();
+    this.stopWidgetEventPoller();
     if (this.keepAwakeEnabled) {
       this.keepAwakeEnabled = false;
       this.applyKeepAwake(false).catch(() => {});
@@ -117,6 +145,9 @@ export class HarmonyPluginNativeCapabilities {
   }
 
   handle(type: string, requestId: string, payload: Record<string, Object>): boolean {
+    this.ensureVolumeListener();
+    this.ensureWidgetEventPoller();
+    this.consumePendingWidgetPluginEvent();
     switch (type) {
       case 'device.capabilities':
         this.handleCapabilities(requestId);
@@ -201,6 +232,15 @@ export class HarmonyPluginNativeCapabilities {
       case 'audio.setVolume':
         this.handleAudioSetVolume(requestId, payload);
         return true;
+      case 'audio.getSystemVolume':
+        this.handleGetSystemVolume(requestId).catch(() => {});
+        return true;
+      case 'audio.setSystemVolume':
+        this.handleSetSystemVolume(requestId, payload).catch(() => {});
+        return true;
+      case 'audio.setSpectrum':
+        this.handleAudioSetSpectrum(requestId, payload);
+        return true;
       case 'audio.status':
         this.sendOk(requestId, JSON.stringify(this.currentPlaybackStatusObj()));
         return true;
@@ -217,6 +257,15 @@ export class HarmonyPluginNativeCapabilities {
       case 'media.playNative':
         this.handlePlayNativeMedia(requestId, payload);
         return true;
+      case 'widget.update':
+        this.handleWidgetUpdate(requestId, payload).catch(() => {});
+        return true;
+      case 'widget.remove':
+        this.handleWidgetRemove(requestId, payload).catch(() => {});
+        return true;
+      case 'widget.list':
+        this.handleWidgetList(requestId);
+        return true;
       default:
         return false;
     }
@@ -232,6 +281,8 @@ export class HarmonyPluginNativeCapabilities {
       'native.audio.nowPlaying',
       'native.audio.lyrics',
       'native.audio.customActions',
+      'native.audio.systemVolume',
+      'native.widget',
       'media.playNative',
       'device.info',
       'device.permission',
@@ -980,7 +1031,10 @@ export class HarmonyPluginNativeCapabilities {
           this.emitPlaybackState();
           if (!responded) {
             responded = true;
-            this.sendOk(requestId, `{"playbackId":${JSON.stringify(playId)},"state":"playing","durationMs":${this.playbackDurationMs}}`);
+            this.sendOk(
+              requestId,
+              `{"playbackId":${JSON.stringify(playId)},"state":"playing","durationMs":${this.playbackDurationMs},"spectrumActive":false}`
+            );
           }
         } else if (state === 'paused') {
           this.playbackState = 'paused';
@@ -1127,11 +1181,120 @@ export class HarmonyPluginNativeCapabilities {
     this.playbackState = 'idle';
     this.playbackDurationMs = 0;
     this.playbackPositionMs = 0;
+    HarmonyPluginCapsuleManager.shared().syncAudioPlaybackState(this.activePluginId, false);
     if (emitEvent && oldId.length > 0) {
       this.sendDeviceEvent(
         'audio.play.state',
         `{"playbackId":${JSON.stringify(oldId)},"state":"stopped","positionMs":0,"durationMs":0,"rate":${this.playbackRate},"volume":${this.playbackVolume}}`
       );
+    }
+  }
+
+  /** 兼容协议返回 `spectrumActive: false`，确保三端桥接调用无异常。 */
+  private handleAudioSetSpectrum(requestId: string, payload: Record<string, Object>): void {
+    const bands = typeof payload['bands'] === 'number'
+      ? Math.max(16, Math.min(256, Math.floor(payload['bands'] as number)))
+      : 64;
+    const intervalMs = typeof payload['intervalMs'] === 'number'
+      ? Math.max(30, Math.min(250, Math.floor(payload['intervalMs'] as number)))
+      : 50;
+    this.sendOk(requestId, `{"spectrumActive":false,"bands":${bands},"intervalMs":${intervalMs}}`);
+  }
+
+  // MARK: - System Media Volume (`audio.getSystemVolume` / `audio.setSystemVolume` / `audio.systemVolume`)
+
+  /** 读取鸿蒙系统媒体音量组状态（异常时平缓回退当前播放器音量）。 */
+  private async readSystemVolumeSnapshot(): Promise<Record<string, Object>> {
+    try {
+      const volMgr = audio.getAudioManager().getVolumeManager();
+      const groupMgr = await volMgr.getVolumeGroupManager(audio.DEFAULT_VOLUME_GROUP_ID);
+      const cur = await groupMgr.getVolume(audio.AudioVolumeType.MEDIA);
+      const max = Math.max(1, await groupMgr.getMaxVolume(audio.AudioVolumeType.MEDIA));
+      const min = Math.max(0, await groupMgr.getMinVolume(audio.AudioVolumeType.MEDIA));
+      const muted = (await groupMgr.isMute(audio.AudioVolumeType.MEDIA)) || cur <= min;
+      const span = Math.max(1, max - min);
+      const normalized = (muted && cur <= min)
+        ? 0.0
+        : Math.max(0.0, Math.min(1.0, (cur - min) / span));
+      const out: Record<string, Object> = {
+        'volume': Number(normalized.toFixed(4)),
+        'muted': muted,
+        'currentSteps': cur,
+        'maxSteps': max
+      };
+      return out;
+    } catch {
+      const fallbackVol = Math.max(0.0, Math.min(1.0, this.playbackVolume));
+      const out: Record<string, Object> = {
+        'volume': Number(fallbackVol.toFixed(4)),
+        'muted': fallbackVol <= 0.001,
+        'currentSteps': Math.round(fallbackVol * 15),
+        'maxSteps': 15
+      };
+      return out;
+    }
+  }
+
+  /** 处理读取系统媒体音量请求。 */
+  private async handleGetSystemVolume(requestId: string): Promise<void> {
+    const snap = await this.readSystemVolumeSnapshot();
+    this.sendOk(requestId, JSON.stringify(snap));
+  }
+
+  /**
+   * 处理设置系统音量请求：鸿蒙第三方应用无系统级全局音量写权限时安全同步当前播放器增益并返回真实音量快照。
+   */
+  private async handleSetSystemVolume(requestId: string, payload: Record<string, Object>): Promise<void> {
+    const target = typeof payload['volume'] === 'number'
+      ? Math.max(0.0, Math.min(1.0, payload['volume'] as number))
+      : this.playbackVolume;
+    this.playbackVolume = target;
+    if (this.avPlayer) {
+      try {
+        this.avPlayer.setVolume(target);
+      } catch {
+        // ignore volume error
+      }
+    }
+    const snap = await this.readSystemVolumeSnapshot();
+    this.sendOk(requestId, JSON.stringify(snap));
+  }
+
+  /** 注册鸿蒙物理音量键变化监听并实时推送 `audio.systemVolume`。 */
+  private ensureVolumeListener(): void {
+    if (this.volumeListenerRegistered) {
+      return;
+    }
+    try {
+      const volMgr = audio.getAudioManager().getVolumeManager();
+      volMgr.on('volumeChange', (ev: audio.VolumeEvent) => {
+        if (ev.volumeType === audio.AudioVolumeType.MEDIA) {
+          if (ev.volume === this.lastEmittedVolumeSteps) {
+            return;
+          }
+          this.lastEmittedVolumeSteps = ev.volume;
+          this.readSystemVolumeSnapshot().then((snap: Record<string, Object>) => {
+            this.sendDeviceEvent('audio.systemVolume', JSON.stringify(snap));
+          }).catch(() => {});
+        }
+      });
+      this.volumeListenerRegistered = true;
+    } catch {
+      // ignore on unsupported previewer
+    }
+  }
+
+  /** 注销鸿蒙音量变化监听。 */
+  private unregisterVolumeListener(): void {
+    if (!this.volumeListenerRegistered) {
+      return;
+    }
+    this.volumeListenerRegistered = false;
+    this.lastEmittedVolumeSteps = -1;
+    try {
+      audio.getAudioManager().getVolumeManager().off('volumeChange');
+    } catch {
+      // ignore
     }
   }
 
@@ -1170,6 +1333,10 @@ export class HarmonyPluginNativeCapabilities {
 
   private emitPlaybackState(): void {
     this.sendDeviceEvent('audio.play.state', JSON.stringify(this.currentPlaybackStatusObj()));
+    HarmonyPluginCapsuleManager.shared().syncAudioPlaybackState(
+      this.activePluginId,
+      this.playbackState === 'playing'
+    );
     if (this.nowPlayingActive && this.pluginAvSession) {
       this.syncPluginAvSessionState();
     }
@@ -1190,6 +1357,8 @@ export class HarmonyPluginNativeCapabilities {
     const positionMs = typeof payload['positionMs'] === 'number' ? Math.max(0, Math.floor(payload['positionMs'] as number)) : this.playbackPositionMs;
     const isPlaying = typeof payload['isPlaying'] === 'boolean' ? (payload['isPlaying'] as boolean) : (this.playbackState === 'playing');
     const rate = typeof payload['rate'] === 'number' ? (payload['rate'] as number) : this.playbackRate;
+    this.nowPlayingCanNext = typeof payload['canNext'] === 'boolean' ? (payload['canNext'] as boolean) : false;
+    this.nowPlayingCanPrevious = typeof payload['canPrevious'] === 'boolean' ? (payload['canPrevious'] as boolean) : false;
     let resolvedLyrics = typeof payload['lyrics'] === 'string' ? (payload['lyrics'] as string).trim() : '';
     if (Array.isArray(payload['lyricLines'])) {
       const lines = payload['lyricLines'] as Object[];
@@ -1212,6 +1381,7 @@ export class HarmonyPluginNativeCapabilities {
       this.nowPlayingLyrics = resolvedLyrics;
     }
     if (typeof payload['liked'] === 'boolean') {
+      this.nowPlayingHasLike = true;
       this.nowPlayingLiked = payload['liked'] as boolean;
     }
 
@@ -1345,25 +1515,35 @@ export class HarmonyPluginNativeCapabilities {
     } catch {
       // 预览器或受限环境忽略 AVSession 异常
     }
+    HarmonyPluginCapsuleManager.shared().syncAudioPlaybackState(
+      this.activePluginId,
+      isPlaying,
+      title,
+      artist,
+      artworkUrl
+    );
+    await this.syncNowPlayingWidgetStore(true, isPlaying, positionMs);
   }
 
   private syncPluginAvSessionState(): void {
-    if (!this.pluginAvSession) {
-      return;
+    const playing = this.playbackState === 'playing';
+    if (this.pluginAvSession) {
+      try {
+        this.pluginAvSession.setAVPlaybackState({
+          state: playing ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE,
+          speed: playing ? this.playbackRate : 0,
+          isFavorite: this.nowPlayingLiked,
+          position: {
+            elapsedTime: Math.max(0, this.playbackPositionMs),
+            updateTime: Date.now()
+          }
+        }).catch(() => {});
+      } catch {
+        // ignore
+      }
     }
-    try {
-      const playing = this.playbackState === 'playing';
-      this.pluginAvSession.setAVPlaybackState({
-        state: playing ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE,
-        speed: playing ? this.playbackRate : 0,
-        isFavorite: this.nowPlayingLiked,
-        position: {
-          elapsedTime: Math.max(0, this.playbackPositionMs),
-          updateTime: Date.now()
-        }
-      }).catch(() => {});
-    } catch {
-      // ignore
+    if (this.nowPlayingActive) {
+      this.syncNowPlayingWidgetStore(true, playing, this.playbackPositionMs).catch(() => {});
     }
   }
 
@@ -1375,6 +1555,7 @@ export class HarmonyPluginNativeCapabilities {
       }
       this.nowPlayingArtworkPixelMap = null;
       this.nowPlayingArtworkKey = '';
+      this.nowPlayingWidgetArtworkPath = '';
       return null;
     }
     const origin = this.getServerUrl();
@@ -1396,24 +1577,23 @@ export class HarmonyPluginNativeCapabilities {
     if (fullUrl === this.nowPlayingArtworkKey && this.nowPlayingArtworkPixelMap) {
       return this.nowPlayingArtworkPixelMap;
     }
-    if (!attachAuth) {
-      return fullUrl;
-    }
 
     const token = this.getAuthToken();
     const req = http.createHttp();
     try {
       const headers: Record<string, string> = {};
-      if (token.length > 0) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      const cookieHdr = MoviePilotRepository.shared().transport.getCookieHeaderForUrl(fullUrl);
-      if (cookieHdr.length > 0) {
-        headers['Cookie'] = cookieHdr;
-      }
-      const cfToken = CloudflareAccessOAuthManager.shared().getAccessTokenForUrl(fullUrl);
-      if (cfToken.length > 0) {
-        headers['cf-access-token'] = cfToken;
+      if (attachAuth) {
+        if (token.length > 0) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        const cookieHdr = MoviePilotRepository.shared().transport.getCookieHeaderForUrl(fullUrl);
+        if (cookieHdr.length > 0) {
+          headers['Cookie'] = cookieHdr;
+        }
+        const cfToken = CloudflareAccessOAuthManager.shared().getAccessTokenForUrl(fullUrl);
+        if (cfToken.length > 0) {
+          headers['cf-access-token'] = cfToken;
+        }
       }
       const resp = await req.request(fullUrl, {
         method: http.RequestMethod.GET,
@@ -1432,15 +1612,17 @@ export class HarmonyPluginNativeCapabilities {
         }
         this.nowPlayingArtworkKey = fullUrl;
         this.nowPlayingArtworkPixelMap = pm;
+        this.nowPlayingWidgetArtworkPath = await this.packPixelMapToWidgetFile(pm, 'widget_now_playing.jpg');
         return pm;
       }
     } catch {
       try { req.destroy(); } catch { /* ignore */ }
     }
-    return null;
+    return attachAuth ? null : fullUrl;
   }
 
   private async clearNowPlayingSession(): Promise<void> {
+    const wasActive = this.nowPlayingActive;
     this.nowPlayingActive = false;
     this.nowPlayingTitle = '';
     this.nowPlayingArtist = '';
@@ -1448,7 +1630,11 @@ export class HarmonyPluginNativeCapabilities {
     this.nowPlayingDurationMs = 0;
     this.nowPlayingLyrics = '';
     this.nowPlayingLiked = false;
+    this.nowPlayingHasLike = false;
+    this.nowPlayingCanNext = false;
+    this.nowPlayingCanPrevious = false;
     this.nowPlayingArtworkKey = '';
+    this.nowPlayingWidgetArtworkPath = '';
     if (this.nowPlayingArtworkPixelMap) {
       try { await this.nowPlayingArtworkPixelMap.release(); } catch { /* ignore */ }
       this.nowPlayingArtworkPixelMap = null;
@@ -1458,6 +1644,614 @@ export class HarmonyPluginNativeCapabilities {
       this.pluginAvSession = null;
       try { await s.deactivate(); } catch { /* ignore */ }
       try { await s.destroy(); } catch { /* ignore */ }
+    }
+    if (wasActive) {
+      HarmonyPluginCapsuleManager.shared().syncAudioPlaybackState(
+        this.activePluginId,
+        this.playbackState === 'playing'
+      );
+      await this.syncNowPlayingWidgetStore(false, false, 0);
+    }
+  }
+
+  // MARK: - HarmonyOS Desktop Widget Bridge & Form Provider Sync
+
+  /** 解析活跃插件显示名称。 */
+  private resolveActivePluginDisplayName(): string {
+    if (this.activePluginName.length > 0) {
+      return this.activePluginName;
+    }
+    const cap = HarmonyPluginCapsuleManager.shared().currentState();
+    if (cap && cap.pluginId.toLowerCase() === this.activePluginId.toLowerCase() && cap.pluginName.length > 0) {
+      return cap.pluginName;
+    }
+    return this.activePluginId;
+  }
+
+  /** 将 `PixelMap` 压缩编码保存至应用 `filesDir` 供桌面服务卡片读取。 */
+  private async packPixelMapToWidgetFile(pm: image.PixelMap, fileName: string): Promise<string> {
+    const ctx = this.getContext();
+    if (!ctx) {
+      return '';
+    }
+    const targetPath = `${ctx.filesDir}/${fileName}`;
+    const packer = image.createImagePacker();
+    try {
+      const buf = await packer.packing(pm, { format: 'image/jpeg', quality: 82 });
+      const wf = fileIo.openSync(targetPath, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      fileIo.writeSync(wf.fd, buf);
+      fileIo.closeSync(wf);
+      try { await packer.release(); } catch { /* ignore */ }
+      return targetPath;
+    } catch {
+      try { await packer.release(); } catch { /* ignore */ }
+      return '';
+    }
+  }
+
+  /** 下载并缓存插件小组件图片至 `filesDir`。 */
+  private async cacheWidgetArtworkToFile(rawUrl: string, filePrefix: string): Promise<string> {
+    const trimmed = rawUrl.trim();
+    const origin = this.getServerUrl();
+    if (trimmed.length === 0) {
+      return '';
+    }
+    let fullUrl = '';
+    let attachAuth = false;
+    if (trimmed.startsWith('/')) {
+      if (origin.length === 0) { return ''; }
+      fullUrl = `${origin}${trimmed}`;
+      attachAuth = true;
+    } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      fullUrl = trimmed;
+      attachAuth = origin.length > 0 && (trimmed === origin || trimmed.startsWith(`${origin}/`) || trimmed.startsWith(`${origin}?`));
+    } else {
+      return '';
+    }
+    const headers: Record<string, string> = {};
+    if (attachAuth) {
+      const token = this.getAuthToken();
+      if (token.length > 0) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const cookieHdr = MoviePilotRepository.shared().transport.getCookieHeaderForUrl(fullUrl);
+      if (cookieHdr.length > 0) {
+        headers['Cookie'] = cookieHdr;
+      }
+      const cfToken = CloudflareAccessOAuthManager.shared().getAccessTokenForUrl(fullUrl);
+      if (cfToken.length > 0) {
+        headers['cf-access-token'] = cfToken;
+      }
+    }
+    const bytes = await this.downloadBytes(fullUrl, headers);
+    if (!bytes || bytes.byteLength === 0 || bytes.byteLength > 5 * 1024 * 1024) {
+      return '';
+    }
+    try {
+      const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      const src = image.createImageSource(buf);
+      const pm = await src.createPixelMap({ desiredSize: { width: 512, height: 512 } });
+      try { await src.release(); } catch { /* ignore */ }
+      const fileName = `${filePrefix}_${Math.abs(this.hashCode(fullUrl))}.jpg`;
+      const savedPath = await this.packPixelMapToWidgetFile(pm, fileName);
+      try { await pm.release(); } catch { /* ignore */ }
+      return savedPath;
+    } catch {
+      return '';
+    }
+  }
+
+  /** 将「正在播放」状态写入 `mp_harmony_secure_store` 并通知活跃鸿蒙桌面卡片实时刷新。 */
+  private async syncNowPlayingWidgetStore(
+    active: boolean,
+    isPlaying: boolean,
+    positionMs: number
+  ): Promise<void> {
+    const ctx = this.getContext();
+    if (!ctx) {
+      return;
+    }
+    try {
+      const pref = preferences.getPreferencesSync(ctx, {
+        name: HarmonyPluginNativeCapabilities.SECURE_PREF_NAME
+      });
+      const record: Record<string, Object> = {
+        'active': active,
+        'pluginId': active ? this.activePluginId : '',
+        'pluginName': active ? this.resolveActivePluginDisplayName() : '',
+        'title': active ? this.nowPlayingTitle : '',
+        'artist': active ? this.nowPlayingArtist : '',
+        'album': active ? this.nowPlayingAlbum : '',
+        'lyrics': active ? this.nowPlayingLyrics : '',
+        'artworkPath': active ? this.nowPlayingWidgetArtworkPath : '',
+        'artworkUrl': active ? this.nowPlayingWidgetArtworkPath : '',
+        'isPlaying': active && isPlaying,
+        'liked': active ? this.nowPlayingLiked : false,
+        'hasLike': active ? this.nowPlayingHasLike : false,
+        'canNext': active ? this.nowPlayingCanNext : false,
+        'canPrevious': active ? this.nowPlayingCanPrevious : false,
+        'durationMs': active ? Math.max(0, this.nowPlayingDurationMs) : 0,
+        'positionMs': active ? Math.max(0, positionMs) : 0,
+        'updatedAt': Math.floor(Date.now() / 1000)
+      };
+      pref.putSync(HarmonyPluginNativeCapabilities.KEY_NOW_PLAYING_WIDGET, JSON.stringify(record));
+      await pref.flush();
+      this.pushUpdateToActiveForms(pref, 'nowPlaying', record);
+    } catch {
+      // ignore preferences error
+    }
+  }
+
+  /** 读取已登记的活跃桌面卡片 `formId` 列表并推送 `formProvider.updateForm` 实时更新。 */
+  private pushUpdateToActiveForms(
+    pref: preferences.Preferences,
+    sourceKind: string,
+    payloadObj: Record<string, Object>
+  ): void {
+    try {
+      const rawBindings = String(
+        pref.getSync(HarmonyPluginNativeCapabilities.KEY_ACTIVE_FORM_BINDINGS, '') ?? ''
+      );
+      if (rawBindings.length < 2) {
+        return;
+      }
+      const parsed = JSON.parse(rawBindings) as Object;
+      const targetFormName = sourceKind === 'nowPlaying'
+        ? 'MoviePilotNowPlayingWidget'
+        : 'MoviePilotPluginWidget';
+      const targetForms: Record<string, Object>[] = [];
+      if (Array.isArray(parsed)) {
+        const list = parsed as Object[];
+        for (let i = 0; i < list.length; i++) {
+          const entry = list[i];
+          if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+            const rec = entry as Record<string, Object>;
+            const fid = typeof rec['formId'] === 'string' ? (rec['formId'] as string) : '';
+            const fname = typeof rec['formName'] === 'string' ? (rec['formName'] as string) : '';
+            if (fid.length > 0 && (fname.length === 0 || fname === targetFormName)) {
+              targetForms.push(rec);
+            }
+          }
+        }
+      } else if (parsed && typeof parsed === 'object') {
+        const map = parsed as Record<string, Object>;
+        const keys = Object.keys(map);
+        for (let i = 0; i < keys.length; i++) {
+          const fid = keys[i];
+          const val = map[fid];
+          if (fid.length > 0 && val && typeof val === 'object' && !Array.isArray(val)) {
+            const rec = val as Record<string, Object>;
+            const fname = typeof rec['formName'] === 'string' ? (rec['formName'] as string) : '';
+            if (fname === targetFormName) {
+              const copy: Record<string, Object> = {};
+              const rk = Object.keys(rec);
+              for (let j = 0; j < rk.length; j++) {
+                copy[rk[j]] = rec[rk[j]];
+              }
+              copy['formId'] = fid;
+              targetForms.push(copy);
+            }
+          }
+        }
+      }
+      if (targetForms.length === 0) {
+        return;
+      }
+      for (let i = 0; i < targetForms.length; i++) {
+        const target = targetForms[i];
+        const fid = String(target['formId'] ?? '');
+        if (fid.length === 0) { continue; }
+        const dim = typeof target['dimension'] === 'string' ? (target['dimension'] as string) : '2*4';
+        const formData: Record<string, Object> = {
+          'formId': fid,
+          'dimension': dim
+        };
+        if (sourceKind === 'nowPlaying') {
+          const keys = Object.keys(payloadObj);
+          for (let k = 0; k < keys.length; k++) {
+            formData[keys[k]] = payloadObj[keys[k]];
+          }
+        } else {
+          const isRemoved = payloadObj['removed'] === true;
+          formData['hasWidget'] = !isRemoved;
+          formData['pluginId'] = String(payloadObj['pluginId'] ?? '');
+          formData['pluginName'] = String(payloadObj['pluginName'] ?? '插件');
+          formData['widgetKey'] = String(payloadObj['widgetKey'] ?? '');
+          formData['title'] = isRemoved ? 'MoviePilot 插件' : String(payloadObj['title'] ?? '插件');
+          formData['subtitle'] = isRemoved ? '已移除当前插件小组件缓存' : String(payloadObj['subtitle'] ?? '');
+          formData['kind'] = String(payloadObj['kind'] ?? 'metrics');
+          formData['accentHex'] = String(payloadObj['accentHex'] ?? '#317AF7');
+          formData['metricsJson'] = Array.isArray(payloadObj['metrics']) ? JSON.stringify(payloadObj['metrics']) : '[]';
+          formData['itemsJson'] = Array.isArray(payloadObj['items']) ? JSON.stringify(payloadObj['items']) : '[]';
+          formData['layoutJson'] = payloadObj['layout'] && typeof payloadObj['layout'] === 'object'
+            ? JSON.stringify(payloadObj['layout'])
+            : '';
+        }
+        const binding = formBindingData.createFormBindingData(formData);
+        formProvider.updateForm(fid, binding).catch(() => {});
+      }
+    } catch {
+      // ignore form push errors
+    }
+  }
+
+  /** 规范化小组件键名。 */
+  private normalizeWidgetKey(raw: Object | undefined): string {
+    let candidate = '';
+    if (typeof raw === 'string') {
+      candidate = raw;
+    } else if (raw && typeof raw === 'object') {
+      const rec = raw as Record<string, Object>;
+      if (typeof rec['widgetKey'] === 'string') {
+        candidate = rec['widgetKey'] as string;
+      }
+    }
+    const trimmed = candidate.trim();
+    if (trimmed.length === 0) {
+      return 'default';
+    }
+    const cleaned = trimmed.replace(/[^a-zA-Z0-9_.\-]/g, '_').substring(0, 64);
+    return cleaned.length > 0 ? cleaned : 'default';
+  }
+
+  /** 递归校验自定义小组件布局树并预缓存相对路径图片。 */
+  private async validateAndTransformWidgetLayout(
+    node: Record<string, Object>,
+    filePrefix: string,
+    depth: number,
+    counter: number[]
+  ): Promise<Record<string, Object>> {
+    if (depth > HarmonyPluginNativeCapabilities.MAX_WIDGET_LAYOUT_DEPTH) {
+      throw new Error(`小组件 layout 嵌套深度不能超过 ${HarmonyPluginNativeCapabilities.MAX_WIDGET_LAYOUT_DEPTH} 层`);
+    }
+    counter[0] = counter[0] + 1;
+    if (counter[0] > HarmonyPluginNativeCapabilities.MAX_WIDGET_LAYOUT_NODES) {
+      throw new Error(`小组件 layout 节点总数不能超过 ${HarmonyPluginNativeCapabilities.MAX_WIDGET_LAYOUT_NODES} 个`);
+    }
+    const out: Record<string, Object> = {};
+    const keys = Object.keys(node);
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      const v = node[k];
+      if (k === 'children' && Array.isArray(v)) {
+        const rawChildren = v as Object[];
+        const nextChildren: Object[] = [];
+        for (let c = 0; c < rawChildren.length; c++) {
+          const child = rawChildren[c];
+          if (!child || typeof child !== 'object' || Array.isArray(child)) {
+            throw new Error('小组件 layout 子节点必须为对象');
+          }
+          const processed = await this.validateAndTransformWidgetLayout(
+            child as Record<string, Object>,
+            filePrefix,
+            depth + 1,
+            counter
+          );
+          nextChildren.push(processed);
+        }
+        out['children'] = nextChildren;
+      } else {
+        out[k] = v;
+      }
+    }
+    const nodeType = typeof node['type'] === 'string' ? (node['type'] as string).toLowerCase() : '';
+    if (nodeType === 'image' && typeof node['url'] === 'string') {
+      const imgUrl = (node['url'] as string).trim();
+      if (imgUrl.startsWith('/')) {
+        const cachedPath = await this.cacheWidgetArtworkToFile(imgUrl, `${filePrefix}_img`);
+        if (cachedPath.length > 0) {
+          out['artworkPath'] = cachedPath;
+          out['localPath'] = cachedPath;
+        }
+      }
+    }
+    return out;
+  }
+
+  /** 处理插件运行态推送桌面卡片数据（`widget.update`）。 */
+  private async handleWidgetUpdate(requestId: string, payload: Record<string, Object>): Promise<void> {
+    const pluginId = this.activePluginId.trim();
+    if (pluginId.length === 0) {
+      this.sendErr(requestId, 'NO_ACTIVE_PLUGIN', 400, '当前无活跃插件上下文');
+      return;
+    }
+    const title = typeof payload['title'] === 'string' ? (payload['title'] as string).trim() : '';
+    if (title.length === 0) {
+      this.sendErr(requestId, 'INVALID_PARAMS', 400, '小组件 title 不能为空');
+      return;
+    }
+    const ctx = this.getContext();
+    if (!ctx) {
+      this.sendErr(requestId, 'NO_CONTEXT', 500, '无法访问小组件存储上下文');
+      return;
+    }
+
+    const widgetKey = this.normalizeWidgetKey(payload['widgetKey']);
+    const rawKind = typeof payload['kind'] === 'string' ? (payload['kind'] as string).trim() : '';
+    const allowedKinds: string[] = ['metrics', 'list', 'poster', 'nowPlaying', 'custom'];
+    const hasLayout = payload['layout'] !== undefined && payload['layout'] !== null && typeof payload['layout'] === 'object';
+    const kind = allowedKinds.includes(rawKind) ? rawKind : (hasLayout ? 'custom' : 'metrics');
+    const safePrefix = `widget_rt_${pluginId.replace(/[^a-zA-Z0-9_]/g, '_')}_${widgetKey}`;
+
+    let processedLayout: Record<string, Object> | null = null;
+    if (hasLayout && !Array.isArray(payload['layout'])) {
+      try {
+        processedLayout = await this.validateAndTransformWidgetLayout(
+          payload['layout'] as Record<string, Object>,
+          safePrefix,
+          1,
+          [0]
+        );
+      } catch (err) {
+        this.sendErr(requestId, 'INVALID_WIDGET_LAYOUT', 400, err ? String(err) : '小组件布局校验失败');
+        return;
+      }
+    }
+
+    const rawArtworkUrl = typeof payload['artworkUrl'] === 'string' ? (payload['artworkUrl'] as string).trim() : '';
+    const cachedArtworkPath = rawArtworkUrl.length > 0
+      ? await this.cacheWidgetArtworkToFile(rawArtworkUrl, safePrefix)
+      : '';
+
+    const metrics = Array.isArray(payload['metrics']) ? (payload['metrics'] as Object[]).slice(0, 8) : [];
+    const items = Array.isArray(payload['items']) ? (payload['items'] as Object[]).slice(0, 8) : [];
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    const entry: Record<string, Object> = {
+      'pluginId': pluginId,
+      'pluginName': this.resolveActivePluginDisplayName(),
+      'widgetKey': widgetKey,
+      'title': title,
+      'kind': kind,
+      'metrics': metrics,
+      'items': items,
+      'updatedAt': nowSec
+    };
+    if (typeof payload['subtitle'] === 'string' && (payload['subtitle'] as string).trim().length > 0) {
+      entry['subtitle'] = (payload['subtitle'] as string).trim();
+    }
+    if (typeof payload['badgeText'] === 'string' && (payload['badgeText'] as string).trim().length > 0) {
+      entry['badgeText'] = (payload['badgeText'] as string).trim();
+    }
+    if (typeof payload['accentHex'] === 'string' && (payload['accentHex'] as string).trim().length > 0) {
+      entry['accentHex'] = (payload['accentHex'] as string).trim();
+    }
+    if (payload['tapAction'] !== undefined && payload['tapAction'] !== null) {
+      entry['tapAction'] = payload['tapAction'];
+    }
+    if (processedLayout !== null) {
+      entry['layout'] = processedLayout;
+    }
+    if (rawArtworkUrl.length > 0) {
+      entry['artworkUrl'] = rawArtworkUrl;
+    }
+    if (cachedArtworkPath.length > 0) {
+      entry['artworkPath'] = cachedArtworkPath;
+    }
+
+    const encodedEntry = JSON.stringify(entry);
+    const byteLen = this.textEncoder.encodeInto(encodedEntry).byteLength;
+    if (byteLen > HarmonyPluginNativeCapabilities.MAX_WIDGET_PAYLOAD_BYTES) {
+      this.sendErr(requestId, 'PAYLOAD_TOO_LARGE', 400, '小组件序列化数据超过 32 KiB 上限');
+      return;
+    }
+
+    try {
+      const pref = preferences.getPreferencesSync(ctx, {
+        name: HarmonyPluginNativeCapabilities.SECURE_PREF_NAME
+      });
+      const existingRaw = String(
+        pref.getSync(HarmonyPluginNativeCapabilities.KEY_PLUGIN_RUNTIME_WIDGETS, '{}') ?? '{}'
+      );
+      let map: Record<string, Object> = {};
+      try {
+        const parsed = JSON.parse(existingRaw) as Record<string, Object>;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          map = parsed;
+        }
+      } catch {
+        map = {};
+      }
+      map[`${pluginId}::${widgetKey}`] = entry;
+      pref.putSync(HarmonyPluginNativeCapabilities.KEY_PLUGIN_RUNTIME_WIDGETS, JSON.stringify(map));
+      await pref.flush();
+      this.pushUpdateToActiveForms(pref, 'pluginWidget', entry);
+      this.sendOk(
+        requestId,
+        `{"updated":true,"pluginId":${JSON.stringify(pluginId)},"widgetKey":${JSON.stringify(widgetKey)},"updatedAt":${nowSec}}`
+      );
+    } catch (err) {
+      this.sendErr(requestId, 'WIDGET_STORE_FAILED', 500, err ? String(err) : '写入小组件存储失败');
+    }
+  }
+
+  /** 移除指定运行态桌面小组件缓存（`widget.remove`）。 */
+  private async handleWidgetRemove(requestId: string, payload: Record<string, Object>): Promise<void> {
+    const pluginId = this.activePluginId.trim();
+    if (pluginId.length === 0) {
+      this.sendErr(requestId, 'NO_ACTIVE_PLUGIN', 400, '当前无活跃插件上下文');
+      return;
+    }
+    const ctx = this.getContext();
+    if (!ctx) {
+      this.sendErr(requestId, 'NO_CONTEXT', 500, '无法访问小组件存储上下文');
+      return;
+    }
+    const widgetKey = this.normalizeWidgetKey(payload['widgetKey']);
+    const targetCompound = `${pluginId}::${widgetKey}`.toLowerCase();
+    try {
+      const pref = preferences.getPreferencesSync(ctx, {
+        name: HarmonyPluginNativeCapabilities.SECURE_PREF_NAME
+      });
+      const existingRaw = String(
+        pref.getSync(HarmonyPluginNativeCapabilities.KEY_PLUGIN_RUNTIME_WIDGETS, '{}') ?? '{}'
+      );
+      const nextMap: Record<string, Object> = {};
+      try {
+        const parsed = JSON.parse(existingRaw) as Record<string, Object>;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const keys = Object.keys(parsed);
+          for (let i = 0; i < keys.length; i++) {
+            const k = keys[i];
+            if (k.toLowerCase() !== targetCompound) {
+              nextMap[k] = parsed[k];
+            }
+          }
+        }
+      } catch {
+        // reset corrupted map
+      }
+      pref.putSync(HarmonyPluginNativeCapabilities.KEY_PLUGIN_RUNTIME_WIDGETS, JSON.stringify(nextMap));
+      await pref.flush();
+      const summary: Record<string, Object> = {
+        'pluginId': pluginId,
+        'widgetKey': widgetKey,
+        'removed': true
+      };
+      this.pushUpdateToActiveForms(pref, 'pluginWidget', summary);
+      this.sendOk(
+        requestId,
+        `{"removed":true,"pluginId":${JSON.stringify(pluginId)},"widgetKey":${JSON.stringify(widgetKey)}}`
+      );
+    } catch (err) {
+      this.sendErr(requestId, 'WIDGET_STORE_FAILED', 500, err ? String(err) : '移除小组件缓存失败');
+    }
+  }
+
+  /** 列出当前活跃插件注册的所有运行态桌面卡片摘要（`widget.list`）。 */
+  private handleWidgetList(requestId: string): void {
+    const pluginId = this.activePluginId.trim();
+    const ctx = this.getContext();
+    if (pluginId.length === 0 || !ctx) {
+      this.sendOk(requestId, '{"widgets":[]}');
+      return;
+    }
+    try {
+      const pref = preferences.getPreferencesSync(ctx, {
+        name: HarmonyPluginNativeCapabilities.SECURE_PREF_NAME
+      });
+      const raw = String(
+        pref.getSync(HarmonyPluginNativeCapabilities.KEY_PLUGIN_RUNTIME_WIDGETS, '{}') ?? '{}'
+      );
+      const parsed = JSON.parse(raw) as Record<string, Object>;
+      const prefix = `${pluginId}::`.toLowerCase();
+      const out: Object[] = [];
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const keys = Object.keys(parsed).sort();
+        for (let i = 0; i < keys.length; i++) {
+          const k = keys[i];
+          if (!k.toLowerCase().startsWith(prefix)) {
+            continue;
+          }
+          const rec = parsed[k] as Record<string, Object>;
+          if (!rec || typeof rec !== 'object') {
+            continue;
+          }
+          const item: Record<string, Object> = {
+            'widgetKey': typeof rec['widgetKey'] === 'string' ? rec['widgetKey'] : k.substring(prefix.length),
+            'title': typeof rec['title'] === 'string' ? rec['title'] : '',
+            'kind': typeof rec['kind'] === 'string' ? rec['kind'] : 'metrics'
+          };
+          if (typeof rec['subtitle'] === 'string' && (rec['subtitle'] as string).length > 0) {
+            item['subtitle'] = rec['subtitle'];
+          }
+          if (typeof rec['badgeText'] === 'string' && (rec['badgeText'] as string).length > 0) {
+            item['badgeText'] = rec['badgeText'];
+          }
+          if (typeof rec['updatedAt'] === 'number') {
+            item['updatedAt'] = rec['updatedAt'];
+          }
+          out.push(item);
+        }
+      }
+      const respObj: Record<string, Object> = { 'widgets': out };
+      this.sendOk(requestId, JSON.stringify(respObj));
+    } catch {
+      this.sendOk(requestId, '{"widgets":[]}');
+    }
+  }
+
+  /** 启动监听 `AppStorage` 键 `mp_pending_widget_plugin_event` 以消费鸿蒙桌面卡片唤醒事件。 */
+  private ensureWidgetEventPoller(): void {
+    if (this.widgetEventPollTimer !== -1) {
+      return;
+    }
+    this.widgetEventPollTimer = setInterval(() => {
+      this.consumePendingWidgetPluginEvent();
+    }, 400);
+  }
+
+  /** 停止桌面卡片事件轮询定时器。 */
+  private stopWidgetEventPoller(): void {
+    if (this.widgetEventPollTimer !== -1) {
+      clearInterval(this.widgetEventPollTimer);
+      this.widgetEventPollTimer = -1;
+    }
+  }
+
+  /** 读取并消费 `AppStorage` 中的待处理桌面卡片指令，转发为 `audio.remoteCommand` 或 `widget.action`。 */
+  private consumePendingWidgetPluginEvent(): void {
+    if (this.activePluginId.length === 0) {
+      return;
+    }
+    const raw = AppStorage.get<string>(HarmonyPluginNativeCapabilities.KEY_PENDING_WIDGET_EVENT) ?? '';
+    if (raw.length < 2) {
+      return;
+    }
+    try {
+      const cmd = JSON.parse(raw) as Record<string, Object>;
+      const targetPlugin = typeof cmd['pluginId'] === 'string' ? (cmd['pluginId'] as string).trim() : '';
+      if (targetPlugin.length > 0 && targetPlugin.toLowerCase() !== this.activePluginId.toLowerCase()) {
+        return;
+      }
+      AppStorage.setOrCreate(HarmonyPluginNativeCapabilities.KEY_PENDING_WIDGET_EVENT, '');
+      const rawKind = (
+        typeof cmd['kind'] === 'string'
+          ? (cmd['kind'] as string)
+          : (typeof cmd['type'] === 'string' ? (cmd['type'] as string) : '')
+      ).trim().toLowerCase();
+      if (rawKind === 'audio' || rawKind === 'nowplaying') {
+        const command = typeof cmd['command'] === 'string' ? (cmd['command'] as string).trim() : '';
+        if (command === 'togglePlayPause') {
+          if (this.playbackState === 'playing') {
+            if (this.avPlayer) {
+              this.avPlayer.pause().catch(() => {});
+            }
+            this.playbackState = 'paused';
+            this.emitPlaybackState();
+          } else if (this.avPlayer) {
+            this.avPlayer.play().catch(() => {});
+            this.playbackState = 'playing';
+            this.startPlaybackProgressTimer();
+            this.emitPlaybackState();
+          }
+          this.sendDeviceEvent('audio.remoteCommand', '{"command":"togglePlayPause"}');
+        } else if (command === 'toggleLike') {
+          this.nowPlayingLiked = !this.nowPlayingLiked;
+          this.syncPluginAvSessionState();
+          this.sendDeviceEvent(
+            'audio.remoteCommand',
+            `{"command":"toggleLike","liked":${this.nowPlayingLiked ? 'true' : 'false'}}`
+          );
+        } else if (command.length > 0) {
+          this.sendDeviceEvent('audio.remoteCommand', `{"command":${JSON.stringify(command)}}`);
+        }
+      } else {
+        const widgetKey = typeof cmd['widgetKey'] === 'string' && (cmd['widgetKey'] as string).trim().length > 0
+          ? (cmd['widgetKey'] as string).trim()
+          : 'default';
+        const actionId = typeof cmd['actionId'] === 'string'
+          ? (cmd['actionId'] as string).trim()
+          : (typeof cmd['command'] === 'string' ? (cmd['command'] as string).trim() : '');
+        if (actionId.length > 0) {
+          this.sendDeviceEvent(
+            'widget.action',
+            `{"pluginId":${JSON.stringify(this.activePluginId)},"widgetKey":${JSON.stringify(widgetKey)},"actionId":${JSON.stringify(actionId)}}`
+          );
+        }
+      }
+    } catch {
+      AppStorage.setOrCreate(HarmonyPluginNativeCapabilities.KEY_PENDING_WIDGET_EVENT, '');
     }
   }
 

@@ -199,6 +199,146 @@ class PluginWidgetUpdateTest {
         assertTrue(factory.widgetIds.isEmpty())
     }
 
+    /** 验证声明式自定义布局树 `PluginWidgetNode` 兼容字符串型 `metric.value`、浮点型 `progress.value` 及 5 层深度裁剪。 */
+    @Test
+    fun customLayoutDslParsesNodesAndEnforcesDepthAndNodeBounds() {
+        val rawSnapshot = """
+            {
+              "kind": "custom",
+              "title": "站点保种工作台",
+              "subtitle": "实时速率监控",
+              "accentHex": "#10B981",
+              "updatedAt": 1730000120.0,
+              "layout": {
+                "type": "column",
+                "gap": 8,
+                "padding": 10,
+                "children": [
+                  {
+                    "type": "row",
+                    "align": "spaceBetween",
+                    "children": [
+                      { "type": "metric", "label": "今日上传", "value": "64.2 GB", "subValue": "+12%", "tone": "success" },
+                      { "type": "badge", "text": "正常", "tone": "accent" }
+                    ]
+                  },
+                  { "type": "progress", "label": "考核目标", "value": 0.78, "valueText": "78%", "tone": "accent" },
+                  {
+                    "type": "button",
+                    "label": "立即签到",
+                    "filled": true,
+                    "action": { "type": "pluginAction", "actionId": "sign_now" }
+                  }
+                ]
+              }
+            }
+        """.trimIndent()
+
+        val parsed = requireNotNull(PluginWidgetPayloadParser.parseSnapshot(rawSnapshot))
+        assertEquals("custom", parsed.kind)
+        assertEquals("站点保种工作台", parsed.title)
+        assertEquals("#10B981", parsed.accentHex)
+        val root = requireNotNull(parsed.resolveLayout("medium"))
+        assertEquals("column", root.type)
+        assertEquals(3, root.children.size)
+        val metricNode = root.children[0].children[0]
+        assertEquals("metric", metricNode.type)
+        assertEquals("64.2 GB", metricNode.valueText)
+        val progressNode = root.children[1]
+        assertEquals("progress", progressNode.type)
+        assertEquals(0.78f, requireNotNull(progressNode.progressValue), 0.001f)
+        assertEquals("78%", progressNode.valueText)
+        val btnNode = root.children[2]
+        assertEquals("pluginAction", btnNode.action?.type)
+        assertEquals("sign_now", btnNode.action?.actionId)
+
+        // 构造 7 层嵌套节点树，验证超过第 5 层（depth > 5）的后代被严格截断
+        val overDeepJson = """
+            {"type":"column","children":[{"type":"column","children":[{"type":"column","children":[
+            {"type":"column","children":[{"type":"column","children":[{"type":"column","children":[
+            {"type":"text","text":"too-deep"}]}]}]}]}]}]}
+        """.trimIndent()
+        val bounded = requireNotNull(PluginWidgetPayloadParser.parseNodeTreeFromJson(overDeepJson))
+        var cursor = bounded
+        var depthReached = 0
+        while (cursor.children.isNotEmpty()) {
+            cursor = cursor.children.first()
+            depthReached++
+        }
+        assertEquals(5, depthReached)
+    }
+
+    /** 验证运行态推送快照（`"rt_${pluginId}_${key}"`）优先融合进小组件缓存与摘要。 */
+    @Test
+    fun syncWidgetDataFusesFreshRuntimeSnapshot() = runBlocking {
+        bindWidget(96)
+        context.getSharedPreferences(PluginDesktopWidgetStore.PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(
+                "rt_MusicBox_card_main",
+                """{"kind":"metrics","title":"云音实时榜","updatedAt":1890000000,"metrics":[{"id":"m1","label":"在听曲目","value":"18 首","tone":"accent"}]}""",
+            )
+            .commit()
+
+        PluginDesktopWidgetStore.saveConfig(
+            context,
+            PluginDesktopWidgetConfig(
+                appWidgetId = 96,
+                kind = "plugin_dashboard",
+                pluginId = "MusicBox",
+                pluginName = "MusicBox",
+                widgetKey = "card_main",
+            ),
+        )
+
+        val synced = requireNotNull(PluginDesktopWidgetStore.syncWidgetData(context, 96))
+        assertEquals("云音实时榜", synced.dashboardName)
+        assertEquals(listOf("在听曲目：18 首"), synced.lines)
+        assertTrue(synced.payloadJson.contains("云音实时榜"))
+    }
+
+    /** 验证主体小组件的隐私投影与正在播放小组件的乐观状态翻转。 */
+    @Test
+    fun mainWidgetPrivacyMaskAndNowPlayingOptimisticToggleWork() {
+        context.getSharedPreferences(AppDesktopWidgetStore.SNAPSHOT_PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString("server", "HomeNAS")
+            .putString(
+                "downloads",
+                """{"content":"downloads","title":"下载状态","updatedAt":"12:30","metrics":[{"id":"downloadSpeed","title":"下载速度","value":"12.4 MB/s"}],"items":[{"id":"d1","title":"星际穿越 2160p","subtitle":"剩余 5 分钟","progress":0.6}]}""",
+            )
+            .commit()
+
+        val visible = AppDesktopWidgetStore.loadSectionSnapshot(context, "downloads", showMediaNames = true)
+        assertEquals("星际穿越 2160p", visible.items.single().title)
+
+        val masked = AppDesktopWidgetStore.loadSectionSnapshot(context, "downloads", showMediaNames = false)
+        assertEquals("项目 1", masked.items.single().title)
+        assertEquals("", masked.items.single().subtitle)
+        assertEquals(0.6f, requireNotNull(masked.items.single().progress), 0.001f)
+
+        context.getSharedPreferences(NowPlayingWidgetStore.PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("active", true)
+            .putString("plugin_id", "MusicBox")
+            .putString("title", "夜航星")
+            .putBoolean("is_playing", true)
+            .putBoolean("has_like", true)
+            .putBoolean("liked", false)
+            .commit()
+
+        val afterToggle = NowPlayingWidgetStore.applyOptimisticBroadcastAction(
+            context,
+            NowPlayingWidgetStore.ACTION_MEDIA_TOGGLE,
+        )
+        assertEquals(false, afterToggle.isPlaying)
+        val afterLike = NowPlayingWidgetStore.applyOptimisticBroadcastAction(
+            context,
+            NowPlayingWidgetStore.ACTION_MEDIA_LIKE,
+        )
+        assertEquals(true, afterLike.liked)
+    }
+
     /** 经系统广播分发设置真实 PendingResult，并等待 Glance 成功结束该广播。 */
     private fun receiveUpdate(ids: IntArray): BroadcastReceiver.PendingResult {
         context.sendBroadcast(

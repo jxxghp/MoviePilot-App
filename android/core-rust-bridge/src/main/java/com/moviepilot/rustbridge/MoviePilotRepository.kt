@@ -27,6 +27,18 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlin.math.roundToInt
 
+/** 已启用插件可绑定的桌面小组件目录描述项（兼容 `/api/v1/plugin/widgets/meta` 与仪表盘兜底）。 */
+data class PluginWidgetMetaDto(
+    val pluginId: String,
+    val pluginName: String,
+    val widgetKey: String = "",
+    val name: String,
+    val description: String = "",
+    val kind: String = "metrics",
+    val source: String = "widget",
+    val hasPage: Boolean = false,
+)
+
 /** 登录请求结果（支持正常登录、MFA/OTP 二次挑战与错误提示）。 */
 sealed interface LoginOutcome {
     data class Success(val identity: UserIdentity) : LoginOutcome
@@ -2249,31 +2261,287 @@ class MoviePilotRepository(context: Context) {
         return stats
     }
 
+    private fun formatRateLabel(bytesPerSec: Double): String = when {
+        bytesPerSec >= 1024.0 * 1024.0 * 1024.0 -> String.format("%.1f GB/s", bytesPerSec / (1024.0 * 1024.0 * 1024.0))
+        bytesPerSec >= 1024.0 * 1024.0 -> String.format("%.1f MB/s", bytesPerSec / (1024.0 * 1024.0))
+        bytesPerSec >= 1024.0 -> String.format("%.1f KB/s", bytesPerSec / 1024.0)
+        bytesPerSec > 0.0 -> String.format("%.0f B/s", bytesPerSec)
+        else -> "0 B/s"
+    }
+
+    private fun formatStorageLabel(bytes: Double): String = when {
+        bytes >= 1024.0 * 1024.0 * 1024.0 * 1024.0 -> String.format("%.2f TB", bytes / (1024.0 * 1024.0 * 1024.0 * 1024.0))
+        bytes >= 1024.0 * 1024.0 * 1024.0 -> String.format("%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+        bytes >= 1024.0 * 1024.0 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+        bytes > 0.0 -> String.format("%.0f KB", bytes / 1024.0)
+        else -> "—"
+    }
+
+    private fun buildOverviewSectionJson(stats: DashboardStatsDto, nowTime: String): JsonObject {
+        val dlRate = formatRateLabel(stats.downloadSpeed)
+        val ulRate = formatRateLabel(stats.uploadSpeed)
+        val freeBytes = (stats.totalBytes - stats.usedBytes).coerceAtLeast(0.0)
+        return buildJsonObject {
+            put("content", "overview")
+            put("title", "系统概览")
+            put("updatedAt", nowTime)
+            put(
+                "metrics",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("id", "cpu")
+                            put("title", "CPU 占用")
+                            put("value", String.format("%.1f%%", stats.cpuPercent))
+                            put("tone", if (stats.cpuPercent >= 85.0) "warning" else "accent")
+                        },
+                        buildJsonObject {
+                            put("id", "memory")
+                            put("title", "内存占用")
+                            put("value", String.format("%.1f%%", stats.memoryPercent))
+                            put("tone", if (stats.memoryPercent >= 85.0) "warning" else "default")
+                        },
+                        buildJsonObject {
+                            put("id", "networkDownload")
+                            put("title", "下载速度")
+                            put("value", dlRate)
+                            put("tone", "success")
+                        },
+                        buildJsonObject {
+                            put("id", "networkUpload")
+                            put("title", "上传速度")
+                            put("value", ulRate)
+                            put("tone", "default")
+                        },
+                        buildJsonObject {
+                            put("id", "storageUsed")
+                            put("title", "已用存储")
+                            put("value", formatStorageLabel(stats.usedBytes))
+                            put("tone", "default")
+                        },
+                        buildJsonObject {
+                            put("id", "freeSpace")
+                            put("title", "剩余空间")
+                            put("value", if (stats.totalBytes > 0.0) formatStorageLabel(freeBytes) else "—")
+                            put("tone", "default")
+                        },
+                    ),
+                ),
+            )
+            put("items", JsonArray(emptyList()))
+        }
+    }
+
     private fun persistWidgetSnapshot(stats: DashboardStatsDto) {
         runCatching {
             val serverHost = (_session.value as? SessionState.Authenticated)?.serverUrl
                 ?.substringAfter("://")
                 ?.substringBefore("/")
                 ?.ifBlank { "MoviePilot" } ?: "MoviePilot"
-            val speedStr = when {
-                stats.downloadSpeed >= 1024 * 1024 * 1024 -> String.format("%.1f GB/s", stats.downloadSpeed / (1024 * 1024 * 1024))
-                stats.downloadSpeed >= 1024 * 1024 -> String.format("%.1f MB/s", stats.downloadSpeed / (1024 * 1024))
-                stats.downloadSpeed >= 1024 -> String.format("%.1f KB/s", stats.downloadSpeed / 1024)
-                stats.downloadSpeed > 0 -> String.format("%.0f B/s", stats.downloadSpeed)
-                else -> "0 B/s"
-            }
-            appContext.getSharedPreferences("mp_widget_snapshot_v1", Context.MODE_PRIVATE)
-                .edit()
+            val speedStr = formatRateLabel(stats.downloadSpeed)
+            val nowTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+            val overviewJson = buildOverviewSectionJson(stats, nowTime).toString()
+            val prefs = appContext.getSharedPreferences("mp_widget_snapshot_v1", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
                 .putInt("movies", stats.movieCount)
                 .putInt("tvs", stats.tvCount)
                 .putString("speed", speedStr)
                 .putString("server", serverHost)
-                .apply()
+                .putString("updated_at", nowTime)
+                .putString("overview", overviewJson)
+            if (prefs.getString("imports", null).isNullOrBlank()) {
+                val totalMedia = stats.movieCount + stats.tvCount + stats.musicCount
+                val fallbackImports = buildJsonObject {
+                    put("content", "imports")
+                    put("title", "近期入库")
+                    put("updatedAt", nowTime)
+                    put(
+                        "metrics",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject { put("id", "count"); put("title", "总入库"); put("value", totalMedia.toString()); put("tone", "accent") },
+                                buildJsonObject { put("id", "typeMOVIE"); put("title", "电影"); put("value", stats.movieCount.toString()) },
+                                buildJsonObject { put("id", "typeTV"); put("title", "电视剧"); put("value", stats.tvCount.toString()) },
+                                buildJsonObject { put("id", "typeMUSIC"); put("title", "音乐"); put("value", stats.musicCount.toString()) },
+                            ),
+                        ),
+                    )
+                    put("items", JsonArray(emptyList()))
+                }
+                editor.putString("imports", fallbackImports.toString())
+            }
+            editor.apply()
             val updateIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
                 setPackage(appContext.packageName)
             }
             appContext.sendBroadcast(updateIntent)
         }
+    }
+
+    /** 完整同步 APP 主体桌面小组件的 4 类核心快照（`overview` / `downloads` / `imports` / `subscriptions`）至 `"mp_widget_snapshot_v1"`。 */
+    suspend fun syncAppWidgetSnapshot(): Boolean = coroutineScope {
+        if (_session.value !is SessionState.Authenticated) return@coroutineScope false
+        runCatching {
+            val statsDef = async { runCatching { fetchDashboardStats() }.getOrNull() }
+            val dlDef = async { runCatching { fetchDownloads() }.getOrDefault(emptyList()) }
+            val histDef = async { runCatching { fetchTransferHistory() }.getOrDefault(0 to emptyList()) }
+            val subDef = async { runCatching { fetchSubscriptions(forceRefresh = false) }.getOrDefault(emptyList()) }
+
+            val stats = statsDef.await() ?: DashboardStatsDto()
+            val downloads = dlDef.await()
+            val (historyTotal, historyItems) = histDef.await()
+            val subs = subDef.await()
+            val nowTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+            val serverHost = (_session.value as? SessionState.Authenticated)?.serverUrl
+                ?.substringAfter("://")
+                ?.substringBefore("/")
+                ?.ifBlank { "MoviePilot" } ?: "MoviePilot"
+
+            val overviewObj = buildOverviewSectionJson(stats, nowTime)
+            val freeBytes = (stats.totalBytes - stats.usedBytes).coerceAtLeast(0.0)
+            val downloadingCount = downloads.count { !it.state.lowercase().contains("pause") && !it.state.lowercase().contains("stop") }
+            val pausedCount = (downloads.size - downloadingCount).coerceAtLeast(0)
+            val downloadsObj = buildJsonObject {
+                put("content", "downloads")
+                put("title", "下载状态")
+                put("updatedAt", nowTime)
+                put(
+                    "metrics",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject { put("id", "downloadSpeed"); put("title", "下载速度"); put("value", formatRateLabel(stats.downloadSpeed)); put("tone", "success") },
+                            buildJsonObject { put("id", "uploadSpeed"); put("title", "上传速度"); put("value", formatRateLabel(stats.uploadSpeed)) },
+                            buildJsonObject { put("id", "freeSpace"); put("title", "剩余空间"); put("value", if (stats.totalBytes > 0.0) formatStorageLabel(freeBytes) else "—") },
+                            buildJsonObject { put("id", "count"); put("title", "任务数"); put("value", downloads.size.toString()); put("tone", "accent") },
+                            buildJsonObject { put("id", "statedownloading"); put("title", "下载中"); put("value", downloadingCount.toString()) },
+                            buildJsonObject { put("id", "statepaused"); put("title", "已暂停"); put("value", pausedCount.toString()) },
+                        ),
+                    ),
+                )
+                put(
+                    "items",
+                    JsonArray(
+                        downloads.take(6).mapIndexed { idx, task ->
+                            val normProg = (if (task.progress > 1.0) task.progress / 100.0 else task.progress).coerceIn(0.0, 1.0)
+                            val subParts = listOfNotNull(
+                                task.seasonEpisode.takeIf { it.isNotBlank() },
+                                task.dlspeed.takeIf { it.isNotBlank() },
+                                task.leftTime.takeIf { it.isNotBlank() }?.let { "剩余 $it" },
+                            )
+                            buildJsonObject {
+                                put("id", task.hash.ifBlank { "dl-$idx" })
+                                put("title", task.name.ifBlank { task.title })
+                                put("subtitle", subParts.joinToString(" · "))
+                                put("progress", normProg)
+                            }
+                        },
+                    ),
+                )
+            }
+
+            val successHistory = historyItems.filter { it.status }
+            val totalImports = if (historyTotal > 0) historyTotal else (stats.movieCount + stats.tvCount + stats.musicCount)
+            val importsObj = buildJsonObject {
+                put("content", "imports")
+                put("title", "近期入库")
+                put("updatedAt", nowTime)
+                put(
+                    "metrics",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject { put("id", "count"); put("title", "总入库"); put("value", totalImports.toString()); put("tone", "accent") },
+                            buildJsonObject { put("id", "typeMOVIE"); put("title", "电影"); put("value", stats.movieCount.toString()) },
+                            buildJsonObject { put("id", "typeTV"); put("title", "电视剧"); put("value", stats.tvCount.toString()) },
+                            buildJsonObject { put("id", "typeMUSIC"); put("title", "音乐"); put("value", stats.musicCount.toString()) },
+                        ),
+                    ),
+                )
+                put(
+                    "items",
+                    JsonArray(
+                        successHistory.take(6).mapIndexed { idx, item ->
+                            val se = listOf(item.seasons, item.episodes).filter { it.isNotBlank() }.joinToString(" ")
+                            val subParts = listOfNotNull(
+                                item.year.takeIf { it.isNotBlank() },
+                                item.type.takeIf { it.isNotBlank() },
+                                se.takeIf { it.isNotBlank() },
+                                item.date.takeIf { it.isNotBlank() },
+                            )
+                            buildJsonObject {
+                                put("id", "imp-${item.id}-$idx")
+                                put("title", item.title)
+                                put("subtitle", subParts.joinToString(" · "))
+                            }
+                        },
+                    ),
+                )
+            }
+
+            val movieSubs = subs.count { !isTvType(it.type) && !it.type.contains("音乐") && !it.type.lowercase().contains("music") }
+            val tvSubs = subs.count { isTvType(it.type) }
+            val musicSubs = (subs.size - movieSubs - tvSubs).coerceAtLeast(0)
+            val activeSubs = subs.count { it.state.equals("R", true) || it.state.equals("N", true) }
+            val subscriptionsObj = buildJsonObject {
+                put("content", "subscriptions")
+                put("title", "订阅")
+                put("updatedAt", nowTime)
+                put(
+                    "metrics",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject { put("id", "count"); put("title", "总订阅"); put("value", subs.size.toString()); put("tone", "accent") },
+                            buildJsonObject { put("id", "typeMOVIE"); put("title", "电影"); put("value", movieSubs.toString()) },
+                            buildJsonObject { put("id", "typeTV"); put("title", "电视剧"); put("value", tvSubs.toString()) },
+                            buildJsonObject { put("id", "stateR"); put("title", "订阅中"); put("value", activeSubs.toString()); put("tone", "success") },
+                        ) + if (musicSubs > 0) {
+                            listOf(buildJsonObject { put("id", "typeMUSIC"); put("title", "音乐"); put("value", musicSubs.toString()) })
+                        } else {
+                            emptyList()
+                        },
+                    ),
+                )
+                put(
+                    "items",
+                    JsonArray(
+                        subs.take(6).mapIndexed { idx, sub ->
+                            val doneEp = (sub.totalEpisode - sub.lackEpisode).coerceAtLeast(0)
+                            val prog = if (sub.totalEpisode > 0) (doneEp.toDouble() / sub.totalEpisode.toDouble()).coerceIn(0.0, 1.0) else null
+                            val subParts = buildList {
+                                add(if (isTvType(sub.type)) "电视剧" else sub.type.ifBlank { "电影" })
+                                if (isTvType(sub.type) && (sub.season ?: 0) > 0) add("S%02d".format(sub.season))
+                                if (sub.totalEpisode > 0) add("$doneEp/${sub.totalEpisode} 集")
+                                if (sub.resolution.isNotBlank()) add(sub.resolution)
+                            }
+                            buildJsonObject {
+                                put("id", "sub-${sub.id}-$idx")
+                                put("title", sub.name)
+                                put("subtitle", subParts.joinToString(" · "))
+                                if (prog != null) put("progress", prog)
+                            }
+                        },
+                    ),
+                )
+            }
+
+            appContext.getSharedPreferences("mp_widget_snapshot_v1", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("movies", stats.movieCount)
+                .putInt("tvs", stats.tvCount)
+                .putString("speed", formatRateLabel(stats.downloadSpeed))
+                .putString("server", serverHost)
+                .putString("updated_at", nowTime)
+                .putString("overview", overviewObj.toString())
+                .putString("downloads", downloadsObj.toString())
+                .putString("imports", importsObj.toString())
+                .putString("subscriptions", subscriptionsObj.toString())
+                .apply()
+
+            val updateIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                setPackage(appContext.packageName)
+            }
+            appContext.sendBroadcast(updateIntent)
+            true
+        }.getOrDefault(false)
     }
 
     /** 拉取已启用模块并合并目录类型元数据；主列表失败时向调用方报告，避免误显示为空列表。 */
@@ -2434,6 +2702,55 @@ class MoviePilotRepository(context: Context) {
         val segs = if (key.isNotBlank()) listOf("plugin", "dashboard", id, key) else listOf("plugin", "dashboard", id)
         val resp = authedRequest(segs).getOrNull() ?: return null
         return if (resp.status in 200..299) resp.body else null
+    }
+
+    /** 拉取后端已启用插件的桌面小组件目录（`GET /api/v1/plugin/widgets/meta`，旧版后端 404 时自动回退仪表盘元信息）。 */
+    suspend fun fetchPluginWidgetMetas(): List<PluginWidgetMetaDto> {
+        val resp = authedRequest(listOf("plugin", "widgets", "meta")).getOrNull()
+        if (resp != null && resp.status in 200..299) {
+            val parsed = extractArray(resp.body).mapNotNull { el ->
+                val obj = el.asObj() ?: return@mapNotNull null
+                val pid = obj.str("plugin_id") ?: obj.str("pluginId") ?: obj.str("id") ?: return@mapNotNull null
+                val pname = obj.str("plugin_name") ?: obj.str("pluginName") ?: pid
+                val wkey = obj.str("key") ?: obj.str("widgetKey") ?: ""
+                val wname = obj.str("name") ?: pname
+                PluginWidgetMetaDto(
+                    pluginId = pid,
+                    pluginName = pname,
+                    widgetKey = wkey,
+                    name = wname,
+                    description = obj.str("description") ?: "",
+                    kind = obj.str("kind") ?: "metrics",
+                    source = obj.str("source") ?: "widget",
+                    hasPage = obj.bool("has_page") ?: obj.bool("hasPage") ?: false,
+                )
+            }
+            if (parsed.isNotEmpty()) return parsed
+        }
+        return fetchPluginDashboardMetas().map { dash ->
+            PluginWidgetMetaDto(
+                pluginId = dash.id,
+                pluginName = dash.id,
+                widgetKey = dash.key,
+                name = dash.name.ifBlank { dash.id },
+                kind = "metrics",
+                source = "dashboard",
+                hasPage = true,
+            )
+        }
+    }
+
+    /** 拉取单个插件的专属桌面小组件快照 JSON（`GET /api/v1/plugin/widgets/{pluginId}?key=...`；不支持或为空时返回 `null` 供上层回退）。 */
+    suspend fun fetchPluginWidgetSnapshotJson(pluginId: String, widgetKey: String = ""): String? {
+        if (pluginId.isBlank()) return null
+        val q = if (widgetKey.isNotBlank()) listOf("key" to widgetKey) else emptyList()
+        val resp = authedRequest(listOf("plugin", "widgets", pluginId), query = q).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val trimmed = resp.body.trim()
+        if (trimmed.isEmpty() || trimmed == "null" || trimmed == "{}") return null
+        val obj = extractObject(trimmed)
+        if (obj != null && obj.isEmpty()) return null
+        return trimmed
     }
 
     /** 读取有限系统日志快照；后端 `length=-1` 按新到旧返回，正数会开启持续 SSE。 */

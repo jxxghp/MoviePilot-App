@@ -1,3 +1,4 @@
+import CoreFoundation
 import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotSession
@@ -46,7 +47,13 @@ final class WidgetService {
   }
 
   /// 普通启动不读取共享区域，也不为未启用用户发送任何新增请求。
+  /// 桌面交互指令的跨进程 Darwin 通知由 `PluginNativeCapabilitiesService` 内的 `DarwinWidgetCommandRouter` 单点原子消费。
   private init() {}
+
+  /// 按指定 `kind` 请求刷新对应桌面小组件时间线（供同时依赖 `PhotosUI` 的模块调用，规避 iOS 26 SDK 同文件导入 `WidgetKit` 遮蔽 `PHPickerViewController`）。
+  static func reloadTimeline(ofKind kind: String) {
+    WidgetCenter.shared.reloadTimelines(ofKind: kind)
+  }
 
   /// 真实平台授权失败时明确不可用，不回退到主 App 沙箱或主认证 Keychain。
   private func store() throws -> WidgetStore {
@@ -160,7 +167,11 @@ final class WidgetService {
         if let profile = state.profile {
           try self.checkNative(session, epoch: epoch)
           let result = await repository.refresh(profileId: profile.id, using: self.client)
-          if result == .updated || result == .removed { WidgetCenter.shared.reloadAllTimelines() }
+          let pluginResult = await repository.refreshPluginCatalog(
+            profileId: profile.id, using: self.client)
+          if result == .updated || result == .removed || pluginResult == .updated {
+            WidgetCenter.shared.reloadAllTimelines()
+          }
         }
       } catch {
         // 网络或存储异常时保留重试入口，不伪造成功。
@@ -196,6 +207,7 @@ final class WidgetService {
       received = nil
       try checkNative(session, epoch: epoch)
       _ = await repository.refresh(profileId: profile.id, using: client, force: true)
+      _ = await repository.refreshPluginCatalog(profileId: profile.id, using: client, force: true)
       WidgetCenter.shared.reloadAllTimelines()
     } catch {
       try? await repository.cancelRegistration(ticket)
@@ -225,6 +237,7 @@ final class WidgetService {
     let repository = try await prepareNative(session, epoch: epoch)
     guard profile.instanceId == session.instance.id else { throw WidgetBridgeError.invalidRequest }
     let outcome = await repository.refresh(profileId: profile.id, using: client, force: true)
+    _ = await repository.refreshPluginCatalog(profileId: profile.id, using: client, force: true)
     WidgetCenter.shared.reloadAllTimelines()
     return outcome
   }

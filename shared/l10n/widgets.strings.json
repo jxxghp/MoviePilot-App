@@ -11,6 +11,41 @@
       "zh-Hant": "MoviePilot 狀態",
       "en": "MoviePilot Status"
     },
+    "MoviePilot 正在播放": {
+      "zh-Hans": "MoviePilot 正在播放",
+      "zh-Hant": "MoviePilot 正在播放",
+      "en": "MoviePilot Now Playing"
+    },
+    "MoviePilot 插件": {
+      "zh-Hans": "MoviePilot 插件",
+      "zh-Hant": "MoviePilot 插件",
+      "en": "MoviePilot Plugin"
+    },
+    "在桌面展示插件音频封面、同步歌词与播放控制。": {
+      "zh-Hans": "在桌面展示插件音频封面、同步歌词与播放控制。",
+      "zh-Hant": "在桌面展示插件音訊封面、同步歌詞與播放控制。",
+      "en": "Show plugin audio artwork, synced lyrics, and playback controls."
+    },
+    "展示已启用插件的自定义数据卡片、仪表盘或快捷入口。": {
+      "zh-Hans": "展示已启用插件的自定义数据卡片、仪表盘或快捷入口。",
+      "zh-Hant": "展示已啓用插件的自訂資料卡片、儀表板或捷徑入口。",
+      "en": "Show custom data cards, dashboards, or shortcuts from enabled plugins."
+    },
+    "插件卡片": {
+      "zh-Hans": "插件卡片",
+      "zh-Hant": "插件卡片",
+      "en": "Plugin card"
+    },
+    "正在播放": {
+      "zh-Hans": "正在播放",
+      "zh-Hant": "正在播放",
+      "en": "Now playing"
+    },
+    "暂无正在播放的音频": {
+      "zh-Hans": "暂无正在播放的音频",
+      "zh-Hant": "暫無正在播放的音訊",
+      "en": "No active audio playback"
+    },
     "下载状态": {
       "zh-Hans": "下载状态",
       "zh-Hant": "下載狀態",

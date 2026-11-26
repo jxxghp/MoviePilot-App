@@ -2329,6 +2329,14 @@
       "value": "Subscriptions"
     },
     {
+      "name": "mp_widget_55ab70bb",
+      "value": "Plugin card"
+    },
+    {
+      "name": "mp_widget_5fc9c548",
+      "value": "No active audio playback"
+    },
+    {
       "name": "mp_widget_66c5aa72",
       "value": "TV subscriptions"
     },
@@ -2345,8 +2353,20 @@
       "value": "Movie subscriptions"
     },
     {
+      "name": "mp_widget_943d096c",
+      "value": "Show plugin audio artwork, synced lyrics, and playback controls."
+    },
+    {
+      "name": "mp_widget_99854c7c",
+      "value": "Now playing"
+    },
+    {
       "name": "mp_widget_app_667ee75e",
       "value": "Choose a server enabled in the App and its read-only content."
+    },
+    {
+      "name": "mp_widget_c007cc5a",
+      "value": "Show custom data cards, dashboards, or shortcuts from enabled plugins."
     },
     {
       "name": "mp_widget_ce52b3cf",
@@ -2361,8 +2381,16 @@
       "value": "MoviePilot widgets"
     },
     {
+      "name": "mp_widget_moviepilot_51eb4e44",
+      "value": "MoviePilot Now Playing"
+    },
+    {
       "name": "mp_widget_moviepilot_a0cfe3e6",
       "value": "MoviePilot Status"
+    },
+    {
+      "name": "mp_widget_moviepilot_c6f24b55",
+      "value": "MoviePilot Plugin"
     }
   ]
 }

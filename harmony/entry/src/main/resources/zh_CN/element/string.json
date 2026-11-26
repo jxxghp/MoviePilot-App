@@ -2329,6 +2329,14 @@
       "value": "订阅"
     },
     {
+      "name": "mp_widget_55ab70bb",
+      "value": "插件卡片"
+    },
+    {
+      "name": "mp_widget_5fc9c548",
+      "value": "暂无正在播放的音频"
+    },
+    {
       "name": "mp_widget_66c5aa72",
       "value": "剧集订阅"
     },
@@ -2345,8 +2353,20 @@
       "value": "电影订阅"
     },
     {
+      "name": "mp_widget_943d096c",
+      "value": "在桌面展示插件音频封面、同步歌词与播放控制。"
+    },
+    {
+      "name": "mp_widget_99854c7c",
+      "value": "正在播放"
+    },
+    {
       "name": "mp_widget_app_667ee75e",
       "value": "选择已在 App 中启用的服务与只读内容。"
+    },
+    {
+      "name": "mp_widget_c007cc5a",
+      "value": "展示已启用插件的自定义数据卡片、仪表盘或快捷入口。"
     },
     {
       "name": "mp_widget_ce52b3cf",
@@ -2361,8 +2381,16 @@
       "value": "MoviePilot 小组件"
     },
     {
+      "name": "mp_widget_moviepilot_51eb4e44",
+      "value": "MoviePilot 正在播放"
+    },
+    {
       "name": "mp_widget_moviepilot_a0cfe3e6",
       "value": "MoviePilot 状态"
+    },
+    {
+      "name": "mp_widget_moviepilot_c6f24b55",
+      "value": "MoviePilot 插件"
     }
   ]
 }

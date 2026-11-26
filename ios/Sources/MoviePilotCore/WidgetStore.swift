@@ -17,6 +17,16 @@ public protocol WidgetSnapshotReading: Sendable {
   func snapshot(profile: WidgetProfile, credential: String) async throws -> WidgetSnapshot
 }
 
+/// 插件桌面小组件的专用只读网络协议，使用同一 `mpw_` 凭据且不共享主登录会话。
+public protocol PluginWidgetReading: Sendable {
+  /// 读取已启用插件可绑定的小组件目录清单。
+  func pluginCatalog(profile: WidgetProfile, credential: String) async throws -> PluginWidgetCatalog
+  /// 读取指定插件小组件的预设或声明式布局只读快照。
+  func pluginSnapshot(
+    profile: WidgetProfile, credential: String, pluginId: String, widgetKey: String
+  ) async throws -> PluginWidgetSnapshot
+}
+
 /// 本地移除完成后的尽力自撤销，不接受他人的登记标识。
 public protocol WidgetGrantRevoking: Sendable {
   /// 网络失败不阻止资料从本地索引和界面消失。
@@ -231,6 +241,137 @@ public actor WidgetStore {
     }
   }
 
+  /// 读取指定资料已缓存且未过期的插件小组件目录。
+  public func cachedPluginCatalog(profileId: UUID) throws -> PluginWidgetCatalog? {
+    try locked {
+      guard let profile = try readIndex().profiles.first(where: { $0.id == profileId }),
+        valid(profile, at: clock())
+      else { return nil }
+      return try readCachedPluginCatalog(profile)
+    }
+  }
+
+  /// 使用 `mpw_` 只读凭据刷新并缓存指定资料的插件小组件目录；普通成员 403 时不误删主体资料。
+  public func refreshPluginCatalog(
+    profileId: UUID, using reader: any PluginWidgetReading, force: Bool = false
+  ) async -> WidgetRefreshOutcome {
+    let lease: WidgetLease
+    do {
+      guard let value = try locked({ try loadLease(profileId) }) else { return .removed }
+      lease = value
+      if !force, let cached = try locked({ try readCachedPluginCatalog(lease.profile) }),
+        clock().timeIntervalSince1970 - cached.generatedAt < 900
+      {
+        return .cached
+      }
+    } catch { return .unavailable }
+    do {
+      let catalog = try await reader.pluginCatalog(
+        profile: lease.profile, credential: lease.credential)
+      guard !Task.isCancelled else { return .discarded }
+      return try locked {
+        guard try readIndex().profiles.contains(where: { sameRegistration($0, lease.profile) }),
+          valid(lease.profile, at: clock())
+        else { return .discarded }
+        let data = try catalog.encoded()
+        let checked = try PluginWidgetCatalog.decode(data, owner: lease.profile.owner, now: clock())
+        guard !checked.isExpired(at: clock()),
+          checked.expiresAt <= lease.profile.credentialExpiresAt
+        else { throw WidgetDataError.invalidData }
+        try ensurePluginsDirectory()
+        try write(data, to: pluginCatalogURL(lease.profile.id))
+        return .updated
+      }
+    } catch WidgetClientError.unauthorized, WidgetDataError.ownerMismatch {
+      return
+        (try? locked {
+          guard try readIndex().profiles.contains(where: { sameRegistration($0, lease.profile) })
+          else { return WidgetRefreshOutcome.discarded }
+          _ = try erase { sameRegistration($0, lease.profile) }
+          return WidgetRefreshOutcome.removed
+        }) ?? .unavailable
+    } catch WidgetClientError.forbidden, WidgetClientError.unsupported {
+      try? locked { retirePlugins(lease.profile) }
+      return .unavailable
+    } catch { return Task.isCancelled ? .discarded : .unavailable }
+  }
+
+  /// 读取指定资料与插件标识下已缓存且未过期的插件小组件快照。
+  public func cachedPluginSnapshot(
+    profileId: UUID, pluginId: String, widgetKey: String = ""
+  ) throws -> PluginWidgetSnapshot? {
+    guard PluginWidgetValidator.isValidPluginId(pluginId),
+      PluginWidgetValidator.isValidWidgetKey(widgetKey)
+    else { return nil }
+    return try locked {
+      guard let profile = try readIndex().profiles.first(where: { $0.id == profileId }),
+        valid(profile, at: clock())
+      else { return nil }
+      return try readCachedPluginSnapshot(profile, pluginId: pluginId, widgetKey: widgetKey)
+    }
+  }
+
+  /// 使用 `mpw_` 只读凭据刷新并缓存单个插件小组件快照。
+  public func refreshPluginSnapshot(
+    profileId: UUID,
+    pluginId: String,
+    widgetKey: String = "",
+    using reader: any PluginWidgetReading,
+    force: Bool = false
+  ) async -> WidgetRefreshOutcome {
+    guard PluginWidgetValidator.isValidPluginId(pluginId),
+      PluginWidgetValidator.isValidWidgetKey(widgetKey)
+    else { return .unavailable }
+    let lease: WidgetLease
+    do {
+      guard let value = try locked({ try loadLease(profileId) }) else { return .removed }
+      lease = value
+      if !force,
+        let cached = try locked({
+          try readCachedPluginSnapshot(lease.profile, pluginId: pluginId, widgetKey: widgetKey)
+        }),
+        clock().timeIntervalSince1970 - cached.generatedAt < 900
+      {
+        return .cached
+      }
+    } catch { return .unavailable }
+    do {
+      let snapshot = try await reader.pluginSnapshot(
+        profile: lease.profile, credential: lease.credential, pluginId: pluginId,
+        widgetKey: widgetKey)
+      guard !Task.isCancelled else { return .discarded }
+      return try locked {
+        guard try readIndex().profiles.contains(where: { sameRegistration($0, lease.profile) }),
+          valid(lease.profile, at: clock())
+        else { return .discarded }
+        let data = try snapshot.encoded()
+        let checked = try PluginWidgetSnapshot.decode(
+          data, owner: lease.profile.owner, now: clock())
+        guard !checked.isExpired(at: clock()),
+          checked.expiresAt <= lease.profile.credentialExpiresAt
+        else { throw WidgetDataError.invalidData }
+        try ensurePluginsDirectory()
+        try write(
+          data, to: pluginSnapshotURL(lease.profile.id, pluginId: pluginId, widgetKey: widgetKey))
+        return .updated
+      }
+    } catch WidgetClientError.unauthorized, WidgetDataError.ownerMismatch {
+      return
+        (try? locked {
+          guard try readIndex().profiles.contains(where: { sameRegistration($0, lease.profile) })
+          else { return WidgetRefreshOutcome.discarded }
+          _ = try erase { sameRegistration($0, lease.profile) }
+          return WidgetRefreshOutcome.removed
+        }) ?? .unavailable
+    } catch WidgetClientError.forbidden, WidgetClientError.unsupported {
+      try? locked {
+        try? FileManager.default.removeItem(
+          at: pluginSnapshotURL(lease.profile.id, pluginId: pluginId, widgetKey: widgetKey))
+      }
+      return .unavailable
+    } catch { return Task.isCancelled ? .discarded : .unavailable }
+  }
+
   /// 快照读取不持有文件锁；提交时核对当前资料、凭据期限和取消状态。
   private func performRefresh(_ lease: WidgetLease, using reader: any WidgetSnapshotReading) async
     -> WidgetRefreshOutcome
@@ -324,6 +465,70 @@ public actor WidgetStore {
   /// 只删除固定 UUID 对应的快照；物理清理失败也不能恢复已删除的索引引用。
   private func retire(_ profile: WidgetProfile) {
     try? FileManager.default.removeItem(at: snapshotURL(profile.id))
+    retirePlugins(profile)
+  }
+
+  /// 清理某个资料关联的全部插件小组件目录与单卡片快照缓存。
+  private func retirePlugins(_ profile: WidgetProfile) {
+    guard FileManager.default.fileExists(atPath: pluginsDirectory.path),
+      let files = try? FileManager.default.contentsOfDirectory(
+        at: pluginsDirectory, includingPropertiesForKeys: nil)
+    else { return }
+    let prefix = "\(profile.id.uuidString)-"
+    for file in files where file.lastPathComponent.hasPrefix(prefix) {
+      try? FileManager.default.removeItem(at: file)
+    }
+  }
+
+  /// 按需初始化独立的插件缓存子目录，不干扰根级主体快照布局。
+  private var pluginsDirectory: URL {
+    directory.appendingPathComponent("plugins", isDirectory: true)
+  }
+
+  private func ensurePluginsDirectory() throws {
+    if !FileManager.default.fileExists(atPath: pluginsDirectory.path) {
+      try FileManager.default.createDirectory(
+        at: pluginsDirectory, withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700])
+    }
+  }
+
+  private func pluginCatalogURL(_ profileId: UUID) -> URL {
+    pluginsDirectory.appendingPathComponent("\(profileId.uuidString)-catalog.json")
+  }
+
+  private func pluginSnapshotURL(_ profileId: UUID, pluginId: String, widgetKey: String) -> URL {
+    let safeKey = Data("\(pluginId)::\(widgetKey)".utf8)
+      .base64EncodedString()
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "=", with: "")
+    return pluginsDirectory.appendingPathComponent(
+      "\(profileId.uuidString)-snap-\(safeKey).json")
+  }
+
+  private func readCachedPluginCatalog(_ profile: WidgetProfile) throws -> PluginWidgetCatalog? {
+    let url = pluginCatalogURL(profile.id)
+    guard let data = try read(url, maximum: PluginWidgetCatalog.maximumBytes) else { return nil }
+    let catalog = try PluginWidgetCatalog.decode(data, owner: profile.owner, now: clock())
+    guard !catalog.isExpired(at: clock()), catalog.expiresAt <= profile.credentialExpiresAt else {
+      try? FileManager.default.removeItem(at: url)
+      return nil
+    }
+    return catalog
+  }
+
+  private func readCachedPluginSnapshot(
+    _ profile: WidgetProfile, pluginId: String, widgetKey: String
+  ) throws -> PluginWidgetSnapshot? {
+    let url = pluginSnapshotURL(profile.id, pluginId: pluginId, widgetKey: widgetKey)
+    guard let data = try read(url, maximum: PluginWidgetSnapshot.maximumBytes) else { return nil }
+    let snapshot = try PluginWidgetSnapshot.decode(data, owner: profile.owner, now: clock())
+    guard !snapshot.isExpired(at: clock()), snapshot.expiresAt <= profile.credentialExpiresAt else {
+      try? FileManager.default.removeItem(at: url)
+      return nil
+    }
+    return snapshot
   }
 
   /// 后台和冷启动采用相同凭据期限，不依赖网页最后一次连接状态。

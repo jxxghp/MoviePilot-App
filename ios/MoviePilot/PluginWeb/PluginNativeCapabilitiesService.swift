@@ -1,7 +1,10 @@
 @preconcurrency import AVFoundation
+import CoreMedia
+import CryptoKit
 import Foundation
 import LocalAuthentication
 import MediaPlayer
+@preconcurrency import MediaToolbox
 import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotSession
@@ -22,6 +25,27 @@ import UserNotifications
 @MainActor
 final class PluginNativeCapabilitiesService: NSObject {
   static let maxBase64Bytes = 15 * 1024 * 1024
+  private static let maxWidgetPayloadBytes = 32 * 1024
+  private static let maxWidgetLayoutDepth = 5
+  private static let maxWidgetLayoutNodes = 40
+
+  /// 最近一次活跃的原生能力服务实例弱引用。
+  static weak var latestActiveService: PluginNativeCapabilitiesService?
+  private static var pendingPluginID: String = ""
+  private static var pendingPluginName: String = ""
+
+  /// 当前挂载插件的物理标识。
+  var activePluginID: String = ""
+  /// 当前挂载插件的显示名称。
+  var activePluginName: String = ""
+
+  /// 登记最新挂载的插件标识与名称，供懒加载的能力服务实例初始化继承。
+  static func registerActivePlugin(id: String, name: String) {
+    pendingPluginID = id
+    pendingPluginName = name
+    latestActiveService?.activePluginID = id
+    latestActiveService?.activePluginName = name
+  }
 
   private let sendResponse:
     (
@@ -49,7 +73,7 @@ final class PluginNativeCapabilitiesService: NSObject {
   private var recordingTimer: Timer?
   private var isRecordingPaused: Bool = false
 
-  // MARK: - Inline Audio Playback State
+  // MARK: - Inline Audio Playback & Real-Time Spectrum State (#79)
   private var avAudioPlayer: AVAudioPlayer?
   private var avPlayer: AVPlayer?
   private var avPlayerEndObserver: NSObjectProtocol?
@@ -59,8 +83,19 @@ final class PluginNativeCapabilitiesService: NSObject {
   private var playbackVolume: Float = 1.0
   private var playbackState: String = "idle"
   private var playbackProgressTimer: Timer?
+  private var spectrumEnabled: Bool = false
+  private var spectrumBands: Int = 64
+  private var spectrumIntervalMs: Int = 50
+  private var spectrumTimer: Timer?
+  private var activeSpectrumTapBuffer: PluginAudioSpectrumBuffer?
+  private var meteringPhase: Double = 0
 
-  // MARK: - Status Bar / Lock Screen Now Playing State (#56 / #77)
+  // MARK: - System Volume State (#82)
+  private var systemVolumeObservation: NSKeyValueObservation?
+  private var offscreenVolumeView: MPVolumeView?
+  private var lastObservedSystemVolume: Float = -1
+
+  // MARK: - Status Bar / Lock Screen Now Playing State (#56 / #77 / #82)
   private struct NowPlayingLyricLine {
     let timeMs: Int
     let text: String
@@ -74,6 +109,10 @@ final class PluginNativeCapabilitiesService: NSObject {
   private var nowPlayingTitle: String = ""
   private var nowPlayingArtist: String = ""
   private var nowPlayingAlbum: String = ""
+  private var nowPlayingCanNext: Bool = false
+  private var nowPlayingCanPrevious: Bool = false
+  private var nowPlayingDurationMs: Int = 0
+  private var nowPlayingPositionMs: Int = 0
   private var nowPlayingLyrics: String = ""
   private var nowPlayingLyricLines: [NowPlayingLyricLine] = []
   private var lastDisplayedLyricLine: String = ""
@@ -82,6 +121,7 @@ final class PluginNativeCapabilitiesService: NSObject {
   private var nowPlayingCustomActions: [NowPlayingCustomAction] = []
   private var nowPlayingArtwork: MPMediaItemArtwork?
   private var nowPlayingArtworkURL: String = ""
+  private var nowPlayingWidgetArtworkFileName: String = ""
   private var nowPlayingArtworkTask: Task<Void, Never>?
   private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
 
@@ -112,7 +152,11 @@ final class PluginNativeCapabilitiesService: NSObject {
     self.sendDeviceEvent = sendDeviceEvent
     self.sessionContextProvider = sessionContextProvider
     self.nativeSessionProvider = nativeSessionProvider
+    self.activePluginID = Self.pendingPluginID
+    self.activePluginName = Self.pendingPluginName
     super.init()
+    Self.latestActiveService = self
+    DarwinWidgetCommandRouter.shared.register(self)
     startNetworkMonitor()
   }
 
@@ -141,11 +185,18 @@ final class PluginNativeCapabilitiesService: NSObject {
     pathMonitor.start(queue: DispatchQueue.global(qos: .utility))
   }
 
-  /// 释放所有运行中的原生能力资源（录音、内联播放、常亮锁与在途异步任务）。
+  /// 释放所有运行中的原生能力资源（录音、内联播放、频谱采集、音量监听、常亮锁与在途异步任务）。
   func cleanup() {
     cancelActiveRecording(emitEvent: false)
     stopInlinePlayback(emitEvent: false)
     clearNowPlayingMetadata()
+    stopSystemVolumeMonitoring()
+    DarwinWidgetCommandRouter.shared.unregister(self)
+    if Self.latestActiveService === self {
+      Self.latestActiveService = nil
+    }
+    activePluginID = ""
+    activePluginName = ""
     if keepAwakeEnabled {
       keepAwakeEnabled = false
       UIApplication.shared.isIdleTimerDisabled = false
@@ -163,6 +214,25 @@ final class PluginNativeCapabilitiesService: NSObject {
 
   /// 路由原生能力消息；若消息类型属于本服务则返回 `true`。
   func handle(type: String, requestId: String, payload: [String: Any]) -> Bool {
+    Self.latestActiveService = self
+    DarwinWidgetCommandRouter.shared.register(self)
+    if type == "plugin.context.sync" {
+      if let pid = (payload["pluginId"] as? String)?.trimmingCharacters(
+        in: .whitespacesAndNewlines),
+        !pid.isEmpty
+      {
+        activePluginID = pid
+      }
+      if let pname = (payload["pluginName"] as? String)?.trimmingCharacters(
+        in: .whitespacesAndNewlines),
+        !pname.isEmpty
+      {
+        activePluginName = pname
+      }
+      DarwinWidgetCommandRouter.shared.consumePendingCommandIfNeeded()
+      return true
+    }
+    ensureSystemVolumeMonitoring()
     switch type {
     case "device.capabilities":
       handleCapabilities(requestId: requestId)
@@ -245,6 +315,15 @@ final class PluginNativeCapabilitiesService: NSObject {
     case "audio.setVolume":
       handleAudioSetVolume(requestId: requestId, payload: payload)
       return true
+    case "audio.getSystemVolume":
+      handleGetSystemVolume(requestId: requestId)
+      return true
+    case "audio.setSystemVolume":
+      handleSetSystemVolume(requestId: requestId, payload: payload)
+      return true
+    case "audio.setSpectrum":
+      handleAudioSetSpectrum(requestId: requestId, payload: payload)
+      return true
     case "audio.status":
       sendSuccess(requestId: requestId, data: currentPlaybackStatusDict())
       return true
@@ -257,6 +336,15 @@ final class PluginNativeCapabilitiesService: NSObject {
       return true
     case "media.playNative":
       handlePlayNativeMedia(requestId: requestId, payload: payload)
+      return true
+    case "widget.update":
+      handleWidgetUpdate(requestId: requestId, payload: payload)
+      return true
+    case "widget.remove":
+      handleWidgetRemove(requestId: requestId, payload: payload)
+      return true
+    case "widget.list":
+      handleWidgetList(requestId: requestId)
       return true
     default:
       return false
@@ -273,6 +361,9 @@ final class PluginNativeCapabilitiesService: NSObject {
       "native.audio.nowPlaying",
       "native.audio.lyrics",
       "native.audio.customActions",
+      "native.audio.systemVolume",
+      "native.audio.spectrum",
+      "native.widget",
       "media.playNative",
       "device.info",
       "device.permission",
@@ -668,7 +759,9 @@ final class PluginNativeCapabilitiesService: NSObject {
     recordingTimer?.invalidate()
     recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
       Task { @MainActor [weak self] in
-        guard let self, let recorder = self.audioRecorder, let recID = self.recordingID else { return }
+        guard let self, let recorder = self.audioRecorder, let recID = self.recordingID else {
+          return
+        }
         guard !self.isRecordingPaused else { return }
         let durMs = self.currentRecordingDurationMs()
         if self.recordingMeteringEnabled {
@@ -738,6 +831,10 @@ final class PluginNativeCapabilitiesService: NSObject {
     let volume = Float(min(max((payload["volume"] as? Double) ?? 1.0, 0.0), 1.0))
     let rate = Float(min(max((payload["rate"] as? Double) ?? 1.0, 0.5), 2.0))
     let startPosMs = max((payload["startPositionMs"] as? Double) ?? 0, 0)
+    let specDict = payload["spectrum"] as? [String: Any]
+    let reqSpecEnabled = (specDict?["enabled"] as? Bool) ?? false
+    let reqSpecBands = min(max((specDict?["bands"] as? NSNumber)?.intValue ?? 64, 16), 256)
+    let reqSpecInterval = min(max((specDict?["intervalMs"] as? NSNumber)?.intValue ?? 50, 30), 250)
 
     stopInlinePlayback(emitEvent: false)
     let playID = "play_\(UUID().uuidString.prefix(12))"
@@ -745,12 +842,16 @@ final class PluginNativeCapabilitiesService: NSObject {
     playbackLoop = loop
     playbackVolume = volume
     playbackRate = rate
+    spectrumEnabled = reqSpecEnabled
+    spectrumBands = reqSpecBands
+    spectrumIntervalMs = reqSpecInterval
 
     // 1. Base64 内联音频（录音回放 / TTS / 提示音）
     if let rawBase64 = payload["base64"] as? String, !rawBase64.isEmpty {
       let cleanBase64 = Self.stripDataURIPrefix(rawBase64)
       guard let data = Data(base64Encoded: cleanBase64), !data.isEmpty else {
-        sendError(requestId: requestId, code: "INVALID_AUDIO", status: 400, message: "无效的 Base64 音频数据")
+        sendError(
+          requestId: requestId, code: "INVALID_AUDIO", status: 400, message: "无效的 Base64 音频数据")
         return
       }
       do {
@@ -758,6 +859,7 @@ final class PluginNativeCapabilitiesService: NSObject {
         let player = try AVAudioPlayer(data: data)
         player.delegate = self
         player.enableRate = true
+        player.isMeteringEnabled = reqSpecEnabled
         player.rate = rate
         player.volume = volume
         player.numberOfLoops = loop ? -1 : 0
@@ -772,6 +874,7 @@ final class PluginNativeCapabilitiesService: NSObject {
         avAudioPlayer = player
         playbackState = "playing"
         startPlaybackProgressTimer()
+        let specActive = syncSpectrumTimerState()
         let durationMs = Int(player.duration * 1000)
         emitPlaybackState()
         sendSuccess(
@@ -780,6 +883,7 @@ final class PluginNativeCapabilitiesService: NSObject {
             "playbackId": playID,
             "state": "playing",
             "durationMs": durationMs,
+            "spectrumActive": specActive,
           ]
         )
       } catch {
@@ -792,10 +896,14 @@ final class PluginNativeCapabilitiesService: NSObject {
     }
 
     let showInStatusBar = (payload["showInStatusBar"] as? Bool) ?? true
-    let playTitle = (payload["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    let playArtist = (payload["artist"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    let playAlbum = (payload["album"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    let playArtworkUrl = (payload["artworkUrl"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let playTitle = (payload["title"] as? String ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines)
+    let playArtist = (payload["artist"] as? String ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines)
+    let playAlbum = (payload["album"] as? String ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines)
+    let playArtworkUrl = (payload["artworkUrl"] as? String ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines)
     let maybeApplyNowPlaying = { [weak self] in
       guard let self, showInStatusBar, !playTitle.isEmpty else { return }
       self.applyNowPlayingMetadata(
@@ -823,13 +931,13 @@ final class PluginNativeCapabilitiesService: NSObject {
         do {
           let (streamURL, headers) = try await self.resolveStorageStreamURL(
             context: context, storage: storage, path: path)
-          try self.startAVPlayer(
+          let specActive = try await self.startAVPlayer(
             playID: playID, url: streamURL, headers: headers,
             volume: volume, rate: rate, startPosMs: startPosMs)
           maybeApplyNowPlaying()
           self.sendSuccess(
             requestId: requestId,
-            data: ["playbackId": playID, "state": "playing"]
+            data: ["playbackId": playID, "state": "playing", "spectrumActive": specActive]
           )
         } catch {
           self.stopInlinePlayback(emitEvent: false)
@@ -846,7 +954,9 @@ final class PluginNativeCapabilitiesService: NSObject {
       if let rawAPIPath = payload["apiPath"] as? String, !rawAPIPath.isEmpty {
         return rawAPIPath
       }
-      if let rawURL = payload["url"] as? String, rawURL.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/") {
+      if let rawURL = payload["url"] as? String,
+        rawURL.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
+      {
         return rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
       }
       return nil
@@ -869,17 +979,23 @@ final class PluginNativeCapabilitiesService: NSObject {
       if let cookie = context.resourceCookie {
         headers["Cookie"] = "\(cookie.name)=\(cookie.value)"
       }
-      do {
-        try startAVPlayer(
-          playID: playID, url: targetURL, headers: headers,
-          volume: volume, rate: rate, startPosMs: startPosMs)
-        maybeApplyNowPlaying()
-        sendSuccess(requestId: requestId, data: ["playbackId": playID, "state": "playing"])
-      } catch {
-        stopInlinePlayback(emitEvent: false)
-        sendError(
-          requestId: requestId, code: "AUDIO_PLAY_FAILED", status: 500,
-          message: error.localizedDescription)
+      runManagedTask { [weak self] in
+        guard let self else { return }
+        do {
+          let specActive = try await self.startAVPlayer(
+            playID: playID, url: targetURL, headers: headers,
+            volume: volume, rate: rate, startPosMs: startPosMs)
+          maybeApplyNowPlaying()
+          self.sendSuccess(
+            requestId: requestId,
+            data: ["playbackId": playID, "state": "playing", "spectrumActive": specActive]
+          )
+        } catch {
+          self.stopInlinePlayback(emitEvent: false)
+          self.sendError(
+            requestId: requestId, code: "AUDIO_PLAY_FAILED", status: 500,
+            message: error.localizedDescription)
+        }
       }
       return
     }
@@ -890,17 +1006,23 @@ final class PluginNativeCapabilitiesService: NSObject {
       let scheme = url.scheme?.lowercased(),
       scheme == "http" || scheme == "https"
     {
-      do {
-        try startAVPlayer(
-          playID: playID, url: url, headers: nil,
-          volume: volume, rate: rate, startPosMs: startPosMs)
-        maybeApplyNowPlaying()
-        sendSuccess(requestId: requestId, data: ["playbackId": playID, "state": "playing"])
-      } catch {
-        stopInlinePlayback(emitEvent: false)
-        sendError(
-          requestId: requestId, code: "AUDIO_PLAY_FAILED", status: 500,
-          message: error.localizedDescription)
+      runManagedTask { [weak self] in
+        guard let self else { return }
+        do {
+          let specActive = try await self.startAVPlayer(
+            playID: playID, url: url, headers: nil,
+            volume: volume, rate: rate, startPosMs: startPosMs)
+          maybeApplyNowPlaying()
+          self.sendSuccess(
+            requestId: requestId,
+            data: ["playbackId": playID, "state": "playing", "spectrumActive": specActive]
+          )
+        } catch {
+          self.stopInlinePlayback(emitEvent: false)
+          self.sendError(
+            requestId: requestId, code: "AUDIO_PLAY_FAILED", status: 500,
+            message: error.localizedDescription)
+        }
       }
       return
     }
@@ -923,7 +1045,7 @@ final class PluginNativeCapabilitiesService: NSObject {
     volume: Float,
     rate: Float,
     startPosMs: Double
-  ) throws {
+  ) async throws -> Bool {
     try configurePlaybackAudioSession()
     let asset: AVURLAsset
     if let headers, !headers.isEmpty {
@@ -933,17 +1055,26 @@ final class PluginNativeCapabilitiesService: NSObject {
     }
     let item = AVPlayerItem(asset: asset)
     item.preferredForwardBufferDuration = 3.0
+
+    var specActive = false
+    if spectrumEnabled {
+      specActive = await attachSpectrumTapIfPossible(to: item, asset: asset, url: url)
+    }
+
     let player = AVPlayer(playerItem: item)
     player.automaticallyWaitsToMinimizeStalling = false
     player.volume = volume
     if startPosMs > 0 {
-      player.seek(to: CMTime(seconds: startPosMs / 1000.0, preferredTimescale: 1000))
+      await player.seek(to: CMTime(seconds: startPosMs / 1000.0, preferredTimescale: 1000))
     }
     player.playImmediately(atRate: rate)
 
     avPlayer = player
     playbackID = playID
     playbackState = "playing"
+    if specActive {
+      _ = syncSpectrumTimerState()
+    }
     avPlayerEndObserver = NotificationCenter.default.addObserver(
       forName: .AVPlayerItemDidPlayToEndTime,
       object: item,
@@ -959,6 +1090,7 @@ final class PluginNativeCapabilitiesService: NSObject {
           self.playbackState = "ended"
           self.playbackProgressTimer?.invalidate()
           self.playbackProgressTimer = nil
+          self.stopSpectrumTimerOnly()
           self.sendDeviceEvent(
             "audio.play.ended",
             ["playbackId": self.playbackID ?? "", "durationMs": dur]
@@ -969,6 +1101,7 @@ final class PluginNativeCapabilitiesService: NSObject {
     }
     startPlaybackProgressTimer()
     emitPlaybackState()
+    return specActive
   }
 
   private func handleAudioPause(requestId: String) {
@@ -979,6 +1112,7 @@ final class PluginNativeCapabilitiesService: NSObject {
       p.pause()
       playbackState = "paused"
     }
+    stopSpectrumTimerOnly()
     emitPlaybackState()
     sendSuccess(requestId: requestId, data: currentPlaybackStatusDict())
   }
@@ -989,10 +1123,12 @@ final class PluginNativeCapabilitiesService: NSObject {
       p.play()
       playbackState = "playing"
       startPlaybackProgressTimer()
+      _ = syncSpectrumTimerState()
     } else if let p = avPlayer {
       p.playImmediately(atRate: playbackRate)
       playbackState = "playing"
       startPlaybackProgressTimer()
+      _ = syncSpectrumTimerState()
     }
     emitPlaybackState()
     sendSuccess(requestId: requestId, data: currentPlaybackStatusDict())
@@ -1037,6 +1173,8 @@ final class PluginNativeCapabilitiesService: NSObject {
     let oldId = playbackID
     playbackProgressTimer?.invalidate()
     playbackProgressTimer = nil
+    detachSpectrumProcessor()
+    spectrumEnabled = false
     if let obs = avPlayerEndObserver {
       NotificationCenter.default.removeObserver(obs)
       avPlayerEndObserver = nil
@@ -1048,6 +1186,10 @@ final class PluginNativeCapabilitiesService: NSObject {
     avPlayer = nil
     playbackID = nil
     playbackState = "idle"
+    PluginCapsuleManager.shared.syncAudioPlaybackState(
+      pluginID: resolvedActivePluginID(),
+      isPlaying: false
+    )
     if emitEvent, let oldId {
       sendDeviceEvent(
         "audio.play.state",
@@ -1061,6 +1203,331 @@ final class PluginNativeCapabilitiesService: NSObject {
         ]
       )
     }
+  }
+
+  // MARK: - Real-Time Audio Spectrum & Stereo Levels (`audio.setSpectrum` / `audio.play.spectrum`)
+
+  /// 动态开启、关闭或调整实时音频频谱与左右声道电平回调。
+  private func handleAudioSetSpectrum(requestId: String, payload: [String: Any]) {
+    let nextEnabled = (payload["enabled"] as? Bool) ?? spectrumEnabled
+    let nextBands = min(max((payload["bands"] as? NSNumber)?.intValue ?? spectrumBands, 16), 256)
+    let nextInterval = min(
+      max((payload["intervalMs"] as? NSNumber)?.intValue ?? spectrumIntervalMs, 30), 250)
+    spectrumEnabled = nextEnabled
+    spectrumBands = nextBands
+    spectrumIntervalMs = nextInterval
+
+    if !nextEnabled {
+      detachSpectrumProcessor()
+      sendSuccess(
+        requestId: requestId,
+        data: ["spectrumActive": false, "bands": spectrumBands, "intervalMs": spectrumIntervalMs]
+      )
+      return
+    }
+
+    if let audioPlayer = avAudioPlayer {
+      audioPlayer.isMeteringEnabled = true
+      let active = syncSpectrumTimerState()
+      sendSuccess(
+        requestId: requestId,
+        data: ["spectrumActive": active, "bands": spectrumBands, "intervalMs": spectrumIntervalMs]
+      )
+      return
+    }
+
+    if let item = avPlayer?.currentItem, let urlAsset = item.asset as? AVURLAsset {
+      if activeSpectrumTapBuffer != nil {
+        let active = syncSpectrumTimerState()
+        sendSuccess(
+          requestId: requestId,
+          data: [
+            "spectrumActive": active, "bands": spectrumBands, "intervalMs": spectrumIntervalMs,
+          ]
+        )
+        return
+      }
+      runManagedTask { [weak self] in
+        guard let self else { return }
+        let attached = await self.attachSpectrumTapIfPossible(
+          to: item, asset: urlAsset, url: urlAsset.url)
+        let active = attached ? self.syncSpectrumTimerState() : false
+        self.sendSuccess(
+          requestId: requestId,
+          data: [
+            "spectrumActive": active,
+            "bands": self.spectrumBands,
+            "intervalMs": self.spectrumIntervalMs,
+          ]
+        )
+      }
+      return
+    }
+
+    sendSuccess(
+      requestId: requestId,
+      data: ["spectrumActive": false, "bands": spectrumBands, "intervalMs": spectrumIntervalMs]
+    )
+  }
+
+  /// 尝试在 `AVPlayerItem` 首个音频轨挂载零拷贝 `MTAudioProcessingTap`。
+  private func attachSpectrumTapIfPossible(
+    to item: AVPlayerItem,
+    asset: AVURLAsset,
+    url: URL
+  ) async -> Bool {
+    if url.pathExtension.lowercased() == "m3u8" {
+      return false
+    }
+    let tracks: [AVAssetTrack]
+    if let loaded = try? await asset.loadTracks(withMediaType: .audio), !loaded.isEmpty {
+      tracks = loaded
+    } else {
+      tracks = item.tracks.compactMap(\.assetTrack).filter { $0.mediaType == .audio }
+    }
+    guard let audioTrack = tracks.first else {
+      return false
+    }
+    let buffer = PluginAudioSpectrumBuffer()
+    guard let tap = Self.makeAudioSpectrumTap(buffer: buffer) else {
+      return false
+    }
+    let params = AVMutableAudioMixInputParameters(track: audioTrack)
+    params.audioTapProcessor = tap
+    let mix = AVMutableAudioMix()
+    mix.inputParameters = [params]
+    item.audioMix = mix
+    activeSpectrumTapBuffer = buffer
+    return true
+  }
+
+  /// 创建绑定到环形浮点样本缓冲的 `MTAudioProcessingTap`。
+  private static func makeAudioSpectrumTap(
+    buffer: PluginAudioSpectrumBuffer
+  ) -> MTAudioProcessingTap? {
+    let retainedInfo = UnsafeMutableRawPointer(Unmanaged.passRetained(buffer).toOpaque())
+    var callbacks = MTAudioProcessingTapCallbacks(
+      version: kMTAudioProcessingTapCallbacksVersion_0,
+      clientInfo: retainedInfo,
+      init: { _, clientInfo, tapStorageOut in
+        tapStorageOut.pointee = clientInfo
+      },
+      finalize: { tap in
+        let storage = MTAudioProcessingTapGetStorage(tap)
+        Unmanaged<PluginAudioSpectrumBuffer>.fromOpaque(storage).release()
+      },
+      prepare: { tap, _, processingFormat in
+        let storage = MTAudioProcessingTapGetStorage(tap)
+        let target = Unmanaged<PluginAudioSpectrumBuffer>.fromOpaque(storage).takeUnretainedValue()
+        target.configureFormat(processingFormat.pointee)
+      },
+      unprepare: { _ in },
+      process: { tap, numberFrames, _, bufferListInOut, numberFramesOut, flagsOut in
+        let status = MTAudioProcessingTapGetSourceAudio(
+          tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut)
+        guard status == noErr, numberFramesOut.pointee > 0 else { return }
+        let storage = MTAudioProcessingTapGetStorage(tap)
+        let target = Unmanaged<PluginAudioSpectrumBuffer>.fromOpaque(storage).takeUnretainedValue()
+        target.ingest(bufferList: bufferListInOut, frameCount: Int(numberFramesOut.pointee))
+      }
+    )
+    var tapRef: MTAudioProcessingTap?
+    let status = MTAudioProcessingTapCreate(
+      kCFAllocatorDefault,
+      &callbacks,
+      kMTAudioProcessingTapCreationFlag_PostEffects,
+      &tapRef
+    )
+    guard status == noErr, let tapRef else {
+      Unmanaged<PluginAudioSpectrumBuffer>.fromOpaque(retainedInfo).release()
+      return nil
+    }
+    return tapRef
+  }
+
+  /// 仅停止频谱推送定时器（用于暂停或自然播完，保留已挂载的 Tap 以便恢复播放时零延迟重启）。
+  private func stopSpectrumTimerOnly() {
+    spectrumTimer?.invalidate()
+    spectrumTimer = nil
+  }
+
+  /// 彻底卸载频谱定时器与 `AVPlayerItem.audioMix`。
+  private func detachSpectrumProcessor() {
+    stopSpectrumTimerOnly()
+    avPlayer?.currentItem?.audioMix = nil
+    activeSpectrumTapBuffer = nil
+  }
+
+  /// 按当前 `spectrumEnabled` 与 `playbackState` 启动或停止频谱采样定时器。
+  private func syncSpectrumTimerState() -> Bool {
+    stopSpectrumTimerOnly()
+    guard spectrumEnabled, playbackState == "playing" else {
+      return false
+    }
+    let hasTap = activeSpectrumTapBuffer != nil
+    let hasMeterPlayer = avAudioPlayer != nil
+    guard hasTap || hasMeterPlayer else {
+      return false
+    }
+    let intervalSec = Double(spectrumIntervalMs) / 1000.0
+    spectrumTimer = Timer.scheduledTimer(withTimeInterval: intervalSec, repeats: true) {
+      [weak self] _ in
+      Task { @MainActor [weak self] in
+        self?.emitSpectrumFrameIfPlaying()
+      }
+    }
+    return true
+  }
+
+  /// 计算并向前端推送单帧 `audio.play.spectrum`（FFT 频段 + 左右声道电平）。
+  private func emitSpectrumFrameIfPlaying() {
+    guard spectrumEnabled, playbackState == "playing", let pid = playbackID else { return }
+    let posMs = currentPlaybackPositionMs()
+    let bandCount = min(max(spectrumBands, 16), 256)
+
+    if let tapBuffer = activeSpectrumTapBuffer {
+      let snapshot = tapBuffer.snapshotWindow()
+      let fftValues = PluginRadix2FFT.computeBands(
+        samples: snapshot.samples,
+        bandCount: bandCount
+      )
+      let left = Self.mapRMSToByte(snapshot.leftRMS)
+      let right = Self.mapRMSToByte(snapshot.rightRMS)
+      sendDeviceEvent(
+        "audio.play.spectrum",
+        [
+          "playbackId": pid,
+          "positionMs": posMs,
+          "fft": fftValues,
+          "left": left,
+          "right": right,
+        ]
+      )
+      return
+    }
+
+    if let player = avAudioPlayer {
+      player.updateMeters()
+      let ch0Db = Double(player.averagePower(forChannel: 0))
+      let ch1Db = Double(
+        player.averagePower(forChannel: player.numberOfChannels > 1 ? 1 : 0))
+      let normL = max(0.0, min(1.0, (ch0Db + 55.0) / 55.0))
+      let normR = max(0.0, min(1.0, (ch1Db + 55.0) / 55.0))
+      let left = Int((normL * 255.0).rounded())
+      let right = Int((normR * 255.0).rounded())
+      let avgEnergy = (normL + normR) * 0.5
+      meteringPhase += 0.35
+      var bands: [Int] = []
+      bands.reserveCapacity(bandCount)
+      for i in 0..<bandCount {
+        let ratio = Double(i) / Double(max(1, bandCount - 1))
+        let curve = sin(ratio * .pi) * 0.65 + 0.35 * cos(meteringPhase + ratio * 6.0)
+        let val = max(0.0, min(1.0, avgEnergy * max(0.15, curve)))
+        bands.append(Int((val * 255.0).rounded()))
+      }
+      sendDeviceEvent(
+        "audio.play.spectrum",
+        [
+          "playbackId": pid,
+          "positionMs": posMs,
+          "fft": bands,
+          "left": left,
+          "right": right,
+        ]
+      )
+    }
+  }
+
+  /// 将浮点声道 RMS 映射为 `0..255` 整数电平。
+  private static func mapRMSToByte(_ rms: Float) -> Int {
+    let clamped = max(0.0, min(1.0, Double(rms)))
+    let curved = pow(clamped, 0.6) * 280.0
+    return min(255, max(0, Int(curved.rounded())))
+  }
+
+  // MARK: - System Media Volume (`audio.getSystemVolume` / `audio.setSystemVolume` / `audio.systemVolume`)
+
+  /// 确保已激活音频会话输出音量 KVO 监听（支持响应侧边物理音量键）。
+  private func ensureSystemVolumeMonitoring() {
+    guard systemVolumeObservation == nil else { return }
+    let session = AVAudioSession.sharedInstance()
+    if audioRecorder == nil && avAudioPlayer == nil && avPlayer == nil && !nowPlayingActive {
+      try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+      try? session.setActive(true)
+    }
+    lastObservedSystemVolume = session.outputVolume
+    systemVolumeObservation = session.observe(\.outputVolume, options: [.new]) {
+      [weak self] observedSession, change in
+      let newVol = change.newValue ?? observedSession.outputVolume
+      Task { @MainActor [weak self] in
+        guard let self else { return }
+        if abs(newVol - self.lastObservedSystemVolume) > 0.002 {
+          self.lastObservedSystemVolume = newVol
+          self.sendDeviceEvent(
+            "audio.systemVolume",
+            [
+              "volume": Double(min(max(newVol, 0.0), 1.0)),
+              "muted": newVol <= 0.001,
+            ]
+          )
+        }
+      }
+    }
+  }
+
+  /// 释放系统音量 KVO 观察者与离屏 `MPVolumeView`。
+  private func stopSystemVolumeMonitoring() {
+    systemVolumeObservation?.invalidate()
+    systemVolumeObservation = nil
+    lastObservedSystemVolume = -1
+    offscreenVolumeView?.removeFromSuperview()
+    offscreenVolumeView = nil
+  }
+
+  /// 读取当前 iOS 系统媒体输出音量（`0.0...1.0`）。
+  private func handleGetSystemVolume(requestId: String) {
+    let vol = min(max(AVAudioSession.sharedInstance().outputVolume, 0.0), 1.0)
+    sendSuccess(
+      requestId: requestId,
+      data: [
+        "volume": Double(vol),
+        "muted": vol <= 0.001,
+      ]
+    )
+  }
+
+  /// 通过离屏隐藏 `MPVolumeView` 内部 `UISlider` 调节系统硬件媒体音量。
+  private func handleSetSystemVolume(requestId: String, payload: [String: Any]) {
+    let target = Float(min(max((payload["volume"] as? NSNumber)?.doubleValue ?? 0.5, 0.0), 1.0))
+    let volumeView: MPVolumeView
+    if let existing = offscreenVolumeView {
+      volumeView = existing
+    } else {
+      let created = MPVolumeView(frame: CGRect(x: -2000, y: -2000, width: 1, height: 1))
+      created.alpha = 0.01
+      created.clipsToBounds = true
+      created.isUserInteractionEnabled = false
+      offscreenVolumeView = created
+      volumeView = created
+    }
+    if volumeView.superview == nil {
+      let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+      let hostWindow =
+        scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.flatMap(\.windows).first
+      hostWindow?.addSubview(volumeView)
+    }
+    if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+      slider.setValue(target, animated: false)
+      slider.sendActions(for: .valueChanged)
+    }
+    lastObservedSystemVolume = target
+    sendSuccess(
+      requestId: requestId,
+      data: [
+        "volume": Double(target),
+        "muted": target <= 0.001,
+      ]
+    )
   }
 
   private func startPlaybackProgressTimer() {
@@ -1083,7 +1550,7 @@ final class PluginNativeCapabilitiesService: NSObject {
           let matched = self.resolveCurrentLyricLine(positionMs: posMs)
           if matched != self.lastDisplayedLyricLine {
             self.lastDisplayedLyricLine = matched
-            self.refreshNowPlayingPlaybackState()
+            self.refreshNowPlayingPlaybackState(reloadWidgetTimeline: true)
           }
         }
       }
@@ -1139,7 +1606,11 @@ final class PluginNativeCapabilitiesService: NSObject {
 
   private func emitPlaybackState() {
     sendDeviceEvent("audio.play.state", currentPlaybackStatusDict())
-    refreshNowPlayingPlaybackState()
+    PluginCapsuleManager.shared.syncAudioPlaybackState(
+      pluginID: resolvedActivePluginID(),
+      isPlaying: playbackState == "playing"
+    )
+    refreshNowPlayingPlaybackState(reloadWidgetTimeline: true)
   }
 
   // MARK: - Status Bar / Control Center Now Playing (`audio.setNowPlaying` / `audio.clearNowPlaying`)
@@ -1150,9 +1621,11 @@ final class PluginNativeCapabilitiesService: NSObject {
       sendError(requestId: requestId, code: "INVALID_PARAMS", status: 400, message: "title 不能为空")
       return
     }
-    let artist = (payload["artist"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let artist = (payload["artist"] as? String ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines)
     let album = (payload["album"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    let artworkUrl = (payload["artworkUrl"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let artworkUrl = (payload["artworkUrl"] as? String ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines)
     let durationMs = (payload["durationMs"] as? NSNumber)?.intValue
     let positionMs = (payload["positionMs"] as? NSNumber)?.intValue
     let isPlaying = (payload["isPlaying"] as? Bool) ?? (playbackState == "playing")
@@ -1160,7 +1633,8 @@ final class PluginNativeCapabilitiesService: NSObject {
     let canNext = (payload["canNext"] as? Bool) ?? false
     let canPrevious = (payload["canPrevious"] as? Bool) ?? false
     let canSeek = (payload["canSeek"] as? Bool) ?? true
-    let lyrics = (payload["lyrics"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let lyrics = (payload["lyrics"] as? String ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines)
     let rawLines = payload["lyricLines"] as? [[String: Any]] ?? []
     let lyricLines: [NowPlayingLyricLine] = rawLines.compactMap { item in
       guard let tMs = (item["timeMs"] as? NSNumber)?.intValue else { return nil }
@@ -1230,6 +1704,8 @@ final class PluginNativeCapabilitiesService: NSObject {
     nowPlayingTitle = title
     nowPlayingArtist = artist
     nowPlayingAlbum = album
+    nowPlayingCanNext = canNext
+    nowPlayingCanPrevious = canPrevious
     if !lyrics.isEmpty || !lyricLines.isEmpty {
       nowPlayingLyrics = lyrics
       if !lyricLines.isEmpty {
@@ -1245,6 +1721,9 @@ final class PluginNativeCapabilitiesService: NSObject {
     }
 
     let effectivePositionMs = positionMs ?? currentPlaybackPositionMs()
+    let effectiveDurationMs = durationMs ?? currentPlaybackDurationMs()
+    nowPlayingPositionMs = effectivePositionMs
+    nowPlayingDurationMs = effectiveDurationMs
     lastDisplayedLyricLine = resolveCurrentLyricLine(positionMs: effectivePositionMs)
 
     var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
@@ -1262,7 +1741,6 @@ final class PluginNativeCapabilitiesService: NSObject {
     } else {
       info.removeValue(forKey: MPMediaItemPropertyAlbumTitle)
     }
-    let effectiveDurationMs = durationMs ?? currentPlaybackDurationMs()
     if effectiveDurationMs > 0 {
       info[MPMediaItemPropertyPlaybackDuration] = Double(effectiveDurationMs) / 1000.0
     }
@@ -1270,16 +1748,27 @@ final class PluginNativeCapabilitiesService: NSObject {
     info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(rate) : 0.0
     let resolvedArtwork = resolveArtworkSource(artworkUrl)
     let resolvedArtworkKey = resolvedArtwork?.url.absoluteString ?? ""
-    if let artwork = nowPlayingArtwork, !resolvedArtworkKey.isEmpty, resolvedArtworkKey == nowPlayingArtworkURL {
+    if let artwork = nowPlayingArtwork, !resolvedArtworkKey.isEmpty,
+      resolvedArtworkKey == nowPlayingArtworkURL
+    {
       info[MPMediaItemPropertyArtwork] = artwork
     } else if artworkUrl.isEmpty {
       nowPlayingArtwork = nil
       nowPlayingArtworkURL = ""
+      nowPlayingWidgetArtworkFileName = ""
       info.removeValue(forKey: MPMediaItemPropertyArtwork)
     }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info
 
     configureRemoteCommands(canNext: canNext, canPrevious: canPrevious, canSeek: canSeek)
+    PluginCapsuleManager.shared.syncAudioPlaybackState(
+      pluginID: resolvedActivePluginID(),
+      isPlaying: isPlaying,
+      title: title,
+      subtitle: artist,
+      iconURL: artworkUrl
+    )
+    syncNowPlayingToWidgetStorage(active: true, isPlaying: isPlaying, reloadTimeline: true)
 
     if let resolvedArtwork, resolvedArtworkKey != nowPlayingArtworkURL {
       nowPlayingArtworkURL = resolvedArtworkKey
@@ -1301,13 +1790,26 @@ final class PluginNativeCapabilitiesService: NSObject {
           let image = UIImage(data: data),
           !Task.isCancelled
         else { return }
+        let savedFileName = Self.saveWidgetDownsampledJPEG(
+          image: image,
+          fileName: "now_playing_art.jpg"
+        )
         let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
         self.nowPlayingArtwork = artwork
+        self.nowPlayingWidgetArtworkFileName = savedFileName
         if self.nowPlayingActive,
           var current = MPNowPlayingInfoCenter.default().nowPlayingInfo
         {
           current[MPMediaItemPropertyArtwork] = artwork
           MPNowPlayingInfoCenter.default().nowPlayingInfo = current
+          let playingNow =
+            ((current[MPNowPlayingInfoPropertyPlaybackRate] as? Double) ?? 0.0) > 0.01
+            || self.playbackState == "playing"
+          self.syncNowPlayingToWidgetStorage(
+            active: true,
+            isPlaying: playingNow,
+            reloadTimeline: true
+          )
         }
       }
     }
@@ -1331,29 +1833,39 @@ final class PluginNativeCapabilitiesService: NSObject {
     return (url: parsed, attachAuth: isSameOrigin)
   }
 
-  private func refreshNowPlayingPlaybackState() {
+  private func refreshNowPlayingPlaybackState(reloadWidgetTimeline: Bool = false) {
     guard nowPlayingActive, !nowPlayingTitle.isEmpty else { return }
     var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
     let dur = currentPlaybackDurationMs()
     if dur > 0 {
+      nowPlayingDurationMs = dur
       info[MPMediaItemPropertyPlaybackDuration] = Double(dur) / 1000.0
     }
     if !lastDisplayedLyricLine.isEmpty {
       info[MPMediaItemPropertyLyrics] = lastDisplayedLyricLine
       info[MPMediaItemPropertyAlbumTitle] = lastDisplayedLyricLine
     }
-    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] =
-      Double(max(currentPlaybackPositionMs(), 0)) / 1000.0
-    info[MPNowPlayingInfoPropertyPlaybackRate] =
-      playbackState == "playing" ? Double(playbackRate) : 0.0
+    let pos = max(currentPlaybackPositionMs(), 0)
+    nowPlayingPositionMs = pos
+    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(pos) / 1000.0
+    let playing = playbackState == "playing"
+    info[MPNowPlayingInfoPropertyPlaybackRate] = playing ? Double(playbackRate) : 0.0
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    syncNowPlayingToWidgetStorage(
+      active: true,
+      isPlaying: playing,
+      reloadTimeline: reloadWidgetTimeline
+    )
   }
 
   private func configureRemoteCommands(canNext: Bool, canPrevious: Bool, canSeek: Bool) {
     removeRemoteCommandTargets()
     let center = MPRemoteCommandCenter.shared()
 
-    func bind(_ command: MPRemoteCommand, enabled: Bool, handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus) {
+    func bind(
+      _ command: MPRemoteCommand, enabled: Bool,
+      handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus
+    ) {
       command.isEnabled = enabled
       if enabled {
         let token = command.addTarget(handler: handler)
@@ -1365,8 +1877,14 @@ final class PluginNativeCapabilitiesService: NSObject {
       Task { @MainActor [weak self] in
         guard let self else { return }
         if self.avAudioPlayer != nil || self.avPlayer != nil {
-          if let p = self.avAudioPlayer { p.rate = self.playbackRate; p.play(); self.playbackState = "playing" }
-          else if let p = self.avPlayer { p.playImmediately(atRate: self.playbackRate); self.playbackState = "playing" }
+          if let p = self.avAudioPlayer {
+            p.rate = self.playbackRate
+            p.play()
+            self.playbackState = "playing"
+          } else if let p = self.avPlayer {
+            p.playImmediately(atRate: self.playbackRate)
+            self.playbackState = "playing"
+          }
           self.startPlaybackProgressTimer()
           self.emitPlaybackState()
         }
@@ -1396,8 +1914,14 @@ final class PluginNativeCapabilitiesService: NSObject {
           self.playbackState = "paused"
           self.emitPlaybackState()
         } else if self.avAudioPlayer != nil || self.avPlayer != nil {
-          if let p = self.avAudioPlayer { p.rate = self.playbackRate; p.play(); self.playbackState = "playing" }
-          else if let p = self.avPlayer { p.playImmediately(atRate: self.playbackRate); self.playbackState = "playing" }
+          if let p = self.avAudioPlayer {
+            p.rate = self.playbackRate
+            p.play()
+            self.playbackState = "playing"
+          } else if let p = self.avPlayer {
+            p.playImmediately(atRate: self.playbackRate)
+            self.playbackState = "playing"
+          }
           self.startPlaybackProgressTimer()
           self.emitPlaybackState()
         }
@@ -1451,6 +1975,11 @@ final class PluginNativeCapabilitiesService: NSObject {
         self.nowPlayingLiked.toggle()
         center.likeCommand.isActive = self.nowPlayingLiked
         center.likeCommand.localizedTitle = self.nowPlayingLiked ? "取消喜欢" : "喜欢"
+        self.syncNowPlayingToWidgetStorage(
+          active: self.nowPlayingActive,
+          isPlaying: self.playbackState == "playing",
+          reloadTimeline: true
+        )
         self.sendDeviceEvent(
           "audio.remoteCommand",
           ["command": "toggleLike", "liked": self.nowPlayingLiked]
@@ -1487,13 +2016,19 @@ final class PluginNativeCapabilitiesService: NSObject {
   }
 
   private func clearNowPlayingMetadata() {
+    let wasActive = nowPlayingActive
     nowPlayingArtworkTask?.cancel()
     nowPlayingArtworkTask = nil
     nowPlayingArtwork = nil
     nowPlayingArtworkURL = ""
+    nowPlayingWidgetArtworkFileName = ""
     nowPlayingTitle = ""
     nowPlayingArtist = ""
     nowPlayingAlbum = ""
+    nowPlayingCanNext = false
+    nowPlayingCanPrevious = false
+    nowPlayingDurationMs = 0
+    nowPlayingPositionMs = 0
     nowPlayingLyrics = ""
     nowPlayingLyricLines = []
     lastDisplayedLyricLine = ""
@@ -1505,6 +2040,552 @@ final class PluginNativeCapabilitiesService: NSObject {
       removeRemoteCommandTargets()
       MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
+    if wasActive {
+      PluginCapsuleManager.shared.syncAudioPlaybackState(
+        pluginID: resolvedActivePluginID(),
+        isPlaying: playbackState == "playing"
+      )
+      syncNowPlayingToWidgetStorage(active: false, isPlaying: false, reloadTimeline: true)
+    }
+  }
+
+  // MARK: - App Group Widget Shared Storage & Darwin Command Handling
+
+  /// 解析当前活跃插件物理 ID（优先读取实例字段，回退活动槽或最小化胶囊槽）。
+  fileprivate func resolvedActivePluginID() -> String {
+    let trimmed = activePluginID.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmed.isEmpty { return trimmed }
+    if let slotID = PluginWebViewPool.shared.currentActiveSlot?.activePluginID, !slotID.isEmpty {
+      return slotID
+    }
+    if let parkedID = PluginCapsuleManager.shared.currentSession?.pluginID, !parkedID.isEmpty {
+      return parkedID
+    }
+    return Self.pendingPluginID.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// 解析当前活跃插件显示名称。
+  fileprivate func resolvedActivePluginName() -> String {
+    let trimmed = activePluginName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmed.isEmpty { return trimmed }
+    let pid = resolvedActivePluginID()
+    if let slot = PluginWebViewPool.shared.currentActiveSlot,
+      slot.activePluginID.caseInsensitiveCompare(pid) == .orderedSame,
+      !slot.activePluginName.isEmpty
+    {
+      return slot.activePluginName
+    }
+    if let parked = PluginCapsuleManager.shared.currentSession,
+      parked.pluginID.caseInsensitiveCompare(pid) == .orderedSame,
+      !parked.pluginName.isEmpty
+    {
+      return parked.pluginName
+    }
+    return Self.pendingPluginName.isEmpty ? pid : Self.pendingPluginName
+  }
+
+  /// 获取小组件共享根目录 `MoviePilotWidgets-v1`（个人签名环境无 App Group 时安全回退 Caches 目录）。
+  static func resolveWidgetSharedDirectory() -> URL {
+    let baseContainer: URL
+    if let group = WidgetSharedStorage.groupIdentifier,
+      let groupContainer = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: group)
+    {
+      baseContainer = groupContainer
+    } else {
+      baseContainer =
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        ?? FileManager.default.temporaryDirectory
+    }
+    let dir = baseContainer.appendingPathComponent("MoviePilotWidgets-v1", isDirectory: true)
+    let mediaDir = dir.appendingPathComponent("media", isDirectory: true)
+    try? FileManager.default.createDirectory(at: mediaDir, withIntermediateDirectories: true)
+    return dir
+  }
+
+  /// 将图片等比缩小至不超过 512px 并写入 `MoviePilotWidgets-v1/media/`，返回文件名。
+  private static func saveWidgetDownsampledJPEG(image: UIImage, fileName: String) -> String {
+    let mediaDir = resolveWidgetSharedDirectory().appendingPathComponent("media", isDirectory: true)
+    let targetURL = mediaDir.appendingPathComponent(fileName)
+    let srcSize = image.size
+    let maxSide = max(srcSize.width, srcSize.height)
+    let rendered: UIImage
+    if maxSide > 512, maxSide > 0 {
+      let ratio = 512.0 / maxSide
+      let targetSize = CGSize(
+        width: max(1, (srcSize.width * ratio).rounded()),
+        height: max(1, (srcSize.height * ratio).rounded())
+      )
+      let format = UIGraphicsImageRendererFormat()
+      format.scale = 1.0
+      rendered = UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+        image.draw(in: CGRect(origin: .zero, size: targetSize))
+      }
+    } else {
+      rendered = image
+    }
+    guard let jpegData = rendered.jpegData(compressionQuality: 0.82) else {
+      return ""
+    }
+    do {
+      try jpegData.write(to: targetURL, options: [.atomic])
+      return fileName
+    } catch {
+      return ""
+    }
+  }
+
+  /// 同步当前播放信息至 `MoviePilotWidgets-v1/now_playing.json`，按需通知 WidgetKit 刷新时间线。
+  private func syncNowPlayingToWidgetStorage(
+    active: Bool,
+    isPlaying: Bool,
+    reloadTimeline: Bool
+  ) {
+    let dir = Self.resolveWidgetSharedDirectory()
+    let fileURL = dir.appendingPathComponent("now_playing.json")
+    let payload: [String: Any] = [
+      "active": active,
+      "pluginId": active ? resolvedActivePluginID() : "",
+      "pluginName": active ? resolvedActivePluginName() : "",
+      "title": active ? nowPlayingTitle : "",
+      "artist": active ? nowPlayingArtist : "",
+      "album": active ? nowPlayingAlbum : "",
+      "lyrics": active
+        ? (lastDisplayedLyricLine.isEmpty ? nowPlayingLyrics : lastDisplayedLyricLine) : "",
+      "artworkFileName": active ? nowPlayingWidgetArtworkFileName : "",
+      "isPlaying": active && isPlaying,
+      "liked": active ? nowPlayingLiked : false,
+      "hasLike": active ? nowPlayingHasLike : false,
+      "canNext": active ? nowPlayingCanNext : false,
+      "canPrevious": active ? nowPlayingCanPrevious : false,
+      "durationMs": active ? max(0, nowPlayingDurationMs) : 0,
+      "positionMs": active ? max(0, nowPlayingPositionMs) : 0,
+      "updatedAt": Date().timeIntervalSince1970,
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload) {
+      try? data.write(to: fileURL, options: [.atomic])
+    }
+    if reloadTimeline {
+      WidgetService.reloadTimeline(ofKind: "MoviePilotNowPlaying")
+    }
+  }
+
+  /// 执行来自桌面小组件 Darwin 通知的音频或自定义指令。
+  fileprivate func executeWidgetPendingCommand(_ cmd: [String: Any]) {
+    let rawKind = ((cmd["kind"] as? String) ?? (cmd["type"] as? String) ?? "")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    if rawKind == "audio" || rawKind == "nowplaying" {
+      let command = (cmd["command"] as? String ?? "").trimmingCharacters(
+        in: .whitespacesAndNewlines)
+      switch command {
+      case "togglePlayPause":
+        if playbackState == "playing" {
+          avAudioPlayer?.pause()
+          avPlayer?.pause()
+          playbackState = "paused"
+          stopSpectrumTimerOnly()
+          emitPlaybackState()
+        } else if avAudioPlayer != nil || avPlayer != nil {
+          if let p = avAudioPlayer {
+            p.rate = playbackRate
+            p.play()
+            playbackState = "playing"
+          } else if let p = avPlayer {
+            p.playImmediately(atRate: playbackRate)
+            playbackState = "playing"
+          }
+          startPlaybackProgressTimer()
+          _ = syncSpectrumTimerState()
+          emitPlaybackState()
+        }
+        sendDeviceEvent("audio.remoteCommand", ["command": "togglePlayPause"])
+      case "play":
+        if let p = avAudioPlayer {
+          p.rate = playbackRate
+          p.play()
+          playbackState = "playing"
+          startPlaybackProgressTimer()
+          _ = syncSpectrumTimerState()
+          emitPlaybackState()
+        } else if let p = avPlayer {
+          p.playImmediately(atRate: playbackRate)
+          playbackState = "playing"
+          startPlaybackProgressTimer()
+          _ = syncSpectrumTimerState()
+          emitPlaybackState()
+        }
+        sendDeviceEvent("audio.remoteCommand", ["command": "play"])
+      case "pause":
+        avAudioPlayer?.pause()
+        avPlayer?.pause()
+        if avAudioPlayer != nil || avPlayer != nil {
+          playbackState = "paused"
+          stopSpectrumTimerOnly()
+          emitPlaybackState()
+        }
+        sendDeviceEvent("audio.remoteCommand", ["command": "pause"])
+      case "next":
+        sendDeviceEvent("audio.remoteCommand", ["command": "next"])
+      case "previous":
+        sendDeviceEvent("audio.remoteCommand", ["command": "previous"])
+      case "toggleLike":
+        nowPlayingLiked.toggle()
+        let center = MPRemoteCommandCenter.shared()
+        center.likeCommand.isActive = nowPlayingLiked
+        center.likeCommand.localizedTitle = nowPlayingLiked ? "取消喜欢" : "喜欢"
+        syncNowPlayingToWidgetStorage(
+          active: nowPlayingActive,
+          isPlaying: playbackState == "playing",
+          reloadTimeline: true
+        )
+        sendDeviceEvent(
+          "audio.remoteCommand",
+          ["command": "toggleLike", "liked": nowPlayingLiked]
+        )
+      default:
+        if !command.isEmpty {
+          sendDeviceEvent("audio.remoteCommand", ["command": command])
+        }
+      }
+    } else if rawKind == "widget" || rawKind == "pluginaction" {
+      let widgetKey =
+        (cmd["widgetKey"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "default"
+      let actionId =
+        (cmd["actionId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        ?? (cmd["command"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        ?? ""
+      guard !actionId.isEmpty else { return }
+      sendDeviceEvent(
+        "widget.action",
+        [
+          "pluginId": resolvedActivePluginID(),
+          "widgetKey": widgetKey.isEmpty ? "default" : widgetKey,
+          "actionId": actionId,
+        ]
+      )
+    }
+  }
+
+  /// 校验并规范化小组件 `widgetKey`。
+  private static func normalizeWidgetKey(_ raw: Any?) -> String {
+    let candidate: String
+    if let s = raw as? String {
+      candidate = s
+    } else if let dict = raw as? [String: Any], let s = dict["widgetKey"] as? String {
+      candidate = s
+    } else {
+      candidate = ""
+    }
+    let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "default" }
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_.-"))
+    let sanitized = String(
+      trimmed.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }.prefix(64)
+    )
+    return sanitized.isEmpty ? "default" : sanitized
+  }
+
+  /// 在原生后台携带当前实例会话凭据预缓存小组件图片至 `MoviePilotWidgets-v1/media/`。
+  private func cacheWidgetImageIfNeeded(rawURL: String, filePrefix: String) async -> (
+    fileName: String, fullPath: String
+  )? {
+    guard let resolved = resolveArtworkSource(rawURL) else { return nil }
+    var req = URLRequest(url: resolved.url)
+    if let ctx = sessionContextProvider(),
+      resolved.attachAuth || ctx.address.contains(resolved.url)
+    {
+      req.setValue("Bearer \(ctx.accessToken)", forHTTPHeaderField: "Authorization")
+      req.setValue(ctx.locale, forHTTPHeaderField: "X-MoviePilot-Locale")
+      if let cookie = ctx.resourceCookie {
+        req.setValue("\(cookie.name)=\(cookie.value)", forHTTPHeaderField: "Cookie")
+      }
+      CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &req, for: ctx.address)
+    }
+    guard let (data, resp) = try? await urlSession.data(for: req),
+      let http = resp as? HTTPURLResponse,
+      (200..<300).contains(http.statusCode),
+      data.count <= 5 * 1024 * 1024,
+      let image = UIImage(data: data)
+    else { return nil }
+    let digest = SHA256.hash(data: Data(resolved.url.absoluteString.utf8))
+    let shortHash = digest.prefix(6).map { String(format: "%02x", $0) }.joined()
+    let fileName = "\(filePrefix)_\(shortHash).jpg"
+    let saved = Self.saveWidgetDownsampledJPEG(image: image, fileName: fileName)
+    guard !saved.isEmpty else { return nil }
+    let fullPath =
+      Self.resolveWidgetSharedDirectory()
+      .appendingPathComponent("media", isDirectory: true)
+      .appendingPathComponent(saved)
+      .path
+    return (fileName: saved, fullPath: fullPath)
+  }
+
+  /// 递归校验自定义小组件布局树（最大深度 5、最多 40 节点）并预下载相对路径图片。
+  private func validateAndTransformWidgetLayout(
+    _ node: [String: Any],
+    filePrefix: String,
+    depth: Int,
+    nodeCount: inout Int
+  ) async throws -> [String: Any] {
+    if depth > Self.maxWidgetLayoutDepth {
+      throw NSError(
+        domain: "PluginWidget", code: 400,
+        userInfo: [
+          NSLocalizedDescriptionKey: "小组件 layout 嵌套深度不能超过 \(Self.maxWidgetLayoutDepth) 层"
+        ])
+    }
+    nodeCount += 1
+    if nodeCount > Self.maxWidgetLayoutNodes {
+      throw NSError(
+        domain: "PluginWidget", code: 400,
+        userInfo: [
+          NSLocalizedDescriptionKey: "小组件 layout 节点总数不能超过 \(Self.maxWidgetLayoutNodes) 个"
+        ])
+    }
+    var copy = node
+    if let rawChildren = node["children"] as? [Any] {
+      var nextChildren: [[String: Any]] = []
+      nextChildren.reserveCapacity(rawChildren.count)
+      for child in rawChildren {
+        guard let childDict = child as? [String: Any] else {
+          throw NSError(
+            domain: "PluginWidget", code: 400,
+            userInfo: [NSLocalizedDescriptionKey: "小组件 layout 子节点必须为字典对象"])
+        }
+        let processed = try await validateAndTransformWidgetLayout(
+          childDict,
+          filePrefix: filePrefix,
+          depth: depth + 1,
+          nodeCount: &nodeCount
+        )
+        nextChildren.append(processed)
+      }
+      copy["children"] = nextChildren
+    }
+    let nodeType = (node["type"] as? String ?? "").lowercased()
+    if nodeType == "image",
+      let imgURL = (node["url"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+      imgURL.hasPrefix("/")
+    {
+      if let cached = await cacheWidgetImageIfNeeded(
+        rawURL: imgURL, filePrefix: "\(filePrefix)_img")
+      {
+        copy["artworkFileName"] = cached.fileName
+        copy["artworkPath"] = cached.fullPath
+        copy["localPath"] = cached.fullPath
+      }
+    }
+    return copy
+  }
+
+  /// 读取 `plugin_runtime_widgets.json` 中的全部字典条目。
+  private static func loadRuntimeWidgetsMap() -> [String: [String: Any]] {
+    let url = resolveWidgetSharedDirectory().appendingPathComponent("plugin_runtime_widgets.json")
+    guard let data = try? Data(contentsOf: url),
+      let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: Any]]
+    else { return [:] }
+    return obj
+  }
+
+  /// 原子写回 `plugin_runtime_widgets.json` 并刷新 `MoviePilotPlugin` 桌面小组件时间线。
+  private static func saveRuntimeWidgetsMap(_ map: [String: [String: Any]]) {
+    let url = resolveWidgetSharedDirectory().appendingPathComponent("plugin_runtime_widgets.json")
+    if let data = try? JSONSerialization.data(withJSONObject: map) {
+      try? data.write(to: url, options: [.atomic])
+    }
+    WidgetService.reloadTimeline(ofKind: "MoviePilotPlugin")
+  }
+
+  /// 处理前端运行态小组件推送（`widget.update`）。
+  private func handleWidgetUpdate(requestId: String, payload: [String: Any]) {
+    let pluginId = resolvedActivePluginID()
+    guard !pluginId.isEmpty else {
+      sendError(
+        requestId: requestId, code: "NO_ACTIVE_PLUGIN", status: 400, message: "当前无活跃插件上下文")
+      return
+    }
+    let title = (payload["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !title.isEmpty else {
+      sendError(
+        requestId: requestId, code: "INVALID_PARAMS", status: 400, message: "小组件 title 不能为空")
+      return
+    }
+    let widgetKey = Self.normalizeWidgetKey(payload["widgetKey"])
+    let pluginName = resolvedActivePluginName()
+
+    runManagedTask { [weak self] in
+      guard let self else { return }
+      let allowedKinds: Set<String> = ["metrics", "list", "poster", "nowPlaying", "custom"]
+      let rawKind = (payload["kind"] as? String ?? "").trimmingCharacters(
+        in: .whitespacesAndNewlines)
+      let kind: String
+      if allowedKinds.contains(rawKind) {
+        kind = rawKind
+      } else if payload["layout"] is [String: Any] {
+        kind = "custom"
+      } else {
+        kind = "metrics"
+      }
+
+      let safePrefix =
+        "rt_\(pluginId.replacingOccurrences(of: "/", with: "_"))_\(widgetKey)"
+      var processedLayout: [String: Any]?
+      if let rawLayout = payload["layout"] as? [String: Any] {
+        var count = 0
+        do {
+          processedLayout = try await self.validateAndTransformWidgetLayout(
+            rawLayout,
+            filePrefix: safePrefix,
+            depth: 1,
+            nodeCount: &count
+          )
+        } catch {
+          self.sendError(
+            requestId: requestId, code: "INVALID_WIDGET_LAYOUT", status: 400,
+            message: error.localizedDescription)
+          return
+        }
+      }
+
+      let rawArtworkURL = (payload["artworkUrl"] as? String ?? "").trimmingCharacters(
+        in: .whitespacesAndNewlines)
+      let cachedArtwork =
+        rawArtworkURL.isEmpty
+        ? nil : await self.cacheWidgetImageIfNeeded(rawURL: rawArtworkURL, filePrefix: safePrefix)
+
+      let metrics = Array((payload["metrics"] as? [Any] ?? []).prefix(8))
+      let items = Array((payload["items"] as? [Any] ?? []).prefix(8))
+      let nowTs = Date().timeIntervalSince1970
+
+      var entry: [String: Any] = [
+        "pluginId": pluginId,
+        "pluginName": pluginName,
+        "widgetKey": widgetKey,
+        "title": title,
+        "kind": kind,
+        "metrics": metrics,
+        "items": items,
+        "updatedAt": nowTs,
+      ]
+      if let subtitle = (payload["subtitle"] as? String)?.trimmingCharacters(
+        in: .whitespacesAndNewlines),
+        !subtitle.isEmpty
+      {
+        entry["subtitle"] = subtitle
+      }
+      if let badgeText = (payload["badgeText"] as? String)?.trimmingCharacters(
+        in: .whitespacesAndNewlines),
+        !badgeText.isEmpty
+      {
+        entry["badgeText"] = badgeText
+      }
+      if let accentHex = (payload["accentHex"] as? String)?.trimmingCharacters(
+        in: .whitespacesAndNewlines),
+        !accentHex.isEmpty
+      {
+        entry["accentHex"] = accentHex
+      }
+      if let tapAction = payload["tapAction"], !(tapAction is NSNull) {
+        entry["tapAction"] = tapAction
+      }
+      if let processedLayout {
+        entry["layout"] = processedLayout
+      }
+      if !rawArtworkURL.isEmpty {
+        entry["artworkUrl"] = rawArtworkURL
+      }
+      if let cachedArtwork {
+        entry["artworkFileName"] = cachedArtwork.fileName
+        entry["artworkPath"] = cachedArtwork.fullPath
+      }
+
+      guard JSONSerialization.isValidJSONObject(entry),
+        let encoded = try? JSONSerialization.data(withJSONObject: entry)
+      else {
+        self.sendError(
+          requestId: requestId, code: "INVALID_PARAMS", status: 400, message: "小组件数据不是有效 JSON")
+        return
+      }
+      guard encoded.count <= Self.maxWidgetPayloadBytes else {
+        self.sendError(
+          requestId: requestId, code: "PAYLOAD_TOO_LARGE", status: 400,
+          message: "小组件序列化数据超过 32 KiB 上限")
+        return
+      }
+
+      var allWidgets = Self.loadRuntimeWidgetsMap()
+      allWidgets["\(pluginId)::\(widgetKey)"] = entry
+      Self.saveRuntimeWidgetsMap(allWidgets)
+      self.sendSuccess(
+        requestId: requestId,
+        data: [
+          "updated": true,
+          "pluginId": pluginId,
+          "widgetKey": widgetKey,
+          "updatedAt": Int(nowTs),
+        ]
+      )
+    }
+  }
+
+  /// 移除当前插件指定的运行态小组件（`widget.remove`）。
+  private func handleWidgetRemove(requestId: String, payload: [String: Any]) {
+    let pluginId = resolvedActivePluginID()
+    guard !pluginId.isEmpty else {
+      sendError(
+        requestId: requestId, code: "NO_ACTIVE_PLUGIN", status: 400, message: "当前无活跃插件上下文")
+      return
+    }
+    let widgetKey = Self.normalizeWidgetKey(payload["widgetKey"])
+    var allWidgets = Self.loadRuntimeWidgetsMap()
+    let targetKey = "\(pluginId)::\(widgetKey)"
+    allWidgets = allWidgets.filter { key, _ in
+      key.caseInsensitiveCompare(targetKey) != .orderedSame
+    }
+    Self.saveRuntimeWidgetsMap(allWidgets)
+    sendSuccess(
+      requestId: requestId,
+      data: [
+        "removed": true,
+        "pluginId": pluginId,
+        "widgetKey": widgetKey,
+      ]
+    )
+  }
+
+  /// 列出当前活跃插件注册的所有运行态桌面小组件（`widget.list`）。
+  private func handleWidgetList(requestId: String) {
+    let pluginId = resolvedActivePluginID()
+    guard !pluginId.isEmpty else {
+      sendSuccess(requestId: requestId, data: ["widgets": []])
+      return
+    }
+    let allWidgets = Self.loadRuntimeWidgetsMap()
+    let prefix = "\(pluginId)::"
+    let summaries: [[String: Any]] =
+      allWidgets
+      .filter { key, _ in key.lowercased().hasPrefix(prefix.lowercased()) }
+      .sorted { $0.key < $1.key }
+      .map { key, dict in
+        let wKey = (dict["widgetKey"] as? String) ?? String(key.dropFirst(prefix.count))
+        var item: [String: Any] = [
+          "widgetKey": wKey,
+          "title": (dict["title"] as? String) ?? "",
+          "kind": (dict["kind"] as? String) ?? "metrics",
+        ]
+        if let sub = dict["subtitle"] as? String, !sub.isEmpty {
+          item["subtitle"] = sub
+        }
+        if let badge = dict["badgeText"] as? String, !badge.isEmpty {
+          item["badgeText"] = badge
+        }
+        if let ts = (dict["updatedAt"] as? NSNumber)?.doubleValue {
+          item["updatedAt"] = Int(ts)
+        }
+        return item
+      }
+    sendSuccess(requestId: requestId, data: ["widgets": summaries])
   }
 
   private func resolveStorageStreamURL(
@@ -1558,7 +2639,8 @@ final class PluginNativeCapabilitiesService: NSObject {
         if let ticketId = payloadObj["item_id"] as? String, !ticketId.isEmpty,
           let encodedId = ticketId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
           let infoURL = buildSameOriginURL(
-            address: context.address, apiPath: "/api/v1/mediaserver/stream-info?itemid=\(encodedId)")
+            address: context.address, apiPath: "/api/v1/mediaserver/stream-info?itemid=\(encodedId)"
+          )
         {
           var infoReq = URLRequest(url: infoURL)
           infoReq.setValue("Bearer \(context.accessToken)", forHTTPHeaderField: "Authorization")
@@ -1685,7 +2767,8 @@ final class PluginNativeCapabilitiesService: NSObject {
       bytes.count <= Self.maxBase64Bytes
     {
       let fileName =
-        (payload["fileName"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "share_\(UUID().uuidString).bin"
+        (payload["fileName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        ?? "share_\(UUID().uuidString).bin"
       let safeName = fileName.replacingOccurrences(of: "/", with: "_")
       let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(safeName)
       if (try? bytes.write(to: tempURL)) != nil {
@@ -1724,7 +2807,8 @@ final class PluginNativeCapabilitiesService: NSObject {
       (payload["id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "plugin_\(UUID().uuidString)"
     let delaySec = max((payload["delaySec"] as? Double) ?? 0.2, 0.2)
     guard !title.isEmpty || !body.isEmpty else {
-      sendError(requestId: requestId, code: "INVALID_NOTIFICATION", status: 400, message: "通知标题和内容不能同时为空")
+      sendError(
+        requestId: requestId, code: "INVALID_NOTIFICATION", status: 400, message: "通知标题和内容不能同时为空")
       return
     }
     runManagedTask { [weak self] in
@@ -1780,7 +2864,8 @@ final class PluginNativeCapabilitiesService: NSObject {
       }
       let picker = UIImagePickerController()
       picker.sourceType = .camera
-      picker.mediaTypes = mediaType == "video" ? [UTType.movie.identifier] : [UTType.image.identifier]
+      picker.mediaTypes =
+        mediaType == "video" ? [UTType.movie.identifier] : [UTType.image.identifier]
       picker.delegate = self
       presenter.present(picker, animated: true)
       return
@@ -1854,7 +2939,8 @@ final class PluginNativeCapabilitiesService: NSObject {
       do {
         let rawData: Data
         if let b64 = payload["base64"] as? String, !b64.isEmpty {
-          guard let decoded = Data(base64Encoded: Self.stripDataURIPrefix(b64)), !decoded.isEmpty else {
+          guard let decoded = Data(base64Encoded: Self.stripDataURIPrefix(b64)), !decoded.isEmpty
+          else {
             throw NSError(
               domain: "PluginSaveMedia", code: -1,
               userInfo: [NSLocalizedDescriptionKey: "无效的 Base64 媒体数据"])
@@ -2054,10 +3140,319 @@ extension PluginNativeCapabilitiesService: AVAudioPlayerDelegate {
       let pid = self.playbackID ?? ""
       self.playbackProgressTimer?.invalidate()
       self.playbackProgressTimer = nil
+      self.stopSpectrumTimerOnly()
       self.playbackState = "ended"
       self.sendDeviceEvent("audio.play.ended", ["playbackId": pid, "durationMs": dur])
       self.emitPlaybackState()
     }
+  }
+}
+
+// MARK: - Lock-Free / Low-Overhead Audio Spectrum Ring Buffer & Radix-2 FFT (#79)
+
+/// 实时音频渲染线程与主线程共享的固定容量环形样本缓冲（处理回调内零堆内存分配）。
+private final class PluginAudioSpectrumBuffer: @unchecked Sendable {
+  static let windowSize = 512
+
+  private let lock = NSLock()
+  private var ring: [Float] = Array(repeating: 0, count: windowSize)
+  private var writeIndex: Int = 0
+  private var leftRMS: Float = 0
+  private var rightRMS: Float = 0
+  private var isFloatPCM: Bool = true
+  private var isNonInterleaved: Bool = true
+  private var bitsPerChannel: Int = 32
+  private var channelsPerFrame: Int = 2
+
+  /// 记录 `MTAudioProcessingTap` 协商得到的音频流格式参数。
+  func configureFormat(_ asbd: AudioStreamBasicDescription) {
+    lock.lock()
+    isFloatPCM = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+    isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+    bitsPerChannel = Int(asbd.mBitsPerChannel)
+    channelsPerFrame = max(1, Int(asbd.mChannelsPerFrame))
+    lock.unlock()
+  }
+
+  /// 在实时音频回调中拷贝最新一帧 PCM 样本并计算左右声道 RMS。
+  func ingest(bufferList: UnsafeMutablePointer<AudioBufferList>, frameCount: Int) {
+    guard frameCount > 0 else { return }
+    let abl = UnsafeMutableAudioBufferListPointer(bufferList)
+    guard !abl.isEmpty else { return }
+
+    lock.lock()
+    let floatFormat = isFloatPCM
+    let planar = isNonInterleaved
+    let bits = bitsPerChannel
+    let channels = channelsPerFrame
+    lock.unlock()
+
+    var sumL: Float = 0
+    var sumR: Float = 0
+
+    if floatFormat && bits == 32 {
+      if planar || abl.count >= 2 {
+        guard let rawL = abl[0].mData else { return }
+        let ptrL = rawL.assumingMemoryBound(to: Float.self)
+        let ptrR: UnsafeMutablePointer<Float>
+        if abl.count >= 2, let rawR = abl[1].mData {
+          ptrR = rawR.assumingMemoryBound(to: Float.self)
+        } else {
+          ptrR = ptrL
+        }
+        lock.lock()
+        for i in 0..<frameCount {
+          let l = ptrL[i]
+          let r = ptrR[i]
+          sumL += l * l
+          sumR += r * r
+          ring[writeIndex] = (l + r) * 0.5
+          writeIndex = (writeIndex + 1) & (Self.windowSize - 1)
+        }
+        let inv = 1.0 / Float(frameCount)
+        leftRMS = sqrt(sumL * inv)
+        rightRMS = sqrt(sumR * inv)
+        lock.unlock()
+      } else if let raw = abl[0].mData {
+        let ptr = raw.assumingMemoryBound(to: Float.self)
+        let stride = max(1, channels)
+        lock.lock()
+        for i in 0..<frameCount {
+          let base = i * stride
+          let l = ptr[base]
+          let r = stride > 1 ? ptr[base + 1] : l
+          sumL += l * l
+          sumR += r * r
+          ring[writeIndex] = (l + r) * 0.5
+          writeIndex = (writeIndex + 1) & (Self.windowSize - 1)
+        }
+        let inv = 1.0 / Float(frameCount)
+        leftRMS = sqrt(sumL * inv)
+        rightRMS = sqrt(sumR * inv)
+        lock.unlock()
+      }
+    } else if bits == 16, let raw0 = abl[0].mData {
+      let scale: Float = 1.0 / 32768.0
+      if planar && abl.count >= 2, let raw1 = abl[1].mData {
+        let ptrL = raw0.assumingMemoryBound(to: Int16.self)
+        let ptrR = raw1.assumingMemoryBound(to: Int16.self)
+        lock.lock()
+        for i in 0..<frameCount {
+          let l = Float(ptrL[i]) * scale
+          let r = Float(ptrR[i]) * scale
+          sumL += l * l
+          sumR += r * r
+          ring[writeIndex] = (l + r) * 0.5
+          writeIndex = (writeIndex + 1) & (Self.windowSize - 1)
+        }
+        let inv = 1.0 / Float(frameCount)
+        leftRMS = sqrt(sumL * inv)
+        rightRMS = sqrt(sumR * inv)
+        lock.unlock()
+      } else {
+        let ptr = raw0.assumingMemoryBound(to: Int16.self)
+        let stride = max(1, channels)
+        lock.lock()
+        for i in 0..<frameCount {
+          let base = i * stride
+          let l = Float(ptr[base]) * scale
+          let r = stride > 1 ? Float(ptr[base + 1]) * scale : l
+          sumL += l * l
+          sumR += r * r
+          ring[writeIndex] = (l + r) * 0.5
+          writeIndex = (writeIndex + 1) & (Self.windowSize - 1)
+        }
+        let inv = 1.0 / Float(frameCount)
+        leftRMS = sqrt(sumL * inv)
+        rightRMS = sqrt(sumR * inv)
+        lock.unlock()
+      }
+    }
+  }
+
+  /// 读取最新一帧连续时间序窗口及左右声道 RMS。
+  func snapshotWindow() -> (samples: [Float], leftRMS: Float, rightRMS: Float) {
+    lock.lock()
+    defer { lock.unlock() }
+    var ordered = Array(repeating: Float(0), count: Self.windowSize)
+    let cursor = writeIndex
+    for i in 0..<Self.windowSize {
+      ordered[i] = ring[(cursor + i) & (Self.windowSize - 1)]
+    }
+    return (ordered, leftRMS, rightRMS)
+  }
+}
+
+/// 纯 Swift 512 点基 2 Cooley-Tukey 快速傅里叶变换与频段重采样器（零不安全指针开销）。
+private enum PluginRadix2FFT {
+  private static let n = PluginAudioSpectrumBuffer.windowSize
+  private static let hannWindow: [Float] = {
+    let denom = Float(n - 1)
+    return (0..<n).map { i in
+      0.5 * (1.0 - cos(2.0 * .pi * Float(i) / denom))
+    }
+  }()
+
+  /// 对 512 点时域样本加 Hann 窗后执行基 2 FFT，并重采样为 `bandCount` 个 `0..255` 频段幅值。
+  static func computeBands(samples: [Float], bandCount: Int) -> [Int] {
+    guard samples.count == n else {
+      return Array(repeating: 0, count: bandCount)
+    }
+    var real = Array(repeating: Float(0), count: n)
+    var imag = Array(repeating: Float(0), count: n)
+    for i in 0..<n {
+      real[i] = samples[i] * hannWindow[i]
+    }
+
+    // 位反转重排
+    var j = 0
+    for i in 1..<n {
+      var bit = n >> 1
+      while (j & bit) != 0 {
+        j ^= bit
+        bit >>= 1
+      }
+      j ^= bit
+      if i < j {
+        real.swapAt(i, j)
+      }
+    }
+
+    // 蝶形迭代运算
+    var length = 2
+    while length <= n {
+      let half = length >> 1
+      let angle = -2.0 * Float.pi / Float(length)
+      let wLenCos = cos(angle)
+      let wLenSin = sin(angle)
+      var start = 0
+      while start < n {
+        var wCos: Float = 1.0
+        var wSin: Float = 0.0
+        for k in 0..<half {
+          let evenIdx = start + k
+          let oddIdx = evenIdx + half
+          let uR = real[evenIdx]
+          let uI = imag[evenIdx]
+          let vR = real[oddIdx] * wCos - imag[oddIdx] * wSin
+          let vI = real[oddIdx] * wSin + imag[oddIdx] * wCos
+          real[evenIdx] = uR + vR
+          imag[evenIdx] = uI + vI
+          real[oddIdx] = uR - vR
+          imag[oddIdx] = uI - vI
+          let nextCos = wCos * wLenCos - wSin * wLenSin
+          wSin = wCos * wLenSin + wSin * wLenCos
+          wCos = nextCos
+        }
+        start += length
+      }
+      length <<= 1
+    }
+
+    let halfBins = n >> 1
+    var mags = Array(repeating: Float(0), count: halfBins)
+    let scale = 2.0 / Float(n)
+    for k in 1..<halfBins {
+      mags[k] = hypot(real[k], imag[k]) * scale
+    }
+
+    let usableBins = halfBins - 1
+    let logMax = log(Double(usableBins + 1))
+    var out: [Int] = []
+    out.reserveCapacity(bandCount)
+    for b in 0..<bandCount {
+      let t0 = Double(b) / Double(bandCount)
+      let t1 = Double(b + 1) / Double(bandCount)
+      let startBin = min(usableBins, max(1, Int(exp(t0 * logMax) - 1.0)))
+      let endBin = min(usableBins, max(startBin, Int(exp(t1 * logMax) - 1.0)))
+      var peak: Float = 0
+      for idx in startBin...endBin where mags[idx] > peak {
+        peak = mags[idx]
+      }
+      let db = 20.0 * log10(Double(peak) + 1e-5)
+      let normalized = max(0.0, min(1.0, (db + 62.0) / 56.0))
+      out.append(Int((normalized * 255.0).rounded()))
+    }
+    return out
+  }
+}
+
+// MARK: - Darwin Notification Router for Desktop Widget Commands
+
+/// 监听桌面小组件进程发出的 `"org.moviepilot.widgets.command"` Darwin 通知并转发给活跃插件宿主。
+@MainActor
+private final class DarwinWidgetCommandRouter {
+  static let shared = DarwinWidgetCommandRouter()
+  private static let notificationName = "org.moviepilot.widgets.command" as CFString
+
+  private final class WeakBox {
+    weak var value: PluginNativeCapabilitiesService?
+    init(_ value: PluginNativeCapabilitiesService) { self.value = value }
+  }
+
+  private var services: [WeakBox] = []
+  private var isObserving = false
+
+  private init() {}
+
+  /// 注册活跃能力服务实例并按需启动跨进程 Darwin 通知监听。
+  func register(_ service: PluginNativeCapabilitiesService) {
+    services.removeAll { $0.value == nil || $0.value === service }
+    services.append(WeakBox(service))
+    startObservingIfNeeded()
+    consumePendingCommandIfNeeded()
+  }
+
+  /// 注销能力服务实例。
+  func unregister(_ service: PluginNativeCapabilitiesService) {
+    services.removeAll { $0.value == nil || $0.value === service }
+  }
+
+  private func startObservingIfNeeded() {
+    guard !isObserving else { return }
+    isObserving = true
+    let center = CFNotificationCenterGetDarwinNotifyCenter()
+    CFNotificationCenterAddObserver(
+      center,
+      Unmanaged.passUnretained(self).toOpaque(),
+      { _, _, _, _, _ in
+        Task { @MainActor in
+          DarwinWidgetCommandRouter.shared.consumePendingCommandIfNeeded()
+        }
+      },
+      Self.notificationName,
+      nil,
+      .deliverImmediately
+    )
+  }
+
+  /// 读取并原子消费 `MoviePilotWidgets-v1/pending_widget_command.json`，路由给匹配的插件实例。
+  func consumePendingCommandIfNeeded() {
+    services.removeAll { $0.value == nil }
+    guard !services.isEmpty else { return }
+    let cmdURL =
+      PluginNativeCapabilitiesService.resolveWidgetSharedDirectory()
+      .appendingPathComponent("pending_widget_command.json")
+    guard let data = try? Data(contentsOf: cmdURL),
+      let cmd = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else { return }
+
+    let targetPlugin = (cmd["pluginId"] as? String ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines)
+    let matched: PluginNativeCapabilitiesService? = {
+      if !targetPlugin.isEmpty {
+        if let exact = services.last(where: {
+          $0.value?.resolvedActivePluginID().caseInsensitiveCompare(targetPlugin) == .orderedSame
+        })?.value {
+          return exact
+        }
+      }
+      return services.last?.value
+    }()
+
+    guard let matched else { return }
+    try? FileManager.default.removeItem(at: cmdURL)
+    matched.executeWidgetPendingCommand(cmd)
   }
 }
 
@@ -2088,7 +3483,9 @@ private final class PickedMediaAccumulator: @unchecked Sendable {
 }
 
 extension PluginNativeCapabilitiesService: PHPickerViewControllerDelegate {
-  nonisolated func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+  nonisolated func picker(
+    _ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]
+  ) {
     let group = DispatchGroup()
     let accumulator = PickedMediaAccumulator()
     for (index, item) in results.enumerated() {
@@ -2134,7 +3531,9 @@ extension PluginNativeCapabilitiesService: PHPickerViewControllerDelegate {
 
 // MARK: - UIImagePickerControllerDelegate
 
-extension PluginNativeCapabilitiesService: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+extension PluginNativeCapabilitiesService: UIImagePickerControllerDelegate,
+  UINavigationControllerDelegate
+{
   nonisolated func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
     Task { @MainActor [weak self] in
       picker.dismiss(animated: true)

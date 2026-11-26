@@ -2,8 +2,8 @@
   "forms": [
     {
       "name": "MoviePilotWidget",
-      "displayName": "MoviePilot 媒体库卡片",
-      "description": "展示电影/剧集统计与实时下载速率",
+      "displayName": "MoviePilot",
+      "description": "查看系统概览、下载状态、近期入库与订阅进度",
       "src": "./ets/widget/WidgetCard.ets",
       "uiSyntax": "arkts",
       "window": { "designWidth": 720, "autoDesignWidth": true },
@@ -13,7 +13,37 @@
       "scheduledUpdateTime": "10:30",
       "updateDuration": 1,
       "defaultDimension": "2*4",
-      "supportDimensions": ["2*2", "2*4"]
+      "supportDimensions": ["2*2", "2*4", "4*4"]
+    },
+    {
+      "name": "MoviePilotNowPlayingWidget",
+      "displayName": "MoviePilot 正在播放",
+      "description": "实时查看正在播放的插件音频、专辑封面与同步歌词并快捷播控",
+      "src": "./ets/widget/NowPlayingWidgetCard.ets",
+      "uiSyntax": "arkts",
+      "window": { "designWidth": 720, "autoDesignWidth": true },
+      "colorMode": "auto",
+      "isDefault": false,
+      "updateEnabled": true,
+      "scheduledUpdateTime": "10:30",
+      "updateDuration": 1,
+      "defaultDimension": "2*4",
+      "supportDimensions": ["2*2", "2*4", "4*4"]
+    },
+    {
+      "name": "MoviePilotPluginWidget",
+      "displayName": "MoviePilot 插件",
+      "description": "固定已启用插件的数据指标、进度列表或声明式自定义布局卡片",
+      "src": "./ets/widget/PluginWidgetCard.ets",
+      "uiSyntax": "arkts",
+      "window": { "designWidth": 720, "autoDesignWidth": true },
+      "colorMode": "auto",
+      "isDefault": false,
+      "updateEnabled": true,
+      "scheduledUpdateTime": "10:30",
+      "updateDuration": 1,
+      "defaultDimension": "2*4",
+      "supportDimensions": ["2*2", "2*4", "4*4"]
     }
   ]
 }

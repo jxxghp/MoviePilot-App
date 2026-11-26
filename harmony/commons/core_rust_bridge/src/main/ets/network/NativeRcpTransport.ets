@@ -292,9 +292,18 @@ export class NativeRcpTransport {
     }
   }
 
-  /** 拉取受体积上限保护的同源二进制载荷（用于外挂字幕 <= 16MB、LRC 歌词 <= 2MB 与封面解码）。 */
-  async fetchBytesBounded(url: string, token: string = '', maxBytes: number = 16777216): Promise<ArrayBuffer | null> {
-    if (!this.isSameOriginUrl(url)) {
+  /**
+   * 流式拉取受体积上限保护的同源二进制载荷（外挂字幕 <= 64MB / 90s、LRC 歌词 <= 2MB 与封面解码）：
+   * - 强制不附带 `Range` / `If-Range` 头并声明 `Accept-Encoding: identity`，避免实时字体子集化上游返回 `200` 触发 `501`；
+   * - 使用 `requestInStream` 分块校验字节数，突破系统 `request()` 默认 5MB 缓冲限制且在超限时即时截断防内存溢出。
+   */
+  async fetchBytesBounded(
+    url: string,
+    token: string = '',
+    maxBytes: number = 67108864,
+    readTimeoutMs: number = 45000
+  ): Promise<ArrayBuffer | null> {
+    if (!this.isSameOriginUrl(url) || maxBytes <= 0) {
       return null;
     }
     const client = http.createHttp();
@@ -309,36 +318,78 @@ export class NativeRcpTransport {
       header['Cookie'] = cookieStr;
     }
     this.applyCloudflareHeaders(header, url);
+
+    let chunks: Uint8Array[] = [];
+    let receivedBytes = 0;
+    let exceededLimit = false;
+
+    client.on('headersReceive', (hdr: Object) => {
+      this.captureSetCookies(url, hdr);
+      const rec = hdr as Record<string, Object>;
+      const rawLen = rec['content-length'] ?? rec['Content-Length'];
+      if (rawLen !== undefined && rawLen !== null) {
+        const parsedLen = parseInt(String(rawLen).trim(), 10);
+        if (Number.isFinite(parsedLen) && parsedLen > maxBytes) {
+          exceededLimit = true;
+          chunks = [];
+        }
+      }
+    });
+
+    client.on('dataReceive', (buf: ArrayBuffer) => {
+      if (exceededLimit || !buf || buf.byteLength === 0) {
+        return;
+      }
+      if (receivedBytes + buf.byteLength > maxBytes) {
+        exceededLimit = true;
+        chunks = [];
+        return;
+      }
+      const copy = new Uint8Array(buf.byteLength);
+      copy.set(new Uint8Array(buf));
+      chunks.push(copy);
+      receivedBytes += copy.byteLength;
+    });
+
     const reqOpts: http.HttpRequestOptions = {
       method: http.RequestMethod.GET,
       header: header,
-      expectDataType: http.HttpDataType.ARRAY_BUFFER,
       connectTimeout: 15000,
-      readTimeout: 45000,
+      readTimeout: Math.max(10000, Math.floor(readTimeoutMs)),
+      maxLimit: Math.min(100 * 1024 * 1024, Math.max(5 * 1024 * 1024, maxBytes)),
       usingCache: false
     };
     if (this.allowSelfSigned) {
       reqOpts.remoteValidation = 'skip';
     }
     try {
-      const resp = await client.request(url, reqOpts);
-      this.captureSetCookies(url, resp.header, resp.cookies ?? '');
-      if (resp.responseCode === 401 || resp.responseCode === 403) {
-        this.notifyAuthIfExpired(url, token, resp.responseCode, '');
+      const code = await client.requestInStream(url, reqOpts);
+      if (code === 401 || code === 403) {
+        this.notifyAuthIfExpired(url, token, code, '');
       }
-      if (
-        resp.responseCode >= 200 &&
-        resp.responseCode < 300 &&
-        resp.result instanceof ArrayBuffer &&
-        resp.result.byteLength > 0 &&
-        resp.result.byteLength <= maxBytes
-      ) {
-        return resp.result as ArrayBuffer;
+      if (!exceededLimit && code >= 200 && code < 300 && receivedBytes > 0 && receivedBytes <= maxBytes) {
+        if (chunks.length === 1) {
+          return chunks[0].buffer as ArrayBuffer;
+        }
+        const merged = new Uint8Array(receivedBytes);
+        let offset = 0;
+        for (let i = 0; i < chunks.length; i++) {
+          merged.set(chunks[i], offset);
+          offset += chunks[i].byteLength;
+        }
+        chunks = [];
+        return merged.buffer as ArrayBuffer;
       }
       return null;
     } catch {
       return null;
     } finally {
+      try {
+        client.off('headersReceive');
+        client.off('dataReceive');
+      } catch {
+        // ignore listener cleanup
+      }
       client.destroy();
     }
   }

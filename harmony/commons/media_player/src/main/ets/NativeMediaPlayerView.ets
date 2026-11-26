@@ -138,6 +138,10 @@ export struct NativeMediaPlayerView {
   @State private activeSubIsExternal: boolean = false;
   private activeEmbeddedSubTrackIndex: number = -1;
   private externalSubCues: SubtitleCue[] = [];
+  private externalSubCueCache: Map<string, SubtitleCue[]> = new Map<string, SubtitleCue[]>();
+  private subtitleLoadSeq: number = 0;
+  @State private isSubtitleLoading: boolean = false;
+  @State private failedSubId: string = '';
   @State private activeSubtitleText: string = '';
 
   @State private audioTrackOptions: HarmonyAudioTrackOption[] = [];
@@ -876,6 +880,10 @@ export struct NativeMediaPlayerView {
       this.progress = 0;
       this.activeSubtitleText = '';
       this.externalSubCues = [];
+      this.externalSubCueCache.clear();
+      this.subtitleLoadSeq += 1;
+      this.isSubtitleLoading = false;
+      this.failedSubId = '';
       this.activeEmbeddedSubTrackIndex = -1;
       this.activeSubIsExternal = false;
       this.selectedSubId = 'off';
@@ -921,13 +929,8 @@ export struct NativeMediaPlayerView {
           this.startVideoProgressTimer();
           this.dispatchVideoSync(this.videoStartedSent ? 'resume' : 'start', false);
           this.resetControlsAutoHideTimer();
-          if (!isHotSwitch && this.subtitleOptions.length > 0 && !req.disableSubtitles && PlaybackPreferencesStore.getPreferZhSub()) {
-            const zhSub = this.subtitleOptions.find((s: HarmonySubtitleOption) =>
-              s.isExternal && isChineseLanguageTrack(s.language, s.label)
-            );
-            if (zhSub) {
-              this.selectSubtitleOption(zhSub).catch(() => {});
-            }
+          if (!isHotSwitch && this.subtitleOptions.length > 0 && !req.disableSubtitles) {
+            this.applyInitialExternalSubtitleForEnhanced(req);
           }
         },
         onVideoSizeChanged: (w: number, h: number) => {
@@ -1398,7 +1401,54 @@ export struct NativeMediaPlayerView {
     }
   }
 
+  /** 为增强内核起播阶段匹配首选外挂字幕（遵循显式 URL -> 显式语言 -> 中文偏好优先级）。 */
+  private applyInitialExternalSubtitleForEnhanced(req: HarmonyPlaybackRequest): void {
+    const extList = this.subtitleOptions.filter((s: HarmonySubtitleOption) => s.isExternal && (s.url ?? '').trim().length > 0);
+    if (extList.length === 0) {
+      return;
+    }
+    if (req.preferredExternalSubUrl && req.preferredExternalSubUrl.trim().length > 0) {
+      const matchedByUrl = extList.find((s: HarmonySubtitleOption) => s.url === req.preferredExternalSubUrl);
+      if (matchedByUrl) {
+        this.selectSubtitleOption(matchedByUrl).catch(() => {});
+        return;
+      }
+    }
+    if (req.preferredSubLang && req.preferredSubLang.trim().length > 0) {
+      const targetLang = req.preferredSubLang.trim().toLowerCase();
+      const matchedByLang = extList.find((s: HarmonySubtitleOption) =>
+        s.language.toLowerCase() === targetLang || s.label.toLowerCase().includes(targetLang)
+      );
+      if (matchedByLang) {
+        this.selectSubtitleOption(matchedByLang).catch(() => {});
+        return;
+      }
+    }
+    if (PlaybackPreferencesStore.getPreferZhSub()) {
+      const zhSub = extList.find((s: HarmonySubtitleOption) => isChineseLanguageTrack(s.language, s.label));
+      if (zhSub) {
+        this.selectSubtitleOption(zhSub).catch(() => {});
+      }
+    }
+  }
+
+  /** 读取当前视频最精确的实时播放毫秒位置，确保慢速外挂字幕下载完瞬间与画面帧零偏差对齐。 */
+  private resolveLiveVideoPositionMs(): number {
+    if (this.activeEngineKind !== 'enhanced' && this.videoPlayer) {
+      try {
+        const live = this.videoPlayer.currentTime;
+        if (Number.isFinite(live) && live >= 0) {
+          return Math.max(0, live);
+        }
+      } catch {
+        // ignore invalid state
+      }
+    }
+    return Math.max(0, this.positionMs);
+  }
+
   private async selectSubtitleOption(opt: HarmonySubtitleOption | null): Promise<void> {
+    const subSeq = ++this.subtitleLoadSeq;
     const player = this.videoPlayer;
     if (this.activeEmbeddedSubTrackIndex >= 0 && player) {
       try {
@@ -1413,6 +1463,7 @@ export struct NativeMediaPlayerView {
     this.externalSubCues = [];
 
     if (!opt) {
+      this.isSubtitleLoading = false;
       this.selectedSubId = 'off';
       this.activeSubIsExternal = false;
       if (this.videoStartedSent) {
@@ -1424,15 +1475,45 @@ export struct NativeMediaPlayerView {
     this.selectedSubId = opt.id;
     if (opt.isExternal && opt.url && opt.url.trim().length > 0) {
       this.activeSubIsExternal = true;
-      const gen = this.videoLoadGeneration;
-      const targetId = opt.id;
-      const raw = await MoviePilotRepository.shared().fetchSubtitleOrLyricsText(opt.url, false);
-      if (gen !== this.videoLoadGeneration || this.selectedSubId !== targetId) {
+      this.failedSubId = '';
+      const cleanSubUrl = opt.url.trim();
+      const cachedCues = this.externalSubCueCache.get(cleanSubUrl);
+      if (cachedCues && cachedCues.length > 0) {
+        this.isSubtitleLoading = false;
+        this.externalSubCues = cachedCues;
+        this.activeSubtitleText = findActiveSubtitleText(this.externalSubCues, this.resolveLiveVideoPositionMs());
+        if (this.videoStartedSent) {
+          this.dispatchVideoSync('track_change', !this.isPlaying);
+        }
         return;
       }
-      this.externalSubCues = parseSubtitleText(raw, opt.format ?? '');
-      this.activeSubtitleText = findActiveSubtitleText(this.externalSubCues, this.positionMs);
+
+      this.isSubtitleLoading = true;
+      const gen = this.videoLoadGeneration;
+      const targetId = opt.id;
+      const raw = await MoviePilotRepository.shared().fetchSubtitleOrLyricsText(cleanSubUrl, false);
+      if (gen !== this.videoLoadGeneration || subSeq !== this.subtitleLoadSeq || this.selectedSubId !== targetId) {
+        return;
+      }
+      this.isSubtitleLoading = false;
+      if (!raw || raw.trim().length === 0) {
+        this.failedSubId = targetId;
+        this.selectedSubId = 'off';
+        this.activeSubIsExternal = false;
+        this.activeSubtitleText = '';
+        this.showTransientHud('xmark', '外挂字幕加载失败，可在字幕面板点击重试', 2400);
+        return;
+      }
+      const parsedCues = parseSubtitleText(raw, opt.format ?? '');
+      if (parsedCues.length > 0) {
+        this.externalSubCueCache.set(cleanSubUrl, parsedCues);
+      }
+      this.externalSubCues = parsedCues;
+      const livePos = this.resolveLiveVideoPositionMs();
+      this.positionMs = livePos;
+      this.activeSubtitleText = findActiveSubtitleText(this.externalSubCues, livePos);
     } else if (!opt.isExternal && opt.trackIndex !== undefined && player) {
+      this.isSubtitleLoading = false;
       this.activeSubIsExternal = false;
       this.activeEmbeddedSubTrackIndex = opt.trackIndex;
       try {
@@ -1440,6 +1521,8 @@ export struct NativeMediaPlayerView {
       } catch {
         // ignore
       }
+    } else {
+      this.isSubtitleLoading = false;
     }
     if (this.videoStartedSent) {
       this.dispatchVideoSync('track_change', !this.isPlaying);
@@ -2528,9 +2611,19 @@ export struct NativeMediaPlayerView {
                     .fontColor(this.selectedSubId === opt.id ? '#317AF7' : Color.White)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text(opt.isExternal ? `外挂字幕${opt.format ? ' · ' + opt.format.toUpperCase() : ''}` : '内封字幕轨')
-                    .fontSize(11.5)
-                    .fontColor('#99FFFFFF')
+                  if (this.isSubtitleLoading && this.selectedSubId === opt.id) {
+                    Text('正在加载字幕…')
+                      .fontSize(11.5)
+                      .fontColor('#317AF7')
+                  } else if (this.failedSubId === opt.id) {
+                    Text('加载失败 · 点击重试')
+                      .fontSize(11.5)
+                      .fontColor('#FF8A80')
+                  } else {
+                    Text(opt.isExternal ? `外挂字幕${opt.format ? ' · ' + opt.format.toUpperCase() : ''}` : '内封字幕轨')
+                      .fontSize(11.5)
+                      .fontColor('#99FFFFFF')
+                  }
                 }
                 .layoutWeight(1)
                 .alignItems(HorizontalAlign.Start)
@@ -3351,6 +3444,27 @@ export struct NativeMediaPlayerView {
           })
           .width('86%')
           .alignItems(HorizontalAlign.Center)
+          .hitTestBehavior(HitTestMode.None)
+        }
+
+        // 外挂字幕慢速加载（如实时字体子集化）非阻塞状态提示
+        if (this.isSubtitleLoading && !this.isPipActive && !this.isLongPressBoosting) {
+          Row({ space: 8 }) {
+            LoadingProgress()
+              .width(15)
+              .height(15)
+              .color('#317AF7')
+            Text('正在加载字幕…')
+              .fontSize(12.5)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Color.White)
+          }
+          .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+          .borderRadius(18)
+          .backgroundColor('#CC141824')
+          .border({ width: 0.6, color: '#30FFFFFF', radius: 18 })
+          .position({ x: '50%', top: Math.max(18, this.safeTopVp + 10) })
+          .markAnchor({ x: '50%', y: 0 })
           .hitTestBehavior(HitTestMode.None)
         }
 

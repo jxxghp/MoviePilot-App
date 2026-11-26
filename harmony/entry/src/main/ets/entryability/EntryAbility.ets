@@ -2,6 +2,7 @@ import { UIAbility, Want, AbilityConstant, Configuration, ConfigurationConstant,
 import { display, window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { HarmonyAdaptiveLayout, HarmonyAppearanceStore, PlaybackPreferencesStore } from '@moviepilot/design_system';
 import { RustCoreBridge, NativeHuksStore, CloudflareAccessOAuthManager } from '@moviepilot/core_rust_bridge';
+import { HarmonyWidgetSyncService } from '../widget/HarmonyWidgetSyncService';
 
 /**
  * MoviePilot HarmonyOS NEXT / HarmonyOS 7 主 EntryAbility：
@@ -50,10 +51,16 @@ export default class EntryAbility extends UIAbility {
     EntryAbility.storeInitPromise = Promise.all([
       NativeHuksStore.shared().init(this.context),
       PlaybackPreferencesStore.init(this.context)
-    ]).then(() => {});
+    ]).then(() => {
+      HarmonyWidgetSyncService.shared().syncAll(this.context).catch(() => {});
+    });
     this.syncSystemColorMode(this.context.config.colorMode);
     EntryAbility.syncWindowAppearance(AppStorage.get<boolean>(HarmonyAppearanceStore.KEY_IS_DARK) ?? true);
     this.handleIncomingWant(want);
+  }
+
+  onForeground(): void {
+    HarmonyWidgetSyncService.shared().syncAll(this.context).catch(() => {});
   }
 
   onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
@@ -213,12 +220,42 @@ export default class EntryAbility extends UIAbility {
   }
 
   private handleIncomingWant(want: Want): void {
+    const params = want.parameters;
+    if (params) {
+      const audioCmd = params['audioCmd'] !== undefined ? String(params['audioCmd']).trim() : '';
+      const widgetAction = params['widgetAction'] !== undefined ? String(params['widgetAction']).trim() : '';
+      const pluginId = params['pluginId'] !== undefined ? String(params['pluginId']).trim() : '';
+      const widgetKey = params['widgetKey'] !== undefined ? String(params['widgetKey']).trim() : '';
+      if (audioCmd.length > 0 || widgetAction.length > 0) {
+        const eventPayload: Record<string, Object> = {
+          'kind': audioCmd.length > 0 ? 'audio' : 'widget',
+          'type': audioCmd.length > 0 ? 'nowPlaying' : 'pluginAction',
+          'command': audioCmd.length > 0 ? audioCmd : widgetAction,
+          'actionId': widgetAction.length > 0 ? widgetAction : audioCmd,
+          'pluginId': pluginId,
+          'widgetKey': widgetKey,
+          'timestamp': Date.now()
+        };
+        AppStorage.setOrCreate('mp_pending_widget_plugin_event', JSON.stringify(eventPayload));
+        if (audioCmd.length > 0) {
+          HarmonyWidgetSyncService.shared().applyNowPlayingCommand(this.context, audioCmd, pluginId).catch(() => {});
+        }
+      }
+    }
+
     let rawTarget = want.uri ?? '';
-    if (rawTarget.length === 0 && want.parameters) {
-      if (want.parameters['uri'] !== undefined) {
-        rawTarget = String(want.parameters['uri']);
-      } else if (want.parameters['route'] !== undefined) {
-        rawTarget = String(want.parameters['route']);
+    if (rawTarget.length === 0 && params) {
+      if (params['uri'] !== undefined) {
+        rawTarget = String(params['uri']);
+      } else if (params['route'] !== undefined) {
+        rawTarget = String(params['route']);
+      } else if (params['pluginId'] !== undefined && String(params['pluginId']).trim().length > 0
+        && params['audioCmd'] === undefined) {
+        const pid = encodeURIComponent(String(params['pluginId']).trim());
+        const surf = params['surface'] !== undefined && String(params['surface']).trim() === 'config'
+          ? 'config'
+          : 'data';
+        rawTarget = `moviepilot://plugin/${pid}?surface=${surf}`;
       }
     }
     if (!rawTarget) { return; }

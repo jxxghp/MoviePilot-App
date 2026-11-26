@@ -2,7 +2,7 @@
 
 本文面向 MoviePilot 插件开发者，说明现有插件如何接入 App，以及如何调用 App 为插件提供的原生交互、导航、最小化、音视频与设备扩展。
 
-本文对应本仓库 `v2` 分支、App `2.0.6` 代码中的实现：本地桥接协议为 `moviepilot.pluginHost` major `2`，注入的 `hostSdk.apiVersion` 为 `1`。这两个版本属于不同层次。旧版 App、浏览器和远程网页兼容容器可能缺少部分方法，接入时必须检测能力并处理调用失败；不要仅凭版本号放行。
+本文对应本仓库 `v2` 分支、App `2.0.7` 代码中的实现：本地桥接协议为 `moviepilot.pluginHost` major `2`，注入的 `hostSdk.apiVersion` 为 `1`。这两个版本属于不同层次。旧版 App、浏览器和远程网页兼容容器可能缺少部分方法，接入时必须检测能力并处理调用失败；不要仅凭版本号放行。
 
 ## 目录
 
@@ -264,25 +264,30 @@ onBeforeUnmount(() => offBack())
 
 ## 7. 最小化胶囊与保活
 
-`shell.minimize()` 把正在运行的插件转为悬浮胶囊，保留该联邦容器与 JS 上下文。`jump` 模式提供返回入口，`mini` 模式还可以展开快捷操作。
+`shell.minimize()` 把正在运行的插件转为紧凑单行横向悬浮胶囊，保留该联邦容器与 JS 上下文：左侧显示圆形封面 / 插件图标，中部显示标题与副标题（点击直接恢复打开完整插件窗口），右侧最多显示 3 个内联快捷图标按钮与关闭按钮。
 
 ```js
 if (sdk.supports('shell.minimize')) {
   const result = await sdk.shell.minimize({
     mode: 'mini',
     title: '演示音频',
-    subtitle: '播放器',
+    subtitle: '周杰伦',
     statusText: '正在播放',
+    iconUrl: `/api/v1/plugin/${encodeURIComponent(props.pluginId ?? sdk.context.pluginId)}/cover?id=1`,
     isPlaying: true,
     keepOutsideApp: false,
-    actions: [{ id: 'show-player', label: '打开播放器', icon: 'mdi-open-in-app' }],
+    actions: [
+      { id: 'prev', label: '上一首', icon: 'mdi-skip-previous' },
+      { id: 'toggle', label: '暂停', icon: 'mdi-pause', active: true },
+      { id: 'next', label: '下一首', icon: 'mdi-skip-next' },
+    ],
   })
   if (!result.minimized) sdk.ui.toast.info('当前容器未进入最小化状态')
 }
 
 const offCapsule = sdk.shell.onCapsuleAction(({ actionId }) => {
-  if (actionId === 'show-player') {
-    sdk.shell.restore().catch(() => sdk.ui.toast.error('恢复插件失败'))
+  if (actionId === 'toggle') {
+    // 处理播放 / 暂停切换
   }
 })
 
@@ -290,10 +295,11 @@ sdk.shell.updateCapsule({ statusText: '已暂停', isPlaying: false })
 onBeforeUnmount(() => offCapsule())
 ```
 
-胶囊字段包括 `mode`、`title`、`subtitle`、`statusText`、`iconUrl`、`isPlaying`、`keepOutsideApp` 和 `actions`；动作包含 `id`、`label`（兼容 `title`）、`icon`、`active`、`destructive`。更新时传补丁即可，传 `actions: []` 清空快捷操作。入口组件也可 `emit('minimize', options)`，需要确认结果时使用 SDK Promise。
+胶囊字段包括 `mode`、`title`、`subtitle`、`statusText`、`iconUrl`（支持 `/api/v1/...` 同实例受鉴权相对路径，由原生侧自动附带鉴权头加载）、`isPlaying`、`keepOutsideApp` 和 `actions`；动作包含 `id`、`label`（兼容 `title`）、`icon`、`active`、`destructive`。更新时传补丁即可，传 `actions: []` 清空快捷操作。入口组件也可 `emit('minimize', options)`，需要确认结果时使用 SDK Promise。
 
+- 点击胶囊标题与信息区域直接恢复完整插件窗口，无需先展开二级小窗；内联快捷按钮直接派发 `onCapsuleAction({ actionId })`，并且播放类按钮会根据 `isPlaying`（含原生 `audio.play` / `setNowPlaying` 状态变化）实时同步切换播放 / 暂停图标。
 - `shell.updateCapsule(patch)` 是单向更新；`shell.restore()` 返回恢复结果；`shell.onCapsuleAction(handler)` 的参数是 `{ actionId }`，与原生音频事件的 `{ event, data }` 不同。
-- Android 的 `keepOutsideApp: true` 允许退到桌面后显示系统悬浮胶囊，需要 `overlay` 权限；授权要先经过用户操作，打开设置页后应在回到 App 时重新查询。没有权限时不要把设置页已打开当作授权完成。
+- Android 的 `keepOutsideApp: true` 允许退到桌面后显示单行系统悬浮胶囊，需要 `overlay` 权限；授权要先经过用户操作，打开设置页后应在回到 App 时重新查询。没有权限时不要把设置页已打开当作授权完成。
 - iOS、HarmonyOS 当前提供应用内胶囊，不提供此 Android 系统悬浮窗能力。该字段不能使插件跨 App 永久在线。
 - 最小化不是 `unmount`，插件音频可以继续；关闭胶囊、关闭插件、退出登录或切换实例会触发资源释放。保活不承诺进程被系统终止后仍继续运行，也不能用于可靠后台定时任务。
 
@@ -303,16 +309,18 @@ onBeforeUnmount(() => offCapsule())
 
 ### 8.1 保留插件界面的原生音频
 
-`native.audio` 控制插件自己的原生音频会话，支持公开 HTTP / HTTPS 直链、同实例 `apiPath`、后端存储 `storage + path` 以及内联 Base64。`play()` 会替换该插件当前的音频，不是多轨混音器。
+`native.audio` 控制插件自己的原生音频会话，支持公开 HTTP / HTTPS 直链、同实例 `apiPath`（支持 Range 渐进流式）、后端存储 `storage + path` 以及内联 Base64。`play()` 会替换该插件当前的音频，不是多轨混音器。
 
 | 方法 | 参数 / 用途 |
 | --- | --- |
-| `play(options)` | 音频源与 `title`、`artist`、`album`、`artworkUrl`、`showInStatusBar`、`startPositionMs`、`volume`、`rate`、`loop` |
+| `play(options)` | 音频源与 `title`、`artist`、`album`、`artworkUrl`、`showInStatusBar`、`startPositionMs`、`volume`、`rate`、`loop`、`spectrum` |
 | `pause()`、`resume()`、`stop()` | 控制当前音频；结束整个会话时另行清理播控信息 |
 | `seek(positionMs)` | 跳转，毫秒 |
-| `setRate(rate)`、`setVolume(volume)` | 倍速 `0.5–2.0`；音量 `0–1`，具体倍速档位受平台限制 |
+| `setRate(rate)`、`setVolume(volume)` | 倍速 `0.5–2.0`；播放器内部音量 `0–1`，具体倍速档位受平台限制 |
+| `getSystemVolume()`、`setSystemVolume(volOrOpts)` | 读取或调节系统硬件媒体音量（`0–1`），并可通过 `audio.systemVolume` 监听硬件音量键变化 |
+| `setSpectrum({ enabled, bands?, intervalMs? })` | 播放期间动态开关或调整实时频谱与双声道电平回调（`audio.play.spectrum`） |
 | `getStatus()` | 查询 `playbackId`、`state`、`positionMs`、`durationMs` 等状态 |
-| `setNowPlaying(metadata)`、`clearNowPlaying()` | 注册、更新或清除系统播控信息 |
+| `setNowPlaying(metadata)`、`clearNowPlaying()` | 注册、更新或清除系统播控信息，并自动联动三端「MoviePilot 正在播放」桌面小组件 |
 | `onEvent(handler)` | 只接收音频事件的订阅入口，参数同样是 `{ event, data }`；返回取消订阅函数 |
 
 `play()` 的 Promise 完成不代表音频已经完整加载或播放结束，继续监听 `audio.play.state`、`audio.play.progress`、`audio.play.ended`、`audio.play.error`。锁屏、耳机及媒体通知的命令通过 `audio.remoteCommand` 发送给插件。歌词、收藏、自定义动作、鉴权封面与完整代码见[插件音频与系统播控接入指南](plugin-audio-and-status-bar-guide.md)。
@@ -443,13 +451,54 @@ if (!picked.cancelled) {
 - 如果配置页是 Vue `./Config`，宿主传入 `initialConfig`，入口组件通过 `emit('save', completeConfig)` 交给宿主保存；`emit('close')` 关闭，`emit('switch')` 切换到数据页。不要重复发一次保存请求又发一次 `save`。
 - 需要复杂脚本或自定义交互的插件继续使用 Vue 隔离运行时；不要从原生 JSON 表单尝试调用 `hostSdk`。
 
-### 11.2 导航、仪表盘与 Android 桌面小组件
+### 11.2 导航、仪表盘与三端桌面小组件
 
 App 沿用后端的导航声明（`sidebar_nav`），读取 `plugin_id`、`nav_key`、`title`、权限等字段；插件全页组件的解析顺序见[接入方式](#integration)。导航显示仍取决于用户权限，不能仅暴露 `./AppPage` 就假定一定出现入口。
 
-插件仪表盘通过 `GET /api/v1/plugin/dashboard/meta` 发现，按物理 ID 与 `key` 读取 `GET /api/v1/plugin/dashboard/{pluginId}/{key}`；空 `key` 使用不带末尾 key 的路径。原生面板消费 `elements` 与 `attrs`（如 `title`、`subtitle`、`border`）。JSON 内容尽量给出明确、精简的文本指标，避免只有脚本运行后才产生信息。
+插件仪表盘通过 `GET /api/v1/plugin/dashboard/meta` 发现，按物理 ID 与 `key` 读取 `GET /api/v1/plugin/dashboard/{pluginId}/{key}`；空 `key` 使用不带末尾 key 的路径。原生面板消费 `elements` 与 `attrs`（如 `title`、`subtitle`、`border`）。
 
-Android 还提供用户自行添加的桌面小组件，可选插件仪表盘摘要、插件启动入口或总览。仪表盘摘要复用上述后端接口和文本节点；Vue 仪表盘显示提示并点击直达插件，不会在桌面小组件里执行插件 JS。**没有需要插件主动调用的“小组件注册 SDK”**，也不能把 Android 的任意插件小组件能力推断为 iOS / HarmonyOS 已完全对等支持。
+自 App `2.0.7` 与 MoviePilot `v3.2.15` 起，**iOS、Android 与 HarmonyOS 三端统一提供三类桌面小组件**：
+
+1. **MoviePilot 主体小组件**：展示系统概览、下载状态、近期入库与订阅进度（无需插件接入）。
+2. **MoviePilot 正在播放小组件**：固定音频播控形态，插件只需按[音频指南](plugin-audio-and-status-bar-guide.md)调用 `native.audio.setNowPlaying()` 即可自动联动展示封面、曲目、同步歌词及「喜欢 / 上一首 / 播放暂停 / 下一首」控制按钮。
+3. **MoviePilot 插件小组件（支持预设模板与自定义布局树 DSL）**：同时支持**后端静态 / 定时拉取**与**前端运行态实时推送**双通道：
+   - **后端协议（推荐提供，App 未运行时系统也能后台静默刷新）**：插件继承 `_PluginBase` 后可实现可选方法 `get_widgets() -> list[dict]` 与 `get_widget_data(key: str = "default") -> dict | None`；未实现该方法的旧插件，后端会自动提取其 Vuetify `get_dashboard()` 结构作为桌面小组件兜底。
+   - **前端运行态推送（`hostSdk.native.widget`）**：Vue 插件可在运行期间通过 `sdk.supports('native.widget')` 检测并调用 `native.widget.update(payload)`、`native.widget.remove(widgetKey?)`、`native.widget.list()`，以及通过 `native.widget.onEvent`（或 `native.onEvent` 的 `'widget.action'` 事件）响应桌面自定义按钮点击：
+
+```js
+if (sdk?.supports('native.widget')) {
+  await native.widget.update({
+    widgetKey: 'brush-overview',
+    title: '刷流助手',
+    subtitle: '运行中 · 3 个站点',
+    kind: 'custom', // 'metrics' | 'list' | 'poster' | 'nowPlaying' | 'custom'
+    accentHex: '#3B82F6',
+    layout: {
+      type: 'column',
+      gap: 6,
+      children: [
+        {
+          type: 'row',
+          align: 'spaceBetween',
+          children: [
+            { type: 'metric', label: '今日上传', value: '128.4 GB', tone: 'success' },
+            { type: 'metric', label: '今日下载', value: '14.2 GB', tone: 'accent' },
+          ],
+        },
+        { type: 'progress', label: '目标达成率', value: 0.78, valueText: '78%', tone: 'accent' },
+        {
+          type: 'button',
+          label: '立即巡检',
+          tone: 'accent',
+          action: { type: 'pluginAction', actionId: 'run-now' },
+        },
+      ],
+    },
+  })
+}
+```
+
+- 自定义布局树 `PluginWidgetNode` 支持 `column`、`row`、`text`、`metric`、`progress`、`badge`、`image`（仅限 `/api/v1/plugin/file/...` 插件静态资源路径）、`button`、`divider`、`spacer`，最大嵌套深度 `5` 层、节点上限 `40` 个、总载荷上限 `32 KiB`。桌面小组件全部由系统原生组件安全渲染，不在桌面进程执行任意 JS。
 
 <a id="compatibility"></a>
 
@@ -457,7 +506,9 @@ Android 还提供用户自行添加的桌面小组件，可选插件仪表盘摘
 
 | 能力 / 可选字段 | iOS | Android | HarmonyOS NEXT |
 | --- | --- | --- | --- |
-| 原生音频、录音、系统播控、应用内胶囊 | 已接入，仍受设备权限与系统限制 | 同左 | 同左 |
+| 原生音频、录音、系统播控、单行悬浮胶囊 | 已接入，仍受设备权限与系统限制 | 同左 | 同左 |
+| `audio.getSystemVolume()` / `setSystemVolume()` | 支持读取、监听物理音量键与离屏滑块调节 | 支持 `STREAM_MUSIC` 读写与系统广播监听 | 支持读取与音量变化监听；写入受系统权限约束时自动降级 |
+| `audio.play({ spectrum })` / `setSpectrum()` | 基于 `MTAudioProcessingTap` / 电平实时推送 `fft` + `left` / `right` | 基于系统 `Visualizer` 实时推送（需已获 `RECORD_AUDIO` 权限，未授权平缓返回 `spectrumActive: false`） | 当前返回 `spectrumActive: false` |
 | `scanCode()` | 相机可用时上报能力 | 当前返回 `UNSUPPORTED`，能力列表不含扫码 | 调用系统扫码；可取消 |
 | `pickMedia({ source: 'camera' })` | 相机拍摄 | 相机拍摄 | 当前使用系统相册选择器，忽略 `source`，不能据此拍摄 |
 | 录音格式 | M4A，另支持 WAV | AAC / M4A | AAC / M4A |
@@ -465,9 +516,9 @@ Android 还提供用户自行添加的桌面小组件，可选插件仪表盘摘
 | `share()` | 支持 Base64 文件与文本 / URL 的系统分享 | 支持 Base64 文件与文本 / URL 的系统分享 | 当前复制文本 / URL 到剪贴板，不拉起分享面板、不消费 Base64 文件 |
 | `saveMedia()` | 保存到相册，需相册写权限 | 写入图片媒体库 | 打开系统保存选择器，可能返回 `saved: false` |
 | `notify({ delaySec })` | 系统安排延时通知 | App 进程内延时后发送，不保证杀进程后执行 | 当前立即发送，不消费 `delaySec` |
-| `keepOutsideApp` / `overlay` | 无 Android 系统悬浮窗能力 | 授权后提供系统悬浮胶囊 | 无此系统悬浮窗能力 |
-| 歌词 / 自定义媒体动作 | 逐行歌词；自定义动作只映射首项到系统书签命令 | 逐行歌词；媒体会话自定义动作与通知按钮受系统布局限制 | 歌词按 `setNowPlaying` 时进度选取，当前不消费 `customActions` 描述数组 |
-| 任意插件桌面小组件 | 不应按 Android 方案假定支持 | 用户配置摘要或启动入口 | 不应按 Android 方案假定支持 |
+| `keepOutsideApp` / `overlay` | 无 Android 系统悬浮窗能力 | 授权后提供系统单行悬浮胶囊 | 无此系统悬浮窗能力 |
+| 歌词 / 自定义媒体动作 | 逐行歌词；自定义动作只映射首项到系统书签命令 | 逐行歌词；单色爱心状态栏图标与循环 / 随机 / 红心矢量动作图标 | 歌词按 `setNowPlaying` 时进度选取，当前不消费 `customActions` 描述数组 |
+| 桌面小组件（主体 / 正在播放 / 插件预设与自定义 DSL） | WidgetKit（iOS 17+，需在 App 内启用只读凭据并保持 App Groups 一致） | Jetpack Glance（支持重配置、实时广播刷新与后台 WorkManager 同步） | FormExtensionAbility 服务卡片（支持多尺寸与主应用联动刷新） |
 
 插件发布前建议至少检查：
 

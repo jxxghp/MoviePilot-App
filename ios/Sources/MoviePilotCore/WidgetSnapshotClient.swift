@@ -6,7 +6,9 @@ public enum WidgetClientError: Error, Equatable, Sendable {
 }
 
 /// 专用只读网络客户端，生命周期独立于主 App 的登录会话和网页 Cookie。
-public final class WidgetSnapshotClient: WidgetSnapshotReading, WidgetGrantRevoking, Sendable {
+public final class WidgetSnapshotClient: WidgetSnapshotReading, PluginWidgetReading,
+  WidgetGrantRevoking, Sendable
+{
   private let session: URLSession
 
   /// 生产始终采用私有 ephemeral 配置，扩展不读取系统凭据和 URLCache。
@@ -45,15 +47,53 @@ public final class WidgetSnapshotClient: WidgetSnapshotReading, WidgetGrantRevok
       maximum: 2048)
   }
 
+  /// 使用专用只读 Bearer 拉取已启用插件可绑定的桌面小组件目录（`/api/v1/widget/plugins`）。
+  public func pluginCatalog(profile: WidgetProfile, credential: String) async throws
+    -> PluginWidgetCatalog
+  {
+    let data = try await request(
+      profile: profile, credential: credential, method: "GET", endpoint: "plugins",
+      maximum: PluginWidgetCatalog.maximumBytes)
+    return try PluginWidgetCatalog.decode(data, owner: profile.owner)
+  }
+
+  /// 使用专用只读 Bearer 拉取单个插件小组件的只读快照（`/api/v1/widget/plugins/{id}?key=...`）。
+  public func pluginSnapshot(
+    profile: WidgetProfile, credential: String, pluginId: String, widgetKey: String
+  ) async throws -> PluginWidgetSnapshot {
+    let cleanId = pluginId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleanKey = widgetKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard PluginWidgetValidator.isValidPluginId(cleanId),
+      PluginWidgetValidator.isValidWidgetKey(cleanKey)
+    else { throw WidgetClientError.unsupported }
+    let queryItems = cleanKey.isEmpty ? [] : [URLQueryItem(name: "key", value: cleanKey)]
+    let data = try await request(
+      profile: profile, credential: credential, method: "GET", endpoint: "plugins/\(cleanId)",
+      queryItems: queryItems, maximum: PluginWidgetSnapshot.maximumBytes)
+    return try PluginWidgetSnapshot.decode(data, owner: profile.owner)
+  }
+
   /// 拒绝所有重定向，并在读取响应时限制大小；错误正文不离开本方法。
   private func request(
-    profile: WidgetProfile, credential: String, method: String, endpoint: String, maximum: Int
+    profile: WidgetProfile, credential: String, method: String, endpoint: String,
+    queryItems: [URLQueryItem] = [], maximum: Int
   ) async throws -> Data {
     guard WidgetStore.validCredential(credential, registrationId: profile.registrationId),
       profile.credentialExpiresAt > Date().timeIntervalSince1970
     else { throw WidgetClientError.unauthorized }
+    let baseEndpointURL = profile.address.url.appendingPathComponent("api/v1/widget/\(endpoint)")
+    let targetURL: URL
+    if queryItems.isEmpty {
+      targetURL = baseEndpointURL
+    } else {
+      guard var components = URLComponents(url: baseEndpointURL, resolvingAgainstBaseURL: false)
+      else { throw WidgetClientError.invalidData }
+      components.queryItems = queryItems
+      guard let composed = components.url else { throw WidgetClientError.invalidData }
+      targetURL = composed
+    }
     var request = URLRequest(
-      url: profile.address.url.appendingPathComponent("api/v1/widget/\(endpoint)"),
+      url: targetURL,
       cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 10)
     request.httpMethod = method
     request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")

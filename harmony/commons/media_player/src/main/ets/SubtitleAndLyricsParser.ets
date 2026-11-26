@@ -257,21 +257,81 @@ function parseAssTimestamp(raw: string): number {
   return ((hrs * 3600 + mins * 60 + secs) * 1000) + ms;
 }
 
+const ASS_SECTION_HEADER_RE: RegExp = /^\[(?:script info|v4\+*\s*styles|events|fonts|graphics|aegisub[^\]]*)\]$/i;
+const ASS_BINARY_SECTION_START_RE: RegExp = /(?:^|\r?\n)[ \t]*\[(?:fonts|graphics)\][ \t]*(?:\r?\n|$)/ig;
+const ASS_NON_BINARY_SECTION_START_RE: RegExp = /\r?\n[ \t]*\[(?:script info|v4\+*\s*styles|events|aegisub[^\]]*)\][ \t]*(?:\r?\n|$)/i;
+
+/**
+ * 在分行前快速剔除大体积 ASS 中的 `[Fonts]` / `[Graphics]` UUencode 段落，
+ * 避免数十 MB 字体子集化字幕在 `split('\n')` 阶段产生数十万行临时字符串分配。
+ */
+function stripAssEmbeddedBinarySections(raw: string): string {
+  if (raw.length < 16384) {
+    return raw;
+  }
+  ASS_BINARY_SECTION_START_RE.lastIndex = 0;
+  let match = ASS_BINARY_SECTION_START_RE.exec(raw);
+  if (!match) {
+    return raw;
+  }
+  const pieces: string[] = [];
+  let cursor = 0;
+  while (match) {
+    const sectionStart = match.index;
+    if (sectionStart > cursor) {
+      pieces.push(raw.substring(cursor, sectionStart));
+    }
+    const bodyStart = sectionStart + match[0].length;
+    const tail = raw.substring(bodyStart);
+    const nextHeader = ASS_NON_BINARY_SECTION_START_RE.exec(tail);
+    if (!nextHeader) {
+      cursor = raw.length;
+      break;
+    }
+    cursor = bodyStart + nextHeader.index;
+    ASS_BINARY_SECTION_START_RE.lastIndex = cursor;
+    match = ASS_BINARY_SECTION_START_RE.exec(raw);
+  }
+  if (cursor < raw.length) {
+    pieces.push(raw.substring(cursor));
+  }
+  return pieces.join('\n');
+}
+
 function parseAssOrSsaSubtitles(lines: string[]): SubtitleCue[] {
   const cues: SubtitleCue[] = [];
   let inEvents = false;
+  let inSkippedBinarySection = false;
   let startCol = 1;
   let endCol = 2;
   let textCol = 9;
   let totalCols = 10;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const rawLine = lines[i];
+    if (inSkippedBinarySection) {
+      // 快速跳过 [Fonts] / [Graphics] 段内非 '[' 开头的 UUencode 数据行，不做多余 trim / toLowerCase
+      if (rawLine.length === 0 || rawLine.indexOf('[') < 0) {
+        continue;
+      }
+      const trimmedCandidate = rawLine.trim();
+      if (!ASS_SECTION_HEADER_RE.test(trimmedCandidate)) {
+        continue;
+      }
+      const lowerSection = trimmedCandidate.toLowerCase();
+      inSkippedBinarySection = lowerSection === '[fonts]' || lowerSection === '[graphics]';
+      inEvents = lowerSection === '[events]';
+      continue;
+    }
+
+    const line = rawLine.trim();
     if (line.length === 0 || line.startsWith(';')) {
       continue;
     }
-    if (line.startsWith('[') && line.endsWith(']')) {
-      inEvents = line.toLowerCase() === '[events]';
+    if (line.startsWith('[') && line.endsWith(']') && ASS_SECTION_HEADER_RE.test(line)) {
+      const lowerSection = line.toLowerCase();
+      inSkippedBinarySection = lowerSection === '[fonts]' || lowerSection === '[graphics]';
+      inEvents = lowerSection === '[events]';
       continue;
     }
     if (!inEvents && !line.toLowerCase().startsWith('dialogue:')) {
@@ -387,20 +447,41 @@ function parseSrtOrVttSubtitles(lines: string[]): SubtitleCue[] {
 }
 
 /**
- * 解析外挂字幕文本（自动识别 SRT、WebVTT、ASS 与 SSA）。
+ * 解析外挂字幕文本（自动嗅探识别 SRT、WebVTT、ASS 与 SSA，兼容 SRT 实时转带 `[Fonts]` 的 ASS）。
  */
 export function parseSubtitleText(raw: string, formatHint: string = ''): SubtitleCue[] {
-  const lines = stripBomAndNormalizeLines(raw);
-  if (lines.length === 0) {
+  if (!raw || raw.length === 0) {
     return [];
   }
   const hint = formatHint.trim().toLowerCase();
-  if (hint === 'ass' || hint === 'ssa') {
+  const headerProbe = raw.substring(0, Math.min(raw.length, 8192)).toLowerCase();
+  const looksLikeAssHeader =
+    hint === 'ass' ||
+    hint === 'ssa' ||
+    headerProbe.includes('[script info]') ||
+    headerProbe.includes('scripttype:') ||
+    headerProbe.includes('[v4+ styles]') ||
+    headerProbe.includes('[v4 styles]') ||
+    headerProbe.includes('[events]');
+
+  const normalizedRaw = looksLikeAssHeader ? stripAssEmbeddedBinarySections(raw) : raw;
+  const lines = stripBomAndNormalizeLines(normalizedRaw);
+  if (lines.length === 0) {
+    return [];
+  }
+  if (looksLikeAssHeader) {
     return parseAssOrSsaSubtitles(lines);
   }
-  for (let i = 0; i < Math.min(lines.length, 40); i++) {
+  for (let i = 0; i < Math.min(lines.length, 80); i++) {
     const lower = lines[i].trim().toLowerCase();
-    if (lower === '[script info]' || lower === '[events]' || lower.startsWith('dialogue:')) {
+    if (
+      lower === '[script info]' ||
+      lower.startsWith('scripttype:') ||
+      lower === '[v4+ styles]' ||
+      lower === '[v4 styles]' ||
+      lower === '[events]' ||
+      lower.startsWith('dialogue:')
+    ) {
       return parseAssOrSsaSubtitles(lines);
     }
   }

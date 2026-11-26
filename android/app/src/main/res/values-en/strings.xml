@@ -583,13 +583,20 @@
     <string name="mp_widget_3d20ab8c" formatted="false">View the server overview, downloads, recent imports and subscriptions.</string>
     <string name="mp_widget_4b81846f" formatted="false">Server</string>
     <string name="mp_widget_5319af76" formatted="false">Subscriptions</string>
+    <string name="mp_widget_55ab70bb" formatted="false">Plugin card</string>
+    <string name="mp_widget_5fc9c548" formatted="false">No active audio playback</string>
     <string name="mp_widget_66c5aa72" formatted="false">TV subscriptions</string>
     <string name="mp_widget_83dc943e" formatted="false">System overview</string>
     <string name="mp_widget_84c5f125" formatted="false">Music subscriptions</string>
     <string name="mp_widget_9203b76d" formatted="false">Movie subscriptions</string>
+    <string name="mp_widget_943d096c" formatted="false">Show plugin audio artwork, synced lyrics, and playback controls.</string>
+    <string name="mp_widget_99854c7c" formatted="false">Now playing</string>
     <string name="mp_widget_app_667ee75e" formatted="false">Choose a server enabled in the App and its read-only content.</string>
+    <string name="mp_widget_c007cc5a" formatted="false">Show custom data cards, dashboards, or shortcuts from enabled plugins.</string>
     <string name="mp_widget_ce52b3cf" formatted="false">Recent imports</string>
     <string name="mp_widget_efd9aa2e" formatted="false">Download status</string>
     <string name="mp_widget_moviepilot_00c24418" formatted="false">MoviePilot widgets</string>
+    <string name="mp_widget_moviepilot_51eb4e44" formatted="false">MoviePilot Now Playing</string>
     <string name="mp_widget_moviepilot_a0cfe3e6" formatted="false">MoviePilot Status</string>
+    <string name="mp_widget_moviepilot_c6f24b55" formatted="false">MoviePilot Plugin</string>
 </resources>

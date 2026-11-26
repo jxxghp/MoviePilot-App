@@ -374,7 +374,9 @@ struct DanmakuManualMatchSheetView: View {
         }
       }
       .task {
-        if initialCandidates.isEmpty && !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if initialCandidates.isEmpty
+          && !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
           await runSearch()
         }
       }
@@ -402,9 +404,11 @@ struct DanmakuManualMatchSheetView: View {
       }
     } label: {
       VStack(alignment: .leading, spacing: 2) {
-        Text(ep.episodeTitle.isEmpty ? "第 \(ep.episodeNumber ?? "\(ep.episodeId)") 集" : ep.episodeTitle)
-          .font(.subheadline)
-          .foregroundStyle(.primary)
+        Text(
+          ep.episodeTitle.isEmpty ? "第 \(ep.episodeNumber ?? "\(ep.episodeId)") 集" : ep.episodeTitle
+        )
+        .font(.subheadline)
+        .foregroundStyle(.primary)
         if !ep.animeTitle.isEmpty {
           Text(ep.animeTitle).font(.caption).foregroundStyle(.secondary)
         }
@@ -474,6 +478,34 @@ struct NativeDanmakuAdminConfigPage: View {
   @State private var isClearingCache = false
   @State private var statusBanner: (ok: Bool, text: String)?
 
+  private var authModeTitle: String {
+    switch authMode {
+    case "dandanplay_v2": return L10n.text("弹弹play v2 签名")
+    case "header_token": return L10n.text("自定义请求头令牌")
+    default: return L10n.text("无鉴权 / 路径令牌")
+    }
+  }
+
+  private var chConvertTitle: String {
+    switch chConvert {
+    case 1: return L10n.text("转简体")
+    case 2: return L10n.text("转繁体")
+    default: return L10n.text("不转换")
+    }
+  }
+
+  private func menuOptionLabel(_ value: String) -> some View {
+    HStack(spacing: 5) {
+      Text(value)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+      Image(systemName: "chevron.up.chevron.down")
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary.opacity(0.55))
+    }
+  }
+
   var body: some View {
     ZStack {
       CinematicBackground()
@@ -489,8 +521,10 @@ struct NativeDanmakuAdminConfigPage: View {
           } else {
             if let banner = statusBanner {
               HStack(spacing: 10) {
-                Image(systemName: banner.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                  .foregroundStyle(banner.ok ? .green : NativeTheme.danger)
+                Image(
+                  systemName: banner.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(banner.ok ? .green : NativeTheme.danger)
                 Text(banner.text)
                   .font(.footnote)
                   .foregroundStyle(.primary)
@@ -506,11 +540,13 @@ struct NativeDanmakuAdminConfigPage: View {
             CinematicPanel(padding: 0) {
               VStack(spacing: 0) {
                 Toggle(L10n.text("启用弹幕代理服务"), isOn: $enabled)
+                  .font(.body).foregroundStyle(.primary)
                   .tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
                 CinematicFormDivider()
                 VStack(alignment: .leading, spacing: 6) {
-                  Text(L10n.text("自定义弹弹play 兼容 API 地址")).font(.subheadline)
+                  Text(L10n.text("自定义弹弹play 兼容 API 地址")).font(.body).foregroundStyle(.primary)
                   TextField("https://danmu.example.com", text: $apiBaseUrl)
                     .font(.footnote.monospaced())
                     .textInputAutocapitalization(.never)
@@ -518,63 +554,95 @@ struct NativeDanmakuAdminConfigPage: View {
                     .keyboardType(.URL)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
                 CinematicFormDivider()
-                HStack {
-                  Text(L10n.text("鉴权方式")).font(.body)
-                  Spacer()
-                  Picker(L10n.text("鉴权方式"), selection: $authMode) {
-                    Text(L10n.text("无鉴权 / 路径令牌")).tag("none")
-                    Text(L10n.text("弹弹play v2 签名")).tag("dandanplay_v2")
-                    Text(L10n.text("自定义请求头令牌")).tag("header_token")
+                HStack(spacing: 12) {
+                  Text(L10n.text("鉴权方式")).font(.body).foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Menu {
+                    ForEach(
+                      [
+                        ("none", L10n.text("无鉴权 / 路径令牌")),
+                        ("dandanplay_v2", L10n.text("弹弹play v2 签名")),
+                        ("header_token", L10n.text("自定义请求头令牌")),
+                      ], id: \.0
+                    ) { key, title in
+                      Button {
+                        authMode = key
+                      } label: {
+                        if authMode == key {
+                          Label(title, systemImage: "checkmark")
+                        } else {
+                          Text(title)
+                        }
+                      }
+                    }
+                  } label: {
+                    menuOptionLabel(authModeTitle)
                   }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
+                  .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
 
                 if authMode == "dandanplay_v2" {
                   CinematicFormDivider()
                   HStack {
-                    Text("AppId").font(.subheadline).frame(width: 90, alignment: .leading)
+                    Text("AppId").font(.body).foregroundStyle(.primary).frame(
+                      width: 96, alignment: .leading)
                     TextField("输入 AppId", text: $appId)
+                      .font(.subheadline)
                       .multilineTextAlignment(.trailing)
                       .textInputAutocapitalization(.never)
                       .autocorrectionDisabled()
                   }
                   .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
                   CinematicFormDivider()
                   HStack {
-                    Text("AppSecret").font(.subheadline).frame(width: 90, alignment: .leading)
+                    Text("AppSecret").font(.body).foregroundStyle(.primary).frame(
+                      width: 96, alignment: .leading)
                     SecureField(hasAppSecret ? "已加密保存（留空不变）" : "输入 AppSecret", text: $appSecret)
+                      .font(.subheadline)
                       .multilineTextAlignment(.trailing)
                   }
                   .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
                 } else if authMode == "header_token" {
                   CinematicFormDivider()
                   HStack {
-                    Text("请求头").font(.subheadline).frame(width: 90, alignment: .leading)
+                    Text("请求头").font(.body).foregroundStyle(.primary).frame(
+                      width: 96, alignment: .leading)
                     TextField("Authorization", text: $tokenHeader)
+                      .font(.subheadline)
                       .multilineTextAlignment(.trailing)
                       .textInputAutocapitalization(.never)
                       .autocorrectionDisabled()
                   }
                   .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
                   CinematicFormDivider()
                   HStack {
-                    Text("令牌前缀").font(.subheadline).frame(width: 90, alignment: .leading)
+                    Text("令牌前缀").font(.body).foregroundStyle(.primary).frame(
+                      width: 96, alignment: .leading)
                     TextField("Bearer ", text: $tokenPrefix)
+                      .font(.subheadline)
                       .multilineTextAlignment(.trailing)
                       .textInputAutocapitalization(.never)
                       .autocorrectionDisabled()
                   }
                   .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
                   CinematicFormDivider()
                   HStack {
-                    Text("令牌").font(.subheadline).frame(width: 90, alignment: .leading)
+                    Text("令牌").font(.body).foregroundStyle(.primary).frame(
+                      width: 96, alignment: .leading)
                     SecureField(hasToken ? "已加密保存（留空不变）" : "输入令牌", text: $token)
+                      .font(.subheadline)
                       .multilineTextAlignment(.trailing)
                   }
                   .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
                 }
               }
             }
@@ -582,38 +650,81 @@ struct NativeDanmakuAdminConfigPage: View {
             CinematicPanel(padding: 0) {
               VStack(spacing: 0) {
                 Toggle(L10n.text("聚合关联第三方弹幕"), isOn: $withRelated)
+                  .font(.body).foregroundStyle(.primary)
                   .tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
                 CinematicFormDivider()
-                HStack {
-                  Text(L10n.text("简繁转换"))
-                  Spacer()
-                  Picker(L10n.text("简繁转换"), selection: $chConvert) {
-                    Text(L10n.text("不转换")).tag(0)
-                    Text(L10n.text("转简体")).tag(1)
-                    Text(L10n.text("转繁体")).tag(2)
+                HStack(spacing: 12) {
+                  Text(L10n.text("简繁转换")).font(.body).foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Menu {
+                    ForEach(
+                      [(0, L10n.text("不转换")), (1, L10n.text("转简体")), (2, L10n.text("转繁体"))],
+                      id: \.0
+                    ) { val, title in
+                      Button {
+                        chConvert = val
+                      } label: {
+                        if chConvert == val {
+                          Label(title, systemImage: "checkmark")
+                        } else {
+                          Text(title)
+                        }
+                      }
+                    }
+                  } label: {
+                    menuOptionLabel(chConvertTitle)
                   }
-                  .pickerStyle(.segmented)
-                  .frame(width: 210)
+                  .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
+                .frame(minHeight: 54)
                 CinematicFormDivider()
-                Stepper("缓存有效期：\(cacheTtlHours) 小时", value: $cacheTtlHours, in: 1...720)
-                  .padding(.horizontal, 16).padding(.vertical, 12)
+                HStack(spacing: 12) {
+                  Text("缓存有效期").font(.body).foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Text("\(cacheTtlHours) 小时").font(.subheadline.monospacedDigit()).foregroundStyle(
+                    .secondary)
+                  Stepper("", value: $cacheTtlHours, in: 1...720)
+                    .labelsHidden()
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .frame(minHeight: 54)
                 CinematicFormDivider()
-                Stepper("缓存上限：\(cacheMaxMb) MB", value: $cacheMaxMb, in: 64...4096, step: 64)
-                  .padding(.horizontal, 16).padding(.vertical, 12)
+                HStack(spacing: 12) {
+                  Text("缓存上限").font(.body).foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Text("\(cacheMaxMb) MB").font(.subheadline.monospacedDigit()).foregroundStyle(
+                    .secondary)
+                  Stepper("", value: $cacheMaxMb, in: 64...4096, step: 64)
+                    .labelsHidden()
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .frame(minHeight: 54)
                 CinematicFormDivider()
-                Stepper("请求超时：\(timeoutSeconds) 秒", value: $timeoutSeconds, in: 3...60)
-                  .padding(.horizontal, 16).padding(.vertical, 12)
+                HStack(spacing: 12) {
+                  Text("请求超时").font(.body).foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Text("\(timeoutSeconds) 秒").font(.subheadline.monospacedDigit()).foregroundStyle(
+                    .secondary)
+                  Stepper("", value: $timeoutSeconds, in: 3...60)
+                    .labelsHidden()
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .frame(minHeight: 54)
                 CinematicFormDivider()
                 Toggle("复用全局代理", isOn: $useProxy)
+                  .font(.body).foregroundStyle(.primary)
                   .tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
                 CinematicFormDivider()
                 Toggle("校验 HTTPS 证书", isOn: $verifyTls)
+                  .font(.body).foregroundStyle(.primary)
                   .tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
+                  .frame(minHeight: 54)
               }
             }
 

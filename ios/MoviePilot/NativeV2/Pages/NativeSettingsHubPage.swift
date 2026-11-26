@@ -2761,6 +2761,48 @@ struct NativePlaybackPreferencesPage: View {
   @State private var unbindConfirmTarget: MediaServerAccountBindingDTO?
   @State private var isUnbinding = false
 
+  private var videoEngineLabel: String {
+    switch videoEngine {
+    case "native": return "系统原生内核"
+    case "enhanced": return "全能增强内核"
+    case "legacy": return "兼容内核（VLCKit）"
+    default: return "自动选择（推荐）"
+    }
+  }
+
+  private var decodeModeLabel: String {
+    decodeMode == "sw_force" ? "强制软件解码" : "硬件解码优先"
+  }
+
+  private var bufferProfileLabel: String {
+    bufferProfile == "large" ? "大缓冲（4K / STRM）" : "标准缓冲"
+  }
+
+  private var subtitleScaleLabel: String {
+    switch subtitleScale {
+    case ..<0.92: return "小 (0.85x)"
+    case 1.08..<1.22: return "大 (1.15x)"
+    case 1.22...: return "特大 (1.3x)"
+    default: return "标准 (1.0x)"
+    }
+  }
+
+  private var defaultRateLabel: String {
+    String(format: "%.2gx", defaultRate) == "1x" ? "1.0x" : String(format: "%.2gx", defaultRate)
+  }
+
+  private func menuOptionLabel(_ value: String) -> some View {
+    HStack(spacing: 5) {
+      Text(value)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+      Image(systemName: "chevron.up.chevron.down")
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.secondary.opacity(0.55))
+    }
+  }
+
   var body: some View {
     ZStack {
       CinematicBackground()
@@ -2772,97 +2814,151 @@ struct NativePlaybackPreferencesPage: View {
             CinematicPanel(padding: 0) {
               VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
-                  HStack(alignment: .center, spacing: 8) {
+                  HStack(alignment: .center, spacing: 12) {
                     Text("播放内核")
                       .font(.body)
+                      .foregroundStyle(.primary)
                       .lineLimit(1)
-                      .fixedSize(horizontal: true, vertical: false)
                     Spacer(minLength: 8)
-                    Picker("播放内核", selection: $videoEngine) {
-                      Text("自动选择（推荐）").tag("auto")
-                      Text("系统原生内核").tag("native")
-                      Text("全能增强内核").tag("enhanced")
-                      Text("兼容内核（VLCKit）").tag("legacy")
+                    Menu {
+                      ForEach(
+                        [
+                          ("auto", "自动选择（推荐）"),
+                          ("native", "系统原生内核"),
+                          ("enhanced", "全能增强内核"),
+                          ("legacy", "兼容内核（VLCKit）"),
+                        ], id: \.0
+                      ) { key, title in
+                        Button {
+                          videoEngine = key
+                        } label: {
+                          if videoEngine == key {
+                            Label(title, systemImage: "checkmark")
+                          } else {
+                            Text(title)
+                          }
+                        }
+                      }
+                    } label: {
+                      menuOptionLabel(videoEngineLabel)
                     }
-                    .pickerStyle(.menu)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .tint(appearance.accentColor)
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("native-playback-video-engine")
                   }
                   Text("常规影片与音乐走系统原生内核省电秒开；MKV、多声道原盘或特效字幕自动切至全能内核")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
                 CinematicFormDivider()
                 VStack(alignment: .leading, spacing: 6) {
-                  HStack {
-                    Text("解码模式").font(.body)
-                    Spacer()
-                    Picker("解码模式", selection: $decodeMode) {
-                      Text("硬件解码优先").tag("hw_auto")
-                      Text("强制软件解码").tag("sw_force")
+                  HStack(spacing: 12) {
+                    Text("解码模式").font(.body).foregroundStyle(.primary)
+                    Spacer(minLength: 8)
+                    Menu {
+                      ForEach(
+                        [("hw_auto", "硬件解码优先"), ("sw_force", "强制软件解码")], id: \.0
+                      ) { key, title in
+                        Button {
+                          decodeMode = key
+                        } label: {
+                          if decodeMode == key {
+                            Label(title, systemImage: "checkmark")
+                          } else {
+                            Text(title)
+                          }
+                        }
+                      }
+                    } label: {
+                      menuOptionLabel(decodeModeLabel)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 210)
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("native-playback-decode-mode")
                   }
                   if videoEngine == "native" && decodeMode == "sw_force" {
                     Text("仅全能增强内核支持视频强制软解，系统原生内核仅支持硬解或音频软解")
                       .font(.caption)
                       .foregroundStyle(.orange)
+                      .multilineTextAlignment(.leading)
                   }
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
                 CinematicFormDivider()
-                HStack {
-                  Text("网络缓冲").font(.body)
-                  Spacer()
-                  Picker("网络缓冲", selection: $bufferProfile) {
-                    Text("标准缓冲").tag("standard")
-                    Text("大缓冲（4K / STRM）").tag("large")
+                HStack(spacing: 12) {
+                  Text("网络缓冲").font(.body).foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Menu {
+                    ForEach(
+                      [("standard", "标准缓冲"), ("large", "大缓冲（4K / STRM）")], id: \.0
+                    ) { key, title in
+                      Button {
+                        bufferProfile = key
+                      } label: {
+                        if bufferProfile == key {
+                          Label(title, systemImage: "checkmark")
+                        } else {
+                          Text(title)
+                        }
+                      }
+                    }
+                  } label: {
+                    menuOptionLabel(bufferProfileLabel)
                   }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
+                  .buttonStyle(.plain)
                   .accessibilityIdentifier("native-playback-buffer-profile")
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
                 CinematicFormDivider()
                 Toggle("夜间模式 / 人声增强", isOn: $audioNightMode)
-                  .font(.body).tint(appearance.accentColor)
+                  .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
                   .frame(minHeight: 54)
                   .accessibilityIdentifier("native-playback-audio-night-mode")
                 CinematicFormDivider()
                 Toggle("忽略 ASS 字幕特效样式", isOn: $ignoreAssStyle)
-                  .font(.body).tint(appearance.accentColor)
+                  .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
                   .frame(minHeight: 54)
                   .accessibilityIdentifier("native-playback-ignore-ass-style")
                 CinematicFormDivider()
-                HStack {
-                  Text("字幕字号").font(.body)
-                  Spacer()
-                  Picker("字幕字号", selection: $subtitleScale) {
-                    Text("小 (0.85x)").tag(0.85)
-                    Text("标准 (1.0x)").tag(1.0)
-                    Text("大 (1.15x)").tag(1.15)
-                    Text("特大 (1.3x)").tag(1.3)
+                HStack(spacing: 12) {
+                  Text("字幕字号").font(.body).foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Menu {
+                    ForEach(
+                      [
+                        (0.85, "小 (0.85x)"),
+                        (1.0, "标准 (1.0x)"),
+                        (1.15, "大 (1.15x)"),
+                        (1.3, "特大 (1.3x)"),
+                      ], id: \.0
+                    ) { scale, title in
+                      Button {
+                        subtitleScale = scale
+                      } label: {
+                        if abs(subtitleScale - scale) < 0.03 {
+                          Label(title, systemImage: "checkmark")
+                        } else {
+                          Text(title)
+                        }
+                      }
+                    }
+                  } label: {
+                    menuOptionLabel(subtitleScaleLabel)
                   }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
+                  .buttonStyle(.plain)
                   .accessibilityIdentifier("native-playback-subtitle-scale")
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
                 CinematicFormDivider()
                 VStack(alignment: .leading, spacing: 6) {
-                  Text("外部播放器 URL 模板").font(.body)
+                  Text("外部播放器 URL 模板").font(.body).foregroundStyle(.primary)
                   TextField("scheme://play?url={url}&title={title}", text: $externalPlayerTemplate)
                     .font(.footnote.monospaced())
                     .textInputAutocapitalization(.never)
@@ -2880,58 +2976,83 @@ struct NativePlaybackPreferencesPage: View {
               .padding(.horizontal, 8)
             CinematicPanel(padding: 0) {
               VStack(spacing: 0) {
-                HStack {
-                  Text("默认画面模式").font(.body)
-                  Spacer()
-                  Picker("画面模式", selection: $aspectFill) {
-                    Text("自适应").tag(false)
-                    Text("铺满屏幕").tag(true)
+                HStack(spacing: 12) {
+                  Text("默认画面模式").font(.body).foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Menu {
+                    Button {
+                      aspectFill = false
+                    } label: {
+                      if !aspectFill { Label("自适应", systemImage: "checkmark") } else { Text("自适应") }
+                    }
+                    Button {
+                      aspectFill = true
+                    } label: {
+                      if aspectFill {
+                        Label("铺满屏幕", systemImage: "checkmark")
+                      } else {
+                        Text("铺满屏幕")
+                      }
+                    }
+                  } label: {
+                    menuOptionLabel(aspectFill ? "铺满屏幕" : "自适应")
                   }
-                  .pickerStyle(.segmented)
-                  .frame(width: 176)
+                  .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
                 CinematicFormDivider()
-                HStack {
-                  Text("默认播放倍速").font(.body)
-                  Spacer()
-                  Picker("倍速", selection: $defaultRate) {
-                    Text("1.0x").tag(1.0)
-                    Text("1.25x").tag(1.25)
-                    Text("1.5x").tag(1.5)
-                    Text("2.0x").tag(2.0)
+                HStack(spacing: 12) {
+                  Text("默认播放倍速").font(.body).foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Menu {
+                    ForEach(
+                      [(1.0, "1.0x"), (1.25, "1.25x"), (1.5, "1.5x"), (2.0, "2.0x")], id: \.0
+                    ) {
+                      rate, title in
+                      Button {
+                        defaultRate = rate
+                      } label: {
+                        if abs(defaultRate - rate) < 0.01 {
+                          Label(title, systemImage: "checkmark")
+                        } else {
+                          Text(title)
+                        }
+                      }
+                    }
+                  } label: {
+                    menuOptionLabel(defaultRateLabel)
                   }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
+                  .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
                 CinematicFormDivider()
                 Toggle("STRM 直链播放", isOn: $strmDirectPlay)
-                  .font(.body).tint(appearance.accentColor)
+                  .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
                   .frame(minHeight: 54)
                   .accessibilityIdentifier("native-playback-strm-direct")
                 CinematicFormDivider()
                 VStack(alignment: .leading, spacing: 4) {
                   Toggle("媒体服务器直连优先", isOn: $directPlay)
-                    .font(.body).tint(appearance.accentColor)
+                    .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
                     .accessibilityIdentifier("native-playback-server-direct")
                   Text("已绑定个人账号的 Emby / Jellyfin / Plex 在直连可达时优先直连播放，不可达或失败时自动回退后台中转")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
                 CinematicFormDivider()
                 Toggle("优先选择中文字幕", isOn: $preferChineseSub)
-                  .font(.body).tint(appearance.accentColor)
+                  .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
                   .frame(minHeight: 54)
                 CinematicFormDivider()
                 Toggle("移动网络播放前提醒", isOn: $cellularWarn)
-                  .font(.body).tint(appearance.accentColor)
+                  .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
                   .padding(.horizontal, 16).padding(.vertical, 12)
                   .frame(minHeight: 54)
               }
@@ -2943,7 +3064,7 @@ struct NativePlaybackPreferencesPage: View {
               .padding(.horizontal, 8)
             CinematicPanel(padding: 0) {
               Toggle("返回时收起为悬浮迷你播放条", isOn: $keepMusicMiniBar)
-                .font(.body).tint(appearance.accentColor)
+                .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 54)
             }
@@ -2957,31 +3078,33 @@ struct NativePlaybackPreferencesPage: View {
                 NavigationLink {
                   NativeDanmakuAdminConfigPage(session: session)
                 } label: {
-                  HStack(spacing: 12) {
-                    Image(systemName: "text.bubble.fill")
-                      .font(.system(size: 16, weight: .semibold))
-                      .foregroundStyle(appearance.accentColor)
-                      .frame(width: 28, height: 28)
-                      .background(
-                        appearance.accentColor.opacity(0.14),
-                        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                      )
+                  HStack(spacing: 14) {
+                    Image(systemName: "text.bubble")
+                      .font(.system(size: 18, weight: .medium))
+                      .foregroundStyle(.primary)
+                      .frame(width: 24, height: 24)
                     VStack(alignment: .leading, spacing: 3) {
                       Text(L10n.text("弹幕服务配置"))
                         .font(.body)
                         .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
                       Text("管理员配置自定义弹弹play 兼容 API、鉴权与服务端弹幕缓存")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: "chevron.right")
-                      .font(.caption.weight(.semibold))
-                      .foregroundStyle(.tertiary)
+                      .font(.footnote.weight(.semibold))
+                      .foregroundStyle(.secondary.opacity(0.55))
                   }
                   .padding(.horizontal, 16)
-                  .padding(.vertical, 13)
+                  .padding(.vertical, 14)
+                  .frame(minHeight: 56)
+                  .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("native-playback-danmaku-config")
               }
             }

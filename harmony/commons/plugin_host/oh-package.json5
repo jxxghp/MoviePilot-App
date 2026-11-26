@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/plugin_host",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "MoviePilot HarmonyOS NEXT plugin_host HAR",
   "main": "Index.ets",
   "dependencies": {

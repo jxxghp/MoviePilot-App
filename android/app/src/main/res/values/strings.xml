@@ -583,13 +583,20 @@
     <string name="mp_widget_3d20ab8c" formatted="false">查看服务概览、下载、近期入库与订阅。</string>
     <string name="mp_widget_4b81846f" formatted="false">服务</string>
     <string name="mp_widget_5319af76" formatted="false">订阅</string>
+    <string name="mp_widget_55ab70bb" formatted="false">插件卡片</string>
+    <string name="mp_widget_5fc9c548" formatted="false">暂无正在播放的音频</string>
     <string name="mp_widget_66c5aa72" formatted="false">剧集订阅</string>
     <string name="mp_widget_83dc943e" formatted="false">系统概览</string>
     <string name="mp_widget_84c5f125" formatted="false">音乐订阅</string>
     <string name="mp_widget_9203b76d" formatted="false">电影订阅</string>
+    <string name="mp_widget_943d096c" formatted="false">在桌面展示插件音频封面、同步歌词与播放控制。</string>
+    <string name="mp_widget_99854c7c" formatted="false">正在播放</string>
     <string name="mp_widget_app_667ee75e" formatted="false">选择已在 App 中启用的服务与只读内容。</string>
+    <string name="mp_widget_c007cc5a" formatted="false">展示已启用插件的自定义数据卡片、仪表盘或快捷入口。</string>
     <string name="mp_widget_ce52b3cf" formatted="false">近期入库</string>
     <string name="mp_widget_efd9aa2e" formatted="false">下载状态</string>
     <string name="mp_widget_moviepilot_00c24418" formatted="false">MoviePilot 小组件</string>
+    <string name="mp_widget_moviepilot_51eb4e44" formatted="false">MoviePilot 正在播放</string>
     <string name="mp_widget_moviepilot_a0cfe3e6" formatted="false">MoviePilot 状态</string>
+    <string name="mp_widget_moviepilot_c6f24b55" formatted="false">MoviePilot 插件</string>
 </resources>

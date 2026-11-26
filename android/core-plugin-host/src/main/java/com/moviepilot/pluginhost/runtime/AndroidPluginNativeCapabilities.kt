@@ -16,9 +16,11 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.media.audiofx.Visualizer
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.ConnectivityManager
@@ -28,6 +30,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -35,6 +38,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.moviepilot.pluginhost.R
 import com.moviepilot.pluginhost.VuePluginSessionPayload
 import com.moviepilot.rustbridge.RustCoreBridge
 import kotlinx.serialization.json.Json
@@ -55,11 +59,18 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.io.FileOutputStream
 import java.net.URLEncoder
+import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ExecutorService
+import kotlin.math.hypot
 import kotlin.math.ln
+import kotlin.math.log10
+import kotlin.math.pow
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * Activity 作用域交互回调接口：由 `LocalPluginShellWebView` 在 Compose 宿主中通过
@@ -103,6 +114,16 @@ class AndroidPluginNativeCapabilities(
         private const val EXTRA_CUSTOM_ACTION_ID = "custom_action_id"
         private const val CUSTOM_ACTION_TOGGLE_LIKE = "mp_toggle_like"
         private const val CUSTOM_ACTION_PREFIX = "mp_custom:"
+        private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
+        private const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
+        private const val ACTION_WIDGET_COMMAND = "com.moviepilot.plugin.WIDGET_ACTION"
+        private const val ACTION_PLUGIN_WIDGET_RUNTIME_UPDATED = "com.moviepilot.widget.ACTION_PLUGIN_WIDGET_RUNTIME_UPDATED"
+        private const val ACTION_NOW_PLAYING_UPDATED = "com.moviepilot.widget.ACTION_NOW_PLAYING_UPDATED"
+        private const val PREF_PLUGIN_WIDGETS = "mp_plugin_widgets_v1"
+        private const val PREF_NOW_PLAYING_WIDGET = "mp_now_playing_widget_v1"
+        private const val MAX_WIDGET_PAYLOAD_BYTES = 32 * 1024
+        private const val MAX_WIDGET_LAYOUT_DEPTH = 5
+        private const val MAX_WIDGET_LAYOUT_NODES = 40
     }
 
     private data class NowPlayingLyricLine(
@@ -126,6 +147,9 @@ class AndroidPluginNativeCapabilities(
     @Volatile
     var activePluginId: String = ""
 
+    @Volatile
+    var activePluginName: String = ""
+
     // Recording state
     private var recorder: MediaRecorder? = null
     private var recordingId: String? = null
@@ -138,7 +162,7 @@ class AndroidPluginNativeCapabilities(
     private var isRecordingPaused: Boolean = false
     private var recordingTickRunnable: Runnable? = null
 
-    // Inline audio playback state
+    // Inline audio playback & real-time spectrum state (#79)
     private var mediaPlayer: MediaPlayer? = null
     private var playbackId: String? = null
     private var playbackTempFile: File? = null
@@ -147,11 +171,25 @@ class AndroidPluginNativeCapabilities(
     private var playbackRate: Float = 1.0f
     private var playbackVolume: Float = 1.0f
     private var playbackProgressRunnable: Runnable? = null
+    private var spectrumEnabled: Boolean = false
+    private var spectrumBands: Int = 64
+    private var spectrumIntervalMs: Long = 50L
+    private var visualizer: Visualizer? = null
+    private var lastSpectrumEmitElapsedMs: Long = 0L
+    @Volatile
+    private var latestLeftLevel: Int = 0
+    @Volatile
+    private var latestRightLevel: Int = 0
+
+    // System volume & desktop widget broadcast state (#82)
+    private var systemEventReceiver: BroadcastReceiver? = null
+    private var lastObservedVolumeSteps: Int = -1
+    private var lastObservedVolumeMuted: Boolean? = null
 
     // Keep-awake state
     private var keepAwakeEnabled: Boolean = false
 
-    // Status bar / MediaSession Now Playing state (#56)
+    // Status bar / MediaSession Now Playing state (#56 / #82)
     private var mediaSession: MediaSession? = null
     private var mediaActionReceiver: BroadcastReceiver? = null
     private var nowPlayingActive: Boolean = false
@@ -171,22 +209,26 @@ class AndroidPluginNativeCapabilities(
     private var nowPlayingCustomActions: List<NowPlayingCustomAction> = emptyList()
     private var nowPlayingArtworkUrl: String = ""
     private var nowPlayingArtworkBitmap: Bitmap? = null
+    private var nowPlayingWidgetArtworkPath: String = ""
 
     fun cleanup() {
         mainHandler.post {
             cancelActiveRecording(emitEvent = false)
             stopInlinePlayback(emitEvent = false)
             clearNowPlayingNotification()
+            unregisterSystemReceivers()
             if (keepAwakeEnabled) {
                 keepAwakeEnabled = false
                 activityHost?.setKeepAwake(false)
             }
             activityHost = null
             activePluginId = ""
+            activePluginName = ""
         }
     }
 
     fun handle(type: String, requestId: String, payload: JsonObject): Boolean {
+        ensureSystemReceiversRegistered()
         when (type) {
             "device.capabilities" -> handleCapabilities(requestId)
             "device.info" -> handleDeviceInfo(requestId)
@@ -221,6 +263,9 @@ class AndroidPluginNativeCapabilities(
             "audio.seek" -> mainHandler.post { handleAudioSeek(requestId, payload) }
             "audio.setRate" -> mainHandler.post { handleAudioSetRate(requestId, payload) }
             "audio.setVolume" -> mainHandler.post { handleAudioSetVolume(requestId, payload) }
+            "audio.getSystemVolume" -> mainHandler.post { handleGetSystemVolume(requestId) }
+            "audio.setSystemVolume" -> mainHandler.post { handleSetSystemVolume(requestId, payload) }
+            "audio.setSpectrum" -> mainHandler.post { handleAudioSetSpectrum(requestId, payload) }
             "audio.status" -> mainHandler.post { sendSuccess(requestId, currentPlaybackStatusJson()) }
             "audio.setNowPlaying" -> mainHandler.post { handleAudioSetNowPlaying(requestId, payload) }
             "audio.clearNowPlaying" -> mainHandler.post {
@@ -228,6 +273,9 @@ class AndroidPluginNativeCapabilities(
                 sendSuccess(requestId, buildJsonObject { put("cleared", true) })
             }
             "media.playNative" -> handlePlayNativeMedia(requestId, payload)
+            "widget.update" -> executor.execute { handleWidgetUpdate(requestId, payload) }
+            "widget.remove" -> executor.execute { handleWidgetRemove(requestId, payload) }
+            "widget.list" -> executor.execute { handleWidgetList(requestId) }
             else -> return false
         }
         return true
@@ -244,6 +292,9 @@ class AndroidPluginNativeCapabilities(
             "native.audio.nowPlaying",
             "native.audio.lyrics",
             "native.audio.customActions",
+            "native.audio.systemVolume",
+            "native.audio.spectrum",
+            "native.widget",
             "media.playNative",
             "device.info",
             "device.permission",
@@ -912,6 +963,10 @@ class AndroidPluginNativeCapabilities(
         val playArtist = payload["artist"]?.strOrNull()?.trim().orEmpty()
         val playAlbum = payload["album"]?.strOrNull()?.trim().orEmpty()
         val playArtworkUrl = payload["artworkUrl"]?.strOrNull()?.trim().orEmpty()
+        val specConfig = payload["spectrum"] as? JsonObject
+        val reqSpecEnabled = (specConfig?.get("enabled") as? JsonPrimitive)?.booleanOrNull ?: false
+        val reqSpecBands = ((specConfig?.get("bands") as? JsonPrimitive)?.intOrNull ?: 64).coerceIn(16, 256)
+        val reqSpecIntervalMs = ((specConfig?.get("intervalMs") as? JsonPrimitive)?.intOrNull ?: 50).coerceIn(30, 250).toLong()
 
         val rawB64 = payload["base64"]?.strOrNull().orEmpty()
         val storage = payload["storage"]?.strOrNull().orEmpty()
@@ -981,6 +1036,9 @@ class AndroidPluginNativeCapabilities(
             playbackVolume = volume
             playbackRate = rate
             playbackState = "loading"
+            spectrumEnabled = reqSpecEnabled
+            spectrumBands = reqSpecBands
+            spectrumIntervalMs = reqSpecIntervalMs
 
             runCatching {
                 val mp = MediaPlayer().apply {
@@ -1008,6 +1066,7 @@ class AndroidPluginNativeCapabilities(
                         player.start()
                         playbackState = "playing"
                         startPlaybackProgressTicker()
+                        val specActive = syncVisualizerState()
                         if (showInStatusBar && playTitle.isNotBlank()) {
                             applyNowPlayingNotification(
                                 title = playTitle,
@@ -1030,6 +1089,7 @@ class AndroidPluginNativeCapabilities(
                                 put("playbackId", playId)
                                 put("state", "playing")
                                 put("durationMs", player.duration.coerceAtLeast(0))
+                                put("spectrumActive", specActive)
                             },
                         )
                     }
@@ -1038,6 +1098,7 @@ class AndroidPluginNativeCapabilities(
                         if (!playbackLoop) {
                             playbackState = "ended"
                             stopPlaybackProgressTicker()
+                            releaseVisualizer()
                             sendDeviceEvent(
                                 "audio.play.ended",
                                 buildJsonObject {
@@ -1052,6 +1113,7 @@ class AndroidPluginNativeCapabilities(
                         if (playbackId == playId) {
                             playbackState = "error"
                             stopPlaybackProgressTicker()
+                            releaseVisualizer()
                             sendDeviceEvent(
                                 "audio.play.error",
                                 buildJsonObject {
@@ -1079,6 +1141,7 @@ class AndroidPluginNativeCapabilities(
             if (it.isPlaying) it.pause()
             playbackState = "paused"
         }
+        releaseVisualizer()
         emitPlaybackState()
         sendSuccess(requestId, currentPlaybackStatusJson())
     }
@@ -1088,6 +1151,7 @@ class AndroidPluginNativeCapabilities(
             it.start()
             playbackState = "playing"
             startPlaybackProgressTicker()
+            syncVisualizerState()
         }
         emitPlaybackState()
         sendSuccess(requestId, currentPlaybackStatusJson())
@@ -1130,6 +1194,8 @@ class AndroidPluginNativeCapabilities(
     private fun stopInlinePlayback(emitEvent: Boolean) {
         val oldId = playbackId
         stopPlaybackProgressTicker()
+        releaseVisualizer()
+        spectrumEnabled = false
         runCatching { mediaPlayer?.stop() }
         runCatching { mediaPlayer?.release() }
         mediaPlayer = null
@@ -1137,6 +1203,11 @@ class AndroidPluginNativeCapabilities(
         playbackTempFile = null
         playbackId = null
         playbackState = "idle"
+        AndroidPluginCapsuleManager.syncAudioPlaybackState(
+            context = appContext,
+            pluginId = activePluginId,
+            isPlaying = false,
+        )
         if (emitEvent && oldId != null) {
             sendDeviceEvent(
                 "audio.play.state",
@@ -1150,6 +1221,335 @@ class AndroidPluginNativeCapabilities(
                 },
             )
         }
+    }
+
+    /** 动态开启、关闭或更新实时音频频谱分析配置（`audio.setSpectrum`）。 */
+    private fun handleAudioSetSpectrum(requestId: String, payload: JsonObject) {
+        val nextEnabled = (payload["enabled"] as? JsonPrimitive)?.booleanOrNull ?: spectrumEnabled
+        val nextBands = ((payload["bands"] as? JsonPrimitive)?.intOrNull ?: spectrumBands).coerceIn(16, 256)
+        val nextIntervalMs = ((payload["intervalMs"] as? JsonPrimitive)?.intOrNull ?: spectrumIntervalMs.toInt())
+            .coerceIn(30, 250)
+            .toLong()
+        val intervalChanged = nextIntervalMs != spectrumIntervalMs
+        spectrumEnabled = nextEnabled
+        spectrumBands = nextBands
+        spectrumIntervalMs = nextIntervalMs
+        if (intervalChanged && visualizer != null) {
+            releaseVisualizer()
+        }
+        val active = syncVisualizerState()
+        sendSuccess(
+            requestId,
+            buildJsonObject {
+                put("spectrumActive", active)
+                put("bands", spectrumBands)
+                put("intervalMs", spectrumIntervalMs.toInt())
+            },
+        )
+    }
+
+    /**
+     * 按当前播放状态与 `RECORD_AUDIO` 权限挂载或释放系统 `Visualizer`：
+     * 未获麦克风权限或系统音效驱动异常时静默降级返回 `false`，绝不主动弹窗或打断正常音频播放。
+     */
+    private fun syncVisualizerState(): Boolean {
+        if (!spectrumEnabled || playbackState != "playing") {
+            releaseVisualizer()
+            return false
+        }
+        val mp = mediaPlayer ?: run {
+            releaseVisualizer()
+            return false
+        }
+        val hasMicPerm = ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasMicPerm) {
+            releaseVisualizer()
+            return false
+        }
+        visualizer?.let { existing ->
+            val ok = runCatching {
+                if (!existing.enabled) existing.enabled = true
+                true
+            }.getOrDefault(false)
+            if (ok) return true
+            releaseVisualizer()
+        }
+        val sessionId = runCatching { mp.audioSessionId }.getOrDefault(0)
+        if (sessionId <= 0) return false
+
+        return runCatching {
+            val vis = Visualizer(sessionId)
+            vis.enabled = false
+            val sizeRange = Visualizer.getCaptureSizeRange()
+            val targetSize = 1024.coerceIn(sizeRange[0], sizeRange[1])
+            vis.captureSize = targetSize
+            val maxRate = Visualizer.getMaxCaptureRate().coerceAtLeast(4_000)
+            val desiredRateMilliHz = (1_000_000L / spectrumIntervalMs.coerceIn(30L, 250L))
+                .toInt()
+                .coerceIn(4_000, maxRate)
+            vis.setDataCaptureListener(
+                object : Visualizer.OnDataCaptureListener {
+                    override fun onWaveFormDataCapture(
+                        v: Visualizer?,
+                        waveform: ByteArray?,
+                        samplingRate: Int,
+                    ) {
+                        if (waveform == null || waveform.isEmpty()) return
+                        val levels = computeStereoLevelsFromWaveform(waveform)
+                        latestLeftLevel = levels.first
+                        latestRightLevel = levels.second
+                    }
+
+                    override fun onFftDataCapture(
+                        v: Visualizer?,
+                        fft: ByteArray?,
+                        samplingRate: Int,
+                    ) {
+                        if (fft == null || fft.size < 4 || !spectrumEnabled) return
+                        val nowElapsed = SystemClock.elapsedRealtime()
+                        if (nowElapsed - lastSpectrumEmitElapsedMs < spectrumIntervalMs) return
+                        lastSpectrumEmitElapsedMs = nowElapsed
+                        val bands = resampleFftMagnitudes(fft, spectrumBands)
+                        val left = latestLeftLevel
+                        val right = latestRightLevel
+                        mainHandler.post {
+                            val pid = playbackId ?: return@post
+                            if (!spectrumEnabled || playbackState != "playing") return@post
+                            val pos = runCatching { mediaPlayer?.currentPosition ?: 0 }
+                                .getOrDefault(0)
+                                .coerceAtLeast(0)
+                            sendDeviceEvent(
+                                "audio.play.spectrum",
+                                buildJsonObject {
+                                    put("playbackId", pid)
+                                    put("positionMs", pos)
+                                    put("fft", buildJsonArray { bands.forEach { add(JsonPrimitive(it)) } })
+                                    put("left", left)
+                                    put("right", right)
+                                },
+                            )
+                        }
+                    }
+                },
+                desiredRateMilliHz,
+                true,
+                true,
+            )
+            vis.enabled = true
+            visualizer = vis
+            true
+        }.getOrElse {
+            releaseVisualizer()
+            false
+        }
+    }
+
+    /** 安全停止并释放底层 `Visualizer` 实例，避免后台空转耗电。 */
+    private fun releaseVisualizer() {
+        val vis = visualizer
+        visualizer = null
+        latestLeftLevel = 0
+        latestRightLevel = 0
+        if (vis != null) {
+            runCatching { vis.enabled = false }
+            runCatching { vis.setDataCaptureListener(null, 0, false, false) }
+            runCatching { vis.release() }
+        }
+    }
+
+    /** 从 `Visualizer` 无符号 8-bit 波形缓冲计算左右声道 RMS 电平（映射至 `0..255`）。 */
+    private fun computeStereoLevelsFromWaveform(waveform: ByteArray): Pair<Int, Int> {
+        var sumLeftSq = 0.0
+        var sumRightSq = 0.0
+        var countLeft = 0
+        var countRight = 0
+        for (i in waveform.indices) {
+            val centered = ((waveform[i].toInt() and 0xFF) - 128) / 128.0
+            if ((i and 1) == 0) {
+                sumLeftSq += centered * centered
+                countLeft++
+            } else {
+                sumRightSq += centered * centered
+                countRight++
+            }
+        }
+        val leftRms = if (countLeft > 0) sqrt(sumLeftSq / countLeft) else 0.0
+        val rightRms = if (countRight > 0) sqrt(sumRightSq / countRight) else leftRms
+        val leftInt = (leftRms.pow(0.65) * 320.0).roundToInt().coerceIn(0, 255)
+        val rightInt = (rightRms.pow(0.65) * 320.0).roundToInt().coerceIn(0, 255)
+        return leftInt to rightInt
+    }
+
+    /** 将 `Visualizer` 复数 FFT 字节数组对数分频重采样为 `bandCount` 个 `0..255` 频段幅值。 */
+    private fun resampleFftMagnitudes(fft: ByteArray, bandCount: Int): IntArray {
+        val numBins = (fft.size / 2).coerceAtLeast(2)
+        val mags = FloatArray(numBins)
+        mags[0] = kotlin.math.abs(fft[0].toInt()).toFloat()
+        mags[numBins - 1] = kotlin.math.abs(fft[1].toInt()).toFloat()
+        for (k in 1 until (numBins - 1)) {
+            val re = fft[2 * k].toFloat()
+            val im = fft[2 * k + 1].toFloat()
+            mags[k] = hypot(re, im)
+        }
+        val out = IntArray(bandCount)
+        val usableBins = (numBins - 1).coerceAtLeast(1)
+        val logMax = ln((usableBins + 1).toDouble())
+        for (b in 0 until bandCount) {
+            val t0 = b.toDouble() / bandCount.toDouble()
+            val t1 = (b + 1).toDouble() / bandCount.toDouble()
+            val startBin = (kotlin.math.exp(t0 * logMax) - 1.0).toInt().coerceIn(1, usableBins)
+            val endBin = (kotlin.math.exp(t1 * logMax) - 1.0).toInt().coerceAtLeast(startBin).coerceAtMost(usableBins)
+            var peak = 0f
+            for (idx in startBin..endBin) {
+                if (mags[idx] > peak) peak = mags[idx]
+            }
+            val db = if (peak > 0.5f) 20.0 * log10(peak / 128.0 + 1e-4) else -60.0
+            val normalized = ((db + 42.0) / 42.0).coerceIn(0.0, 1.0)
+            out[b] = (normalized * 255.0).roundToInt().coerceIn(0, 255)
+        }
+        return out
+    }
+
+    // MARK: - System Media Volume (`audio.getSystemVolume` / `audio.setSystemVolume` / `audio.systemVolume`)
+
+    /** 读取系统 `STREAM_MUSIC` 当前媒体音量与静音状态。 */
+    private fun readSystemVolumeJson(): JsonObject {
+        val am = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            ?: return buildJsonObject {
+                put("volume", 1.0)
+                put("muted", false)
+                put("currentSteps", 15)
+                put("maxSteps", 15)
+            }
+        val maxSteps = runCatching { am.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(15).coerceAtLeast(1)
+        val minSteps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            runCatching { am.getStreamMinVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0).coerceAtLeast(0)
+        } else {
+            0
+        }
+        val currentSteps = runCatching { am.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0)
+        val muted = runCatching { am.isStreamMute(AudioManager.STREAM_MUSIC) }.getOrDefault(false) || currentSteps <= minSteps
+        val span = (maxSteps - minSteps).coerceAtLeast(1)
+        val normalized = if (muted && currentSteps <= minSteps) {
+            0.0
+        } else {
+            ((currentSteps - minSteps).toDouble() / span.toDouble()).coerceIn(0.0, 1.0)
+        }
+        return buildJsonObject {
+            put("volume", normalized)
+            put("muted", muted)
+            put("currentSteps", currentSteps)
+            put("maxSteps", maxSteps)
+        }
+    }
+
+    /** 处理前端读取系统媒体音量请求。 */
+    private fun handleGetSystemVolume(requestId: String) {
+        sendSuccess(requestId, readSystemVolumeJson())
+    }
+
+    /** 处理前端调节系统媒体音量请求（支持可选弹出系统音量条）。 */
+    private fun handleSetSystemVolume(requestId: String, payload: JsonObject) {
+        val target = ((payload["volume"] as? JsonPrimitive)?.doubleOrNull ?: 0.5).coerceIn(0.0, 1.0)
+        val showUI = (payload["showUI"] as? JsonPrimitive)?.booleanOrNull ?: false
+        val am = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        if (am != null) {
+            val maxSteps = runCatching { am.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(15).coerceAtLeast(1)
+            val minSteps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                runCatching { am.getStreamMinVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0).coerceAtLeast(0)
+            } else {
+                0
+            }
+            val span = (maxSteps - minSteps).coerceAtLeast(1)
+            val targetIndex = (minSteps + (target * span).roundToInt()).coerceIn(minSteps, maxSteps)
+            val flags = if (showUI) AudioManager.FLAG_SHOW_UI else 0
+            runCatching {
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, targetIndex, flags)
+            }
+        }
+        sendSuccess(requestId, readSystemVolumeJson())
+    }
+
+    /** 注册系统硬件音量键变化与桌面小组件自定义动作广播监听。 */
+    private fun ensureSystemReceiversRegistered() {
+        if (systemEventReceiver != null) return
+        mainHandler.post {
+            if (systemEventReceiver != null) return@post
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    when (intent?.action) {
+                        VOLUME_CHANGED_ACTION -> {
+                            val streamType = intent.getIntExtra(EXTRA_VOLUME_STREAM_TYPE, -1)
+                            if (streamType == AudioManager.STREAM_MUSIC) {
+                                val am = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+                                val steps = runCatching { am.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(-1)
+                                val muted = runCatching { am.isStreamMute(AudioManager.STREAM_MUSIC) }.getOrDefault(false)
+                                if (steps != lastObservedVolumeSteps || muted != lastObservedVolumeMuted) {
+                                    lastObservedVolumeSteps = steps
+                                    lastObservedVolumeMuted = muted
+                                    sendDeviceEvent("audio.systemVolume", readSystemVolumeJson())
+                                }
+                            }
+                        }
+                        ACTION_WIDGET_COMMAND -> {
+                            val targetPlugin = intent.getStringExtra("plugin_id")
+                                ?.ifBlank { intent.getStringExtra("pluginId") }
+                                ?.trim()
+                                .orEmpty()
+                            val currentPlugin = activePluginId.trim()
+                            if (currentPlugin.isNotEmpty() &&
+                                (targetPlugin.isEmpty() || targetPlugin.equals(currentPlugin, ignoreCase = true))
+                            ) {
+                                val widgetKey = intent.getStringExtra("widget_key")
+                                    ?.ifBlank { intent.getStringExtra("widgetKey") }
+                                    ?.trim()
+                                    .orEmpty()
+                                    .ifEmpty { "default" }
+                                val actionId = intent.getStringExtra("action_id")
+                                    ?.ifBlank { intent.getStringExtra("actionId") }
+                                    ?.trim()
+                                    .orEmpty()
+                                if (actionId.isNotEmpty()) {
+                                    sendDeviceEvent(
+                                        "widget.action",
+                                        buildJsonObject {
+                                            put("pluginId", currentPlugin)
+                                            put("widgetKey", widgetKey)
+                                            put("actionId", actionId)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            val filter = IntentFilter().apply {
+                addAction(VOLUME_CHANGED_ACTION)
+                addAction(ACTION_WIDGET_COMMAND)
+            }
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                } else {
+                    @Suppress("DEPRECATION")
+                    appContext.registerReceiver(receiver, filter)
+                }
+                systemEventReceiver = receiver
+            }
+        }
+    }
+
+    /** 注销系统音量与小组件动作广播监听。 */
+    private fun unregisterSystemReceivers() {
+        val rec = systemEventReceiver ?: return
+        systemEventReceiver = null
+        lastObservedVolumeSteps = -1
+        lastObservedVolumeMuted = null
+        runCatching { appContext.unregisterReceiver(rec) }
     }
 
     private fun startPlaybackProgressTicker() {
@@ -1173,10 +1573,12 @@ class AndroidPluginNativeCapabilities(
                         val matched = resolveCurrentLyricLine(pos.toLong())
                         if (matched != lastDisplayedLyricLine) {
                             lastDisplayedLyricLine = matched
+                            nowPlayingPositionMs = pos.toLong()
                             mediaSession?.let { sess ->
                                 sess.setMetadata(buildNowPlayingMediaMetadata(dur.toLong()))
                                 postMediaStyleNotification(sess, true)
                             }
+                            syncNowPlayingWidgetPrefs(active = true, isPlaying = true)
                         }
                     }
                     mainHandler.postDelayed(this, 250L)
@@ -1208,6 +1610,11 @@ class AndroidPluginNativeCapabilities(
 
     private fun emitPlaybackState() {
         sendDeviceEvent("audio.play.state", currentPlaybackStatusJson())
+        AndroidPluginCapsuleManager.syncAudioPlaybackState(
+            context = appContext,
+            pluginId = activePluginId,
+            isPlaying = playbackState == "playing",
+        )
         if (nowPlayingActive && nowPlayingTitle.isNotBlank()) {
             updateNowPlayingPlaybackState()
         }
@@ -1284,15 +1691,21 @@ class AndroidPluginNativeCapabilities(
     private fun resolveCustomActionIconRes(iconHint: String?, active: Boolean): Int {
         val lower = iconHint?.lowercase().orEmpty()
         return when {
-            lower.contains("heart") || lower.contains("like") || lower.contains("star") ->
-                if (active) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off
-            lower.contains("repeat") || lower.contains("loop") || lower.contains("sync") || lower.contains("refresh") ->
-                android.R.drawable.ic_popup_sync
-            lower.contains("close") || lower.contains("stop") || lower.contains("delete") ->
-                android.R.drawable.ic_menu_close_clear_cancel
-            lower.contains("info") || lower.contains("lyric") ->
-                android.R.drawable.ic_menu_info_details
-            else -> android.R.drawable.ic_menu_sort_by_size
+            lower.contains("repeat-one") ||
+                lower.contains("repeat_one") ||
+                lower.contains("repeat-once") ||
+                lower.contains("repeat_once") ||
+                lower.contains("loop-one") ||
+                lower.contains("loop_one") ||
+                lower == "one" ||
+                lower.endsWith("-one") ||
+                lower.endsWith("_one") -> R.drawable.ic_plugin_media_repeat_one
+            lower.contains("shuffle") || lower.contains("random") -> R.drawable.ic_plugin_media_shuffle
+            lower.contains("repeat") || lower.contains("loop") -> R.drawable.ic_plugin_media_repeat
+            lower.contains("heart") || lower.contains("like") || lower.contains("fav") ->
+                if (active) R.drawable.ic_plugin_media_heart_filled else R.drawable.ic_plugin_media_heart_outline
+            lower.contains("lyric") || lower.contains("lrc") -> R.drawable.ic_plugin_media_lyrics
+            else -> R.drawable.ic_plugin_media_queue
         }
     }
 
@@ -1332,7 +1745,7 @@ class AndroidPluginNativeCapabilities(
                 PlaybackState.CustomAction.Builder(
                     CUSTOM_ACTION_TOGGLE_LIKE,
                     if (nowPlayingLiked) "取消喜欢" else "喜欢",
-                    if (nowPlayingLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off,
+                    if (nowPlayingLiked) R.drawable.ic_plugin_media_heart_filled else R.drawable.ic_plugin_media_heart_outline,
                 ).build(),
             )
         }
@@ -1588,11 +2001,21 @@ class AndroidPluginNativeCapabilities(
             if (resolvedArtworkUrl.isBlank()) {
                 nowPlayingArtworkUrl = ""
                 nowPlayingArtworkBitmap = null
+                nowPlayingWidgetArtworkPath = ""
             }
         }
         session.setMetadata(buildNowPlayingMediaMetadata(effectiveDur))
         session.setPlaybackState(buildNowPlayingPlaybackState(isPlaying, effectivePos, rate))
         postMediaStyleNotification(session, isPlaying)
+        AndroidPluginCapsuleManager.syncAudioPlaybackState(
+            context = appContext,
+            pluginId = activePluginId,
+            isPlaying = isPlaying,
+            title = title,
+            subtitle = artist,
+            iconUrl = artworkUrl,
+        )
+        syncNowPlayingWidgetPrefs(active = true, isPlaying = isPlaying)
 
         if (resolvedArtworkUrl.isNotBlank() && resolvedArtworkUrl != nowPlayingArtworkUrl) {
             nowPlayingArtworkUrl = resolvedArtworkUrl
@@ -1610,13 +2033,18 @@ class AndroidPluginNativeCapabilities(
                                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                             } else null
                             if (bmp != null) {
+                                val savedPath = saveWidgetArtworkJpeg(bmp, "now_playing.jpg")
                                 mainHandler.post {
                                     if (nowPlayingActive && nowPlayingArtworkUrl == resolvedArtworkUrl) {
                                         nowPlayingArtworkBitmap = bmp
+                                        nowPlayingWidgetArtworkPath = savedPath
+                                        val currentlyPlaying = mediaSession?.controller?.playbackState?.state == PlaybackState.STATE_PLAYING ||
+                                            playbackState == "playing"
                                         mediaSession?.let { activeSess ->
                                             activeSess.setMetadata(buildNowPlayingMediaMetadata(nowPlayingDurationMs))
-                                            postMediaStyleNotification(activeSess, playbackState == "playing")
+                                            postMediaStyleNotification(activeSess, currentlyPlaying)
                                         }
+                                        syncNowPlayingWidgetPrefs(active = true, isPlaying = currentlyPlaying)
                                     }
                                 }
                             }
@@ -1631,8 +2059,10 @@ class AndroidPluginNativeCapabilities(
         val session = mediaSession ?: return
         val isPlaying = playbackState == "playing"
         val pos = runCatching { mediaPlayer?.currentPosition?.toLong() ?: nowPlayingPositionMs }.getOrDefault(nowPlayingPositionMs)
+        nowPlayingPositionMs = pos
         session.setPlaybackState(buildNowPlayingPlaybackState(isPlaying, pos, playbackRate))
         postMediaStyleNotification(session, isPlaying)
+        syncNowPlayingWidgetPrefs(active = nowPlayingActive, isPlaying = isPlaying)
     }
 
     @Suppress("DEPRECATION")
@@ -1670,7 +2100,7 @@ class AndroidPluginNativeCapabilities(
         } else {
             Notification.Builder(appContext)
         }
-        builder.setSmallIcon(android.R.drawable.ic_media_play)
+        builder.setSmallIcon(R.drawable.ic_plugin_media_heart_filled)
             .setContentTitle(nowPlayingTitle)
             .setContentText(contentLine)
             .apply {
@@ -1688,7 +2118,7 @@ class AndroidPluginNativeCapabilities(
         if (nowPlayingHasLike) {
             builder.addAction(
                 Notification.Action.Builder(
-                    if (nowPlayingLiked) android.R.drawable.btn_star_big_on else android.R.drawable.btn_star_big_off,
+                    if (nowPlayingLiked) R.drawable.ic_plugin_media_heart_filled else R.drawable.ic_plugin_media_heart_outline,
                     if (nowPlayingLiked) "已喜欢" else "喜欢",
                     actionIntent(ACTION_MEDIA_LIKE, 10),
                 ).build(),
@@ -1733,6 +2163,7 @@ class AndroidPluginNativeCapabilities(
     }
 
     private fun clearNowPlayingNotification() {
+        val hadActiveNowPlaying = nowPlayingActive
         nowPlayingActive = false
         nowPlayingTitle = ""
         nowPlayingArtist = ""
@@ -1747,6 +2178,7 @@ class AndroidPluginNativeCapabilities(
         nowPlayingCustomActions = emptyList()
         nowPlayingArtworkUrl = ""
         nowPlayingArtworkBitmap = null
+        nowPlayingWidgetArtworkPath = ""
         mediaSession?.let {
             runCatching { it.isActive = false }
             runCatching { it.release() }
@@ -1758,6 +2190,384 @@ class AndroidPluginNativeCapabilities(
         mediaActionReceiver = null
         val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         runCatching { nm?.cancel(MEDIA_NOTIF_ID) }
+        if (hadActiveNowPlaying) {
+            AndroidPluginCapsuleManager.syncAudioPlaybackState(
+                context = appContext,
+                pluginId = activePluginId,
+                isPlaying = playbackState == "playing",
+            )
+            syncNowPlayingWidgetPrefs(active = false, isPlaying = false)
+        }
+    }
+
+    /**
+     * 供最小化胶囊（Compose 应用内浮条与系统 `WindowManager` 悬浮窗）异步加载插件封面：
+     * 对 `/` 开头的相对受保护路径或同源地址自动附加当前会话凭据，解码并降采样返回 `Bitmap`。
+     */
+    internal fun fetchAuthenticatedBitmap(
+        rawUrl: String,
+        maxSidePx: Int = 192,
+        onResult: (Bitmap?) -> Unit,
+    ) {
+        val (resolvedUrl, attachAuth) = resolvePluginAssetUrl(rawUrl)
+        if (resolvedUrl.isBlank()) {
+            mainHandler.post { onResult(null) }
+            return
+        }
+        executor.execute {
+            val bitmap = runCatching {
+                val reqBuilder = Request.Builder().url(resolvedUrl)
+                val sess = sessionProvider()
+                if (sess != null && (attachAuth || RustCoreBridge.containsUrl(sess.serverUrl, resolvedUrl))) {
+                    buildAuthHeaders(sess).forEach { (k, v) -> reqBuilder.header(k, v) }
+                }
+                okHttp.newCall(reqBuilder.build()).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use null
+                    val bytes = resp.body?.bytes() ?: return@use null
+                    if (bytes.isEmpty()) return@use null
+                    decodeDownsampledBitmap(bytes, maxSidePx)
+                }
+            }.getOrNull()
+            mainHandler.post { onResult(bitmap) }
+        }
+    }
+
+    /** 按目标最大边长解码图片字节，避免大图占满内存。 */
+    private fun decodeDownsampledBitmap(bytes: ByteArray, maxSidePx: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val w = bounds.outWidth
+        val h = bounds.outHeight
+        if (w <= 0 || h <= 0) return null
+        var sampleSize = 1
+        while ((w / sampleSize) > maxSidePx * 2 || (h / sampleSize) > maxSidePx * 2) {
+            sampleSize *= 2
+        }
+        val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
+
+    /** 将位图缩放至不超过 512px 并压缩保存为小组件可读的 JPEG 文件。 */
+    private fun saveWidgetArtworkJpeg(bitmap: Bitmap, fileName: String): String = runCatching {
+        val dir = File(appContext.filesDir, "widget_art").apply { mkdirs() }
+        val targetFile = File(dir, fileName)
+        val maxDim = maxOf(bitmap.width, bitmap.height)
+        val scaled = if (maxDim > 512 && maxDim > 0) {
+            val ratio = 512f / maxDim.toFloat()
+            Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * ratio).roundToInt().coerceAtLeast(1),
+                (bitmap.height * ratio).roundToInt().coerceAtLeast(1),
+                true,
+            )
+        } else {
+            bitmap
+        }
+        FileOutputStream(targetFile).use { out ->
+            scaled.compress(Bitmap.CompressFormat.JPEG, 84, out)
+        }
+        if (scaled !== bitmap) {
+            runCatching { scaled.recycle() }
+        }
+        targetFile.absolutePath
+    }.getOrDefault("")
+
+    /** 解析当前活跃插件显示名称。 */
+    private fun resolveActivePluginDisplayName(): String {
+        val explicit = activePluginName.trim()
+        if (explicit.isNotEmpty()) return explicit
+        val capsuleMatch = AndroidPluginCapsuleManager.currentSession
+            ?.takeIf { it.pluginId.equals(activePluginId, ignoreCase = true) }
+            ?.pluginName
+            .orEmpty()
+        if (capsuleMatch.isNotBlank()) return capsuleMatch
+        return activePluginId.trim()
+    }
+
+    /** 同步当前播放元数据与状态至「正在播放」桌面小组件共享存储并发送广播刷新。 */
+    private fun syncNowPlayingWidgetPrefs(active: Boolean, isPlaying: Boolean) {
+        val pid = activePluginId.trim()
+        val pname = resolveActivePluginDisplayName()
+        val title = if (active) nowPlayingTitle else ""
+        val artist = if (active) nowPlayingArtist else ""
+        val album = if (active) nowPlayingAlbum else ""
+        val lyrics = if (active) lastDisplayedLyricLine.ifBlank { nowPlayingLyrics } else ""
+        val artPath = if (active) nowPlayingWidgetArtworkPath else ""
+        val liked = if (active) nowPlayingLiked else false
+        val hasLike = if (active) nowPlayingHasLike else false
+        val canNext = if (active) nowPlayingCanNext else false
+        val canPrev = if (active) nowPlayingCanPrevious else false
+        val durMs = if (active) nowPlayingDurationMs.coerceAtLeast(0L) else 0L
+        val posMs = if (active) {
+            runCatching { mediaPlayer?.currentPosition?.toLong() ?: nowPlayingPositionMs }
+                .getOrDefault(nowPlayingPositionMs)
+                .coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        val nowSec = System.currentTimeMillis() / 1000L
+        executor.execute {
+            runCatching {
+                val prefs = appContext.getSharedPreferences(PREF_NOW_PLAYING_WIDGET, Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putBoolean("active", active)
+                    .putString("plugin_id", pid)
+                    .putString("plugin_name", pname)
+                    .putString("title", title)
+                    .putString("artist", artist)
+                    .putString("album", album)
+                    .putString("lyrics", lyrics)
+                    .putString("artwork_path", artPath)
+                    .putBoolean("is_playing", active && isPlaying)
+                    .putBoolean("liked", liked)
+                    .putBoolean("has_like", hasLike)
+                    .putBoolean("can_next", canNext)
+                    .putBoolean("can_prev", canPrev)
+                    .putLong("duration_ms", durMs)
+                    .putLong("position_ms", posMs)
+                    .putLong("updated_at", nowSec)
+                    .apply()
+                appContext.sendBroadcast(
+                    Intent(ACTION_NOW_PLAYING_UPDATED).setPackage(appContext.packageName),
+                )
+            }
+        }
+    }
+
+    // MARK: - Desktop Plugin Widget Bridge (`widget.update` / `widget.remove` / `widget.list`)
+
+    /** 校验并规范化小组件键名。 */
+    private fun normalizeWidgetKey(raw: JsonElement?): String {
+        val candidate = when (raw) {
+            is JsonPrimitive -> raw.content.takeIf { it != "null" }.orEmpty()
+            is JsonObject -> raw["widgetKey"]?.strOrNull().orEmpty()
+            else -> ""
+        }.trim()
+        if (candidate.isEmpty()) return "default"
+        return candidate.replace(Regex("[^a-zA-Z0-9_.\\-]"), "_").take(64).ifEmpty { "default" }
+    }
+
+    /** 下载受鉴权或同源小组件图片并落盘至 `filesDir/widget_art/`。 */
+    private fun cacheWidgetImageIfNeeded(rawUrl: String, filePrefix: String): String {
+        val (resolvedUrl, attachAuth) = resolvePluginAssetUrl(rawUrl)
+        if (resolvedUrl.isBlank()) return ""
+        return runCatching {
+            val reqBuilder = Request.Builder().url(resolvedUrl)
+            val sess = sessionProvider()
+            if (sess != null && (attachAuth || RustCoreBridge.containsUrl(sess.serverUrl, resolvedUrl))) {
+                buildAuthHeaders(sess).forEach { (k, v) -> reqBuilder.header(k, v) }
+            }
+            okHttp.newCall(reqBuilder.build()).execute().use { resp ->
+                if (!resp.isSuccessful) return@use ""
+                val bytes = resp.body?.bytes() ?: return@use ""
+                if (bytes.isEmpty() || bytes.size > 5 * 1024 * 1024) return@use ""
+                val bmp = decodeDownsampledBitmap(bytes, 512) ?: return@use ""
+                val hash = MessageDigest.getInstance("SHA-256")
+                    .digest(resolvedUrl.toByteArray())
+                    .take(6)
+                    .joinToString("") { "%02x".format(it) }
+                val saved = saveWidgetArtworkJpeg(bmp, "${filePrefix}_$hash.jpg")
+                runCatching { bmp.recycle() }
+                saved
+            }
+        }.getOrDefault("")
+    }
+
+    /** 递归校验自定义小组件布局树深度与节点上限，并预缓存图片节点。 */
+    private fun validateAndTransformWidgetLayout(
+        node: JsonObject,
+        filePrefix: String,
+        depth: Int,
+        counter: IntArray,
+    ): JsonObject {
+        if (depth > MAX_WIDGET_LAYOUT_DEPTH) {
+            throw IllegalArgumentException("小组件 layout 嵌套深度不能超过 $MAX_WIDGET_LAYOUT_DEPTH 层")
+        }
+        counter[0] += 1
+        if (counter[0] > MAX_WIDGET_LAYOUT_NODES) {
+            throw IllegalArgumentException("小组件 layout 节点总数不能超过 $MAX_WIDGET_LAYOUT_NODES 个")
+        }
+        val type = node["type"]?.strOrNull()?.trim().orEmpty()
+        return buildJsonObject {
+            for ((k, v) in node) {
+                if (k == "children" && v is JsonArray) {
+                    put(
+                        "children",
+                        buildJsonArray {
+                            v.forEach { child ->
+                                val childObj = child as? JsonObject
+                                    ?: throw IllegalArgumentException("小组件 layout 子节点必须为对象")
+                                add(validateAndTransformWidgetLayout(childObj, filePrefix, depth + 1, counter))
+                            }
+                        },
+                    )
+                } else {
+                    put(k, v)
+                }
+            }
+            if (type.equals("image", ignoreCase = true)) {
+                val imgUrl = node["url"]?.strOrNull()?.trim().orEmpty()
+                if (imgUrl.startsWith("/")) {
+                    val localPath = cacheWidgetImageIfNeeded(imgUrl, "${filePrefix}_img")
+                    if (localPath.isNotEmpty()) {
+                        put("artworkPath", localPath)
+                        put("localPath", localPath)
+                    }
+                }
+            }
+        }
+    }
+
+    /** 处理插件运行态推送桌面小组件数据（`widget.update`）。 */
+    private fun handleWidgetUpdate(requestId: String, payload: JsonObject) {
+        val pluginId = activePluginId.trim()
+        if (pluginId.isEmpty()) {
+            sendError(requestId, "NO_ACTIVE_PLUGIN", 400, "当前无活跃插件上下文")
+            return
+        }
+        val widgetKey = normalizeWidgetKey(payload["widgetKey"])
+        val title = payload["title"]?.strOrNull()?.trim().orEmpty()
+        if (title.isEmpty()) {
+            sendError(requestId, "INVALID_PARAMS", 400, "小组件 title 不能为空")
+            return
+        }
+        val subtitle = payload["subtitle"]?.strOrNull()?.trim().orEmpty()
+        val rawKind = payload["kind"]?.strOrNull()?.trim().orEmpty()
+        val allowedKinds = setOf("metrics", "list", "poster", "nowPlaying", "custom")
+        val kind = if (rawKind in allowedKinds) {
+            rawKind
+        } else if (payload["layout"] is JsonObject) {
+            "custom"
+        } else {
+            "metrics"
+        }
+        val badgeText = payload["badgeText"]?.strOrNull()?.trim().orEmpty()
+        val accentHex = payload["accentHex"]?.strOrNull()?.trim().orEmpty()
+        val tapAction = payload["tapAction"]
+        val metricsArr = buildJsonArray {
+            (payload["metrics"] as? JsonArray)?.take(8)?.forEach { add(it) }
+        }
+        val itemsArr = buildJsonArray {
+            (payload["items"] as? JsonArray)?.take(8)?.forEach { add(it) }
+        }
+        val safePrefix = "rt_${pluginId.replace(Regex("[^a-zA-Z0-9_]"), "_")}_$widgetKey"
+        val processedLayout: JsonObject? = try {
+            (payload["layout"] as? JsonObject)?.let { rawLayout ->
+                validateAndTransformWidgetLayout(rawLayout, safePrefix, depth = 1, counter = intArrayOf(0))
+            }
+        } catch (e: IllegalArgumentException) {
+            sendError(requestId, "INVALID_WIDGET_LAYOUT", 400, e.message ?: "小组件布局校验失败")
+            return
+        }
+
+        val rawArtworkUrl = payload["artworkUrl"]?.strOrNull()?.trim().orEmpty()
+        val cachedArtworkPath = if (rawArtworkUrl.isNotEmpty()) {
+            cacheWidgetImageIfNeeded(rawArtworkUrl, safePrefix)
+        } else {
+            ""
+        }
+        val nowSec = System.currentTimeMillis() / 1000L
+        val record = buildJsonObject {
+            put("pluginId", pluginId)
+            put("pluginName", resolveActivePluginDisplayName())
+            put("widgetKey", widgetKey)
+            put("title", title)
+            if (subtitle.isNotEmpty()) put("subtitle", subtitle)
+            put("kind", kind)
+            if (badgeText.isNotEmpty()) put("badgeText", badgeText)
+            if (accentHex.isNotEmpty()) put("accentHex", accentHex)
+            if (tapAction != null && tapAction !is JsonNull) put("tapAction", tapAction)
+            put("metrics", metricsArr)
+            put("items", itemsArr)
+            if (processedLayout != null) put("layout", processedLayout)
+            if (rawArtworkUrl.isNotEmpty()) put("artworkUrl", rawArtworkUrl)
+            if (cachedArtworkPath.isNotEmpty()) put("artworkPath", cachedArtworkPath)
+            put("updatedAt", nowSec)
+        }
+        val encoded = record.toString()
+        if (encoded.toByteArray(Charsets.UTF_8).size > MAX_WIDGET_PAYLOAD_BYTES) {
+            sendError(requestId, "PAYLOAD_TOO_LARGE", 400, "小组件序列化数据超过 32 KiB 上限")
+            return
+        }
+
+        val prefs = appContext.getSharedPreferences(PREF_PLUGIN_WIDGETS, Context.MODE_PRIVATE)
+        val catalog = HashSet(prefs.getStringSet("rt_catalog", emptySet()) ?: emptySet())
+        catalog.add("$pluginId::$widgetKey")
+        prefs.edit()
+            .putString("rt_${pluginId}_$widgetKey", encoded)
+            .putStringSet("rt_catalog", catalog)
+            .apply()
+
+        appContext.sendBroadcast(
+            Intent(ACTION_PLUGIN_WIDGET_RUNTIME_UPDATED).setPackage(appContext.packageName),
+        )
+        sendSuccess(
+            requestId,
+            buildJsonObject {
+                put("updated", true)
+                put("pluginId", pluginId)
+                put("widgetKey", widgetKey)
+                put("updatedAt", nowSec)
+            },
+        )
+    }
+
+    /** 移除当前插件指定的运行态桌面小组件缓存（`widget.remove`）。 */
+    private fun handleWidgetRemove(requestId: String, payload: JsonObject) {
+        val pluginId = activePluginId.trim()
+        if (pluginId.isEmpty()) {
+            sendError(requestId, "NO_ACTIVE_PLUGIN", 400, "当前无活跃插件上下文")
+            return
+        }
+        val widgetKey = normalizeWidgetKey(payload["widgetKey"])
+        val prefs = appContext.getSharedPreferences(PREF_PLUGIN_WIDGETS, Context.MODE_PRIVATE)
+        val catalog = HashSet(prefs.getStringSet("rt_catalog", emptySet()) ?: emptySet())
+        catalog.removeAll { it.equals("$pluginId::$widgetKey", ignoreCase = true) }
+        prefs.edit()
+            .remove("rt_${pluginId}_$widgetKey")
+            .putStringSet("rt_catalog", catalog)
+            .apply()
+        appContext.sendBroadcast(
+            Intent(ACTION_PLUGIN_WIDGET_RUNTIME_UPDATED).setPackage(appContext.packageName),
+        )
+        sendSuccess(
+            requestId,
+            buildJsonObject {
+                put("removed", true)
+                put("pluginId", pluginId)
+                put("widgetKey", widgetKey)
+            },
+        )
+    }
+
+    /** 列出当前活跃插件已注册的所有运行态桌面小组件摘要（`widget.list`）。 */
+    private fun handleWidgetList(requestId: String) {
+        val pluginId = activePluginId.trim()
+        if (pluginId.isEmpty()) {
+            sendSuccess(requestId, buildJsonObject { put("widgets", buildJsonArray {}) })
+            return
+        }
+        val prefs = appContext.getSharedPreferences(PREF_PLUGIN_WIDGETS, Context.MODE_PRIVATE)
+        val catalog = prefs.getStringSet("rt_catalog", emptySet()) ?: emptySet()
+        val prefix = "$pluginId::"
+        val summaries = buildJsonArray {
+            catalog.filter { it.startsWith(prefix, ignoreCase = true) }.sorted().forEach { entry ->
+                val wKey = entry.substringAfter("::")
+                val raw = prefs.getString("rt_${pluginId}_$wKey", null) ?: return@forEach
+                val obj = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return@forEach
+                add(
+                    buildJsonObject {
+                        put("widgetKey", obj["widgetKey"]?.strOrNull() ?: wKey)
+                        put("title", obj["title"]?.strOrNull().orEmpty())
+                        obj["subtitle"]?.strOrNull()?.takeIf { it.isNotEmpty() }?.let { put("subtitle", it) }
+                        put("kind", obj["kind"]?.strOrNull() ?: "metrics")
+                        obj["badgeText"]?.strOrNull()?.takeIf { it.isNotEmpty() }?.let { put("badgeText", it) }
+                        (obj["updatedAt"] as? JsonPrimitive)?.doubleOrNull?.toLong()?.let { put("updatedAt", it) }
+                    },
+                )
+            }
+        }
+        sendSuccess(requestId, buildJsonObject { put("widgets", summaries) })
     }
 
     private fun resolveStorageStreamUrl(

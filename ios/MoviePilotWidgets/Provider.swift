@@ -35,6 +35,59 @@ actor WidgetRepository {
     let snapshot = profile == nil ? nil : try await store.cachedSnapshot(profileId: profileId)
     return (profile, snapshot, outcome)
   }
+
+  /// 合并后端 `/api/v1/widget/plugins` 目录与本机 `"plugin_runtime_widgets.json"` 运行态目录。
+  func pluginDescriptors(profileId: UUID?, refreshIfNeeded: Bool) async -> [PluginWidgetDescriptor]
+  {
+    var merged: [String: PluginWidgetDescriptor] = [:]
+    for rt in PluginWidgetFileStore.runtimeDescriptors() {
+      merged[rt.compositeKey] = rt
+    }
+    guard let store = try? store(), let profiles = try? await store.profiles() else {
+      return Array(merged.values).sorted { ($0.pluginName, $0.name) < ($1.pluginName, $1.name) }
+    }
+    let targets = profileId.map { id in profiles.filter { $0.id == id } } ?? profiles
+    let client = WidgetSnapshotClient()
+    for profile in targets {
+      var catalog = try? await store.cachedPluginCatalog(profileId: profile.id)
+      if catalog == nil && refreshIfNeeded {
+        _ = await store.refreshPluginCatalog(profileId: profile.id, using: client)
+        catalog = try? await store.cachedPluginCatalog(profileId: profile.id)
+      }
+      for descriptor in catalog?.widgets ?? [] {
+        merged[descriptor.compositeKey] = descriptor
+      }
+    }
+    return Array(merged.values).sorted {
+      ($0.pluginName, $0.name, $0.widgetKey) < ($1.pluginName, $1.name, $1.widgetKey)
+    }
+  }
+
+  /// 双通道融合读取插件小组件快照：优先对比本地运行态新鲜快照与后端只读接口。
+  func loadPluginSnapshot(
+    profileId: UUID?, pluginId: String, widgetKey: String, refresh: Bool
+  ) async -> (WidgetProfile?, PluginWidgetSnapshot?, WidgetRefreshOutcome) {
+    let runtimeSnap = PluginWidgetFileStore.readRuntimeWidget(
+      pluginId: pluginId, widgetKey: widgetKey)
+    guard let store = try? store(), let profiles = try? await store.profiles() else {
+      return (nil, runtimeSnap, runtimeSnap == nil ? .unavailable : .cached)
+    }
+    let resolvedProfile =
+      profileId.flatMap { id in profiles.first { $0.id == id } } ?? profiles.first
+    guard let profile = resolvedProfile else {
+      return (nil, runtimeSnap, runtimeSnap == nil ? .removed : .cached)
+    }
+    var outcome: WidgetRefreshOutcome = .cached
+    if refresh {
+      outcome = await store.refreshPluginSnapshot(
+        profileId: profile.id, pluginId: pluginId, widgetKey: widgetKey,
+        using: WidgetSnapshotClient())
+    }
+    let remoteSnap = try? await store.cachedPluginSnapshot(
+      profileId: profile.id, pluginId: pluginId, widgetKey: widgetKey)
+    let fused = PluginWidgetFileStore.fuseSnapshots(runtime: runtimeSnap, remote: remoteSnap)
+    return (profile, fused, outcome)
+  }
 }
 
 /// 时间线只持有最小展示投影，原始凭据和服务器地址不交给 SwiftUI。
@@ -203,5 +256,195 @@ extension MoviePilotEntry {
     var value = self
     value.sample = true
     return value
+  }
+}
+
+/// 正在播放桌面小组件的时间线条目。
+struct NowPlayingWidgetEntry: TimelineEntry {
+  let date: Date
+  let snapshot: NowPlayingWidgetSnapshot
+  let artworkData: Data?
+  var placeholder = false
+  var sample = false
+}
+
+/// 正在播放桌面小组件的时间线提供器，直接消费 App Group `"now_playing.json"` 与本地缓存封面。
+struct MoviePilotNowPlayingProvider: TimelineProvider {
+  /// 组件库占位视图使用固定合成曲目。
+  func placeholder(in context: Context) -> NowPlayingWidgetEntry {
+    var entry = NowPlayingWidgetSample.entry()
+    entry.placeholder = true
+    return entry
+  }
+
+  /// 组件库预览展示合成样例；已放置组件读取真实本地状态。
+  func getSnapshot(in context: Context, completion: @escaping (NowPlayingWidgetEntry) -> Void) {
+    if context.isPreview {
+      completion(NowPlayingWidgetSample.entry())
+    } else {
+      completion(loadCurrentEntry())
+    }
+  }
+
+  /// 生成当前播控状态时间线，空闲或播放变更均由宿主及交互 Intent 主动触发即时刷新。
+  func getTimeline(
+    in context: Context, completion: @escaping (Timeline<NowPlayingWidgetEntry>) -> Void
+  ) {
+    let entry = loadCurrentEntry()
+    let nextDate = Date().addingTimeInterval(entry.snapshot.active ? 300 : 1800)
+    completion(Timeline(entries: [entry], policy: .after(nextDate)))
+  }
+
+  private func loadCurrentEntry() -> NowPlayingWidgetEntry {
+    let snap = PluginWidgetFileStore.readNowPlaying()
+    let art =
+      snap.active && !snap.artworkFileName.isEmpty
+      ? PluginWidgetFileStore.readArtworkData(fileName: snap.artworkFileName) : nil
+    return NowPlayingWidgetEntry(date: Date(), snapshot: snap, artworkData: art)
+  }
+}
+
+/// 正在播放组件库预览的合成样例数据。
+enum NowPlayingWidgetSample {
+  /// 生成不依赖网络或真实音频会话的预览条目。
+  static func entry() -> NowPlayingWidgetEntry {
+    let snap = NowPlayingWidgetSnapshot(
+      active: true,
+      pluginId: "MusicPlayer",
+      pluginName: "云音播控",
+      title: "星河漫游指南",
+      artist: "MoviePilot Studio",
+      album: "Midnight Odyssey",
+      lyrics: "穿过静谧星海，听见光年的回响\n在夜色尽头点亮下一段航程\n每一帧旋律都与光影同行",
+      artworkFileName: "",
+      isPlaying: true,
+      liked: true,
+      hasLike: true,
+      canNext: true,
+      canPrevious: true,
+      durationMs: 248_000,
+      positionMs: 96_000,
+      updatedAt: Date().timeIntervalSince1970
+    )
+    return NowPlayingWidgetEntry(date: Date(), snapshot: snap, artworkData: nil, sample: true)
+  }
+}
+
+/// 插件桌面小组件的时间线条目。
+struct PluginWidgetEntry: TimelineEntry {
+  let date: Date
+  let profileName: String
+  let pluginId: String
+  let widgetKey: String
+  let snapshot: PluginWidgetSnapshot?
+  let artworkData: Data?
+  let connectionFailed: Bool
+  var placeholder = false
+  var sample = false
+}
+
+/// 插件桌面小组件时间线提供器，支持预设卡片与 `PluginWidgetNode` 声明式布局树。
+struct MoviePilotPluginProvider: AppIntentTimelineProvider {
+  /// 组件库占位视图。
+  func placeholder(in context: Context) -> PluginWidgetEntry {
+    var entry = PluginWidgetSample.entry()
+    entry.placeholder = true
+    return entry
+  }
+
+  /// 组件库预览展示合成插件指标，真实组件读取缓存快照。
+  func snapshot(
+    for configuration: MoviePilotPluginConfiguration, in context: Context
+  ) async -> PluginWidgetEntry {
+    if context.isPreview {
+      return PluginWidgetSample.entry()
+    }
+    return await loadEntry(for: configuration, refresh: false)
+  }
+
+  /// 周期性调度只读刷新，并融合运行态最新推送。
+  func timeline(
+    for configuration: MoviePilotPluginConfiguration, in context: Context
+  ) async -> Timeline<PluginWidgetEntry> {
+    let entry = await loadEntry(for: configuration, refresh: true)
+    return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(900)))
+  }
+
+  private func loadEntry(
+    for configuration: MoviePilotPluginConfiguration, refresh: Bool
+  ) async -> PluginWidgetEntry {
+    let now = Date()
+    guard let selected = configuration.widget else {
+      return PluginWidgetEntry(
+        date: now,
+        profileName: configuration.account?.name ?? "MoviePilot",
+        pluginId: "",
+        widgetKey: "",
+        snapshot: nil,
+        artworkData: nil,
+        connectionFailed: false
+      )
+    }
+    let profileId = configuration.account.flatMap { UUID(uuidString: $0.id) }
+    let (profile, snapshot, outcome) = await WidgetRepository.shared.loadPluginSnapshot(
+      profileId: profileId,
+      pluginId: selected.pluginId,
+      widgetKey: selected.widgetKey,
+      refresh: refresh
+    )
+    let artData =
+      PluginWidgetFileStore.readCachedPluginImageData(rawPathOrName: snapshot?.artworkFileName)
+      ?? PluginWidgetFileStore.readCachedPluginImageData(rawPathOrName: snapshot?.imageUrl)
+    return PluginWidgetEntry(
+      date: now,
+      profileName: profile?.name ?? configuration.account?.name ?? "MoviePilot",
+      pluginId: selected.pluginId,
+      widgetKey: selected.widgetKey,
+      snapshot: snapshot,
+      artworkData: artData,
+      connectionFailed: outcome == .unavailable || outcome == .discarded
+    )
+  }
+}
+
+/// 插件小组件预览样例生成工具。
+enum PluginWidgetSample {
+  /// 返回组件库预览用的合成插件卡片条目。
+  static func entry() -> PluginWidgetEntry {
+    let now = Date()
+    let snap = PluginWidgetSnapshot(
+      pluginId: "SiteStatistic",
+      pluginName: "站点数据统计",
+      widgetKey: "main",
+      state: .ready,
+      updatedAt: now.timeIntervalSince1970,
+      kind: .metrics,
+      title: "今日流量概览",
+      subtitle: "做种活跃 · 自动保种正常",
+      metrics: [
+        PluginWidgetMetricItem(id: "up", label: "今日上传", value: "128.4 GB", tone: "success"),
+        PluginWidgetMetricItem(id: "dl", label: "今日下载", value: "36.2 GB", tone: "accent"),
+        PluginWidgetMetricItem(id: "seed", label: "做种体积", value: "18.6 TB", tone: "default"),
+        PluginWidgetMetricItem(id: "bonus", label: "时魔收益", value: "+1,420", tone: "warning"),
+      ],
+      items: [
+        PluginWidgetListItem(
+          id: "s1", title: "主力站点 A", subtitle: "分享率 6.42 · 做种 186", trailing: "正常",
+          progress: 0.88),
+        PluginWidgetListItem(
+          id: "s2", title: "高清影院 B", subtitle: "分享率 4.15 · 做种 94", trailing: "正常",
+          progress: 0.72),
+      ]
+    )
+    return PluginWidgetEntry(
+      date: now,
+      profileName: "我的 MoviePilot",
+      pluginId: snap.pluginId,
+      widgetKey: snap.widgetKey,
+      snapshot: snap,
+      artworkData: nil,
+      connectionFailed: false,
+      sample: true
+    )
   }
 }

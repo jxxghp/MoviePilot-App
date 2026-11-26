@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/subscribe",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "MoviePilot HarmonyOS NEXT subscribe HAR",
   "main": "Index.ets",
   "dependencies": {

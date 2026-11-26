@@ -88,8 +88,10 @@ struct NativePluginLocalRuntimeView: View {
     let accentHex = NativeAppearanceStore.hexString(from: appearance.accentColor)
     let bgHex = NativeAppearanceStore.hexString(
       from: appearance.solidBackgroundColor(for: preferDark ? .dark : .light))
-    let customText = appearance.useCustomTextColor ? appearance.customTextHex + appearance.customLightTextHex : ""
-    return "\(preferDark)|\(accentHex)|\(bgHex)|\(customText)|\(appearance.backgroundPreset.rawValue)"
+    let customText =
+      appearance.useCustomTextColor ? appearance.customTextHex + appearance.customLightTextHex : ""
+    return
+      "\(preferDark)|\(accentHex)|\(bgHex)|\(customText)|\(appearance.backgroundPreset.rawValue)"
   }
 
   var body: some View {
@@ -327,9 +329,13 @@ struct NativePluginLocalRuntimeView: View {
         pluginID: pluginID, serverURL: auth.address.url)
       {
         let slot = resumed.slot
+        slot.sessionContext = context
         slot.schemeHandler.updateSessionContext(context)
         slot.bridge.updateSessionContext(context)
         slot.bridge.nativeSession = session
+        slot.bindActivePlugin(id: pluginID, name: resumed.pluginName)
+        PluginNativeCapabilitiesService.latestActiveService?.activePluginID = pluginID
+        PluginNativeCapabilitiesService.latestActiveService?.activePluginName = resumed.pluginName
         activeSlot = slot
         bindBridgeCallbacks(for: slot)
         let visualTokens = PluginVisualTokensSnapshot.make(
@@ -356,6 +362,11 @@ struct NativePluginLocalRuntimeView: View {
       // 3. 从预热池借出透明 WKWebView 槽
       let slot = PluginWebViewPool.shared.acquire(context: context)
       slot.bridge.nativeSession = session
+      let resolvedDisplayName =
+        pluginName.isEmpty ? (descriptor.name ?? pluginID) : pluginName
+      slot.bindActivePlugin(id: pluginID, name: resolvedDisplayName)
+      PluginNativeCapabilitiesService.latestActiveService?.activePluginID = pluginID
+      PluginNativeCapabilitiesService.latestActiveService?.activePluginName = resolvedDisplayName
       activeSlot = slot
       bindBridgeCallbacks(for: slot)
 
@@ -382,7 +393,9 @@ struct NativePluginLocalRuntimeView: View {
     }
   }
 
-  private func fetchRemoteDescriptor(for targetPluginID: String) async throws -> PluginRemoteDescriptor {
+  private func fetchRemoteDescriptor(for targetPluginID: String) async throws
+    -> PluginRemoteDescriptor
+  {
     let endpoint = try APIEndpoint(
       path: ["plugin", "remotes"],
       query: [URLQueryItem(name: "token", value: "moviepilot")],
@@ -407,7 +420,9 @@ struct NativePluginLocalRuntimeView: View {
       )
     }
 
-    if let exact = list.first(where: { $0.id.caseInsensitiveCompare(targetPluginID) == .orderedSame }) {
+    if let exact = list.first(where: {
+      $0.id.caseInsensitiveCompare(targetPluginID) == .orderedSame
+    }) {
       return exact
     }
     throw NSError(
@@ -516,7 +531,8 @@ struct NativePluginLocalRuntimeView: View {
       }
       let snap = PluginCapsuleSnapshot.from(
         pluginID: pluginID,
-        fallbackName: sheetBridge?.title.isEmpty == false ? (sheetBridge?.title ?? pluginName) : pluginName,
+        fallbackName: sheetBridge?.title.isEmpty == false
+          ? (sheetBridge?.title ?? pluginName) : pluginName,
         payload: payload
       )
       slot.bridge.sendSimpleResponse(
@@ -628,7 +644,8 @@ struct NativePluginLocalRuntimeView: View {
   }
 }
 
-/// iOS 全应用跨标签悬浮插件胶囊与可展开小悬浮窗视图（支持自由拖拽、仅跳转胶囊与快捷操作小悬浮窗）。
+/// iOS 全应用跨标签紧凑单行横向悬浮胶囊视图：
+/// `[圆形鉴权封面 (29pt)] + [标题/副标题文字区 (点击直接恢复完整插件窗口)] + [最多 3 个内联快捷图标按钮] + [关闭按钮 ✕]`。
 @MainActor
 struct NativePluginFloatingCapsuleOverlay: View {
   @ObservedObject var manager: PluginCapsuleManager
@@ -641,77 +658,65 @@ struct NativePluginFloatingCapsuleOverlay: View {
   var body: some View {
     if let session = manager.currentSession {
       let snap = session.snapshot
-      VStack(alignment: .trailing, spacing: 8) {
-        if manager.isMiniCardExpanded && snap.isMiniWindowMode {
-          miniExpandedCard(session: session, snap: snap)
-            .transition(.scale(scale: 0.92, anchor: .bottomTrailing).combined(with: .opacity))
+      capsulePill(session: session, snap: snap)
+        .task(id: "\(session.serverURL.absoluteString)|\(snap.iconURL ?? "")") {
+          manager.ensureIconLoaded(for: session)
         }
-
-        capsulePill(session: session, snap: snap)
-      }
-      .offset(
-        x: accumulatedOffset.width + dragOffset.width,
-        y: accumulatedOffset.height + dragOffset.height
-      )
-      .gesture(
-        DragGesture()
-          .onChanged { value in
-            dragOffset = value.translation
-          }
-          .onEnded { value in
-            accumulatedOffset.width += value.translation.width
-            accumulatedOffset.height += value.translation.height
-            dragOffset = .zero
-          }
-      )
-      .animation(.spring(response: 0.28, dampingFraction: 0.82), value: manager.isMiniCardExpanded)
-      .padding(.trailing, 16)
-      .padding(.bottom, 102)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .offset(
+          x: accumulatedOffset.width + dragOffset.width,
+          y: accumulatedOffset.height + dragOffset.height
+        )
+        .gesture(
+          DragGesture()
+            .onChanged { value in
+              dragOffset = value.translation
+            }
+            .onEnded { value in
+              accumulatedOffset.width += value.translation.width
+              accumulatedOffset.height += value.translation.height
+              dragOffset = .zero
+            }
+        )
+        .padding(.trailing, 16)
+        .padding(.bottom, 102)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
     }
   }
 
-  private func capsulePill(session: MinimizedPluginSession, snap: PluginCapsuleSnapshot) -> some View {
-    HStack(spacing: 8) {
-      capsuleIcon(url: snap.iconURL, size: 28)
-
+  private func capsulePill(session: MinimizedPluginSession, snap: PluginCapsuleSnapshot)
+    -> some View
+  {
+    HStack(spacing: 5) {
       Button {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        if snap.isMiniWindowMode {
-          manager.isMiniCardExpanded.toggle()
-        } else {
-          onOpenFullWindow(session)
-        }
+        onOpenFullWindow(session)
       } label: {
-        VStack(alignment: .leading, spacing: 1) {
-          Text(snap.title)
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-          let secondary = snap.statusText.isEmpty ? snap.subtitle : snap.statusText
-          if !secondary.isEmpty {
-            Text(secondary)
-              .font(.caption2)
-              .foregroundStyle(.secondary)
+        HStack(spacing: 8) {
+          capsuleIcon(session: session, size: 29)
+
+          VStack(alignment: .leading, spacing: 1) {
+            Text(snap.title)
+              .font(.footnote.weight(.semibold))
+              .foregroundStyle(.primary)
               .lineLimit(1)
+            let secondary = snap.subtitle.isEmpty ? snap.statusText : snap.subtitle
+            if !secondary.isEmpty {
+              Text(secondary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
           }
+          .frame(maxWidth: 152, alignment: .leading)
         }
-        .frame(maxWidth: 168, alignment: .leading)
+        .padding(.trailing, 3)
+        .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
+      .accessibilityLabel("恢复打开 \(snap.title)")
 
-      if snap.isMiniWindowMode {
-        Button {
-          UIImpactFeedbackGenerator(style: .light).impactOccurred()
-          onOpenFullWindow(session)
-        } label: {
-          Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(.caption.weight(.bold))
-            .foregroundStyle(appearance.accentColor)
-            .frame(width: 26, height: 26)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("展开插件窗口")
+      ForEach(Array(snap.actions.prefix(3))) { action in
+        inlineActionButton(action: action, isPlaying: snap.isPlaying)
       }
 
       Button {
@@ -721,14 +726,14 @@ struct NativePluginFloatingCapsuleOverlay: View {
         Image(systemName: "xmark")
           .font(.caption2.weight(.bold))
           .foregroundStyle(.secondary)
-          .frame(width: 24, height: 24)
+          .frame(width: 25, height: 25)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("关闭插件胶囊")
     }
-    .padding(.leading, 8)
-    .padding(.trailing, 8)
-    .padding(.vertical, 6)
+    .padding(.leading, 7)
+    .padding(.trailing, 7)
+    .padding(.vertical, 5.5)
     .background(.ultraThinMaterial, in: Capsule())
     .overlay(
       Capsule()
@@ -738,95 +743,70 @@ struct NativePluginFloatingCapsuleOverlay: View {
     .accessibilityIdentifier("native-plugin-floating-capsule")
   }
 
-  private func miniExpandedCard(
-    session: MinimizedPluginSession,
-    snap: PluginCapsuleSnapshot
+  /// 渲染紧凑单行胶囊内联纯图标快捷按钮（实时同步播放/暂停与选中态）。
+  private func inlineActionButton(
+    action: PluginCapsuleActionItem,
+    isPlaying: Bool
   ) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 10) {
-        capsuleIcon(url: snap.iconURL, size: 36)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(snap.title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-          let sub = snap.subtitle.isEmpty ? (snap.statusText.isEmpty ? snap.pluginName : snap.statusText) : snap.subtitle
-          if !sub.isEmpty {
-            Text(sub)
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
-          }
-        }
-        Spacer(minLength: 4)
-        Button {
-          UIImpactFeedbackGenerator(style: .light).impactOccurred()
-          onOpenFullWindow(session)
-        } label: {
-          Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(appearance.accentColor)
-            .frame(width: 30, height: 30)
-            .background(appearance.accentColor.opacity(0.14), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("打开完整窗口")
+    let kind = action.inlineKind
+    let symbolName: String = {
+      switch kind {
+      case .previous:
+        return "backward.end.fill"
+      case .playPause:
+        return isPlaying ? "pause.fill" : "play.fill"
+      case .next:
+        return "forward.end.fill"
+      case .heart:
+        return action.active ? "heart.fill" : "heart"
+      case .repeatOne:
+        return "repeat.1"
+      case .repeatAll:
+        return "repeat"
+      case .shuffle:
+        return "shuffle"
+      case .lyrics:
+        return "quote.bubble"
+      case .generic:
+        return "star.fill"
       }
+    }()
+    let foreground: Color = {
+      if action.destructive {
+        return NativeTheme.danger
+      }
+      if kind == .heart && action.active {
+        return Color(red: 1.0, green: 0.36, blue: 0.54)
+      }
+      if kind != .playPause && action.active {
+        return appearance.accentColor
+      }
+      return .primary
+    }()
 
-      if !snap.actions.isEmpty {
-        Divider()
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 8) {
-            ForEach(snap.actions) { action in
-              Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                manager.dispatchAction(action.id)
-              } label: {
-                Text(action.label)
-                  .font(.caption.weight(.semibold))
-                  .foregroundStyle(
-                    action.destructive
-                      ? NativeTheme.danger
-                      : (action.active ? Color.white : Color.primary)
-                  )
-                  .padding(.horizontal, 12)
-                  .padding(.vertical, 7)
-                  .background(
-                    action.active
-                      ? AnyShapeStyle(appearance.accentColor)
-                      : AnyShapeStyle(Color.primary.opacity(0.08)),
-                    in: Capsule()
-                  )
-              }
-              .buttonStyle(.plain)
-            }
-          }
-        }
-      }
+    return Button {
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+      manager.dispatchAction(action.id)
+    } label: {
+      Image(systemName: symbolName)
+        .font(.system(size: 13.5, weight: .semibold))
+        .foregroundStyle(foreground)
+        .frame(width: 27, height: 27)
+        .contentShape(Circle())
     }
-    .padding(14)
-    .frame(width: 276)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 20, style: .continuous)
-        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.8)
-    )
-    .shadow(color: .black.opacity(0.24), radius: 16, y: 8)
-    .accessibilityIdentifier("native-plugin-floating-mini-card")
+    .buttonStyle(.plain)
+    .accessibilityLabel(action.label)
   }
 
   @ViewBuilder
-  private func capsuleIcon(url: String?, size: CGFloat) -> some View {
-    if let raw = url, let parsed = URL(string: raw) {
-      AsyncImage(url: parsed) { phase in
-        if let image = phase.image {
-          image.resizable().scaledToFill()
-        } else {
-          fallbackCapsuleIcon(size: size)
-        }
-      }
-      .frame(width: size, height: size)
-      .clipShape(Circle())
+  private func capsuleIcon(session: MinimizedPluginSession, size: CGFloat) -> some View {
+    let revision = manager.iconCacheRevision
+    if revision >= 0, let cached = manager.cachedIcon(for: session) {
+      Image(uiImage: cached)
+        .resizable()
+        .scaledToFill()
+        .frame(width: size, height: size)
+        .clipShape(Circle())
     } else {
       fallbackCapsuleIcon(size: size)
     }

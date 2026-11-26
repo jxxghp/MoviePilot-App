@@ -1,16 +1,15 @@
 import { vibrator } from '@kit.SensorServiceKit';
-import { MpRemoteImage } from '@moviepilot/core_rust_bridge';
+import { MoviePilotRepository, MpRemoteImage } from '@moviepilot/core_rust_bridge';
 import {
   HarmonyAppearanceStore,
   HarmonyThemeColors,
-  NativeAdaptivePill,
   mpPrimaryText,
   mpSecondaryText
 } from '@moviepilot/design_system';
 import { HarmonyLocalPluginShellView } from './HarmonyLocalPluginShellView';
 import { HarmonyPluginHeaderAction } from './HarmonyPluginHostBridgeV2';
 
-/** 鸿蒙最小化悬浮小窗上的快捷动作项。 */
+/** 鸿蒙最小化悬浮胶囊上的快捷动作项。 */
 export interface HarmonyPluginCapsuleAction {
   id: string;
   label: string;
@@ -23,6 +22,7 @@ export interface HarmonyPluginCapsuleAction {
 export interface HarmonyPluginCapsuleState {
   pluginId: string;
   pluginName: string;
+  serverUrl?: string;
   surface: string;
   navKey: string;
   pluginHasPage: boolean;
@@ -36,11 +36,71 @@ export interface HarmonyPluginCapsuleState {
   actions: HarmonyPluginCapsuleAction[];
 }
 
+/** 识别胶囊内联快捷动作图标类型。 */
+function classifyHarmonyCapsuleAction(act: HarmonyPluginCapsuleAction): string {
+  const combined = `${act.id} ${act.icon}`.toLowerCase();
+  if (combined.includes('prev') || combined.includes('skip-previous') || combined.includes('step-backward')) {
+    return 'previous';
+  }
+  if (combined.includes('play') || combined.includes('pause') || combined.includes('toggle')) {
+    return 'play_pause';
+  }
+  if (combined.includes('next') || combined.includes('skip-next') || combined.includes('step-forward')) {
+    return 'next';
+  }
+  if (combined.includes('heart') || combined.includes('like') || combined.includes('fav')) {
+    return 'heart';
+  }
+  if (
+    combined.includes('repeat-one') ||
+    combined.includes('repeat_one') ||
+    combined.includes('repeat-once') ||
+    combined.includes('repeat_once') ||
+    combined.includes('loop-one') ||
+    combined.includes('loop_one')
+  ) {
+    return 'repeat_one';
+  }
+  if (combined.includes('repeat') || combined.includes('loop')) {
+    return 'repeat';
+  }
+  if (combined.includes('shuffle') || combined.includes('random')) {
+    return 'shuffle';
+  }
+  if (combined.includes('lyric') || combined.includes('lrc')) {
+    return 'lyrics';
+  }
+  return 'generic';
+}
+
+/** 将播放状态同步写回动作列表中播放/暂停控制项的 `active` 字段。 */
+function syncHarmonyPlayActions(
+  actions: HarmonyPluginCapsuleAction[],
+  isPlaying: boolean
+): HarmonyPluginCapsuleAction[] {
+  const out: HarmonyPluginCapsuleAction[] = [];
+  for (let i = 0; i < actions.length; i++) {
+    const act = actions[i];
+    if (classifyHarmonyCapsuleAction(act) === 'play_pause') {
+      out.push({
+        id: act.id,
+        label: act.label,
+        icon: act.icon,
+        active: isPlaying,
+        destructive: act.destructive
+      });
+    } else {
+      out.push(act);
+    }
+  }
+  return out;
+}
+
 /**
- * 鸿蒙端联邦插件全局保活与最小化胶囊协调器：
+ * 鸿蒙端联邦插件全局保活与紧凑单行最小化胶囊协调器：
  * - 在顶层 `Index.ets` 常驻挂载 `HarmonyGlobalVuePluginOverlay`，最小化时仅收起全屏展示而不销毁 `<Web>`，
  *   确保 Vue 联邦组件状态、音频与定时器在跨 Tab 浏览期间持续保活；
- * - 支持「仅点击跳转胶囊 (`jump`)」与「点击展开快捷操作小悬浮窗 (`mini`)」两种模式。
+ * - 统一渲染为紧凑单行横向播控胶囊，支持同源相对路径封面鉴权加载与原生播放状态实时同步。
  */
 export class HarmonyPluginCapsuleManager {
   static readonly KEY_STATE_JSON = 'mp_harmony_plugin_capsule_json';
@@ -97,9 +157,13 @@ export class HarmonyPluginCapsuleManager {
     navKey: string = ''
   ): void {
     const cur = this.currentState();
+    const repoBase = (MoviePilotRepository.shared().baseUrl ?? '').replace(/\/+$/, '');
     if (cur && cur.pluginId.toLowerCase() === pluginId.toLowerCase()) {
       cur.isMinimized = false;
       cur.surface = surface || cur.surface;
+      if (repoBase.length > 0) {
+        cur.serverUrl = repoBase;
+      }
       AppStorage.setOrCreate(HarmonyPluginCapsuleManager.KEY_MINI_EXPANDED, false);
       this.saveState(cur);
       return;
@@ -107,6 +171,7 @@ export class HarmonyPluginCapsuleManager {
     this.saveState({
       pluginId: pluginId,
       pluginName: pluginName || pluginId,
+      serverUrl: repoBase,
       surface: surface || 'dataPage',
       navKey: navKey,
       pluginHasPage: pluginHasPage,
@@ -121,14 +186,14 @@ export class HarmonyPluginCapsuleManager {
     });
   }
 
-  /** 将当前打开的联邦插件转为最小化悬浮胶囊（不卸载底层 ArkWeb）。 */
+  /** 将当前打开的联邦插件转为紧凑单行最小化悬浮胶囊（不卸载底层 ArkWeb）。 */
   minimizeActive(payload: Record<string, Object>, fallbackPluginId: string, fallbackName: string): void {
     const cur = this.currentState();
-    const actions = HarmonyPluginCapsuleManager.parseActions(payload['actions']);
+    const parsedActions = HarmonyPluginCapsuleManager.parseActions(payload['actions']);
     const rawMode = typeof payload['mode'] === 'string' ? (payload['mode'] as string).toLowerCase() : '';
     const resolvedMode = (rawMode === 'mini' || rawMode === 'jump')
       ? rawMode
-      : (actions.length > 0 ? 'mini' : 'jump');
+      : (parsedActions.length > 0 ? 'mini' : 'jump');
     const resolvedName = (typeof payload['pluginName'] === 'string' && (payload['pluginName'] as string).trim().length > 0)
       ? (payload['pluginName'] as string).trim()
       : (cur ? cur.pluginName : (fallbackName || fallbackPluginId));
@@ -136,9 +201,25 @@ export class HarmonyPluginCapsuleManager {
       ? (payload['title'] as string).trim()
       : resolvedName;
 
+    const effectiveActions = parsedActions.length > 0 || Array.isArray(payload['actions'])
+      ? parsedActions
+      : (cur ? cur.actions : []);
+    let inferredPlaying = cur ? cur.isPlaying : false;
+    for (let i = 0; i < effectiveActions.length; i++) {
+      if (classifyHarmonyCapsuleAction(effectiveActions[i]) === 'play_pause') {
+        inferredPlaying = effectiveActions[i].active;
+        break;
+      }
+    }
+    const resolvedPlaying = typeof payload['isPlaying'] === 'boolean'
+      ? (payload['isPlaying'] as boolean)
+      : inferredPlaying;
+    const repoBase = (MoviePilotRepository.shared().baseUrl ?? '').replace(/\/+$/, '');
+
     const next: HarmonyPluginCapsuleState = {
       pluginId: cur ? cur.pluginId : fallbackPluginId,
       pluginName: resolvedName,
+      serverUrl: (cur && cur.serverUrl && cur.serverUrl.length > 0) ? cur.serverUrl : repoBase,
       surface: cur ? cur.surface : 'dataPage',
       navKey: cur ? cur.navKey : '',
       pluginHasPage: cur ? cur.pluginHasPage : true,
@@ -150,8 +231,8 @@ export class HarmonyPluginCapsuleManager {
         ? (payload['iconUrl'] as string).trim()
         : (cur ? cur.iconUrl : ''),
       mode: resolvedMode,
-      isPlaying: typeof payload['isPlaying'] === 'boolean' ? (payload['isPlaying'] as boolean) : (cur ? cur.isPlaying : false),
-      actions: actions.length > 0 || Array.isArray(payload['actions']) ? actions : (cur ? cur.actions : [])
+      isPlaying: resolvedPlaying,
+      actions: syncHarmonyPlayActions(effectiveActions, resolvedPlaying)
     };
     AppStorage.setOrCreate(HarmonyPluginCapsuleManager.KEY_MINI_EXPANDED, false);
     this.saveState(next);
@@ -181,12 +262,49 @@ export class HarmonyPluginCapsuleManager {
         cur.mode = m;
       }
     }
-    if (typeof payload['isPlaying'] === 'boolean') {
-      cur.isPlaying = payload['isPlaying'] as boolean;
-    }
     if (Array.isArray(payload['actions'])) {
       cur.actions = HarmonyPluginCapsuleManager.parseActions(payload['actions']);
     }
+    if (typeof payload['isPlaying'] === 'boolean') {
+      cur.isPlaying = payload['isPlaying'] as boolean;
+    } else if (Array.isArray(payload['actions'])) {
+      for (let i = 0; i < cur.actions.length; i++) {
+        if (classifyHarmonyCapsuleAction(cur.actions[i]) === 'play_pause') {
+          cur.isPlaying = cur.actions[i].active;
+          break;
+        }
+      }
+    }
+    cur.actions = syncHarmonyPlayActions(cur.actions, cur.isPlaying);
+    this.saveState(cur);
+  }
+
+  /** 原生音频播放状态变化或调用 `setNowPlaying` 时，实时同步胶囊播放图标与曲目信息。 */
+  syncAudioPlaybackState(
+    pluginId: string,
+    isPlaying: boolean,
+    title: string = '',
+    subtitle: string = '',
+    iconUrl: string = ''
+  ): void {
+    const cur = this.currentState();
+    if (!cur) {
+      return;
+    }
+    if (pluginId.length > 0 && cur.pluginId.toLowerCase() !== pluginId.toLowerCase()) {
+      return;
+    }
+    if (title.trim().length > 0) {
+      cur.title = title.trim();
+    }
+    if (subtitle.trim().length > 0) {
+      cur.subtitle = subtitle.trim();
+    }
+    if (iconUrl.trim().length > 0) {
+      cur.iconUrl = iconUrl.trim();
+    }
+    cur.isPlaying = isPlaying;
+    cur.actions = syncHarmonyPlayActions(cur.actions, isPlaying);
     this.saveState(cur);
   }
 
@@ -208,7 +326,7 @@ export class HarmonyPluginCapsuleManager {
     this.saveState(null);
   }
 
-  /** 转发小悬浮窗快捷动作点击给保活中的联邦插件。 */
+  /** 转发胶囊快捷动作点击给保活中的联邦插件。 */
   dispatchAction(actionId: string): void {
     if (this.dispatchActionHandler) {
       this.dispatchActionHandler(actionId);
@@ -334,7 +452,8 @@ export struct HarmonyGlobalVuePluginOverlay {
 }
 
 /**
- * 鸿蒙跨页面悬浮插件胶囊与快捷操作小悬浮窗组件（支持自由拖拽、仅跳转胶囊与快捷操作面板）。
+ * 鸿蒙跨页面紧凑单行横向悬浮胶囊组件：
+ * `[圆形鉴权封面 (28vp)] + [标题/副标题文字区 (点击直接恢复完整插件窗口)] + [最多 3 个内联快捷图标按钮] + [关闭按钮 ✕]`。
  */
 @Component
 export struct HarmonyPluginFloatingCapsule {
@@ -342,7 +461,6 @@ export struct HarmonyPluginFloatingCapsule {
   @StorageLink(HarmonyAppearanceStore.KEY_PALETTE_ID) paletteId: string = 'harmony_blue';
   @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#317AF7';
   @StorageLink(HarmonyPluginCapsuleManager.KEY_STATE_JSON) capsuleJson: string = '';
-  @StorageLink(HarmonyPluginCapsuleManager.KEY_MINI_EXPANDED) miniExpanded: boolean = false;
 
   @State private offsetX: number = 0;
   @State private offsetY: number = 0;
@@ -369,105 +487,100 @@ export struct HarmonyPluginFloatingCapsule {
     }
   }
 
-  private isMiniMode(st: HarmonyPluginCapsuleState): boolean {
-    return st.mode === 'mini' || st.actions.length > 0;
+  /** 解析胶囊封面地址：相对路径 `/` 自动拼接当前实例 `serverUrl`，交由 `MpRemoteImage` 原生同源鉴权加载。 */
+  private resolveCoverUrl(st: HarmonyPluginCapsuleState): string {
+    const raw = (st.iconUrl ?? '').trim();
+    if (raw.length === 0) {
+      return '';
+    }
+    if (raw.startsWith('/')) {
+      const base = ((st.serverUrl && st.serverUrl.length > 0)
+        ? st.serverUrl
+        : (MoviePilotRepository.shared().baseUrl ?? '')).replace(/\/+$/, '');
+      return base.length > 0 ? `${base}${raw}` : '';
+    }
+    return raw;
+  }
+
+  /** 获取最多前 3 个内联快捷动作。 */
+  private inlineActions(st: HarmonyPluginCapsuleState): HarmonyPluginCapsuleAction[] {
+    return (st.actions ?? []).slice(0, 3);
+  }
+
+  /** 解析内联按钮前景色。 */
+  private resolveActionColor(act: HarmonyPluginCapsuleAction): ResourceColor {
+    const kind = classifyHarmonyCapsuleAction(act);
+    if (act.destructive) {
+      return '#EF4444';
+    }
+    if (kind === 'heart' && act.active) {
+      return '#FF5C8A';
+    }
+    if (kind !== 'play_pause' && act.active) {
+      return this.accentHex;
+    }
+    return mpPrimaryText(this.isDark);
+  }
+
+  @Builder
+  private renderInlineActionIcon(act: HarmonyPluginCapsuleAction, isPlaying: boolean) {
+    if (classifyHarmonyCapsuleAction(act) === 'previous') {
+      SymbolGlyph($r('sys.symbol.backward_end_fill'))
+        .fontSize(14)
+        .fontColor([this.resolveActionColor(act)])
+    } else if (classifyHarmonyCapsuleAction(act) === 'play_pause') {
+      SymbolGlyph(isPlaying ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
+        .fontSize(14)
+        .fontColor([this.resolveActionColor(act)])
+    } else if (classifyHarmonyCapsuleAction(act) === 'next') {
+      SymbolGlyph($r('sys.symbol.forward_end_fill'))
+        .fontSize(14)
+        .fontColor([this.resolveActionColor(act)])
+    } else if (classifyHarmonyCapsuleAction(act) === 'heart') {
+      Text(act.active ? '♥' : '♡')
+        .fontSize(14)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.resolveActionColor(act))
+    } else if (classifyHarmonyCapsuleAction(act) === 'repeat_one') {
+      SymbolGlyph($r('sys.symbol.repeat_1'))
+        .fontSize(14)
+        .fontColor([this.resolveActionColor(act)])
+    } else if (classifyHarmonyCapsuleAction(act) === 'repeat') {
+      SymbolGlyph($r('sys.symbol.repeat'))
+        .fontSize(14)
+        .fontColor([this.resolveActionColor(act)])
+    } else if (classifyHarmonyCapsuleAction(act) === 'shuffle') {
+      SymbolGlyph($r('sys.symbol.shuffle'))
+        .fontSize(14)
+        .fontColor([this.resolveActionColor(act)])
+    } else if (classifyHarmonyCapsuleAction(act) === 'lyrics') {
+      SymbolGlyph($r('sys.symbol.lyrics_square'))
+        .fontSize(14)
+        .fontColor([this.resolveActionColor(act)])
+    } else {
+      SymbolGlyph($r('sys.symbol.music_note_list'))
+        .fontSize(14)
+        .fontColor([this.resolveActionColor(act)])
+    }
   }
 
   build() {
     if (this.minimizedState() !== null) {
-      Column({ space: 8 }) {
-        if (this.miniExpanded && this.isMiniMode(this.minimizedState()!)) {
-          Column({ space: 10 }) {
-            Row({ space: 10 }) {
-              if (this.minimizedState()!.iconUrl.length > 0) {
-                MpRemoteImage({
-                  src: this.minimizedState()!.iconUrl,
-                  imgWidth: 34,
-                  imgHeight: 34,
-                  imgRadius: 17
-                })
-              } else {
-                Stack({ alignContent: Alignment.Center }) {
-                  Column()
-                    .width(34)
-                    .height(34)
-                    .borderRadius(17)
-                    .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, '28'))
-                  SymbolGlyph($r('sys.symbol.puzzle'))
-                    .fontSize(17)
-                    .fontColor([this.accentHex])
-                }
-              }
-
-              Column({ space: 2 }) {
-                Text(this.minimizedState()!.title)
-                  .fontSize(14)
-                  .fontWeight(FontWeight.Bold)
-                  .fontColor(mpPrimaryText(this.isDark))
-                  .maxLines(1)
-                if ((this.minimizedState()!.subtitle || this.minimizedState()!.statusText).length > 0) {
-                  Text(this.minimizedState()!.subtitle || this.minimizedState()!.statusText)
-                    .fontSize(11.5)
-                    .fontColor(mpSecondaryText(this.isDark))
-                    .maxLines(1)
-                }
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
-
-              Button({ type: ButtonType.Circle }) {
-                SymbolGlyph($r('sys.symbol.arrow_up_left_and_arrow_down_right'))
-                  .fontSize(14)
-                  .fontColor([this.accentHex])
-              }
-              .width(30)
-              .height(30)
-              .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, '22'))
-              .onClick(() => {
-                this.tapHaptic();
-                HarmonyPluginCapsuleManager.shared().restoreFullWindow();
-              })
-            }
-            .width('100%')
-
-            if (this.minimizedState()!.actions.length > 0) {
-              Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
-                ForEach(this.minimizedState()!.actions, (act: HarmonyPluginCapsuleAction) => {
-                  NativeAdaptivePill({
-                    title: act.label,
-                    selected: act.active,
-                    onTap: () => {
-                      this.tapHaptic();
-                      HarmonyPluginCapsuleManager.shared().dispatchAction(act.id);
-                    }
-                  })
-                }, (act: HarmonyPluginCapsuleAction) => `${act.id}_${act.active}`)
-              }
-            }
-          }
-          .padding(14)
-          .width(268)
-          .borderRadius(20)
-          .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
-          .border({ width: 0.8, color: HarmonyThemeColors.divider(this.isDark) })
-          .shadow({ radius: 18, color: '#38000000', offsetY: 6 })
-        }
-
-        // 悬浮胶囊主体
+      Row({ space: 4 }) {
         Row({ space: 8 }) {
-          if (this.minimizedState()!.iconUrl.length > 0) {
+          if (this.resolveCoverUrl(this.minimizedState()!).length > 0) {
             MpRemoteImage({
-              src: this.minimizedState()!.iconUrl,
-              imgWidth: 26,
-              imgHeight: 26,
-              imgRadius: 13
+              src: this.resolveCoverUrl(this.minimizedState()!),
+              imgWidth: 28,
+              imgHeight: 28,
+              imgRadius: 14
             })
           } else {
             Stack({ alignContent: Alignment.Center }) {
               Column()
-                .width(26)
-                .height(26)
-                .borderRadius(13)
+                .width(28)
+                .height(28)
+                .borderRadius(14)
                 .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, '28'))
               SymbolGlyph($r('sys.symbol.puzzle'))
                 .fontSize(14)
@@ -481,64 +594,60 @@ export struct HarmonyPluginFloatingCapsule {
               .fontWeight(FontWeight.Medium)
               .fontColor(mpPrimaryText(this.isDark))
               .maxLines(1)
-              .constraintSize({ maxWidth: 156 })
-            if ((this.minimizedState()!.statusText || this.minimizedState()!.subtitle).length > 0) {
-              Text(this.minimizedState()!.statusText || this.minimizedState()!.subtitle)
+              .constraintSize({ maxWidth: 148 })
+            if ((this.minimizedState()!.subtitle || this.minimizedState()!.statusText).length > 0) {
+              Text(this.minimizedState()!.subtitle || this.minimizedState()!.statusText)
                 .fontSize(10.5)
                 .fontColor(mpSecondaryText(this.isDark))
                 .maxLines(1)
-                .constraintSize({ maxWidth: 156 })
+                .constraintSize({ maxWidth: 148 })
             }
           }
           .alignItems(HorizontalAlign.Start)
-          .onClick(() => {
-            this.tapHaptic();
-            const st = this.minimizedState();
-            if (!st) {
-              return;
-            }
-            if (this.isMiniMode(st)) {
-              this.miniExpanded = !this.miniExpanded;
-            } else {
-              HarmonyPluginCapsuleManager.shared().restoreFullWindow();
-            }
-          })
+        }
+        .padding({ right: 4 })
+        .onClick(() => {
+          this.tapHaptic();
+          HarmonyPluginCapsuleManager.shared().restoreFullWindow();
+        })
 
-          if (this.isMiniMode(this.minimizedState()!)) {
+        ForEach(
+          this.inlineActions(this.minimizedState()!),
+          (act: HarmonyPluginCapsuleAction) => {
             Button({ type: ButtonType.Circle }) {
-              SymbolGlyph($r('sys.symbol.arrow_up_left_and_arrow_down_right'))
-                .fontSize(12)
-                .fontColor([this.accentHex])
+              this.renderInlineActionIcon(act, this.minimizedState()!.isPlaying)
             }
-            .width(24)
-            .height(24)
+            .width(27)
+            .height(27)
             .backgroundColor(Color.Transparent)
+            .accessibilityText(act.label)
             .onClick(() => {
               this.tapHaptic();
-              HarmonyPluginCapsuleManager.shared().restoreFullWindow();
+              HarmonyPluginCapsuleManager.shared().dispatchAction(act.id);
             })
-          }
+          },
+          (act: HarmonyPluginCapsuleAction) => `${act.id}_${act.active}_${this.minimizedState()!.isPlaying}`
+        )
 
-          Button({ type: ButtonType.Circle }) {
-            SymbolGlyph($r('sys.symbol.xmark'))
-              .fontSize(12)
-              .fontColor([mpSecondaryText(this.isDark)])
-          }
-          .width(24)
-          .height(24)
-          .backgroundColor(Color.Transparent)
-          .onClick(() => {
-            this.tapHaptic();
-            HarmonyPluginCapsuleManager.shared().closeAndDestroy();
-          })
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize(12)
+            .fontColor([mpSecondaryText(this.isDark)])
         }
-        .padding({ left: 8, right: 8, top: 6, bottom: 6 })
-        .borderRadius(999)
-        .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
-        .border({ width: 1, color: HarmonyAppearanceStore.withAlpha(this.accentHex, '55') })
-        .shadow({ radius: 14, color: '#33000000', offsetY: 4 })
+        .width(25)
+        .height(25)
+        .backgroundColor(Color.Transparent)
+        .accessibilityText('关闭插件胶囊')
+        .onClick(() => {
+          this.tapHaptic();
+          HarmonyPluginCapsuleManager.shared().closeAndDestroy();
+        })
       }
-      .alignItems(HorizontalAlign.End)
+      .padding({ left: 7, right: 6, top: 5.5, bottom: 5.5 })
+      .borderRadius(999)
+      .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
+      .border({ width: 1, color: HarmonyAppearanceStore.withAlpha(this.accentHex, '55') })
+      .shadow({ radius: 14, color: '#33000000', offsetY: 4 })
       .offset({ x: this.offsetX, y: this.offsetY })
       .gesture(
         PanGesture({ distance: 4 })

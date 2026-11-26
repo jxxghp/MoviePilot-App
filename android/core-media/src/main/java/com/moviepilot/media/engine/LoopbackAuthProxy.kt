@@ -14,6 +14,7 @@ import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -21,8 +22,8 @@ import java.util.concurrent.atomic.AtomicReference
  * 面向 `libmpv` 的单会话一次性令牌本地环回代理（仅绑定 `127.0.0.1:0`）：
  * 1. 复用 `PlaybackHttpDataSource.createOkHttpClient` 的全部安全策略（自签名 TLS、同源 Cookie/Bearer 隔离、跨源 302 令牌剥离）；
  * 2. 强制要求路径携带 128-bit 随机一次性会话令牌，拒绝任何非法路径或外部网络访问；
- * 3. 支持 HTTP `GET` / `HEAD` 与 `Range` 字节区间请求，完整透传 `200`/`206` 与流式分块转发；
- * 4. 支持运行期热更新主目标路由（直连 -> 代理降级）以及注册外挂字幕路径，销毁时立即断开所有上游连接。
+ * 3. 主媒体流支持 HTTP `GET` / `HEAD` 与 `Range` 字节区间请求，`/aux/` 辅助通道剥离 `Range` 并放宽读取超时以兼容实时字体子集化字幕；
+ * 4. 仅在上游真实支持字节区间或返回 `206` 时回写 `Accept-Ranges`，销毁时立即断开所有上游连接。
  */
 class LoopbackAuthProxy(
     private val okHttpClient: OkHttpClient,
@@ -36,6 +37,14 @@ class LoopbackAuthProxy(
     private val closed = AtomicBoolean(false)
     private val activeCalls = CopyOnWriteArraySet<Call>()
     private val serverSocket = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
+
+    /** 面向 `/aux/` 外挂字幕辅助通道的慢速读取客户端，共享主连接池与鉴权拦截器并放宽超时至 90 秒。 */
+    private val auxHttpClient: OkHttpClient by lazy {
+        okHttpClient.newBuilder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .build()
+    }
     private val acceptExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "mp-loopback-accept").apply { isDaemon = true }
     }
@@ -113,6 +122,10 @@ class LoopbackAuthProxy(
                 }
             }
 
+            val isAuxRoute = isAuxiliaryPath(rawPath)
+            if (isAuxRoute) {
+                sock.soTimeout = 95_000
+            }
             val remoteUrl = resolveRemoteUrl(rawPath)
             if (remoteUrl == null) {
                 writeSimpleStatus(output, 403, "Forbidden")
@@ -125,10 +138,16 @@ class LoopbackAuthProxy(
             } else {
                 reqBuilder.get()
             }
-            rangeHeader?.takeIf { it.isNotBlank() }?.let { reqBuilder.header("Range", it) }
-            ifRangeHeader?.takeIf { it.isNotBlank() }?.let { reqBuilder.header("If-Range", it) }
+            if (isAuxRoute) {
+                // 外挂字幕辅助通道不转发 Range/If-Range 并要求 identity 编码，避免动态子集化上游返回 200 触发后端 501
+                reqBuilder.header("Accept-Encoding", "identity")
+            } else {
+                rangeHeader?.takeIf { it.isNotBlank() }?.let { reqBuilder.header("Range", it) }
+                ifRangeHeader?.takeIf { it.isNotBlank() }?.let { reqBuilder.header("If-Range", it) }
+            }
 
-            val call = okHttpClient.newCall(reqBuilder.build())
+            val clientForCall = if (isAuxRoute) auxHttpClient else okHttpClient
+            val call = clientForCall.newCall(reqBuilder.build())
             activeCalls.add(call)
             try {
                 call.execute().use { resp ->
@@ -137,8 +156,12 @@ class LoopbackAuthProxy(
                     resp.header("Content-Type")?.let { headersBuf.append("Content-Type: ").append(it).append("\r\n") }
                     resp.header("Content-Length")?.let { headersBuf.append("Content-Length: ").append(it).append("\r\n") }
                     resp.header("Content-Range")?.let { headersBuf.append("Content-Range: ").append(it).append("\r\n") }
-                    val acceptRanges = resp.header("Accept-Ranges") ?: "bytes"
-                    headersBuf.append("Accept-Ranges: ").append(acceptRanges).append("\r\n")
+                    val upstreamAcceptRanges = resp.header("Accept-Ranges")?.takeIf { it.isNotBlank() }
+                    if (upstreamAcceptRanges != null) {
+                        headersBuf.append("Accept-Ranges: ").append(upstreamAcceptRanges).append("\r\n")
+                    } else if (resp.code == 206) {
+                        headersBuf.append("Accept-Ranges: bytes\r\n")
+                    }
                     headersBuf.append("Connection: close\r\n\r\n")
                     output.write(headersBuf.toString().toByteArray(Charsets.ISO_8859_1))
                     output.flush()
@@ -163,6 +186,9 @@ class LoopbackAuthProxy(
             }
         }
     }
+
+    private fun isAuxiliaryPath(path: String): Boolean =
+        path.startsWith("/$sessionToken/aux/")
 
     private fun resolveRemoteUrl(path: String): String? {
         val streamPrefix = "/$sessionToken/stream"
