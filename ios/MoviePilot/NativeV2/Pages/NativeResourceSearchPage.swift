@@ -417,6 +417,8 @@ struct NativeResourceSearchPage: View {
                   Text(site.name)
                 }
               }
+              .nativeKeepsMenuOpen()
+              .accessibilityIdentifier("native-resource-search-site-\(site.id)")
             }
           } label: {
             HStack(spacing: 3) {
@@ -628,6 +630,7 @@ struct NativeResourceSearchPage: View {
       }
       .padding(.vertical, 2)
     }
+    .accessibilityIdentifier("native-resource-facet-bar")
   }
 
   @ViewBuilder
@@ -648,6 +651,8 @@ struct NativeResourceSearchPage: View {
           } label: {
             if chosen { Label(opt, systemImage: "checkmark") } else { Text(opt) }
           }
+          .nativeKeepsMenuOpen()
+          .accessibilityIdentifier("native-resource-facet-\(title)-\(opt)")
         }
         if count > 0 {
           Divider()
@@ -659,6 +664,7 @@ struct NativeResourceSearchPage: View {
           isSelected: count > 0
         )
       }
+      .accessibilityIdentifier("native-resource-facet-\(title)")
     }
   }
 
