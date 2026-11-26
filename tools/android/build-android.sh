@@ -66,7 +66,7 @@ build_variant_apk() {
   cd "$ROOT/android"
   local csv_abis="${abis// /,}"
   if [[ "$run_tests" == "true" ]]; then
-    ./gradlew :app:testDebugUnitTest :core-rust-bridge:testDebugUnitTest :app:lintDebug :app:assembleRelease -PMOVIEPILOT_ABI_FILTERS="$csv_abis" --no-daemon
+    ./gradlew :app:testDebugUnitTest :core-rust-bridge:testDebugUnitTest :widget:testDebugUnitTest :app:lintDebug :app:assembleRelease -PMOVIEPILOT_ABI_FILTERS="$csv_abis" --no-daemon
   else
     ./gradlew :app:assembleRelease -PMOVIEPILOT_ABI_FILTERS="$csv_abis" --no-daemon
   fi

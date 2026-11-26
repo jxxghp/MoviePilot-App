@@ -15,6 +15,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    testOptions { unitTests.isIncludeAndroidResources = true }
 }
 
 dependencies {
@@ -22,4 +23,8 @@ dependencies {
     api(project(":core-rust-bridge"))
     api(libs.androidx.glance.appwidget)
     api(libs.androidx.glance.material3)
+    implementation(libs.androidx.work.runtime.ktx)
+    testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.work:work-testing:${libs.versions.workRuntime.get()}")
 }

@@ -58,6 +58,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.LocalSize
@@ -73,7 +75,9 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.background
+import androidx.glance.currentState
 import androidx.glance.layout.Alignment as GlanceAlignment
 import androidx.glance.layout.Column as GlanceColumn
 import androidx.glance.layout.Row as GlanceRow
@@ -100,9 +104,7 @@ import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.PluginDashboardMetaDto
 import com.moviepilot.rustbridge.PluginItemDto
 import com.moviepilot.rustbridge.SessionState
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -138,6 +140,7 @@ object PluginDesktopWidgetStore {
     private const val PREF_NAME = "mp_plugin_widgets_v1"
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
+    /** 读取指定小组件的配置与已缓存摘要，未配置时返回空。 */
     fun loadConfig(context: Context, appWidgetId: Int): PluginDesktopWidgetConfig? {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val kind = prefs.getString("w_${appWidgetId}_kind", null) ?: return null
@@ -162,6 +165,7 @@ object PluginDesktopWidgetStore {
         )
     }
 
+    /** 原子写入配置和数据快照，并登记已配置的小组件 ID。 */
     fun saveConfig(context: Context, config: PluginDesktopWidgetConfig) {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val encodedLines = JsonArray(config.lines.map { JsonPrimitive(it) }).toString()
@@ -182,6 +186,7 @@ object PluginDesktopWidgetStore {
             .apply()
     }
 
+    /** 删除小组件专属配置与快照，不影响其余桌面实例。 */
     fun deleteConfig(context: Context, appWidgetId: Int) {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val allIds = (prefs.getStringSet("configured_ids", emptySet()) ?: emptySet()).toMutableSet()
@@ -201,6 +206,7 @@ object PluginDesktopWidgetStore {
             .apply()
     }
 
+    /** 返回已保存配置的小组件 ID，忽略损坏的索引条目。 */
     fun listConfiguredIds(context: Context): List<Int> {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         return (prefs.getStringSet("configured_ids", emptySet()) ?: emptySet())
@@ -287,9 +293,11 @@ object PluginDesktopWidgetStore {
         }
 
         val collected = mutableListOf<String>()
+        /** 合并摘要中的连续空白，避免桌面单行指标被换行打断。 */
         fun cleanText(raw: String): String =
             raw.replace(Regex("\\s+"), " ").trim()
 
+        /** 有界遍历仪表盘节点，提取可读文本并排除样式、脚本和图标。 */
         fun collectLeafSnippets(node: JsonElement, out: MutableList<String>, depth: Int = 0) {
             if (depth > 14 || out.size >= 24) return
             when (node) {
@@ -348,8 +356,20 @@ object PluginDesktopWidgetStore {
 
 private val WidgetIdParamKey = ActionParameters.Key<Int>("mp_app_widget_id")
 
+/** 驱动仍在运行的 Glance composition 重新读取已持久化的数据快照。 */
+internal val PluginWidgetRevisionKey = longPreferencesKey("mp_plugin_widget_revision")
+
+/** 保存刷新版本后请求 Glance 重绘，兼容配置保存、手动刷新与后台同步。 */
+internal suspend fun updatePluginWidget(context: Context, glanceId: GlanceId) {
+    updateAppWidgetState(context, glanceId) { preferences ->
+        preferences[PluginWidgetRevisionKey] = (preferences[PluginWidgetRevisionKey] ?: 0L) + 1L
+    }
+    MoviePilotPluginGlanceWidget().update(context, glanceId)
+}
+
 /** 点击小组件右上角「↻」触发后台实时刷新。 */
 class RefreshPluginWidgetAction : ActionCallback {
+    /** 同步目标小组件的数据后通知当前 Glance 会话重读快照。 */
     override suspend fun onAction(
         context: Context,
         glanceId: GlanceId,
@@ -359,7 +379,7 @@ class RefreshPluginWidgetAction : ActionCallback {
             ?: runCatching { GlanceAppWidgetManager(context).getAppWidgetId(glanceId) }.getOrNull()
             ?: return
         PluginDesktopWidgetStore.syncWidgetData(context, appWidgetId)
-        MoviePilotPluginGlanceWidget().update(context, glanceId)
+        updatePluginWidget(context, glanceId)
     }
 }
 
@@ -377,16 +397,20 @@ class MoviePilotPluginGlanceWidget : GlanceAppWidget() {
         ),
     )
 
+    /** 按刷新版本读取快照，避免后台更新后仍显示当前会话捕获的旧配置。 */
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val appWidgetId = runCatching { GlanceAppWidgetManager(context).getAppWidgetId(id) }
             .getOrDefault(AppWidgetManager.INVALID_APPWIDGET_ID)
-        val config = if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
-            PluginDesktopWidgetStore.loadConfig(context, appWidgetId)
-        } else {
-            null
-        }
 
         provideContent {
+            val revision = currentState<Preferences>()[PluginWidgetRevisionKey]
+            val config = remember(appWidgetId, revision) {
+                if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                    PluginDesktopWidgetStore.loadConfig(context, appWidgetId)
+                } else {
+                    null
+                }
+            }
             PluginWidgetCardContent(
                 context = context,
                 appWidgetId = appWidgetId,
@@ -396,6 +420,7 @@ class MoviePilotPluginGlanceWidget : GlanceAppWidget() {
     }
 }
 
+/** 根据桌面尺寸展示插件快捷入口、仪表盘摘要或实例概览。 */
 @Composable
 private fun PluginWidgetCardContent(
     context: Context,
@@ -579,29 +604,17 @@ private fun PluginWidgetCardContent(
 class MoviePilotPluginWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = MoviePilotPluginGlanceWidget()
 
+    /** 广播仅由 Glance 接管；网络同步交给 WorkManager，避免重复 goAsync/finish。 */
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
-        val pending = goAsync()
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            try {
-                val manager = GlanceAppWidgetManager(context)
-                for (wid in appWidgetIds) {
-                    PluginDesktopWidgetStore.syncWidgetData(context, wid)
-                    runCatching {
-                        val glanceId = manager.getGlanceIdBy(wid)
-                        MoviePilotPluginGlanceWidget().update(context, glanceId)
-                    }
-                }
-            } finally {
-                pending.finish()
-            }
-        }
+        PluginWidgetUpdateWorker.enqueue(context, appWidgetIds)
     }
 
+    /** 保留 Glance 自身清理流程，再删除对应的业务配置。 */
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         super.onDeleted(context, appWidgetIds)
         appWidgetIds.forEach { wid ->
@@ -615,6 +628,7 @@ class MoviePilotPluginWidgetReceiver : GlanceAppWidgetReceiver() {
  * 支持选择「插件仪表盘数据小部件」、「已安装插件快捷直达小部件」或「媒体库与下载概览」。
  */
 class PluginWidgetConfigureActivity : ComponentActivity() {
+    /** 初始化添加或重新配置入口，缺失有效小组件 ID 时按取消处理。 */
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -660,6 +674,7 @@ class PluginWidgetConfigureActivity : ComponentActivity() {
     }
 }
 
+/** 展示插件仪表盘、插件快捷入口和实例概览三种桌面配置方式。 */
 @Composable
 private fun PluginWidgetConfigureScreen(
     repository: MoviePilotRepository,
@@ -694,6 +709,7 @@ private fun PluginWidgetConfigureScreen(
         isLoading = false
     }
 
+    /** 持久化选择并完成首次同步，通知 Glance 刷新后返回配置成功。 */
     fun commitSelection(initialConfig: PluginDesktopWidgetConfig) {
         if (isSaving) return
         isSaving = true
@@ -703,7 +719,7 @@ private fun PluginWidgetConfigureScreen(
             runCatching {
                 val manager = GlanceAppWidgetManager(context)
                 val glanceId = manager.getGlanceIdBy(appWidgetId)
-                MoviePilotPluginGlanceWidget().update(context, glanceId)
+                updatePluginWidget(context, glanceId)
             }
             isSaving = false
             onSaved()
