@@ -59,6 +59,7 @@ export {
   MpLoginResult,
   MpUsageReportingConfig,
   MpMediaItem,
+  MpMediaSearchSource,
   MpCastMember,
   MpSeasonInfo,
   MpMediaDetailBundle,

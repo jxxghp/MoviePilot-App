@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FilterList
@@ -49,6 +51,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -132,7 +135,9 @@ fun ResourceSearchScreen(
     var sites by remember { mutableStateOf<List<SiteItemDto>>(emptyList()) }
     val siteIcons = remember { mutableStateMapOf<Int, String>() }
     val siteIconsByName = remember { mutableStateMapOf<String, String>() }
+    var siteScopeMode by rememberSaveable { mutableStateOf("default") } // default | all | custom
     var selectedBrowseSiteIds by rememberSaveable { mutableStateOf<Set<Int>>(emptySet()) }
+    var showSiteMenu by remember { mutableStateOf(false) }
     var showSitePickerSheet by remember { mutableStateOf(false) }
 
     var rawItems by remember { mutableStateOf<List<ResourceItemDto>>(emptyList()) }
@@ -141,16 +146,18 @@ fun ResourceSearchScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var showAllFiltersSheet by remember { mutableStateOf(false) }
 
+    // 9 维 + 季集全多选状态（点击选项保持菜单展开连续勾选，点击清空自动收起，对齐 #67）
     var selectedSitesFilter by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectedRes by remember { mutableStateOf<String?>(null) }
-    var selectedPromo by remember { mutableStateOf<String?>(null) }
-    var selectedEncode by remember { mutableStateOf<String?>(null) }
-    var selectedEdition by remember { mutableStateOf<String?>(null) }
-    var selectedResourceType by remember { mutableStateOf<String?>(null) }
-    var selectedAudioEncode by remember { mutableStateOf<String?>(null) }
-    var selectedTeam by remember { mutableStateOf<String?>(null) }
-    var selectedLabel by remember { mutableStateOf<String?>(null) }
-    var activeFilterDim by remember { mutableStateOf<String?>(null) }
+    var selectedResolutions by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedPromotions by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedVideoEncodes by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedEditions by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedResourceTypes by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedAudioEncodes by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedTeams by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedLabels by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedSeasons by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var openFacetMenuKey by remember { mutableStateOf<String?>(null) }
 
     var selectedGroupForDownload by remember { mutableStateOf<ResourceGroupDto?>(null) }
     var downloadToast by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
@@ -164,10 +171,37 @@ fun ResourceSearchScreen(
         )
     }
 
-    fun triggerSearch(targetIds: Set<Int> = selectedBrowseSiteIds) {
+    val activeSites = remember(sites) { sites.filter { it.isActive } }
+
+    fun resolvedSearchSiteIds(
+        mode: String = siteScopeMode,
+        customIds: Set<Int> = selectedBrowseSiteIds,
+    ): List<Int> = when (mode) {
+        "all" -> activeSites.map { it.id }
+        "custom" -> customIds.sorted()
+        else -> emptyList()
+    }
+
+    fun clearAllFacetFilters() {
+        selectedSitesFilter = emptySet()
+        selectedResolutions = emptySet()
+        selectedPromotions = emptySet()
+        selectedVideoEncodes = emptySet()
+        selectedEditions = emptySet()
+        selectedResourceTypes = emptySet()
+        selectedAudioEncodes = emptySet()
+        selectedTeams = emptySet()
+        selectedLabels = emptySet()
+        selectedSeasons = emptySet()
+    }
+
+    fun triggerSearch(
+        mode: String = siteScopeMode,
+        customIds: Set<Int> = selectedBrowseSiteIds,
+    ) {
         scope.launch {
             isLoading = true
-            val idsList = targetIds.toList()
+            val idsList = resolvedSearchSiteIds(mode, customIds)
             val fetched = repository.searchResources(keyword, idsList)
             rawItems = if (fetched.isNotEmpty() || keyword.isNotBlank() || idsList.isNotEmpty()) {
                 fetched
@@ -195,7 +229,7 @@ fun ResourceSearchScreen(
                 }
             }
         }
-        val fetched = repository.searchResources(keyword, selectedBrowseSiteIds.toList())
+        val fetched = repository.searchResources(keyword, resolvedSearchSiteIds())
         rawItems = if (fetched.isNotEmpty()) {
             fetched
         } else {
@@ -205,33 +239,66 @@ fun ResourceSearchScreen(
         isLoading = false
     }
 
+    val seasonOptions = remember(rawItems) {
+        rawItems.mapNotNull { it.seasonEpisode.trim().takeIf { s -> s.isNotEmpty() } }
+            .distinct()
+            .sorted()
+    }
+
+    val seasonFilteredRawItems = remember(rawItems, selectedSeasons) {
+        if (selectedSeasons.isEmpty()) {
+            rawItems
+        } else {
+            rawItems.filter { item ->
+                val se = item.seasonEpisode.trim()
+                se.isNotEmpty() && selectedSeasons.any { it.equals(se, ignoreCase = true) }
+            }
+        }
+    }
+
     val filterResult: ResourceFilterResultDto = remember(
-        rawItems,
+        seasonFilteredRawItems,
         selectedSitesFilter,
-        selectedRes,
-        selectedPromo,
-        selectedEncode,
-        selectedEdition,
-        selectedResourceType,
-        selectedAudioEncode,
-        selectedTeam,
-        selectedLabel,
+        selectedResolutions,
+        selectedPromotions,
+        selectedVideoEncodes,
+        selectedEditions,
+        selectedResourceTypes,
+        selectedAudioEncodes,
+        selectedTeams,
+        selectedLabels,
     ) {
-        // 使用严格 camelCase 键构造 Rust 9 维筛选 JSON；不把远端搜索关键词再次传入本地子串过滤，避免误杀英文标题种子（#59）
+        // 使用严格 camelCase 键构造 Rust 9 维多选筛选 JSON；不把远端搜索关键词再次传入本地子串过滤，避免误杀英文标题种子（#59）
         val criteriaObj = kotlinx.serialization.json.buildJsonObject {
             if (selectedSitesFilter.isNotEmpty()) {
                 put("sites", kotlinx.serialization.json.JsonArray(selectedSitesFilter.map { kotlinx.serialization.json.JsonPrimitive(it) }))
             }
-            selectedRes?.let { put("resolutions", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
-            selectedPromo?.let { put("promotions", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
-            selectedEncode?.let { put("videoEncodes", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
-            selectedEdition?.let { put("editions", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
-            selectedResourceType?.let { put("resourceTypes", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
-            selectedAudioEncode?.let { put("audioEncodes", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
-            selectedTeam?.let { put("teams", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
-            selectedLabel?.let { put("labels", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(it)))) }
+            if (selectedResolutions.isNotEmpty()) {
+                put("resolutions", kotlinx.serialization.json.JsonArray(selectedResolutions.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
+            if (selectedPromotions.isNotEmpty()) {
+                put("promotions", kotlinx.serialization.json.JsonArray(selectedPromotions.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
+            if (selectedVideoEncodes.isNotEmpty()) {
+                put("videoEncodes", kotlinx.serialization.json.JsonArray(selectedVideoEncodes.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
+            if (selectedEditions.isNotEmpty()) {
+                put("editions", kotlinx.serialization.json.JsonArray(selectedEditions.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
+            if (selectedResourceTypes.isNotEmpty()) {
+                put("resourceTypes", kotlinx.serialization.json.JsonArray(selectedResourceTypes.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
+            if (selectedAudioEncodes.isNotEmpty()) {
+                put("audioEncodes", kotlinx.serialization.json.JsonArray(selectedAudioEncodes.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
+            if (selectedTeams.isNotEmpty()) {
+                put("teams", kotlinx.serialization.json.JsonArray(selectedTeams.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
+            if (selectedLabels.isNotEmpty()) {
+                put("labels", kotlinx.serialization.json.JsonArray(selectedLabels.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            }
         }
-        repository.filterResourcesWithRust(rawItems, criteriaObj.toString())
+        repository.filterResourcesWithRust(seasonFilteredRawItems, criteriaObj.toString())
     }
 
     val displayedGroups = remember(filterResult.groups, sortMode) {
@@ -244,13 +311,97 @@ fun ResourceSearchScreen(
     }
 
     val activeFilterCount = selectedSitesFilter.size +
-        listOf(selectedRes, selectedPromo, selectedEncode, selectedEdition, selectedResourceType, selectedAudioEncode, selectedTeam, selectedLabel).count { it != null }
-    val browseSiteLabel = when (selectedBrowseSiteIds.size) {
-        0 -> "全站"
-        1 -> sites.firstOrNull { it.id == selectedBrowseSiteIds.first() }?.name ?: "1 个站点"
-        else -> "已选 ${selectedBrowseSiteIds.size} 站"
+        selectedResolutions.size +
+        selectedPromotions.size +
+        selectedVideoEncodes.size +
+        selectedEditions.size +
+        selectedResourceTypes.size +
+        selectedAudioEncodes.size +
+        selectedTeams.size +
+        selectedLabels.size +
+        selectedSeasons.size
+
+    val hasNonDefaultSiteScope = siteScopeMode != "default" &&
+        (siteScopeMode == "all" || selectedBrowseSiteIds.isNotEmpty())
+    val browseSiteLabel = when (siteScopeMode) {
+        "all" -> "全站"
+        "custom" -> when (selectedBrowseSiteIds.size) {
+            0 -> "默认"
+            1 -> sites.firstOrNull { it.id == selectedBrowseSiteIds.first() }?.name ?: "1站"
+            else -> "${selectedBrowseSiteIds.size}站"
+        }
+        else -> "默认"
     }
     val currentSortLabel = sortLabels.firstOrNull { it.first == sortMode }?.second ?: "做种最多"
+
+    @Composable
+    fun FacetMultiSelectMenuPill(
+        menuKey: String,
+        title: String,
+        options: List<String>,
+        selection: Set<String>,
+        onSelectionChange: (Set<String>) -> Unit,
+        showSiteLogo: Boolean = false,
+    ) {
+        if (options.isEmpty() && selection.isEmpty()) return
+        val mergedOptions = remember(options, selection) {
+            (options + selection).distinct()
+        }
+        val count = selection.size
+        val pillTitle = if (count > 0) "$title $count" else title
+        Box {
+            NativeAdaptivePill(
+                title = pillTitle,
+                selected = count > 0 || openFacetMenuKey == menuKey,
+                onClick = { openFacetMenuKey = if (openFacetMenuKey == menuKey) null else menuKey },
+            )
+            DropdownMenu(
+                expanded = openFacetMenuKey == menuKey,
+                onDismissRequest = { if (openFacetMenuKey == menuKey) openFacetMenuKey = null },
+                modifier = Modifier.heightIn(max = 360.dp),
+            ) {
+                mergedOptions.forEach { opt ->
+                    val chosen = opt in selection
+                    DropdownMenuItem(
+                        leadingIcon = if (showSiteLogo) {
+                            {
+                                NativeNetworkEntityLogo(
+                                    imageUrl = siteIconsByName[opt],
+                                    kind = "site",
+                                    value = opt,
+                                    size = 16.dp,
+                                    cornerRadius = 4.dp,
+                                )
+                            }
+                        } else null,
+                        text = {
+                            Text(
+                                opt,
+                                fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                        },
+                        trailingIcon = if (chosen) {
+                            { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(17.dp)) }
+                        } else null,
+                        onClick = {
+                            // 保持菜单展开以支持连续多选（#67）
+                            onSelectionChange(if (chosen) selection - opt else selection + opt)
+                        },
+                    )
+                }
+                if (count > 0) {
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("清空$title", color = colors.danger) },
+                        onClick = {
+                            onSelectionChange(emptySet())
+                            openFacetMenuKey = null
+                        },
+                    )
+                }
+            }
+        }
+    }
 
     ExpressiveTintedScaffold(
         title = if (filterResult.filteredCount > 0) "站点资源 (${filterResult.filteredCount})" else "站点资源",
@@ -278,26 +429,117 @@ fun ResourceSearchScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    Row(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (selectedBrowseSiteIds.isNotEmpty()) colors.activeIndicator else colors.chipFill)
-                            .border(0.7.dp, if (selectedBrowseSiteIds.isNotEmpty()) colors.accent else colors.borderSubtle.copy(alpha = 0.55f), CircleShape)
-                            .clickable { showSitePickerSheet = true }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        val singleSiteId = selectedBrowseSiteIds.singleOrNull()
-                        NativeNetworkEntityLogo(
-                            imageUrl = singleSiteId?.let { siteIcons[it] },
-                            kind = "site",
-                            value = browseSiteLabel,
-                            size = 15.dp,
-                            cornerRadius = 4.dp,
-                        )
-                        Text(browseSiteLabel, color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "选择站点", tint = colors.textSecondary, modifier = Modifier.size(15.dp))
+                    if (keyword.isNotEmpty()) {
+                        IconButton(onClick = { keyword = "" }, modifier = Modifier.size(22.dp)) {
+                            Icon(Icons.Rounded.Close, contentDescription = "清空关键词", tint = colors.textMuted, modifier = Modifier.size(15.dp))
+                        }
+                    }
+                    Box {
+                        Row(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (hasNonDefaultSiteScope) colors.activeIndicator else colors.chipFill)
+                                .border(0.7.dp, if (hasNonDefaultSiteScope) colors.accent else colors.borderSubtle.copy(alpha = 0.55f), CircleShape)
+                                .clickable { showSiteMenu = true }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            val singleSiteId = if (siteScopeMode == "custom") selectedBrowseSiteIds.singleOrNull() else null
+                            NativeNetworkEntityLogo(
+                                imageUrl = singleSiteId?.let { siteIcons[it] },
+                                kind = "site",
+                                value = browseSiteLabel,
+                                size = 15.dp,
+                                cornerRadius = 4.dp,
+                            )
+                            Text(browseSiteLabel, color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "选择站点", tint = colors.textSecondary, modifier = Modifier.size(15.dp))
+                        }
+                        DropdownMenu(
+                            expanded = showSiteMenu,
+                            onDismissRequest = { showSiteMenu = false },
+                            modifier = Modifier.heightIn(max = 380.dp),
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "默认（系统设置）",
+                                        fontWeight = if (siteScopeMode == "default") FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                },
+                                trailingIcon = if (siteScopeMode == "default") {
+                                    { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(17.dp)) }
+                                } else null,
+                                onClick = {
+                                    siteScopeMode = "default"
+                                    selectedBrowseSiteIds = emptySet()
+                                    showSiteMenu = false
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "全部站点",
+                                        fontWeight = if (siteScopeMode == "all") FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                },
+                                trailingIcon = if (siteScopeMode == "all") {
+                                    { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(17.dp)) }
+                                } else null,
+                                onClick = {
+                                    siteScopeMode = "all"
+                                    selectedBrowseSiteIds = emptySet()
+                                    showSiteMenu = false
+                                },
+                            )
+                            if (activeSites.isNotEmpty()) {
+                                HorizontalDivider()
+                                activeSites.forEach { s ->
+                                    val picked = siteScopeMode == "custom" && s.id in selectedBrowseSiteIds
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            NativeNetworkEntityLogo(
+                                                imageUrl = siteIcons[s.id],
+                                                kind = "site",
+                                                value = s.name,
+                                                size = 16.dp,
+                                                cornerRadius = 4.dp,
+                                            )
+                                        },
+                                        text = {
+                                            Text(
+                                                s.name,
+                                                fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Normal,
+                                            )
+                                        },
+                                        trailingIcon = if (picked) {
+                                            { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(17.dp)) }
+                                        } else null,
+                                        onClick = {
+                                            // 保持菜单展开以支持连续多选站点（#67）
+                                            val next = if (siteScopeMode != "custom") {
+                                                setOf(s.id)
+                                            } else if (s.id in selectedBrowseSiteIds) {
+                                                selectedBrowseSiteIds - s.id
+                                            } else {
+                                                selectedBrowseSiteIds + s.id
+                                            }
+                                            selectedBrowseSiteIds = next
+                                            siteScopeMode = if (next.isEmpty()) "default" else "custom"
+                                        },
+                                    )
+                                }
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("打开站点网格面板…", color = colors.textSecondary, fontSize = 13.sp) },
+                                    onClick = {
+                                        showSiteMenu = false
+                                        showSitePickerSheet = true
+                                    },
+                                )
+                            }
+                        }
                     }
                     Box(
                         modifier = Modifier
@@ -313,7 +555,7 @@ fun ResourceSearchScreen(
 
             Spacer(Modifier.height(10.dp))
 
-            // 排序 + 多维筛选胶囊行
+            // 排序 + 多维连续勾选筛选胶囊行
             LazyRow(contentPadding = PaddingValues(horizontal = margin), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     Box {
@@ -327,6 +569,9 @@ fun ResourceSearchScreen(
                             sortLabels.forEach { (key, label) ->
                                 DropdownMenuItem(
                                     text = { Text(label, fontWeight = if (sortMode == key) FontWeight.Bold else FontWeight.Normal) },
+                                    trailingIcon = if (sortMode == key) {
+                                        { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(17.dp)) }
+                                    } else null,
                                     onClick = {
                                         sortMode = key
                                         showSortMenu = false
@@ -344,67 +589,106 @@ fun ResourceSearchScreen(
                         onClick = { showAllFiltersSheet = true },
                     )
                 }
+                if (activeFilterCount > 0) {
+                    item {
+                        NativeAdaptivePill(
+                            title = "重置",
+                            selected = false,
+                            icon = Icons.Rounded.Close,
+                            onClick = { clearAllFacetFilters() },
+                        )
+                    }
+                }
                 item {
-                    val label = when (selectedSitesFilter.size) {
-                        0 -> "结果站点"
-                        1 -> selectedSitesFilter.first()
-                        else -> "结果站点 (${selectedSitesFilter.size})"
-                    }
-                    NativeAdaptivePill(label, selected = selectedSitesFilter.isNotEmpty() || activeFilterDim == "site", onClick = { activeFilterDim = if (activeFilterDim == "site") null else "site" })
+                    FacetMultiSelectMenuPill(
+                        menuKey = "site",
+                        title = "站点",
+                        options = filterResult.options.sites,
+                        selection = selectedSitesFilter,
+                        onSelectionChange = { selectedSitesFilter = it },
+                        showSiteLogo = true,
+                    )
                 }
-                item { NativeAdaptivePill(selectedRes ?: "分辨率", selected = selectedRes != null || activeFilterDim == "res", onClick = { activeFilterDim = if (activeFilterDim == "res") null else "res" }) }
-                item { NativeAdaptivePill(selectedPromo ?: "促销", selected = selectedPromo != null || activeFilterDim == "promo", onClick = { activeFilterDim = if (activeFilterDim == "promo") null else "promo" }) }
-                item { NativeAdaptivePill(selectedEdition ?: "版本", selected = selectedEdition != null || activeFilterDim == "edition", onClick = { activeFilterDim = if (activeFilterDim == "edition") null else "edition" }) }
-                item { NativeAdaptivePill(selectedEncode ?: "编码", selected = selectedEncode != null || activeFilterDim == "encode", onClick = { activeFilterDim = if (activeFilterDim == "encode") null else "encode" }) }
-            }
-
-            if (activeFilterDim != null) {
-                Spacer(Modifier.height(8.dp))
-                val optionsList = when (activeFilterDim) {
-                    "site" -> filterResult.options.sites
-                    "res" -> filterResult.options.resolutions
-                    "promo" -> filterResult.options.promotions
-                    "edition" -> filterResult.options.editions
-                    "encode" -> filterResult.options.videoEncodes
-                    else -> emptyList()
+                item {
+                    FacetMultiSelectMenuPill(
+                        menuKey = "promo",
+                        title = "促销",
+                        options = filterResult.options.promotions,
+                        selection = selectedPromotions,
+                        onSelectionChange = { selectedPromotions = it },
+                    )
                 }
-                if (optionsList.isNotEmpty()) {
-                    LazyRow(contentPadding = PaddingValues(horizontal = margin), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(optionsList) { opt ->
-                            val isSel = when (activeFilterDim) {
-                                "site" -> opt in selectedSitesFilter
-                                "res" -> selectedRes == opt
-                                "promo" -> selectedPromo == opt
-                                "edition" -> selectedEdition == opt
-                                "encode" -> selectedEncode == opt
-                                else -> false
-                            }
-                            NativeAdaptivePill(
-                                title = opt,
-                                leadingContent = if (activeFilterDim == "site") {
-                                    {
-                                        NativeNetworkEntityLogo(
-                                            imageUrl = siteIconsByName[opt],
-                                            kind = "site",
-                                            value = opt,
-                                            size = 15.dp,
-                                            cornerRadius = 4.dp,
-                                        )
-                                    }
-                                } else null,
-                                selected = isSel,
-                                onClick = {
-                                    when (activeFilterDim) {
-                                        "site" -> selectedSitesFilter = if (opt in selectedSitesFilter) selectedSitesFilter - opt else selectedSitesFilter + opt
-                                        "res" -> selectedRes = if (selectedRes == opt) null else opt
-                                        "promo" -> selectedPromo = if (selectedPromo == opt) null else opt
-                                        "edition" -> selectedEdition = if (selectedEdition == opt) null else opt
-                                        "encode" -> selectedEncode = if (selectedEncode == opt) null else opt
-                                    }
-                                },
-                            )
-                        }
-                    }
+                item {
+                    FacetMultiSelectMenuPill(
+                        menuKey = "res",
+                        title = "分辨率",
+                        options = filterResult.options.resolutions,
+                        selection = selectedResolutions,
+                        onSelectionChange = { selectedResolutions = it },
+                    )
+                }
+                item {
+                    FacetMultiSelectMenuPill(
+                        menuKey = "label",
+                        title = "字幕/标签",
+                        options = filterResult.options.labels,
+                        selection = selectedLabels,
+                        onSelectionChange = { selectedLabels = it },
+                    )
+                }
+                item {
+                    FacetMultiSelectMenuPill(
+                        menuKey = "edition",
+                        title = "版本",
+                        options = filterResult.options.editions,
+                        selection = selectedEditions,
+                        onSelectionChange = { selectedEditions = it },
+                    )
+                }
+                item {
+                    FacetMultiSelectMenuPill(
+                        menuKey = "encode",
+                        title = "编码",
+                        options = filterResult.options.videoEncodes,
+                        selection = selectedVideoEncodes,
+                        onSelectionChange = { selectedVideoEncodes = it },
+                    )
+                }
+                item {
+                    FacetMultiSelectMenuPill(
+                        menuKey = "season",
+                        title = "季集",
+                        options = seasonOptions,
+                        selection = selectedSeasons,
+                        onSelectionChange = { selectedSeasons = it },
+                    )
+                }
+                item {
+                    FacetMultiSelectMenuPill(
+                        menuKey = "type",
+                        title = "来源",
+                        options = filterResult.options.resourceTypes,
+                        selection = selectedResourceTypes,
+                        onSelectionChange = { selectedResourceTypes = it },
+                    )
+                }
+                item {
+                    FacetMultiSelectMenuPill(
+                        menuKey = "audio",
+                        title = "音轨",
+                        options = filterResult.options.audioEncodes,
+                        selection = selectedAudioEncodes,
+                        onSelectionChange = { selectedAudioEncodes = it },
+                    )
+                }
+                item {
+                    FacetMultiSelectMenuPill(
+                        menuKey = "team",
+                        title = "制作组",
+                        options = filterResult.options.teams,
+                        selection = selectedTeams,
+                        onSelectionChange = { selectedTeams = it },
+                    )
                 }
             }
 
@@ -791,7 +1075,6 @@ fun ResourceSearchScreen(
 
     // 多选站点面板（真实加载 `/api/v1/site/icon/{id}` 站点图标 + `logo_site` 兜底）
     if (showSitePickerSheet) {
-        val activeSites = remember(sites) { sites.filter { it.isActive } }
         NativeGlassSheet(onDismissRequest = { showSitePickerSheet = false }) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
@@ -805,17 +1088,32 @@ fun ResourceSearchScreen(
                     Column {
                         Text("选择搜索站点（支持多选）", color = colors.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                         Text(
-                            if (selectedBrowseSiteIds.isEmpty()) "当前：全站（留空自动遵循站点范围）"
-                            else "已选 ${selectedBrowseSiteIds.size} 个站点",
+                            when (siteScopeMode) {
+                                "all" -> "当前：全部站点（覆盖系统默认搜索范围）"
+                                "custom" -> "已选 ${selectedBrowseSiteIds.size} 个站点"
+                                else -> "当前：默认（遵循系统设置范围）"
+                            },
                             color = colors.textSecondary,
                             fontSize = 12.sp,
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NativeAdaptivePill("全站", selected = selectedBrowseSiteIds.isEmpty(), onClick = { selectedBrowseSiteIds = emptySet() })
-                        NativeAdaptivePill("全选", selected = activeSites.isNotEmpty() && selectedBrowseSiteIds.size == activeSites.size, onClick = {
-                            selectedBrowseSiteIds = activeSites.map { it.id }.toSet()
-                        })
+                        NativeAdaptivePill(
+                            "默认",
+                            selected = siteScopeMode == "default",
+                            onClick = {
+                                siteScopeMode = "default"
+                                selectedBrowseSiteIds = emptySet()
+                            },
+                        )
+                        NativeAdaptivePill(
+                            "全站",
+                            selected = siteScopeMode == "all",
+                            onClick = {
+                                siteScopeMode = "all"
+                                selectedBrowseSiteIds = emptySet()
+                            },
+                        )
                     }
                 }
                 LazyColumn(
@@ -825,7 +1123,7 @@ fun ResourceSearchScreen(
                     item {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             activeSites.forEach { s ->
-                                val picked = s.id in selectedBrowseSiteIds
+                                val picked = siteScopeMode == "custom" && s.id in selectedBrowseSiteIds
                                 NativeAdaptivePill(
                                     title = s.name,
                                     leadingContent = {
@@ -839,7 +1137,15 @@ fun ResourceSearchScreen(
                                     },
                                     selected = picked,
                                     onClick = {
-                                        selectedBrowseSiteIds = if (picked) selectedBrowseSiteIds - s.id else selectedBrowseSiteIds + s.id
+                                        val next = if (siteScopeMode != "custom") {
+                                            setOf(s.id)
+                                        } else if (picked) {
+                                            selectedBrowseSiteIds - s.id
+                                        } else {
+                                            selectedBrowseSiteIds + s.id
+                                        }
+                                        selectedBrowseSiteIds = next
+                                        siteScopeMode = if (next.isEmpty()) "default" else "custom"
                                     },
                                 )
                             }
@@ -849,7 +1155,7 @@ fun ResourceSearchScreen(
                 Button(
                     onClick = {
                         showSitePickerSheet = false
-                        triggerSearch(selectedBrowseSiteIds)
+                        triggerSearch()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.primaryButtonFg),
                     shape = CircleShape,
@@ -862,8 +1168,61 @@ fun ResourceSearchScreen(
         }
     }
 
-    // 「全部筛选」多维筛选面板
+    // 「全部筛选」多维多选筛选面板
     if (showAllFiltersSheet) {
+        @Composable
+        fun MultiSelectSheetSection(
+            title: String,
+            options: List<String>,
+            selection: Set<String>,
+            onSelectionChange: (Set<String>) -> Unit,
+            showSiteLogo: Boolean = false,
+        ) {
+            val merged = remember(options, selection) { (options + selection).distinct() }
+            if (merged.isEmpty()) return
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("$title（可多选）", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    if (selection.isNotEmpty()) {
+                        Text(
+                            text = "清空 (${selection.size})",
+                            color = colors.danger,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clickable { onSelectionChange(emptySet()) },
+                        )
+                    }
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    merged.forEach { opt ->
+                        val picked = opt in selection
+                        NativeAdaptivePill(
+                            title = opt,
+                            leadingContent = if (showSiteLogo) {
+                                {
+                                    NativeNetworkEntityLogo(
+                                        imageUrl = siteIconsByName[opt],
+                                        kind = "site",
+                                        value = opt,
+                                        size = 16.dp,
+                                        cornerRadius = 4.dp,
+                                    )
+                                }
+                            } else null,
+                            selected = picked,
+                            onClick = {
+                                onSelectionChange(if (picked) selection - opt else selection + opt)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
         NativeGlassSheet(onDismissRequest = { showAllFiltersSheet = false }) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
@@ -878,148 +1237,95 @@ fun ResourceSearchScreen(
                     NativeAdaptivePill(
                         title = "清空全部",
                         selected = false,
-                        onClick = {
-                            selectedSitesFilter = emptySet()
-                            selectedRes = null
-                            selectedPromo = null
-                            selectedEncode = null
-                            selectedEdition = null
-                            selectedResourceType = null
-                            selectedAudioEncode = null
-                            selectedTeam = null
-                            selectedLabel = null
-                        },
+                        onClick = { clearAllFacetFilters() },
                     )
                 }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    if (filterResult.options.sites.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("结果站点（可多选）", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    filterResult.options.sites.forEach { s ->
-                                        val picked = s in selectedSitesFilter
-                                        NativeAdaptivePill(
-                                            title = s,
-                                            leadingContent = {
-                                                NativeNetworkEntityLogo(
-                                                    imageUrl = siteIconsByName[s],
-                                                    kind = "site",
-                                                    value = s,
-                                                    size = 16.dp,
-                                                    cornerRadius = 4.dp,
-                                                )
-                                            },
-                                            selected = picked,
-                                            onClick = {
-                                                selectedSitesFilter = if (picked) selectedSitesFilter - s else selectedSitesFilter + s
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                    item {
+                        MultiSelectSheetSection(
+                            title = "结果站点",
+                            options = filterResult.options.sites,
+                            selection = selectedSitesFilter,
+                            onSelectionChange = { selectedSitesFilter = it },
+                            showSiteLogo = true,
+                        )
                     }
-                    if (filterResult.options.resolutions.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("分辨率", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    filterResult.options.resolutions.forEach { opt ->
-                                        NativeAdaptivePill(opt, selected = selectedRes == opt, onClick = { selectedRes = if (selectedRes == opt) null else opt })
-                                    }
-                                }
-                            }
-                        }
+                    item {
+                        MultiSelectSheetSection(
+                            title = "促销优惠",
+                            options = filterResult.options.promotions,
+                            selection = selectedPromotions,
+                            onSelectionChange = { selectedPromotions = it },
+                        )
                     }
-                    if (filterResult.options.promotions.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("促销优惠", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    filterResult.options.promotions.forEach { opt ->
-                                        NativeAdaptivePill(opt, selected = selectedPromo == opt, onClick = { selectedPromo = if (selectedPromo == opt) null else opt })
-                                    }
-                                }
-                            }
-                        }
+                    item {
+                        MultiSelectSheetSection(
+                            title = "分辨率",
+                            options = filterResult.options.resolutions,
+                            selection = selectedResolutions,
+                            onSelectionChange = { selectedResolutions = it },
+                        )
                     }
-                    if (filterResult.options.editions.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("质量版本", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    filterResult.options.editions.forEach { opt ->
-                                        NativeAdaptivePill(opt, selected = selectedEdition == opt, onClick = { selectedEdition = if (selectedEdition == opt) null else opt })
-                                    }
-                                }
-                            }
-                        }
+                    item {
+                        MultiSelectSheetSection(
+                            title = "字幕与标签",
+                            options = filterResult.options.labels,
+                            selection = selectedLabels,
+                            onSelectionChange = { selectedLabels = it },
+                        )
                     }
-                    if (filterResult.options.videoEncodes.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("视频编码", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    filterResult.options.videoEncodes.forEach { opt ->
-                                        NativeAdaptivePill(opt, selected = selectedEncode == opt, onClick = { selectedEncode = if (selectedEncode == opt) null else opt })
-                                    }
-                                }
-                            }
-                        }
+                    item {
+                        MultiSelectSheetSection(
+                            title = "质量版本",
+                            options = filterResult.options.editions,
+                            selection = selectedEditions,
+                            onSelectionChange = { selectedEditions = it },
+                        )
                     }
-                    if (filterResult.options.resourceTypes.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("资源来源", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    filterResult.options.resourceTypes.forEach { opt ->
-                                        NativeAdaptivePill(opt, selected = selectedResourceType == opt, onClick = { selectedResourceType = if (selectedResourceType == opt) null else opt })
-                                    }
-                                }
-                            }
-                        }
+                    item {
+                        MultiSelectSheetSection(
+                            title = "视频编码",
+                            options = filterResult.options.videoEncodes,
+                            selection = selectedVideoEncodes,
+                            onSelectionChange = { selectedVideoEncodes = it },
+                        )
                     }
-                    if (filterResult.options.audioEncodes.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("音频编码", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    filterResult.options.audioEncodes.forEach { opt ->
-                                        NativeAdaptivePill(opt, selected = selectedAudioEncode == opt, onClick = { selectedAudioEncode = if (selectedAudioEncode == opt) null else opt })
-                                    }
-                                }
-                            }
-                        }
+                    item {
+                        MultiSelectSheetSection(
+                            title = "季集",
+                            options = seasonOptions,
+                            selection = selectedSeasons,
+                            onSelectionChange = { selectedSeasons = it },
+                        )
                     }
-                    if (filterResult.options.teams.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("制作组", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    filterResult.options.teams.forEach { opt ->
-                                        NativeAdaptivePill(opt, selected = selectedTeam == opt, onClick = { selectedTeam = if (selectedTeam == opt) null else opt })
-                                    }
-                                }
-                            }
-                        }
+                    item {
+                        MultiSelectSheetSection(
+                            title = "资源来源",
+                            options = filterResult.options.resourceTypes,
+                            selection = selectedResourceTypes,
+                            onSelectionChange = { selectedResourceTypes = it },
+                        )
                     }
-                    if (filterResult.options.labels.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("标签", color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    filterResult.options.labels.forEach { opt ->
-                                        NativeAdaptivePill(opt, selected = selectedLabel == opt, onClick = { selectedLabel = if (selectedLabel == opt) null else opt })
-                                    }
-                                }
-                            }
-                        }
+                    item {
+                        MultiSelectSheetSection(
+                            title = "音频编码",
+                            options = filterResult.options.audioEncodes,
+                            selection = selectedAudioEncodes,
+                            onSelectionChange = { selectedAudioEncodes = it },
+                        )
                     }
-                    if (filterResult.options.sites.isEmpty() && filterResult.options.resolutions.isEmpty()) {
+                    item {
+                        MultiSelectSheetSection(
+                            title = "制作组",
+                            options = filterResult.options.teams,
+                            selection = selectedTeams,
+                            onSelectionChange = { selectedTeams = it },
+                        )
+                    }
+                    if (filterResult.options.sites.isEmpty() && filterResult.options.resolutions.isEmpty() && activeFilterCount == 0) {
                         item {
                             Text("当前暂无可筛选结果，请先输入关键词或选择站点浏览。", color = colors.textMuted, fontSize = 13.sp)
                         }

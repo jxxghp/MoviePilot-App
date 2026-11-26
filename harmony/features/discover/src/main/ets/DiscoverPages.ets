@@ -1,6 +1,7 @@
 import {
   MoviePilotRepository,
   MpMediaItem,
+  MpMediaSearchSource,
   MpCastMember,
   MpMediaServerLibrary,
   MpMusicAlbum,
@@ -1698,10 +1699,215 @@ export struct HarmonyGlobalSearchPage {
   @State private showEpisodePickerSheet: boolean = false;
   @State private selectedSeriesItem: MpMediaItem | null = null;
   @State private episodeSheetTrigger: number = 0;
+  @State private mediaSources: MpMediaSearchSource[] = [];
+  @State private loadingSources: boolean = false;
+  @State private selectedSourcesByKind: Record<string, string[]> = {};
+  @State private libraryTypeFilter: string = '全部';
+  @State private showSourcePopup: boolean = false;
+  @State private showLibraryTypePopup: boolean = false;
   onBack: () => void = () => {};
   onOpenMedia: (item: MpMediaItem) => void = () => {};
   onOpenPerson: (person: MpCastMember) => void = () => {};
   onPlayMedia: (req: HarmonyPlaybackRequest) => void = () => {};
+
+  aboutToAppear(): void {
+    this.loadSearchSources();
+  }
+
+  private async loadSearchSources(): Promise<void> {
+    this.loadingSources = true;
+    try {
+      this.mediaSources = await MoviePilotRepository.shared().fetchMediaSearchSources();
+    } catch {
+      this.mediaSources = [];
+    }
+    this.loadingSources = false;
+  }
+
+  private currentKindKey(): string {
+    return SEARCH_SCOPE_KEYS[Math.min(this.scopeIndex, SEARCH_SCOPE_KEYS.length - 1)];
+  }
+
+  private sourceSupportsKind(src: MpMediaSearchSource, kind: string): boolean {
+    const lowerId = src.id.toLowerCase();
+    if (kind === 'collection') { return lowerId === 'themoviedb'; }
+    if (kind === 'person') {
+      return lowerId === 'themoviedb' || lowerId === 'douban' || lowerId === 'musicbrainz';
+    }
+    const types = (src.mediaTypes.length > 0 ? src.mediaTypes : ['电影', '电视剧'])
+      .map((t: string) => t.toLowerCase());
+    if (kind === 'music') {
+      return types.includes('音乐') || types.includes('music');
+    }
+    return types.includes('电影') || types.includes('电视剧') || types.includes('movie') || types.includes('tv');
+  }
+
+  private availableSourcesForCurrentKind(): MpMediaSearchSource[] {
+    const kind = this.currentKindKey();
+    return this.mediaSources.filter((s: MpMediaSearchSource) => this.sourceSupportsKind(s, kind));
+  }
+
+  private selectedSourcesForCurrentKind(): string[] {
+    const kind = this.currentKindKey();
+    const raw = this.selectedSourcesByKind[kind] ?? [];
+    const avail = this.availableSourcesForCurrentKind();
+    if (avail.length === 0) { return raw; }
+    const validIds = avail.map((s: MpMediaSearchSource) => s.id);
+    return raw.filter((id: string) => validIds.includes(id));
+  }
+
+  private setSelectedSourcesForKind(kind: string, nextList: string[]): void {
+    const updated: Record<string, string[]> = {};
+    const keys = Object.keys(this.selectedSourcesByKind);
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (k !== kind) {
+        updated[k] = this.selectedSourcesByKind[k];
+      }
+    }
+    if (nextList.length > 0) {
+      updated[kind] = nextList;
+    }
+    this.selectedSourcesByKind = updated;
+  }
+
+  private toggleSourceForCurrentKind(sourceId: string): void {
+    const kind = this.currentKindKey();
+    const current = this.selectedSourcesForCurrentKind();
+    const next = current.includes(sourceId)
+      ? current.filter((x: string) => x !== sourceId)
+      : [...current, sourceId];
+    this.setSelectedSourcesForKind(kind, next);
+    if (this.query.trim().length > 0) {
+      this.runSearch();
+    }
+  }
+
+  private clearSourcesForCurrentKindAndDismiss(): void {
+    this.setSelectedSourcesForKind(this.currentKindKey(), []);
+    this.showSourcePopup = false;
+    if (this.query.trim().length > 0) {
+      this.runSearch();
+    }
+  }
+
+  @Builder
+  private libraryTypePopupBuilder() {
+    Column({ space: 2 }) {
+      ForEach(['全部', '电影', '电视剧', '音乐'], (opt: string) => {
+        Row({ space: 8 }) {
+          Text(opt)
+            .fontSize(13.5)
+            .fontWeight(this.libraryTypeFilter === opt ? FontWeight.Bold : FontWeight.Normal)
+            .fontColor(mpPrimaryText(this.isDark))
+            .layoutWeight(1)
+          if (this.libraryTypeFilter === opt) {
+            SymbolGlyph($r('sys.symbol.checkmark'))
+              .fontSize(14)
+              .fontColor([this.accentHex])
+          }
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+        .borderRadius(10)
+        .onClick(() => {
+          this.libraryTypeFilter = opt;
+          this.showLibraryTypePopup = false;
+          if (this.query.trim().length > 0) {
+            this.runSearch();
+          }
+        })
+      }, (opt: string) => `lib_type_${opt}`)
+    }
+    .width(168)
+    .padding(6)
+  }
+
+  @Builder
+  private sourcePopupBuilder() {
+    Column({ space: 2 }) {
+      // 互斥默认项：点击重置系统默认并收起菜单
+      Row({ space: 8 }) {
+        Text('默认（系统设置）')
+          .fontSize(13.5)
+          .fontWeight(this.selectedSourcesForCurrentKind().length === 0 ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(mpPrimaryText(this.isDark))
+          .layoutWeight(1)
+        if (this.selectedSourcesForCurrentKind().length === 0) {
+          SymbolGlyph($r('sys.symbol.checkmark'))
+            .fontSize(14)
+            .fontColor([this.accentHex])
+        }
+      }
+      .width('100%')
+      .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+      .borderRadius(10)
+      .onClick(() => {
+        this.clearSourcesForCurrentKindAndDismiss();
+      })
+
+      if (this.availableSourcesForCurrentKind().length === 0) {
+        Text(this.loadingSources ? '正在加载来源…' : '暂无可用来源')
+          .fontSize(12.5)
+          .fontColor(mpSecondaryText(this.isDark))
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+      } else {
+        Divider().color(HarmonyThemeColors.chipFill(this.isDark)).margin({ top: 2, bottom: 2 })
+        Scroll() {
+          Column({ space: 2 }) {
+            ForEach(this.availableSourcesForCurrentKind(), (src: MpMediaSearchSource) => {
+              Row({ space: 8 }) {
+                HarmonyEntityLogo({
+                  kind: 'media_source',
+                  value: src.id,
+                  logoSize: 18,
+                  cornerRadius: 4
+                })
+                Text(src.displayName)
+                  .fontSize(13.5)
+                  .fontWeight(this.selectedSourcesForCurrentKind().includes(src.id) ? FontWeight.Medium : FontWeight.Normal)
+                  .fontColor(mpPrimaryText(this.isDark))
+                  .maxLines(1)
+                  .layoutWeight(1)
+                if (this.selectedSourcesForCurrentKind().includes(src.id)) {
+                  SymbolGlyph($r('sys.symbol.checkmark'))
+                    .fontSize(14)
+                    .fontColor([this.accentHex])
+                }
+              }
+              .width('100%')
+              .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+              .borderRadius(10)
+              .onClick(() => {
+                // 保持弹窗展开以支持连续多选（对齐 #67）
+                this.toggleSourceForCurrentKind(src.id);
+              })
+            }, (src: MpMediaSearchSource) => `src_opt_${src.id}`)
+          }
+        }
+        .constraintSize({ maxHeight: 260 })
+        .scrollBar(BarState.Off)
+
+        if (this.selectedSourcesForCurrentKind().length > 0) {
+          Divider().color(HarmonyThemeColors.chipFill(this.isDark)).margin({ top: 2, bottom: 2 })
+          Row() {
+            Text('清除来源筛选')
+              .fontSize(13)
+              .fontColor('#E84855')
+              .fontWeight(FontWeight.Medium)
+          }
+          .width('100%')
+          .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+          .borderRadius(10)
+          .onClick(() => {
+            this.clearSourcesForCurrentKindAndDismiss();
+          })
+        }
+      }
+    }
+    .width(220)
+    .padding(6)
+  }
 
   private isSeriesMediaItem(it: MpMediaItem): boolean {
     const t = it.type.trim().toLowerCase();
@@ -1799,8 +2005,10 @@ export struct HarmonyGlobalSearchPage {
     this.searching = true;
     this.hasSearched = true;
     try {
-      const kind = SEARCH_SCOPE_KEYS[Math.min(this.scopeIndex, SEARCH_SCOPE_KEYS.length - 1)];
-      this.results = await MoviePilotRepository.shared().searchMedia(q, kind);
+      const kind = this.currentKindKey();
+      const sources = kind === 'library' ? [] : this.selectedSourcesForCurrentKind();
+      const libTypes = (kind === 'library' && this.libraryTypeFilter !== '全部') ? [this.libraryTypeFilter] : [];
+      this.results = await MoviePilotRepository.shared().searchMedia(q, kind, '', sources, libTypes);
     } catch {
       this.results = [];
     }
@@ -1848,6 +2056,66 @@ export struct HarmonyGlobalSearchPage {
                   }
                 })
                 .onSubmit(() => this.runSearch())
+
+              if (this.scopeIndex === 1) {
+                Row({ space: 3 }) {
+                  Text(this.libraryTypeFilter === '全部' ? '类型' : this.libraryTypeFilter)
+                    .fontSize(12)
+                    .fontWeight(this.libraryTypeFilter === '全部' ? FontWeight.Medium : FontWeight.Bold)
+                    .fontColor(this.libraryTypeFilter === '全部' ? mpPrimaryText(this.isDark) : Color.White)
+                  Text('▾')
+                    .fontSize(10)
+                    .fontColor(this.libraryTypeFilter === '全部' ? mpSecondaryText(this.isDark) : Color.White)
+                }
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .borderRadius(14)
+                .backgroundColor(this.libraryTypeFilter === '全部' ? HarmonyThemeColors.chipFill(this.isDark) : this.accentHex)
+                .margin({ right: 4 })
+                .onClick(() => { this.showLibraryTypePopup = !this.showLibraryTypePopup; })
+                .bindPopup(this.showLibraryTypePopup, {
+                  builder: () => { this.libraryTypePopupBuilder(); },
+                  placement: Placement.BottomRight,
+                  popupColor: HarmonyThemeColors.overlayFallback(this.isDark),
+                  enableArrow: false,
+                  autoCancel: true,
+                  onStateChange: (e) => {
+                    if (!e.isVisible) {
+                      this.showLibraryTypePopup = false;
+                    }
+                  }
+                })
+              } else {
+                Row({ space: 3 }) {
+                  Text(this.selectedSourcesForCurrentKind().length === 0
+                    ? '来源'
+                    : `来源 ${this.selectedSourcesForCurrentKind().length}`)
+                    .fontSize(12)
+                    .fontWeight(this.selectedSourcesForCurrentKind().length === 0 ? FontWeight.Medium : FontWeight.Bold)
+                    .fontColor(this.selectedSourcesForCurrentKind().length === 0 ? mpPrimaryText(this.isDark) : Color.White)
+                  Text('▾')
+                    .fontSize(10)
+                    .fontColor(this.selectedSourcesForCurrentKind().length === 0 ? mpSecondaryText(this.isDark) : Color.White)
+                }
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .borderRadius(14)
+                .backgroundColor(this.selectedSourcesForCurrentKind().length === 0
+                  ? HarmonyThemeColors.chipFill(this.isDark)
+                  : this.accentHex)
+                .margin({ right: 4 })
+                .onClick(() => { this.showSourcePopup = !this.showSourcePopup; })
+                .bindPopup(this.showSourcePopup, {
+                  builder: () => { this.sourcePopupBuilder(); },
+                  placement: Placement.BottomRight,
+                  popupColor: HarmonyThemeColors.overlayFallback(this.isDark),
+                  enableArrow: false,
+                  autoCancel: true,
+                  onStateChange: (e) => {
+                    if (!e.isVisible) {
+                      this.showSourcePopup = false;
+                    }
+                  }
+                })
+              }
             }
             .width('100%')
           }

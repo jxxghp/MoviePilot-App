@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -50,9 +51,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.BookmarkAdd
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FolderSpecial
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
@@ -62,7 +65,10 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
@@ -132,6 +138,7 @@ import com.moviepilot.rustbridge.ContinueWatchingItem
 import com.moviepilot.rustbridge.DiscoverSessionSnapshot
 import com.moviepilot.rustbridge.ExploreSessionSnapshot
 import com.moviepilot.rustbridge.MediaCardItem
+import com.moviepilot.rustbridge.MediaSearchSourceDto
 import com.moviepilot.rustbridge.MediaServerLibraryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.MusicAlbumDto
@@ -2012,6 +2019,13 @@ fun GlobalSearchScreen(
     var seriesPickerTarget by remember { mutableStateOf<MediaCardItem?>(null) }
     var resolvingMusicId by remember { mutableStateOf<String?>(null) }
 
+    var mediaSources by remember { mutableStateOf<List<MediaSearchSourceDto>>(emptyList()) }
+    var isLoadingSources by remember { mutableStateOf(false) }
+    var selectedSourcesByKind by remember { mutableStateOf<Map<String, Set<String>>>(emptyMap()) }
+    var libraryTypeFilter by remember { mutableStateOf("全部") }
+    var showSourceMenu by remember { mutableStateOf(false) }
+    var showLibraryTypeMenu by remember { mutableStateOf(false) }
+
     val kinds = listOf(
         "media" to "媒体",
         "library" to "媒体库",
@@ -2019,13 +2033,40 @@ fun GlobalSearchScreen(
         "music" to "音乐",
         "collection" to "合集",
     )
+    val libraryFilterOptions = listOf("全部", "电影", "电视剧", "音乐")
     val quickTags = listOf("奥德赛", "钢铁侠", "超感神探", "庆余年", "星际穿越", "沙丘", "三体")
 
-    LaunchedEffect(query, kind) {
+    val availableSourcesForKind = remember(mediaSources, kind) {
+        mediaSources.filter { it.supports(kind) }
+    }
+    val activeSelectedSources = remember(selectedSourcesByKind, kind, availableSourcesForKind) {
+        val raw = selectedSourcesByKind[kind].orEmpty()
+        if (availableSourcesForKind.isEmpty()) raw else raw.intersect(availableSourcesForKind.map { it.id }.toSet())
+    }
+
+    LaunchedEffect(Unit) {
+        isLoadingSources = true
+        val loaded = repository.fetchMediaSearchSources()
+        mediaSources = loaded
+        isLoadingSources = false
+    }
+
+    LaunchedEffect(query, kind, activeSelectedSources, libraryTypeFilter) {
         playError = null
         if (query.isNotBlank()) {
             isSearching = true
-            results = repository.searchMedia(query, kind, 1)
+            val libTypes = if (kind == "library" && libraryTypeFilter != "全部") {
+                listOf(libraryTypeFilter)
+            } else {
+                emptyList()
+            }
+            results = repository.searchMedia(
+                keyword = query,
+                kind = kind,
+                page = 1,
+                sources = activeSelectedSources,
+                libraryTypes = libTypes,
+            )
             isSearching = false
         } else {
             results = emptyList()
@@ -2104,11 +2145,23 @@ fun GlobalSearchScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Spacer(Modifier.height(14.dp))
-            CinematicPanel(padding = 13.dp, cornerRadius = 24.dp, modifier = Modifier.padding(horizontal = margin)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            CinematicPanel(padding = 10.dp, cornerRadius = 24.dp, modifier = Modifier.padding(horizontal = margin)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(start = 4.dp),
+                ) {
                     Icon(Icons.Rounded.Search, contentDescription = null, tint = colors.textSecondary)
                     Box(modifier = Modifier.weight(1f)) {
-                        if (query.isEmpty()) Text("搜索电影、剧集、媒体库、人物或音乐...", color = colors.textMuted, fontSize = 15.sp)
+                        if (query.isEmpty()) {
+                            Text(
+                                "搜索电影、剧集、媒体库、人物或音乐...",
+                                color = colors.textMuted,
+                                fontSize = 15.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         BasicTextField(
                             value = query,
                             onValueChange = { query = it },
@@ -2121,6 +2174,155 @@ fun GlobalSearchScreen(
                     if (query.isNotEmpty()) {
                         IconButton(onClick = { query = "" }, modifier = Modifier.size(24.dp)) {
                             Icon(Icons.Rounded.Close, contentDescription = "清除", tint = colors.textMuted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    if (kind == "library") {
+                        val hasLibFilter = libraryTypeFilter != "全部"
+                        Box {
+                            Row(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(if (hasLibFilter) colors.activeIndicator else colors.chipFill)
+                                    .border(0.7.dp, if (hasLibFilter) colors.accent else colors.chipBorder, CircleShape)
+                                    .clickable { showLibraryTypeMenu = true }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Text(
+                                    text = if (hasLibFilter) libraryTypeFilter else "类型",
+                                    color = colors.textPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (hasLibFilter) FontWeight.SemiBold else FontWeight.Medium,
+                                    maxLines = 1,
+                                )
+                                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "媒体库类型筛选", tint = colors.textSecondary, modifier = Modifier.size(15.dp))
+                            }
+                            DropdownMenu(
+                                expanded = showLibraryTypeMenu,
+                                onDismissRequest = { showLibraryTypeMenu = false },
+                            ) {
+                                libraryFilterOptions.forEach { opt ->
+                                    val chosen = libraryTypeFilter == opt
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                opt,
+                                                fontWeight = if (chosen) FontWeight.Bold else FontWeight.Normal,
+                                            )
+                                        },
+                                        trailingIcon = if (chosen) {
+                                            { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(17.dp)) }
+                                        } else null,
+                                        onClick = {
+                                            libraryTypeFilter = opt
+                                            showLibraryTypeMenu = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        val selectedCount = activeSelectedSources.size
+                        Box {
+                            Row(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(if (selectedCount > 0) colors.activeIndicator else colors.chipFill)
+                                    .border(0.7.dp, if (selectedCount > 0) colors.accent else colors.chipBorder, CircleShape)
+                                    .clickable { showSourceMenu = true }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Text(
+                                    text = if (selectedCount == 0) "来源" else "来源 $selectedCount",
+                                    color = colors.textPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (selectedCount > 0) FontWeight.SemiBold else FontWeight.Medium,
+                                    maxLines = 1,
+                                )
+                                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "选择搜索来源", tint = colors.textSecondary, modifier = Modifier.size(15.dp))
+                            }
+                            DropdownMenu(
+                                expanded = showSourceMenu,
+                                onDismissRequest = { showSourceMenu = false },
+                                modifier = Modifier.heightIn(max = 360.dp),
+                            ) {
+                                // 互斥默认项：点击重置系统默认并收起菜单
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            "默认（系统设置）",
+                                            fontWeight = if (selectedCount == 0) FontWeight.Bold else FontWeight.Normal,
+                                        )
+                                    },
+                                    trailingIcon = if (selectedCount == 0) {
+                                        { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(17.dp)) }
+                                    } else null,
+                                    onClick = {
+                                        selectedSourcesByKind = selectedSourcesByKind - kind
+                                        showSourceMenu = false
+                                    },
+                                )
+                                if (availableSourcesForKind.isEmpty()) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (isLoadingSources) "正在加载来源…" else "暂无可用来源",
+                                                color = colors.textMuted,
+                                                fontSize = 13.sp,
+                                            )
+                                        },
+                                        enabled = false,
+                                        onClick = {},
+                                    )
+                                } else {
+                                    HorizontalDivider()
+                                    // 多选具体来源：勾选后保持菜单展开，支持连续多选（对齐 #67）
+                                    availableSourcesForKind.forEach { src ->
+                                        val picked = src.id in activeSelectedSources
+                                        DropdownMenuItem(
+                                            leadingIcon = {
+                                                NativeEntityLogo(
+                                                    kind = "media_source",
+                                                    value = src.id,
+                                                    size = 18.dp,
+                                                    cornerRadius = 4.dp,
+                                                )
+                                            },
+                                            text = {
+                                                Text(
+                                                    src.displayName,
+                                                    fontWeight = if (picked) FontWeight.SemiBold else FontWeight.Normal,
+                                                )
+                                            },
+                                            trailingIcon = if (picked) {
+                                                { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(17.dp)) }
+                                            } else null,
+                                            onClick = {
+                                                val current = activeSelectedSources
+                                                val updated = if (picked) current - src.id else current + src.id
+                                                selectedSourcesByKind = if (updated.isEmpty()) {
+                                                    selectedSourcesByKind - kind
+                                                } else {
+                                                    selectedSourcesByKind + (kind to updated)
+                                                }
+                                            },
+                                        )
+                                    }
+                                    if (selectedCount > 0) {
+                                        HorizontalDivider()
+                                        DropdownMenuItem(
+                                            text = { Text("清除来源筛选", color = colors.danger) },
+                                            onClick = {
+                                                selectedSourcesByKind = selectedSourcesByKind - kind
+                                                showSourceMenu = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

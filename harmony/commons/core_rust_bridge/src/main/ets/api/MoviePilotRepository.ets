@@ -223,6 +223,14 @@ export interface MpSiteItem {
   rawJson?: string;
 }
 
+/** 后端媒体搜索来源目录项（对应 `GET /api/v1/media/source`）。 */
+export interface MpMediaSearchSource {
+  id: string;
+  name: string;
+  displayName: string;
+  mediaTypes: string[];
+}
+
 export interface MpResourceItem {
   title: string;
   description: string;
@@ -238,6 +246,13 @@ export interface MpResourceItem {
   pageUrl: string;
   siteId?: number;
   pubdate?: string;
+  edition?: string;
+  audioEncode?: string;
+  resourceTeam?: string;
+  seasonEpisode?: string;
+  labels?: string[];
+  downloadVolumeFactor?: number;
+  uploadVolumeFactor?: number;
   rawJson?: string;
 }
 
@@ -1376,6 +1391,31 @@ export class MoviePilotRepository {
     return this.transport.execute(url, 'GET', this.token, '', 'application/json', extraHeaders);
   }
 
+  /** 支持同名重复查询参数（如多个 `media_source` 或 `type`）的带鉴权 GET 请求。 */
+  async getMultiQuery(
+    segments: string[],
+    queryPairs: string[][],
+    trailingSlash: boolean = false,
+    extraHeaders?: Record<string, string>
+  ): Promise<NativeHttpResponse> {
+    const cleanBase = RustCoreBridge.normalizeServerAddress(this.baseUrl);
+    const encodedPath = segments.map((s: string) => encodeURIComponent(s)).join('/');
+    let url = `${cleanBase}/api/v1/${encodedPath}${trailingSlash ? '/' : ''}`;
+    if (queryPairs.length > 0) {
+      const encodedPairs: string[] = [];
+      for (let i = 0; i < queryPairs.length; i++) {
+        const kv = queryPairs[i];
+        if (kv.length >= 2 && kv[0].length > 0) {
+          encodedPairs.push(`${encodeURIComponent(kv[0])}=${encodeURIComponent(kv[1])}`);
+        }
+      }
+      if (encodedPairs.length > 0) {
+        url += `?${encodedPairs.join('&')}`;
+      }
+    }
+    return this.transport.execute(url, 'GET', this.token, '', 'application/json', extraHeaders);
+  }
+
   async postJson(
     segments: string[],
     payload: string,
@@ -1779,29 +1819,86 @@ export class MoviePilotRepository {
     return out;
   }
 
+  /** 拉取后端已启用的媒体搜索数据源目录（`GET /api/v1/media/source`）。 */
+  async fetchMediaSearchSources(): Promise<MpMediaSearchSource[]> {
+    const resp = await this.get(['media', 'source']);
+    if (resp.status !== 200) { return []; }
+    const arr = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpMediaSearchSource[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = asRec(arr[i]);
+      if (!r) { continue; }
+      const src = strVal(r, 'media_source').trim();
+      if (!src) { continue; }
+      const rawName = strVal(r, 'name').trim() || src;
+      const lowerName = rawName.toLowerCase();
+      const displayName = (lowerName === 'tmdb' || lowerName === 'themoviedb') ? 'TheMovieDB' : rawName;
+      const rawTypes = asArr(r['media_types']);
+      const types: string[] = [];
+      for (let k = 0; k < rawTypes.length; k++) {
+        const t = String(rawTypes[k] ?? '').trim();
+        if (t.length > 0 && t !== 'null') {
+          types.push(t);
+        }
+      }
+      out.push({
+        id: src,
+        name: rawName,
+        displayName: displayName,
+        mediaTypes: types.length > 0 ? types : ['电影', '电视剧']
+      });
+    }
+    out.sort((a: MpMediaSearchSource, b: MpMediaSearchSource) => a.displayName.localeCompare(b.displayName));
+    return out;
+  }
+
   /**
-   * 全局多域检索（修复 V3 参数契约）：
-   * - `library`：`GET /api/v1/mediaserver/search?keyword=...`
+   * 全局多域检索（对齐 V3 多选来源与媒体库类型筛选契约）：
+   * - `library`：`GET /api/v1/mediaserver/search?keyword=...&type=...`
    * - `media` / `person` / `collection` / `music`：`GET /api/v1/media/search?title=...&type=...&media_source=...`
    */
-  async searchMedia(keyword: string, kind: string = 'media', mediaSource: string = ''): Promise<MpMediaItem[]> {
+  async searchMedia(
+    keyword: string,
+    kind: string = 'media',
+    mediaSource: string = '',
+    mediaSources: string[] = [],
+    libraryTypes: string[] = []
+  ): Promise<MpMediaItem[]> {
     const cleanKw = keyword.trim();
     if (!cleanKw) { return []; }
-    const q: Record<string, string> = {};
-    let segments: string[] = ['media', 'search'];
+    let resp: NativeHttpResponse;
     if (kind === 'library') {
-      segments = ['mediaserver', 'search'];
-      q['keyword'] = cleanKw;
-    } else {
-      segments = ['media', 'search'];
-      q['title'] = cleanKw;
-      q['type'] = kind || 'media';
-      const src = mediaSource.trim() || (kind === 'music' ? 'musicbrainz' : '');
-      if (src.length > 0) {
-        q['media_source'] = src;
+      const pairs: string[][] = [['keyword', cleanKw], ['limit', '40']];
+      for (let i = 0; i < libraryTypes.length; i++) {
+        const t = libraryTypes[i].trim();
+        if (t.length > 0) {
+          pairs.push(['type', t]);
+        }
       }
+      resp = await this.getMultiQuery(['mediaserver', 'search'], pairs);
+    } else {
+      const pairs: string[][] = [
+        ['title', cleanKw],
+        ['type', kind || 'media'],
+        ['page', '1'],
+        ['count', '20']
+      ];
+      const mergedSources: string[] = [];
+      for (let i = 0; i < mediaSources.length; i++) {
+        const s = mediaSources[i].trim();
+        if (s.length > 0 && !mergedSources.includes(s)) {
+          mergedSources.push(s);
+        }
+      }
+      if (mergedSources.length === 0 && mediaSource.trim().length > 0) {
+        mergedSources.push(mediaSource.trim());
+      }
+      mergedSources.sort();
+      for (let i = 0; i < mergedSources.length; i++) {
+        pairs.push(['media_source', mergedSources[i]]);
+      }
+      resp = await this.getMultiQuery(['media', 'search'], pairs);
     }
-    const resp = await this.get(segments, q);
     if (resp.status !== 200) { return []; }
     const arr = unwrapArray(parseJsonSafe(resp.body));
     const out: MpMediaItem[] = [];
@@ -2753,6 +2850,44 @@ export class MoviePilotRepository {
     return out;
   }
 
+  /** 解析单条站点资源上下文（完整保留 9 维元数据供 Rust 筛选与分组引擎消费）。 */
+  private parseResourceRecord(r: Record<string, Object>): MpResourceItem {
+    const ti = asRec(r['torrent_info']) ?? r;
+    const mi = asRec(r['meta_info']);
+    const rawLabels = asArr(ti['labels']);
+    const labels: string[] = [];
+    for (let k = 0; k < rawLabels.length; k++) {
+      const lbl = String(rawLabels[k] ?? '').trim();
+      if (lbl.length > 0 && lbl !== 'null') {
+        labels.push(lbl);
+      }
+    }
+    return {
+      title: strVal(ti, 'title') || strVal(r, 'title'),
+      description: strVal(ti, 'description'),
+      siteName: strVal(ti, 'site_name', '未知站点'),
+      sizeBytes: Math.round(numVal(ti, 'size', 0)),
+      seeders: Math.round(numVal(ti, 'seeders', 0)),
+      peers: Math.round(numVal(ti, 'peers', 0)),
+      resolution: strVal(mi, 'resource_pix') || strVal(ti, 'resource_pix'),
+      resourceType: strVal(mi, 'resource_type') || strVal(ti, 'resource_type'),
+      videoEncode: strVal(mi, 'video_encode') || strVal(ti, 'video_encode'),
+      volumeFactor: strVal(ti, 'volume_factor'),
+      enclosure: strVal(ti, 'enclosure'),
+      pageUrl: strVal(ti, 'page_url'),
+      siteId: Math.round(numVal(ti, 'site', 0)),
+      pubdate: strVal(ti, 'pubdate'),
+      edition: strVal(mi, 'edition') || strVal(ti, 'edition'),
+      audioEncode: strVal(mi, 'audio_encode') || strVal(ti, 'audio_encode'),
+      resourceTeam: strVal(mi, 'resource_team') || strVal(ti, 'resource_team'),
+      seasonEpisode: strVal(mi, 'season_episode'),
+      labels: labels,
+      downloadVolumeFactor: numVal(ti, 'downloadvolumefactor', -1),
+      uploadVolumeFactor: numVal(ti, 'uploadvolumefactor', -1),
+      rawJson: JSON.stringify(r)
+    };
+  }
+
   async fetchCachedResources(): Promise<MpResourceItem[]> {
     const resp = await this.get(['search', 'last']);
     if (resp.status !== 200) { return []; }
@@ -2761,25 +2896,7 @@ export class MoviePilotRepository {
     for (let i = 0; i < arr.length; i++) {
       const r = asRec(arr[i]);
       if (!r) { continue; }
-      const ti = asRec(r['torrent_info']) ?? r;
-      const mi = asRec(r['meta_info']);
-      out.push({
-        title: strVal(ti, 'title') || strVal(r, 'title'),
-        description: strVal(ti, 'description'),
-        siteName: strVal(ti, 'site_name', '未知站点'),
-        sizeBytes: Math.round(numVal(ti, 'size', 0)),
-        seeders: Math.round(numVal(ti, 'seeders', 0)),
-        peers: Math.round(numVal(ti, 'peers', 0)),
-        resolution: strVal(mi, 'resource_pix') || strVal(ti, 'resource_pix'),
-        resourceType: strVal(mi, 'resource_type') || strVal(ti, 'resource_type'),
-        videoEncode: strVal(mi, 'video_encode'),
-        volumeFactor: strVal(ti, 'volume_factor'),
-        enclosure: strVal(ti, 'enclosure'),
-        pageUrl: strVal(ti, 'page_url'),
-        siteId: Math.round(numVal(ti, 'site', 0)),
-        pubdate: strVal(ti, 'pubdate'),
-        rawJson: JSON.stringify(r)
-      });
+      out.push(this.parseResourceRecord(r));
     }
     return out;
   }
@@ -4996,27 +5113,10 @@ export class MoviePilotRepository {
     for (let i = 0; i < arr.length; i++) {
       const r = asRec(arr[i]);
       if (!r) { continue; }
-      const ti = asRec(r['torrent_info']) ?? r;
-      const mi = asRec(r['meta_info']);
-      const sid = Math.round(numVal(ti, 'site', 0));
+      const parsedItem = this.parseResourceRecord(r);
+      const sid = parsedItem.siteId ?? 0;
       if (siteIds.length > 1 && sid > 0 && !siteIds.includes(sid)) { continue; }
-      out.push({
-        title: strVal(ti, 'title') || strVal(r, 'title'),
-        description: strVal(ti, 'description'),
-        siteName: strVal(ti, 'site_name', '未知站点'),
-        sizeBytes: Math.round(numVal(ti, 'size', 0)),
-        seeders: Math.round(numVal(ti, 'seeders', 0)),
-        peers: Math.round(numVal(ti, 'peers', 0)),
-        resolution: strVal(mi, 'resource_pix') || strVal(ti, 'resource_pix'),
-        resourceType: strVal(mi, 'resource_type') || strVal(ti, 'resource_type'),
-        videoEncode: strVal(mi, 'video_encode'),
-        volumeFactor: strVal(ti, 'volume_factor'),
-        enclosure: strVal(ti, 'enclosure'),
-        pageUrl: strVal(ti, 'page_url'),
-        siteId: sid,
-        pubdate: strVal(ti, 'pubdate'),
-        rawJson: JSON.stringify(r)
-      });
+      out.push(parsedItem);
     }
     return out;
   }

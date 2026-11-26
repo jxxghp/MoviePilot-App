@@ -552,6 +552,34 @@ data class MediaPersonDto(
     val source: String = "themoviedb",
 )
 
+/** 后端媒体搜索来源目录项（对应 `GET /api/v1/media/source`）。 */
+@Serializable
+data class MediaSearchSourceDto(
+    val id: String = "",
+    val name: String = "",
+    val mediaTypes: List<String> = listOf("电影", "电视剧"),
+) {
+    val displayName: String
+        get() {
+            val trimmed = name.trim()
+            return if (trimmed.equals("tmdb", ignoreCase = true) || trimmed.equals("themoviedb", ignoreCase = true)) {
+                "TheMovieDB"
+            } else {
+                trimmed.ifBlank { id }
+            }
+        }
+
+    /** 判断该搜索源是否支持指定搜索域（对齐 iOS `NativeMediaSourceOption.supports`）。 */
+    fun supports(kind: String): Boolean {
+        val lowerId = id.lowercase()
+        if (kind == "collection") return lowerId == "themoviedb"
+        if (kind == "person") return lowerId in setOf("themoviedb", "douban", "musicbrainz")
+        val types = (mediaTypes.ifEmpty { listOf("电影", "电视剧") }).map { it.lowercase() }
+        if (kind == "music") return "音乐" in types || "music" in types
+        return types.any { it in setOf("电影", "电视剧", "movie", "tv") }
+    }
+}
+
 /** 电视剧分季信息。 */
 @Serializable
 data class MediaSeasonDto(

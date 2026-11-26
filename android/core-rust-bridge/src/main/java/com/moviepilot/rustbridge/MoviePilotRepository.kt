@@ -498,12 +498,68 @@ class MoviePilotRepository(context: Context) {
         return fetchMediaList(listOf("discover", source), query)
     }
 
-    suspend fun searchMedia(keyword: String, kind: String = "media", page: Int = 1): List<MediaCardItem> {
-        if (keyword.isBlank()) return emptyList()
-        return fetchMediaList(
-            listOf("media", "search"),
-            listOf("title" to keyword, "type" to kind, "page" to page.toString(), "count" to "20"),
-        )
+    /** 拉取后端已启用的媒体搜索数据源目录（`GET /api/v1/media/source`）。 */
+    suspend fun fetchMediaSearchSources(): List<MediaSearchSourceDto> {
+        val resp = authedRequest(listOf("media", "source")).getOrNull() ?: return emptyList()
+        if (resp.status !in 200..299) return emptyList()
+        resourceCookiePrimed = true
+        return extractArray(resp.body).mapNotNull { el ->
+            val obj = el.asObj() ?: return@mapNotNull null
+            val src = obj.str("media_source")?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val name = obj.str("name")?.trim()?.takeIf { it.isNotBlank() } ?: src
+            val types = obj["media_types"].asArr()
+                ?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s != "null" && s.isNotBlank() } }
+                ?.takeIf { it.isNotEmpty() }
+                ?: listOf("电影", "电视剧")
+            MediaSearchSourceDto(id = src, name = name, mediaTypes = types)
+        }.sortedBy { it.displayName.lowercase() }
+    }
+
+    /**
+     * 全局多域媒体检索：
+     * - `library` 调用 `GET /api/v1/mediaserver/search`（支持 `type` 类型筛选）；
+     * - 其余分类调用 `GET /api/v1/media/search`（支持重复传入多个 `media_source` 实现多选来源筛选）。
+     */
+    suspend fun searchMedia(
+        keyword: String,
+        kind: String = "media",
+        page: Int = 1,
+        sources: Collection<String> = emptyList(),
+        libraryTypes: Collection<String> = emptyList(),
+    ): List<MediaCardItem> {
+        val cleanKw = keyword.trim()
+        if (cleanKw.isBlank()) return emptyList()
+        if (kind == "library") {
+            val query = buildList {
+                add("keyword" to cleanKw)
+                add("limit" to "40")
+                libraryTypes.filter { it.isNotBlank() }.forEach { add("type" to it) }
+            }
+            val resp = authedRequest(listOf("mediaserver", "search"), query = query).getOrNull() ?: return emptyList()
+            if (resp.status !in 200..299) return emptyList()
+            return extractArray(resp.body).mapNotNull { el ->
+                parseMediaCard(el)?.let { parsed ->
+                    val obj = el.asObj()
+                    val fallbackItemId = parsed.serverItemId
+                        ?: obj?.str("item_id")?.takeIf { it.isNotBlank() }
+                        ?: obj?.str("id")?.takeIf { it.isNotBlank() }
+                    parsed.copy(
+                        inLibrary = true,
+                        serverItemId = fallbackItemId,
+                    )
+                }
+            }
+        }
+        val query = buildList {
+            add("title" to cleanKw)
+            add("type" to kind)
+            add("page" to page.toString())
+            add("count" to "20")
+            sources.map { it.trim() }.filter { it.isNotBlank() }.distinct().sorted().forEach { src ->
+                add("media_source" to src)
+            }
+        }
+        return fetchMediaList(listOf("media", "search"), query)
     }
 
     /** 拉取 `/api/v1/media/{id}?media_source=...&type_name=...` 完整媒体详情（含透明片名 Logo、时长、分季、分级等）。 */

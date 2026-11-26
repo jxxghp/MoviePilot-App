@@ -6,6 +6,7 @@ import com.moviepilot.designsystem.NativeAppearanceMode
 import com.moviepilot.designsystem.NativeAppearanceStore
 import com.moviepilot.designsystem.resolveMoviePilotColors
 import com.moviepilot.designsystem.resolveSkeletonPalette
+import com.moviepilot.rustbridge.MediaSearchSourceDto
 import com.moviepilot.rustbridge.MediaServerStreamTrackDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.UserIdentity
@@ -137,5 +138,33 @@ class RemediationContractsTest {
             MainTab.entries.map { it.id },
         )
         assertEquals(1, UserIdentity().level)
+    }
+
+    @Test
+    fun mediaSearchSourceSupportsKindAndNormalizesDisplayName() {
+        val tmdb = MediaSearchSourceDto(id = "themoviedb", name = "TMDB", mediaTypes = listOf("电影", "电视剧"))
+        val douban = MediaSearchSourceDto(id = "douban", name = "豆瓣", mediaTypes = listOf("电影", "电视剧"))
+        val bangumi = MediaSearchSourceDto(id = "bangumi", name = "Bangumi", mediaTypes = listOf("电视剧"))
+        val mb = MediaSearchSourceDto(id = "musicbrainz", name = "MusicBrainz", mediaTypes = listOf("音乐"))
+
+        assertEquals("TheMovieDB", tmdb.displayName)
+        assertEquals("豆瓣", douban.displayName)
+
+        assertTrue(tmdb.supports("media"))
+        assertTrue(tmdb.supports("collection"))
+        assertTrue(tmdb.supports("person"))
+        assertFalse(tmdb.supports("music"))
+
+        assertTrue(douban.supports("media"))
+        assertFalse(douban.supports("collection"))
+        assertTrue(douban.supports("person"))
+
+        assertTrue(bangumi.supports("media"))
+        assertFalse(bangumi.supports("person"))
+        assertFalse(bangumi.supports("collection"))
+
+        assertTrue(mb.supports("music"))
+        assertTrue(mb.supports("person"))
+        assertFalse(mb.supports("media"))
     }
 }

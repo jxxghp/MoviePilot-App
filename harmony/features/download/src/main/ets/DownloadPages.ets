@@ -33,10 +33,37 @@ const SORT_MODES: string[][] = [
   ['site', '站点排序']
 ];
 
-const RES_FILTER_OPTIONS: string[] = ['2160p', '1080p', '720p'];
-const PROMO_FILTER_OPTIONS: string[] = ['免费', '2X免费', '50%', '30%'];
-const QUALITY_FILTER_OPTIONS: string[] = ['BluRay', 'REMUX', 'WEB-DL', 'HDTV'];
-const ENCODE_FILTER_OPTIONS: string[] = ['H265', 'H264', 'HEVC', 'AV1'];
+interface ResourceFacetOptionsSnapshot {
+  sites: string[];
+  promotions: string[];
+  resolutions: string[];
+  labels: string[];
+  editions: string[];
+  videoEncodes: string[];
+  seasons: string[];
+  resourceTypes: string[];
+  audioEncodes: string[];
+  teams: string[];
+}
+
+interface ResourceFacetDimSpec {
+  key: string;
+  title: string;
+  sheetTitle: string;
+}
+
+const RESOURCE_FACET_DIMS: ResourceFacetDimSpec[] = [
+  { key: 'site', title: '站点', sheetTitle: '结果站点' },
+  { key: 'promo', title: '促销', sheetTitle: '促销优惠' },
+  { key: 'res', title: '分辨率', sheetTitle: '分辨率' },
+  { key: 'label', title: '字幕/标签', sheetTitle: '字幕与标签' },
+  { key: 'edition', title: '版本', sheetTitle: '质量版本' },
+  { key: 'encode', title: '编码', sheetTitle: '视频编码' },
+  { key: 'season', title: '季集', sheetTitle: '季集' },
+  { key: 'type', title: '来源', sheetTitle: '资源来源' },
+  { key: 'audio', title: '音轨', sheetTitle: '音频编码' },
+  { key: 'team', title: '制作组', sheetTitle: '制作组' }
+];
 
 /**
  * 鸿蒙「站点资源」页（对齐 iOS 多选站点、Rust 9 维筛选分组与真实下载器/保存目录选择）：
@@ -53,20 +80,28 @@ export struct HarmonyResourceSearchPage {
   @Prop initialKeyword: string = '';
   @State private keyword: string = '';
   @State private sites: MpSiteItem[] = [];
+  @State private siteScopeMode: string = 'default'; // default | all | custom
   @State private selectedSiteIds: number[] = [];
   @State private resources: MpResourceItem[] = [];
   @State private loading: boolean = true;
   @State private notice: string = '';
 
-  // 排序与多维筛选
+  // 排序与 9 维 + 季集连续多选筛选（对齐 #67）
   @State private sortKey: string = 'seeders';
   @State private filterSites: string[] = [];
   @State private filterResolutions: string[] = [];
   @State private filterPromos: string[] = [];
+  @State private filterEditions: string[] = [];
   @State private filterQualities: string[] = [];
   @State private filterEncodes: string[] = [];
+  @State private filterAudioEncodes: string[] = [];
+  @State private filterTeams: string[] = [];
+  @State private filterLabels: string[] = [];
+  @State private filterSeasons: string[] = [];
+  @State private openFacetKey: string = '';
 
   // 弹层状态
+  @State private showSitePopup: boolean = false;
   @State private showSiteSheet: boolean = false;
   @State private showSortSheet: boolean = false;
   @State private showFilterSheet: boolean = false;
@@ -115,11 +150,24 @@ export struct HarmonyResourceSearchPage {
     this.loading = false;
   }
 
+  private resolvedSearchSiteIds(): number[] {
+    if (this.siteScopeMode === 'all') {
+      return this.sites.map((s: MpSiteItem) => s.id);
+    }
+    if (this.siteScopeMode === 'custom') {
+      return [...this.selectedSiteIds].sort((a: number, b: number) => a - b);
+    }
+    return [];
+  }
+
   private async runSearch(): Promise<void> {
     this.loading = true;
     this.notice = '';
     try {
-      this.resources = await MoviePilotRepository.shared().searchSiteResources(this.keyword, this.selectedSiteIds);
+      this.resources = await MoviePilotRepository.shared().searchSiteResources(
+        this.keyword,
+        this.resolvedSearchSiteIds()
+      );
     } catch {
       this.resources = [];
     }
@@ -133,21 +181,15 @@ export struct HarmonyResourceSearchPage {
 
   private activeFilterCount(): number {
     return this.filterSites.length + this.filterResolutions.length +
-      this.filterPromos.length + this.filterQualities.length + this.filterEncodes.length;
+      this.filterPromos.length + this.filterEditions.length +
+      this.filterQualities.length + this.filterEncodes.length +
+      this.filterAudioEncodes.length + this.filterTeams.length +
+      this.filterLabels.length + this.filterSeasons.length;
   }
 
   private siteIconForName(siteName: string): string {
     const found = this.sites.find((s: MpSiteItem) => s.name === siteName);
     return found ? found.iconDataUri : '';
-  }
-
-  private resultSiteNames(): string[] {
-    const set = new Set<string>();
-    for (let i = 0; i < this.resources.length; i++) {
-      const n = this.resources[i].siteName.trim();
-      if (n.length > 0) { set.add(n); }
-    }
-    return Array.from(set).sort();
   }
 
   private toggleInList(list: string[], val: string): string[] {
@@ -161,25 +203,152 @@ export struct HarmonyResourceSearchPage {
     this.filterSites = [];
     this.filterResolutions = [];
     this.filterPromos = [];
+    this.filterEditions = [];
     this.filterQualities = [];
     this.filterEncodes = [];
+    this.filterAudioEncodes = [];
+    this.filterTeams = [];
+    this.filterLabels = [];
+    this.filterSeasons = [];
+  }
+
+  private promotionLabelOf(r: MpResourceItem): string {
+    const factors = this.resolvedVolumeFactors(r);
+    const dl = factors[0];
+    const ul = factors[1];
+    if (dl === 0 && ul >= 2) { return '2X免费'; }
+    if (dl === 0) { return '免费'; }
+    if (Math.abs(dl - 0.5) < 0.01) { return '50%'; }
+    if (dl > 0 && dl < 1) { return `${Math.round(dl * 100)}%`; }
+    return '普通';
+  }
+
+  private resolvedVolumeFactors(r: MpResourceItem): number[] {
+    const dl = r.downloadVolumeFactor ?? -1;
+    const ul = r.uploadVolumeFactor ?? -1;
+    if (dl >= 0 && ul >= 0) {
+      return [dl, ul];
+    }
+    return this.parsePromotionFactors(r.volumeFactor);
+  }
+
+  private computeFacetOptions(): ResourceFacetOptionsSnapshot {
+    const siteSet = new Set<string>();
+    const promoSet = new Set<string>();
+    const resSet = new Set<string>();
+    const labelSet = new Set<string>();
+    const editionSet = new Set<string>();
+    const encodeSet = new Set<string>();
+    const seasonSet = new Set<string>();
+    const typeSet = new Set<string>();
+    const audioSet = new Set<string>();
+    const teamSet = new Set<string>();
+
+    for (let i = 0; i < this.resources.length; i++) {
+      const r = this.resources[i];
+      if (r.siteName.trim().length > 0) { siteSet.add(r.siteName.trim()); }
+      promoSet.add(this.promotionLabelOf(r));
+      if (r.resolution.trim().length > 0) { resSet.add(r.resolution.trim()); }
+      const ed = (r.edition ?? '').trim();
+      if (ed.length > 0) { editionSet.add(ed); }
+      if (r.videoEncode.trim().length > 0) { encodeSet.add(r.videoEncode.trim()); }
+      const se = (r.seasonEpisode ?? '').trim();
+      if (se.length > 0) { seasonSet.add(se); }
+      if (r.resourceType.trim().length > 0) { typeSet.add(r.resourceType.trim()); }
+      const au = (r.audioEncode ?? '').trim();
+      if (au.length > 0) { audioSet.add(au); }
+      const tm = (r.resourceTeam ?? '').trim();
+      if (tm.length > 0) { teamSet.add(tm); }
+      const lbls = r.labels ?? [];
+      for (let k = 0; k < lbls.length; k++) {
+        const l = lbls[k].trim();
+        if (l.length > 0) { labelSet.add(l); }
+      }
+    }
+    return {
+      sites: Array.from(siteSet).sort(),
+      promotions: Array.from(promoSet).sort(),
+      resolutions: Array.from(resSet).sort(),
+      labels: Array.from(labelSet).sort(),
+      editions: Array.from(editionSet).sort(),
+      videoEncodes: Array.from(encodeSet).sort(),
+      seasons: Array.from(seasonSet).sort(),
+      resourceTypes: Array.from(typeSet).sort(),
+      audioEncodes: Array.from(audioSet).sort(),
+      teams: Array.from(teamSet).sort()
+    };
+  }
+
+  private facetSelectionFor(dimKey: string): string[] {
+    if (dimKey === 'site') { return this.filterSites; }
+    if (dimKey === 'promo') { return this.filterPromos; }
+    if (dimKey === 'res') { return this.filterResolutions; }
+    if (dimKey === 'label') { return this.filterLabels; }
+    if (dimKey === 'edition') { return this.filterEditions; }
+    if (dimKey === 'encode') { return this.filterEncodes; }
+    if (dimKey === 'season') { return this.filterSeasons; }
+    if (dimKey === 'type') { return this.filterQualities; }
+    if (dimKey === 'audio') { return this.filterAudioEncodes; }
+    if (dimKey === 'team') { return this.filterTeams; }
+    return [];
+  }
+
+  private setFacetSelectionFor(dimKey: string, next: string[]): void {
+    if (dimKey === 'site') { this.filterSites = next; }
+    else if (dimKey === 'promo') { this.filterPromos = next; }
+    else if (dimKey === 'res') { this.filterResolutions = next; }
+    else if (dimKey === 'label') { this.filterLabels = next; }
+    else if (dimKey === 'edition') { this.filterEditions = next; }
+    else if (dimKey === 'encode') { this.filterEncodes = next; }
+    else if (dimKey === 'season') { this.filterSeasons = next; }
+    else if (dimKey === 'type') { this.filterQualities = next; }
+    else if (dimKey === 'audio') { this.filterAudioEncodes = next; }
+    else if (dimKey === 'team') { this.filterTeams = next; }
+  }
+
+  private facetOptionsFor(snapshot: ResourceFacetOptionsSnapshot, dimKey: string): string[] {
+    let base: string[] = [];
+    if (dimKey === 'site') { base = snapshot.sites; }
+    else if (dimKey === 'promo') { base = snapshot.promotions; }
+    else if (dimKey === 'res') { base = snapshot.resolutions; }
+    else if (dimKey === 'label') { base = snapshot.labels; }
+    else if (dimKey === 'edition') { base = snapshot.editions; }
+    else if (dimKey === 'encode') { base = snapshot.videoEncodes; }
+    else if (dimKey === 'season') { base = snapshot.seasons; }
+    else if (dimKey === 'type') { base = snapshot.resourceTypes; }
+    else if (dimKey === 'audio') { base = snapshot.audioEncodes; }
+    else if (dimKey === 'team') { base = snapshot.teams; }
+    const sel = this.facetSelectionFor(dimKey);
+    const merged: string[] = [...base];
+    for (let i = 0; i < sel.length; i++) {
+      if (!merged.includes(sel[i])) {
+        merged.push(sel[i]);
+      }
+    }
+    return merged;
+  }
+
+  private matchIgnoreCaseSet(selected: string[], value: string): boolean {
+    if (selected.length === 0) { return true; }
+    const lowerVal = value.trim().toLowerCase();
+    return selected.some((s: string) => s.trim().toLowerCase() === lowerVal);
   }
 
   private applyLocalFilterAndSort(source: MpResourceItem[]): MpResourceItem[] {
     const out = source.filter((r: MpResourceItem) => {
-      if (this.filterSites.length > 0 && !this.filterSites.includes(r.siteName)) { return false; }
-      const hay = `${r.title} ${r.resolution} ${r.resourceType} ${r.videoEncode} ${r.volumeFactor}`.toLowerCase();
-      if (this.filterResolutions.length > 0 && !this.filterResolutions.some((x: string) => hay.includes(x.toLowerCase()))) {
-        return false;
-      }
-      if (this.filterPromos.length > 0 && !this.filterPromos.some((x: string) => (r.volumeFactor || '').includes(x))) {
-        return false;
-      }
-      if (this.filterQualities.length > 0 && !this.filterQualities.some((x: string) => hay.includes(x.toLowerCase()))) {
-        return false;
-      }
-      if (this.filterEncodes.length > 0 && !this.filterEncodes.some((x: string) => hay.includes(x.toLowerCase()))) {
-        return false;
+      if (!this.matchIgnoreCaseSet(this.filterSites, r.siteName)) { return false; }
+      if (!this.matchIgnoreCaseSet(this.filterResolutions, r.resolution)) { return false; }
+      if (!this.matchIgnoreCaseSet(this.filterPromos, this.promotionLabelOf(r))) { return false; }
+      if (!this.matchIgnoreCaseSet(this.filterEditions, r.edition ?? '')) { return false; }
+      if (!this.matchIgnoreCaseSet(this.filterQualities, r.resourceType)) { return false; }
+      if (!this.matchIgnoreCaseSet(this.filterEncodes, r.videoEncode)) { return false; }
+      if (!this.matchIgnoreCaseSet(this.filterAudioEncodes, r.audioEncode ?? '')) { return false; }
+      if (!this.matchIgnoreCaseSet(this.filterTeams, r.resourceTeam ?? '')) { return false; }
+      if (!this.matchIgnoreCaseSet(this.filterSeasons, r.seasonEpisode ?? '')) { return false; }
+      if (this.filterLabels.length > 0) {
+        const itemLabels = (r.labels ?? []).map((x: string) => x.trim().toLowerCase());
+        const ok = this.filterLabels.every((req: string) => itemLabels.includes(req.trim().toLowerCase()));
+        if (!ok) { return false; }
       }
       return true;
     });
@@ -233,12 +402,18 @@ export struct HarmonyResourceSearchPage {
     if (this.resources.length === 0) {
       return [];
     }
+    const basePool = this.filterSeasons.length === 0
+      ? this.resources
+      : this.resources.filter((r: MpResourceItem) => this.matchIgnoreCaseSet(this.filterSeasons, r.seasonEpisode ?? ''));
+    if (basePool.length === 0) {
+      return [];
+    }
     if (RustCoreBridge.isNativeLoaded()) {
       try {
         const rustInputs: Record<string, Object>[] = [];
-        for (let i = 0; i < this.resources.length; i++) {
-          const r = this.resources[i];
-          const factors = this.parsePromotionFactors(r.volumeFactor);
+        for (let i = 0; i < basePool.length; i++) {
+          const r = basePool[i];
+          const factors = this.resolvedVolumeFactors(r);
           const itemObj: Record<string, Object> = {};
           itemObj['id'] = String(i);
           itemObj['title'] = r.title;
@@ -248,11 +423,13 @@ export struct HarmonyResourceSearchPage {
           itemObj['peers'] = r.peers;
           itemObj['resource_pix'] = r.resolution;
           itemObj['resource_type'] = r.resourceType;
-          itemObj['edition'] = r.resourceType;
+          itemObj['edition'] = r.edition ?? '';
           itemObj['video_encode'] = r.videoEncode;
+          itemObj['audio_encode'] = r.audioEncode ?? '';
+          itemObj['resource_team'] = r.resourceTeam ?? '';
           itemObj['downloadvolumefactor'] = factors[0];
           itemObj['uploadvolumefactor'] = factors[1];
-          itemObj['labels'] = r.volumeFactor.length > 0 ? [r.volumeFactor] : [];
+          itemObj['labels'] = r.labels ?? (r.volumeFactor.length > 0 ? [r.volumeFactor] : []);
           itemObj['description'] = r.description;
           itemObj['enclosure'] = r.enclosure;
           rustInputs.push(itemObj);
@@ -260,10 +437,14 @@ export struct HarmonyResourceSearchPage {
         const criteriaObj: Record<string, Object> = {};
         if (this.filterSites.length > 0) { criteriaObj['sites'] = this.filterSites; }
         if (this.filterResolutions.length > 0) { criteriaObj['resolutions'] = this.filterResolutions; }
+        if (this.filterEditions.length > 0) { criteriaObj['editions'] = this.filterEditions; }
         if (this.filterQualities.length > 0) { criteriaObj['resourceTypes'] = this.filterQualities; }
         if (this.filterEncodes.length > 0) { criteriaObj['videoEncodes'] = this.filterEncodes; }
+        if (this.filterAudioEncodes.length > 0) { criteriaObj['audioEncodes'] = this.filterAudioEncodes; }
+        if (this.filterTeams.length > 0) { criteriaObj['teams'] = this.filterTeams; }
         if (this.filterPromos.length > 0) { criteriaObj['promotions'] = this.filterPromos; }
-        criteriaObj['sortBy'] = this.sortKey;
+        if (this.filterLabels.length > 0) { criteriaObj['labels'] = this.filterLabels; }
+        criteriaObj['sortBy'] = this.sortKey === 'size' ? 'sizeDesc' : (this.sortKey === 'site' ? 'site' : 'seeders');
 
         const outJson = RustCoreBridge.filterAndGroupResources(JSON.stringify(rustInputs), JSON.stringify(criteriaObj));
         const parsed = JSON.parse(outJson) as Record<string, Object>;
@@ -277,8 +458,8 @@ export struct HarmonyResourceSearchPage {
               for (let k = 0; k < grpItems.length; k++) {
                 const it = grpItems[k] as Record<string, Object>;
                 const idx = Number(it['id']);
-                if (Number.isFinite(idx) && idx >= 0 && idx < this.resources.length) {
-                  mapped.push(this.resources[idx]);
+                if (Number.isFinite(idx) && idx >= 0 && idx < basePool.length) {
+                  mapped.push(basePool[idx]);
                 }
               }
             }
@@ -295,16 +476,202 @@ export struct HarmonyResourceSearchPage {
         // Rust JSON 协议回退至本地等价筛选
       }
     }
-    return this.applyLocalFilterAndSort(this.resources);
+    return this.applyLocalFilterAndSort(basePool);
+  }
+
+  private hasNonDefaultSiteScope(): boolean {
+    return this.siteScopeMode === 'all' || (this.siteScopeMode === 'custom' && this.selectedSiteIds.length > 0);
   }
 
   private siteScopeLabel(): string {
-    if (this.selectedSiteIds.length === 0) { return '全站 ▾'; }
-    if (this.selectedSiteIds.length === 1) {
-      const s = this.sites.find((x: MpSiteItem) => x.id === this.selectedSiteIds[0]);
-      return `${s ? s.name : '1 站'} ▾`;
+    if (this.siteScopeMode === 'all') { return '全站 ▾'; }
+    if (this.siteScopeMode === 'custom') {
+      if (this.selectedSiteIds.length === 0) { return '默认 ▾'; }
+      if (this.selectedSiteIds.length === 1) {
+        const s = this.sites.find((x: MpSiteItem) => x.id === this.selectedSiteIds[0]);
+        return `${s ? s.name : '1站'} ▾`;
+      }
+      return `${this.selectedSiteIds.length}站 ▾`;
     }
-    return `已选 ${this.selectedSiteIds.length} 站 ▾`;
+    return '默认 ▾';
+  }
+
+  private toggleCustomSearchSite(siteId: number): void {
+    let next: number[];
+    if (this.siteScopeMode !== 'custom') {
+      next = [siteId];
+    } else if (this.selectedSiteIds.includes(siteId)) {
+      next = this.selectedSiteIds.filter((id: number) => id !== siteId);
+    } else {
+      next = [...this.selectedSiteIds, siteId];
+    }
+    this.selectedSiteIds = next;
+    this.siteScopeMode = next.length === 0 ? 'default' : 'custom';
+  }
+
+  @Builder
+  private siteQuickPopupBuilder() {
+    Column({ space: 2 }) {
+      Row({ space: 8 }) {
+        Text('默认（系统设置）')
+          .fontSize(13.5)
+          .fontWeight(this.siteScopeMode === 'default' ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(mpPrimaryText(this.isDark))
+          .layoutWeight(1)
+        if (this.siteScopeMode === 'default') {
+          SymbolGlyph($r('sys.symbol.checkmark'))
+            .fontSize(14)
+            .fontColor([this.accentHex])
+        }
+      }
+      .width('100%')
+      .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+      .borderRadius(10)
+      .onClick(() => {
+        this.siteScopeMode = 'default';
+        this.selectedSiteIds = [];
+        this.showSitePopup = false;
+      })
+
+      Row({ space: 8 }) {
+        Text('全部站点')
+          .fontSize(13.5)
+          .fontWeight(this.siteScopeMode === 'all' ? FontWeight.Bold : FontWeight.Normal)
+          .fontColor(mpPrimaryText(this.isDark))
+          .layoutWeight(1)
+        if (this.siteScopeMode === 'all') {
+          SymbolGlyph($r('sys.symbol.checkmark'))
+            .fontSize(14)
+            .fontColor([this.accentHex])
+        }
+      }
+      .width('100%')
+      .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+      .borderRadius(10)
+      .onClick(() => {
+        this.siteScopeMode = 'all';
+        this.selectedSiteIds = [];
+        this.showSitePopup = false;
+      })
+
+      if (this.sites.length > 0) {
+        Divider().color(HarmonyThemeColors.chipFill(this.isDark)).margin({ top: 2, bottom: 2 })
+        Scroll() {
+          Column({ space: 2 }) {
+            ForEach(this.sites, (s: MpSiteItem) => {
+              Row({ space: 8 }) {
+                HarmonyEntityLogo({
+                  kind: 'site',
+                  value: s.name,
+                  dataUri: s.iconDataUri,
+                  logoSize: 16,
+                  cornerRadius: 4
+                })
+                Text(s.name)
+                  .fontSize(13.5)
+                  .fontWeight(this.siteScopeMode === 'custom' && this.selectedSiteIds.includes(s.id)
+                    ? FontWeight.Medium : FontWeight.Normal)
+                  .fontColor(mpPrimaryText(this.isDark))
+                  .maxLines(1)
+                  .layoutWeight(1)
+                if (this.siteScopeMode === 'custom' && this.selectedSiteIds.includes(s.id)) {
+                  SymbolGlyph($r('sys.symbol.checkmark'))
+                    .fontSize(14)
+                    .fontColor([this.accentHex])
+                }
+              }
+              .width('100%')
+              .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+              .borderRadius(10)
+              .onClick(() => {
+                // 勾选具体站点时保持菜单展开支持连续多选（对齐 #67）
+                this.toggleCustomSearchSite(s.id);
+              })
+            }, (s: MpSiteItem) => `site_pop_${s.id}`)
+          }
+        }
+        .constraintSize({ maxHeight: 250 })
+        .scrollBar(BarState.Off)
+
+        Divider().color(HarmonyThemeColors.chipFill(this.isDark)).margin({ top: 2, bottom: 2 })
+        Row() {
+          Text('展开站点网格面板…')
+            .fontSize(12.5)
+            .fontColor(mpSecondaryText(this.isDark))
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+        .onClick(() => {
+          this.showSitePopup = false;
+          this.showSiteSheet = true;
+        })
+      }
+    }
+    .width(224)
+    .padding(6)
+  }
+
+  @Builder
+  private facetPopupBuilder(dimKey: string, dimTitle: string) {
+    Column({ space: 2 }) {
+      Scroll() {
+        Column({ space: 2 }) {
+          ForEach(this.facetOptionsFor(this.computeFacetOptions(), dimKey), (opt: string) => {
+            Row({ space: 8 }) {
+              if (dimKey === 'site') {
+                HarmonyEntityLogo({
+                  kind: 'site',
+                  value: opt,
+                  dataUri: this.siteIconForName(opt),
+                  logoSize: 16,
+                  cornerRadius: 4
+                })
+              }
+              Text(opt)
+                .fontSize(13.5)
+                .fontWeight(this.facetSelectionFor(dimKey).includes(opt) ? FontWeight.Medium : FontWeight.Normal)
+                .fontColor(mpPrimaryText(this.isDark))
+                .maxLines(1)
+                .layoutWeight(1)
+              if (this.facetSelectionFor(dimKey).includes(opt)) {
+                SymbolGlyph($r('sys.symbol.checkmark'))
+                  .fontSize(14)
+                  .fontColor([this.accentHex])
+              }
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+            .borderRadius(10)
+            .onClick(() => {
+              // 保持筛选项弹窗展开以支持连续多选（对齐 #67）
+              const current = this.facetSelectionFor(dimKey);
+              this.setFacetSelectionFor(dimKey, this.toggleInList(current, opt));
+            })
+          }, (opt: string) => `facet_${dimKey}_${opt}`)
+        }
+      }
+      .constraintSize({ maxHeight: 260 })
+      .scrollBar(BarState.Off)
+
+      if (this.facetSelectionFor(dimKey).length > 0) {
+        Divider().color(HarmonyThemeColors.chipFill(this.isDark)).margin({ top: 2, bottom: 2 })
+        Row() {
+          Text(`清空${dimTitle}`)
+            .fontSize(13)
+            .fontColor('#E84855')
+            .fontWeight(FontWeight.Medium)
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+        .borderRadius(10)
+        .onClick(() => {
+          this.setFacetSelectionFor(dimKey, []);
+          this.openFacetKey = '';
+        })
+      }
+    }
+    .width(210)
+    .padding(6)
   }
 
   private directoryTargetPath(dir: MpDirectoryConfig): string {
@@ -317,20 +684,44 @@ export struct HarmonyResourceSearchPage {
       HarmonySheetHeader({
         title: '选择搜索站点',
         cancelText: '关闭',
-        actionText: this.selectedSiteIds.length === 0 ? '全选' : '全站',
+        actionText: this.siteScopeMode === 'all' ? '默认' : '全站',
         onCancel: () => { this.showSiteSheet = false; },
         onAction: () => {
-          if (this.selectedSiteIds.length === 0) {
-            this.selectedSiteIds = this.sites.map((s: MpSiteItem) => s.id);
+          if (this.siteScopeMode === 'all') {
+            this.siteScopeMode = 'default';
+            this.selectedSiteIds = [];
           } else {
+            this.siteScopeMode = 'all';
             this.selectedSiteIds = [];
           }
         }
       })
 
-      Text(this.selectedSiteIds.length === 0
-        ? '支持多选站点 · 当前：全站（留空自动遵循默认范围）'
-        : `支持多选站点 · 当前已选 ${this.selectedSiteIds.length} 个站点`)
+      Row({ space: 8 }) {
+        NativeAdaptivePill({
+          title: '默认（系统设置）',
+          selected: this.siteScopeMode === 'default',
+          onTap: () => {
+            this.siteScopeMode = 'default';
+            this.selectedSiteIds = [];
+          }
+        })
+        NativeAdaptivePill({
+          title: '全部站点',
+          selected: this.siteScopeMode === 'all',
+          onTap: () => {
+            this.siteScopeMode = 'all';
+            this.selectedSiteIds = [];
+          }
+        })
+      }
+      .width('100%')
+
+      Text(this.siteScopeMode === 'all'
+        ? '支持多选站点 · 当前：全部站点（覆盖默认搜索范围）'
+        : (this.siteScopeMode === 'custom' && this.selectedSiteIds.length > 0
+          ? `支持多选站点 · 当前已选 ${this.selectedSiteIds.length} 个站点`
+          : '支持多选站点 · 当前：默认（遵循系统设置范围）'))
         .fontSize(12)
         .fontColor(mpSecondaryText(this.isDark))
         .width('100%')
@@ -358,13 +749,9 @@ export struct HarmonyResourceSearchPage {
                 value: s.name,
                 dataUri: s.iconDataUri,
                 title: s.name,
-                selected: this.selectedSiteIds.includes(s.id),
+                selected: this.siteScopeMode === 'custom' && this.selectedSiteIds.includes(s.id),
                 onTap: () => {
-                  if (this.selectedSiteIds.includes(s.id)) {
-                    this.selectedSiteIds = this.selectedSiteIds.filter((id: number) => id !== s.id);
-                  } else {
-                    this.selectedSiteIds = [...this.selectedSiteIds, s.id];
-                  }
+                  this.toggleCustomSearchSite(s.id);
                 }
               })
             }, (s: MpSiteItem) => `res_site_${s.id}`)
@@ -437,65 +824,60 @@ export struct HarmonyResourceSearchPage {
 
       Scroll() {
         Column({ space: 14 }) {
-          if (this.resultSiteNames().length > 0) {
-            Text('结果站点（可多选）').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-            Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
-              ForEach(this.resultSiteNames(), (name: string) => {
-                HarmonyEntityLogoPill({
-                  kind: 'site',
-                  value: name,
-                  dataUri: this.siteIconForName(name),
-                  title: name,
-                  selected: this.filterSites.includes(name),
-                  onTap: () => { this.filterSites = this.toggleInList(this.filterSites, name); }
-                })
-              }, (name: string) => `fs_${name}`)
-            }.width('100%')
+          ForEach(RESOURCE_FACET_DIMS, (dim: ResourceFacetDimSpec) => {
+            if (this.facetOptionsFor(this.computeFacetOptions(), dim.key).length > 0) {
+              Column({ space: 8 }) {
+                Row() {
+                  Text(`${dim.sheetTitle}（可多选）`)
+                    .fontSize(13)
+                    .fontColor(mpSecondaryText(this.isDark))
+                    .layoutWeight(1)
+                  if (this.facetSelectionFor(dim.key).length > 0) {
+                    Text(`清空 (${this.facetSelectionFor(dim.key).length})`)
+                      .fontSize(12)
+                      .fontColor('#E84855')
+                      .fontWeight(FontWeight.Medium)
+                      .onClick(() => { this.setFacetSelectionFor(dim.key, []); })
+                  }
+                }
+                .width('100%')
+
+                Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
+                  ForEach(this.facetOptionsFor(this.computeFacetOptions(), dim.key), (opt: string) => {
+                    if (dim.key === 'site') {
+                      HarmonyEntityLogoPill({
+                        kind: 'site',
+                        value: opt,
+                        dataUri: this.siteIconForName(opt),
+                        title: opt,
+                        selected: this.facetSelectionFor(dim.key).includes(opt),
+                        onTap: () => {
+                          this.setFacetSelectionFor(dim.key, this.toggleInList(this.facetSelectionFor(dim.key), opt));
+                        }
+                      })
+                    } else {
+                      NativeAdaptivePill({
+                        title: opt,
+                        selected: this.facetSelectionFor(dim.key).includes(opt),
+                        onTap: () => {
+                          this.setFacetSelectionFor(dim.key, this.toggleInList(this.facetSelectionFor(dim.key), opt));
+                        }
+                      })
+                    }
+                  }, (opt: string) => `fs_${dim.key}_${opt}`)
+                }
+                .width('100%')
+              }
+              .width('100%')
+            }
+          }, (dim: ResourceFacetDimSpec) => `sheet_dim_${dim.key}`)
+
+          if (this.resources.length === 0 && this.activeFilterCount() === 0) {
+            Text('当前暂无可筛选结果，请先输入关键词或选择站点浏览。')
+              .fontSize(13)
+              .fontColor(mpSecondaryText(this.isDark))
+              .width('100%')
           }
-
-          Text('分辨率').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
-            ForEach(RES_FILTER_OPTIONS, (opt: string) => {
-              NativeAdaptivePill({
-                title: opt,
-                selected: this.filterResolutions.includes(opt),
-                onTap: () => { this.filterResolutions = this.toggleInList(this.filterResolutions, opt); }
-              })
-            }, (opt: string) => `fr_${opt}`)
-          }.width('100%')
-
-          Text('促销优惠').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
-            ForEach(PROMO_FILTER_OPTIONS, (opt: string) => {
-              NativeAdaptivePill({
-                title: opt,
-                selected: this.filterPromos.includes(opt),
-                onTap: () => { this.filterPromos = this.toggleInList(this.filterPromos, opt); }
-              })
-            }, (opt: string) => `fp_${opt}`)
-          }.width('100%')
-
-          Text('质量来源').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
-            ForEach(QUALITY_FILTER_OPTIONS, (opt: string) => {
-              NativeAdaptivePill({
-                title: opt,
-                selected: this.filterQualities.includes(opt),
-                onTap: () => { this.filterQualities = this.toggleInList(this.filterQualities, opt); }
-              })
-            }, (opt: string) => `fq_${opt}`)
-          }.width('100%')
-
-          Text('视频编码').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-          Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 8, unit: 1 }, cross: { value: 8, unit: 1 } } }) {
-            ForEach(ENCODE_FILTER_OPTIONS, (opt: string) => {
-              NativeAdaptivePill({
-                title: opt,
-                selected: this.filterEncodes.includes(opt),
-                onTap: () => { this.filterEncodes = this.toggleInList(this.filterEncodes, opt); }
-              })
-            }, (opt: string) => `fe_${opt}`)
-          }.width('100%')
         }.padding({ bottom: 16 })
       }.scrollBar(BarState.Off).layoutWeight(1)
 
@@ -704,11 +1086,23 @@ export struct HarmonyResourceSearchPage {
             Text(this.siteScopeLabel())
               .fontSize(12)
               .fontWeight(FontWeight.Medium)
-              .fontColor(this.selectedSiteIds.length > 0 ? Color.White : mpPrimaryText(this.isDark))
+              .fontColor(this.hasNonDefaultSiteScope() ? Color.White : mpPrimaryText(this.isDark))
               .padding({ left: 10, right: 10, top: 6, bottom: 6 })
               .borderRadius(14)
-              .backgroundColor(this.selectedSiteIds.length > 0 ? this.accentHex : HarmonyThemeColors.chipFill(this.isDark))
-              .onClick(() => { this.showSiteSheet = true; })
+              .backgroundColor(this.hasNonDefaultSiteScope() ? this.accentHex : HarmonyThemeColors.chipFill(this.isDark))
+              .onClick(() => { this.showSitePopup = !this.showSitePopup; })
+              .bindPopup(this.showSitePopup, {
+                builder: () => { this.siteQuickPopupBuilder(); },
+                placement: Placement.BottomRight,
+                popupColor: HarmonyThemeColors.overlayFallback(this.isDark),
+                enableArrow: false,
+                autoCancel: true,
+                onStateChange: (e) => {
+                  if (!e.isVisible) {
+                    this.showSitePopup = false;
+                  }
+                }
+              })
 
             Button(this.keyword.trim().length > 0 ? '搜索' : '浏览')
               .height(34).padding({ left: 12, right: 12 }).borderRadius(17)
@@ -745,22 +1139,52 @@ export struct HarmonyResourceSearchPage {
           .backgroundColor(this.activeFilterCount() > 0 ? this.accentHex : HarmonyThemeColors.chipFill(this.isDark))
           .onClick(() => { this.showFilterSheet = true; })
 
-          NativeAdaptivePill({
-            title: '2160p',
-            selected: this.filterResolutions.includes('2160p'),
-            onTap: () => { this.filterResolutions = this.toggleInList(this.filterResolutions, '2160p'); }
-          })
-          NativeAdaptivePill({
-            title: '免费',
-            selected: this.filterPromos.includes('免费'),
-            onTap: () => { this.filterPromos = this.toggleInList(this.filterPromos, '免费'); }
-          })
           if (this.activeFilterCount() > 0) {
-            Text('清空')
-              .fontSize(12.5).fontColor('#E84855').fontWeight(FontWeight.Medium)
-              .padding({ left: 8, right: 8, top: 8, bottom: 8 })
+            Text('重置')
+              .fontSize(12.5)
+              .fontColor('#E84855')
+              .fontWeight(FontWeight.Medium)
+              .padding({ left: 10, right: 10, top: 8, bottom: 8 })
+              .borderRadius(16)
+              .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
               .onClick(() => this.clearAllFilters())
           }
+
+          ForEach(RESOURCE_FACET_DIMS, (dim: ResourceFacetDimSpec) => {
+            if (this.facetOptionsFor(this.computeFacetOptions(), dim.key).length > 0) {
+              Row({ space: 4 }) {
+                Text(this.facetSelectionFor(dim.key).length > 0
+                  ? `${dim.title} ${this.facetSelectionFor(dim.key).length}`
+                  : dim.title)
+                  .fontSize(12.5)
+                  .fontWeight(this.facetSelectionFor(dim.key).length > 0 ? FontWeight.Bold : FontWeight.Medium)
+                  .fontColor(this.facetSelectionFor(dim.key).length > 0 ? Color.White : mpPrimaryText(this.isDark))
+                Text('▾')
+                  .fontSize(10)
+                  .fontColor(this.facetSelectionFor(dim.key).length > 0 ? Color.White : mpSecondaryText(this.isDark))
+              }
+              .padding({ left: 12, right: 10, top: 8, bottom: 8 })
+              .borderRadius(16)
+              .backgroundColor(this.facetSelectionFor(dim.key).length > 0 || this.openFacetKey === dim.key
+                ? (this.facetSelectionFor(dim.key).length > 0 ? this.accentHex : HarmonyThemeColors.chipFill(this.isDark))
+                : HarmonyThemeColors.chipFill(this.isDark))
+              .onClick(() => {
+                this.openFacetKey = this.openFacetKey === dim.key ? '' : dim.key;
+              })
+              .bindPopup(this.openFacetKey === dim.key, {
+                builder: () => { this.facetPopupBuilder(dim.key, dim.title); },
+                placement: Placement.Bottom,
+                popupColor: HarmonyThemeColors.overlayFallback(this.isDark),
+                enableArrow: false,
+                autoCancel: true,
+                onStateChange: (e) => {
+                  if (!e.isVisible && this.openFacetKey === dim.key) {
+                    this.openFacetKey = '';
+                  }
+                }
+              })
+            }
+          }, (dim: ResourceFacetDimSpec) => `bar_dim_${dim.key}`)
         }
         .padding({ left: 16, right: 16 })
       }
