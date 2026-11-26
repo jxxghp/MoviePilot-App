@@ -3428,13 +3428,13 @@ final class NativeV2EntryTests: XCTestCase {
     tap(app.buttons["native-v2-saved-\(base)\(name)/"], app: app)
   }
 
-  /// 合成输入经真正的安全密码框提交；截图不显示明文密码或令牌。
+  /// 合成密码只填写，不用回车提前移除键盘工具栏；由「完成」按钮统一收起键盘。
   private func enterCredentials(_ name: String, app: XCUIApplication) {
     let username = app.textFields["native-v2-username"]
     tap(username, app: app)
     username.typeText("native-" + name + "\n")
     let password = app.secureTextFields["native-v2-password"]
-    password.typeText("fixture-" + name + "123\n")
+    password.typeText("fixture-" + name + "123")
     dismissKeyboard(app)
   }
 
