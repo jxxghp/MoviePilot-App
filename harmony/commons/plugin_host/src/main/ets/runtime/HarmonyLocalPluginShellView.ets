@@ -158,6 +158,7 @@ export struct HarmonyLocalPluginShellView {
       },
       () => this.getAbilityContext()
     );
+    this.bridge.nativeCapabilities.setActivePluginId(this.pluginId);
     const requestCloseOrBack = (): boolean => {
       if (!this.isMounted || !this.bridge) {
         return false;

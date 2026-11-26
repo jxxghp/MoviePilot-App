@@ -8,8 +8,8 @@ MoviePilot 现已全面提供 **iOS / iPadOS**、**Android** 与 **HarmonyOS NEX
   - 模块联邦（`render_mode == "vue"`）插件全屏展示时自动隐藏宿主顶栏与退出按钮，释放上方可视空间（`#72`）。
   - 插件 SDK 与容器桥新增 `hostSdk.navigation.onBack`（LIFO 返回栈 + 300ms 异步超时兜底）、`hostSdk.shell.close()` / `navigation.close()`，并加固 `window.__mpPluginHostReceive` 防覆盖保护，确保系统侧滑/返回键优先委托给插件内部多级页面且 `api.request` 响应永不丢失（`#76`、`#77`）。
   - 新增插件无损最小化能力（`hostSdk.shell.minimize` / `updateCapsule` / `restore` / `onCapsuleAction`）：最小化后保持底层 WebView 实例与音视频/任务运行不断连，跨页常驻可拖拽的快捷跳转胶囊或迷你控制卡，Android 端授权悬浮窗权限后支持退回系统桌面继续悬浮显示（`#73`）。
-- **媒体会话歌词同步、红心收藏与自定义快捷动作**：
-  - 三端 `audio.setNowPlaying` 扩展支持 `lyrics` / `lyricLines` 实时时间轴歌词（同步展示于系统媒体控制卡片、锁屏与通知栏副标题）、`liked` 红心状态切换回调与 `customActions` 自定义动作按钮（`#77`）。
+- **媒体会话歌词同步、红心收藏与通知栏体验闭环**：
+  - 三端 `audio.setNowPlaying` 扩展支持 `lyrics` / `lyricLines` 实时时间轴歌词（同步展示于系统媒体控制卡片、锁屏与通知栏副标题）、`liked` 红心状态切换回调与 `customActions` 自定义动作按钮；支持相对路径 `artworkUrl`（`/api/v1/plugin/...`）自动拼接实例地址并代附鉴权下载封面，设置系统媒体通知点击直达 App 内对应插件页面，并在容器侧抑制 WebView 重复注册 Web MediaSession（`#77`）。
 - **Android 自定义插件与插件仪表盘桌面小部件**：
   - 新增可配置的 Android Glance 桌面小部件：支持添加任意已安装插件的桌面一键直达快捷方式，或将支持仪表盘数据的插件直接渲染为桌面实时指标卡片并支持手动刷新（`#75`）。
 - **Android / 鸿蒙卡片更多菜单对齐与体验修复**：

@@ -1,9 +1,10 @@
-import { abilityAccessCtrl, bundleManager, common, Permissions } from '@kit.AbilityKit';
+import { abilityAccessCtrl, bundleManager, common, Permissions, wantAgent } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { display, window } from '@kit.ArkUI';
 import { avSession } from '@kit.AVSessionKit';
 import { deviceInfo, pasteboard } from '@kit.BasicServicesKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
+import { image } from '@kit.ImageKit';
 import { media } from '@kit.MediaKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { connection, http } from '@kit.NetworkKit';
@@ -61,6 +62,7 @@ export class HarmonyPluginNativeCapabilities {
   private base64Helper: util.Base64Helper = new util.Base64Helper();
 
   // Status bar / AVSession Now Playing state (#56 / #77)
+  private activePluginId: string = '';
   private pluginAvSession: avSession.AVSession | null = null;
   private nowPlayingActive: boolean = false;
   private nowPlayingTitle: string = '';
@@ -69,6 +71,12 @@ export class HarmonyPluginNativeCapabilities {
   private nowPlayingDurationMs: number = 0;
   private nowPlayingLyrics: string = '';
   private nowPlayingLiked: boolean = false;
+  private nowPlayingArtworkKey: string = '';
+  private nowPlayingArtworkPixelMap: image.PixelMap | null = null;
+
+  setActivePluginId(pluginId: string): void {
+    this.activePluginId = pluginId.trim();
+  }
 
   constructor(
     getContext: () => common.UIAbilityContext | null,
@@ -1011,8 +1019,9 @@ export class HarmonyPluginNativeCapabilities {
         } else {
           player.url = resolved.url;
         }
-      } else if (rawApi.length > 0) {
-        const normalized = RustCoreBridge.validatePluginApiPath(rawApi);
+      } else if (rawApi.length > 0 || rawUrl.startsWith('/')) {
+        const candidatePath = rawApi.length > 0 ? rawApi : rawUrl;
+        const normalized = RustCoreBridge.validatePluginApiPath(candidatePath);
         const origin = this.getServerUrl();
         const token = this.getAuthToken();
         if (!normalized || origin.length === 0 || token.length === 0) {
@@ -1290,6 +1299,26 @@ export class HarmonyPluginNativeCapabilities {
         this.pluginAvSession = s;
       }
 
+      try {
+        const deepLinkUri = this.activePluginId.length > 0
+          ? `moviepilot://plugin/${encodeURIComponent(this.activePluginId)}?surface=data`
+          : 'moviepilot://home';
+        const agentInfo: wantAgent.WantAgentInfo = {
+          wants: [{
+            bundleName: 'com.moviepilot.app',
+            abilityName: 'EntryAbility',
+            uri: deepLinkUri
+          }],
+          actionType: wantAgent.OperationType.START_ABILITY,
+          requestCode: 0,
+          actionFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
+        };
+        const agent = await wantAgent.getWantAgent(agentInfo);
+        await this.pluginAvSession.setLaunchAbility(agent);
+      } catch {
+        // 模拟器或受限环境忽略 LaunchAbility 配置异常
+      }
+
       const meta: avSession.AVMetadata = {
         assetId: this.playbackId || 'mp_plugin_audio',
         title: title,
@@ -1299,8 +1328,9 @@ export class HarmonyPluginNativeCapabilities {
         subtitle: this.nowPlayingLyrics.length > 0 ? this.nowPlayingLyrics : undefined,
         duration: durationMs > 0 ? durationMs : undefined
       };
-      if (artworkUrl.startsWith('http://') || artworkUrl.startsWith('https://')) {
-        meta.mediaImage = artworkUrl;
+      const resolvedArtwork = await this.resolveArtworkMediaImage(artworkUrl);
+      if (resolvedArtwork !== null) {
+        meta.mediaImage = resolvedArtwork;
       }
       await this.pluginAvSession.setAVMetadata(meta);
       await this.pluginAvSession.setAVPlaybackState({
@@ -1337,6 +1367,79 @@ export class HarmonyPluginNativeCapabilities {
     }
   }
 
+  private async resolveArtworkMediaImage(rawArtworkUrl: string): Promise<image.PixelMap | string | null> {
+    const trimmed = rawArtworkUrl.trim();
+    if (trimmed.length === 0) {
+      if (this.nowPlayingArtworkPixelMap) {
+        try { await this.nowPlayingArtworkPixelMap.release(); } catch { /* ignore */ }
+      }
+      this.nowPlayingArtworkPixelMap = null;
+      this.nowPlayingArtworkKey = '';
+      return null;
+    }
+    const origin = this.getServerUrl();
+    let fullUrl = '';
+    let attachAuth = false;
+    if (trimmed.startsWith('/')) {
+      if (origin.length === 0) {
+        return null;
+      }
+      fullUrl = `${origin}${trimmed}`;
+      attachAuth = true;
+    } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      fullUrl = trimmed;
+      attachAuth = origin.length > 0 && (trimmed === origin || trimmed.startsWith(`${origin}/`) || trimmed.startsWith(`${origin}?`));
+    } else {
+      return null;
+    }
+
+    if (fullUrl === this.nowPlayingArtworkKey && this.nowPlayingArtworkPixelMap) {
+      return this.nowPlayingArtworkPixelMap;
+    }
+    if (!attachAuth) {
+      return fullUrl;
+    }
+
+    const token = this.getAuthToken();
+    const req = http.createHttp();
+    try {
+      const headers: Record<string, string> = {};
+      if (token.length > 0) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const cookieHdr = MoviePilotRepository.shared().transport.getCookieHeaderForUrl(fullUrl);
+      if (cookieHdr.length > 0) {
+        headers['Cookie'] = cookieHdr;
+      }
+      const cfToken = CloudflareAccessOAuthManager.shared().getAccessTokenForUrl(fullUrl);
+      if (cfToken.length > 0) {
+        headers['cf-access-token'] = cfToken;
+      }
+      const resp = await req.request(fullUrl, {
+        method: http.RequestMethod.GET,
+        header: headers,
+        connectTimeout: 10000,
+        readTimeout: 15000,
+        expectDataType: http.HttpDataType.ARRAY_BUFFER
+      });
+      req.destroy();
+      if (resp.responseCode >= 200 && resp.responseCode < 300 && resp.result instanceof ArrayBuffer && resp.result.byteLength > 0) {
+        const src = image.createImageSource(resp.result);
+        const pm = await src.createPixelMap({ desiredSize: { width: 512, height: 512 } });
+        try { await src.release(); } catch { /* ignore */ }
+        if (this.nowPlayingArtworkPixelMap) {
+          try { await this.nowPlayingArtworkPixelMap.release(); } catch { /* ignore */ }
+        }
+        this.nowPlayingArtworkKey = fullUrl;
+        this.nowPlayingArtworkPixelMap = pm;
+        return pm;
+      }
+    } catch {
+      try { req.destroy(); } catch { /* ignore */ }
+    }
+    return null;
+  }
+
   private async clearNowPlayingSession(): Promise<void> {
     this.nowPlayingActive = false;
     this.nowPlayingTitle = '';
@@ -1345,6 +1448,11 @@ export class HarmonyPluginNativeCapabilities {
     this.nowPlayingDurationMs = 0;
     this.nowPlayingLyrics = '';
     this.nowPlayingLiked = false;
+    this.nowPlayingArtworkKey = '';
+    if (this.nowPlayingArtworkPixelMap) {
+      try { await this.nowPlayingArtworkPixelMap.release(); } catch { /* ignore */ }
+      this.nowPlayingArtworkPixelMap = null;
+    }
     if (this.pluginAvSession) {
       const s = this.pluginAvSession;
       this.pluginAvSession = null;

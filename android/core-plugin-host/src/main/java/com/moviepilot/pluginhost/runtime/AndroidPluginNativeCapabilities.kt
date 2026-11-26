@@ -123,6 +123,9 @@ class AndroidPluginNativeCapabilities(
     @Volatile
     var activityHost: AndroidPluginActivityHost? = null
 
+    @Volatile
+    var activePluginId: String = ""
+
     // Recording state
     private var recorder: MediaRecorder? = null
     private var recordingId: String? = null
@@ -179,6 +182,7 @@ class AndroidPluginNativeCapabilities(
                 activityHost?.setKeepAwake(false)
             }
             activityHost = null
+            activePluginId = ""
         }
     }
 
@@ -944,8 +948,9 @@ class AndroidPluginNativeCapabilities(
                 dataSourceUrl = resolved.first
                 headers = resolved.second
             }
-            rawApi.isNotBlank() -> {
-                val normalized = RustCoreBridge.validatePluginApiPath(rawApi)
+            rawApi.isNotBlank() || rawUrl.startsWith("/") -> {
+                val candidatePath = rawApi.ifBlank { rawUrl }
+                val normalized = RustCoreBridge.validatePluginApiPath(candidatePath)
                 val sess = sessionProvider()
                 if (normalized == null || sess == null) {
                     sendError(requestId, "FORBIDDEN_PATH", 403, "非法或未认证的 API 路径")
@@ -956,6 +961,10 @@ class AndroidPluginNativeCapabilities(
             }
             rawUrl.startsWith("http://", true) || rawUrl.startsWith("https://", true) -> {
                 dataSourceUrl = rawUrl
+                val sess = sessionProvider()
+                if (sess != null && RustCoreBridge.containsUrl(sess.serverUrl, rawUrl)) {
+                    headers = buildAuthHeaders(sess)
+                }
             }
             else -> {
                 sendError(requestId, "INVALID_AUDIO_SOURCE", 400, "请提供 url、base64、apiPath 或 storage+path 音频源")
@@ -1362,9 +1371,51 @@ class AndroidPluginNativeCapabilities(
         )
     }
 
+    /**
+     * 构建指向当前运行插件页（`moviepilot://plugin/{id}?surface=data`）的 `PendingIntent`：
+     * 供 `MediaSession.setSessionActivity` 与媒体通知 `contentIntent` 共用，确保点击系统状态栏/锁屏媒体卡片直达 App 内插件页面而非外部浏览器。
+     */
+    private fun buildPluginSessionPendingIntent(): PendingIntent? {
+        val pid = activePluginId.trim()
+        val intent = if (pid.isNotEmpty()) {
+            Intent(Intent.ACTION_VIEW, Uri.parse("moviepilot://plugin/${Uri.encode(pid)}?surface=data"))
+                .setPackage(appContext.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        } else {
+            appContext.packageManager.getLaunchIntentForPackage(appContext.packageName)
+                ?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        } ?: return null
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        return runCatching { PendingIntent.getActivity(appContext, MEDIA_NOTIF_ID, intent, flags) }.getOrNull()
+    }
+
+    /**
+     * 解析插件资源地址（如 `artworkUrl`）：若以 `/` 开头则使用当前会话 `serverUrl` 拼接为绝对地址并标记需附带鉴权头。
+     */
+    private fun resolvePluginAssetUrl(rawUrl: String): Pair<String, Boolean> {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isEmpty()) return "" to false
+        if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+            val sess = sessionProvider()
+            val sameOrigin = sess != null && RustCoreBridge.containsUrl(sess.serverUrl, trimmed)
+            return trimmed to sameOrigin
+        }
+        if (trimmed.startsWith("/")) {
+            val sess = sessionProvider() ?: return "" to false
+            val base = sess.serverUrl.trim().trimEnd('/')
+            if (base.isEmpty()) return "" to false
+            return "$base$trimmed" to true
+        }
+        return "" to false
+    }
+
     private fun ensureMediaSessionAndReceiver(): MediaSession {
-        mediaSession?.let { return it }
+        mediaSession?.let { existing ->
+            buildPluginSessionPendingIntent()?.let { existing.setSessionActivity(it) }
+            return existing
+        }
         val session = MediaSession(appContext, "MoviePilotPluginAudio").apply {
+            buildPluginSessionPendingIntent()?.let { setSessionActivity(it) }
             setCallback(
                 object : MediaSession.Callback() {
                     override fun onPlay() {
@@ -1532,20 +1583,24 @@ class AndroidPluginNativeCapabilities(
         nowPlayingPositionMs = effectivePos
         lastDisplayedLyricLine = resolveCurrentLyricLine(effectivePos)
 
-        if (artworkUrl.isBlank() || artworkUrl != nowPlayingArtworkUrl) {
-            if (artworkUrl.isBlank()) nowPlayingArtworkBitmap = null
+        val (resolvedArtworkUrl, attachArtworkAuth) = resolvePluginAssetUrl(artworkUrl)
+        if (resolvedArtworkUrl.isBlank() || resolvedArtworkUrl != nowPlayingArtworkUrl) {
+            if (resolvedArtworkUrl.isBlank()) {
+                nowPlayingArtworkUrl = ""
+                nowPlayingArtworkBitmap = null
+            }
         }
         session.setMetadata(buildNowPlayingMediaMetadata(effectiveDur))
         session.setPlaybackState(buildNowPlayingPlaybackState(isPlaying, effectivePos, rate))
         postMediaStyleNotification(session, isPlaying)
 
-        if (artworkUrl.isNotBlank() && artworkUrl != nowPlayingArtworkUrl) {
-            nowPlayingArtworkUrl = artworkUrl
+        if (resolvedArtworkUrl.isNotBlank() && resolvedArtworkUrl != nowPlayingArtworkUrl) {
+            nowPlayingArtworkUrl = resolvedArtworkUrl
             executor.execute {
                 runCatching {
-                    val reqBuilder = Request.Builder().url(artworkUrl)
+                    val reqBuilder = Request.Builder().url(resolvedArtworkUrl)
                     val sess = sessionProvider()
-                    if (sess != null && RustCoreBridge.containsUrl(sess.serverUrl, artworkUrl)) {
+                    if (sess != null && (attachArtworkAuth || RustCoreBridge.containsUrl(sess.serverUrl, resolvedArtworkUrl))) {
                         buildAuthHeaders(sess).forEach { (k, v) -> reqBuilder.header(k, v) }
                     }
                     okHttp.newCall(reqBuilder.build()).execute().use { resp ->
@@ -1556,7 +1611,7 @@ class AndroidPluginNativeCapabilities(
                             } else null
                             if (bmp != null) {
                                 mainHandler.post {
-                                    if (nowPlayingActive && nowPlayingArtworkUrl == artworkUrl) {
+                                    if (nowPlayingActive && nowPlayingArtworkUrl == resolvedArtworkUrl) {
                                         nowPlayingArtworkBitmap = bmp
                                         mediaSession?.let { activeSess ->
                                             activeSess.setMetadata(buildNowPlayingMediaMetadata(nowPlayingDurationMs))
@@ -1619,6 +1674,7 @@ class AndroidPluginNativeCapabilities(
             .setContentTitle(nowPlayingTitle)
             .setContentText(contentLine)
             .apply {
+                buildPluginSessionPendingIntent()?.let { setContentIntent(it) }
                 if (lastDisplayedLyricLine.isNotBlank() && artistAlbumLine.isNotBlank()) {
                     setSubText(artistAlbumLine)
                 }

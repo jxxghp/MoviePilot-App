@@ -842,7 +842,16 @@ final class PluginNativeCapabilitiesService: NSObject {
     }
 
     // 3. 受鉴权 MoviePilot API 音频流路径（如 /api/v1/...，原生代附 Bearer/Cookie）
-    if let rawAPIPath = payload["apiPath"] as? String, !rawAPIPath.isEmpty {
+    let resolvedRelativeURLPath: String? = {
+      if let rawAPIPath = payload["apiPath"] as? String, !rawAPIPath.isEmpty {
+        return rawAPIPath
+      }
+      if let rawURL = payload["url"] as? String, rawURL.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/") {
+        return rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+      return nil
+    }()
+    if let rawAPIPath = resolvedRelativeURLPath {
       guard let normalized = try? PluginRemoteRuntime.validateAPIPath(rawAPIPath) else {
         sendError(requestId: requestId, code: "FORBIDDEN_PATH", status: 403, message: "非法 API 路径")
         return
@@ -1259,23 +1268,30 @@ final class PluginNativeCapabilitiesService: NSObject {
     }
     info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(max(effectivePositionMs, 0)) / 1000.0
     info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(rate) : 0.0
-    if let artwork = nowPlayingArtwork, artworkUrl == nowPlayingArtworkURL {
+    let resolvedArtwork = resolveArtworkSource(artworkUrl)
+    let resolvedArtworkKey = resolvedArtwork?.url.absoluteString ?? ""
+    if let artwork = nowPlayingArtwork, !resolvedArtworkKey.isEmpty, resolvedArtworkKey == nowPlayingArtworkURL {
       info[MPMediaItemPropertyArtwork] = artwork
+    } else if artworkUrl.isEmpty {
+      nowPlayingArtwork = nil
+      nowPlayingArtworkURL = ""
+      info.removeValue(forKey: MPMediaItemPropertyArtwork)
     }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info
 
     configureRemoteCommands(canNext: canNext, canPrevious: canPrevious, canSeek: canSeek)
 
-    if !artworkUrl.isEmpty, artworkUrl != nowPlayingArtworkURL, let url = URL(string: artworkUrl) {
-      nowPlayingArtworkURL = artworkUrl
+    if let resolvedArtwork, resolvedArtworkKey != nowPlayingArtworkURL {
+      nowPlayingArtworkURL = resolvedArtworkKey
       nowPlayingArtworkTask?.cancel()
       nowPlayingArtworkTask = Task { [weak self] in
         guard let self else { return }
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: resolvedArtwork.url)
         if let ctx = self.sessionContextProvider(),
-          ctx.address.contains(url)
+          resolvedArtwork.attachAuth || ctx.address.contains(resolvedArtwork.url)
         {
           req.setValue("Bearer \(ctx.accessToken)", forHTTPHeaderField: "Authorization")
+          req.setValue(ctx.locale, forHTTPHeaderField: "X-MoviePilot-Locale")
           if let cookie = ctx.resourceCookie {
             req.setValue("\(cookie.name)=\(cookie.value)", forHTTPHeaderField: "Cookie")
           }
@@ -1295,6 +1311,24 @@ final class PluginNativeCapabilitiesService: NSObject {
         }
       }
     }
+  }
+
+  /// 解析插件传入的封面地址：支持相对路径（`/api/v1/plugin/...`）自动拼接实例 `serverUrl` 并附带鉴权头。
+  private func resolveArtworkSource(_ rawURL: String) -> (url: URL, attachAuth: Bool)? {
+    let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    if trimmed.hasPrefix("/") {
+      guard let ctx = sessionContextProvider(),
+        let fullURL = buildSameOriginURL(address: ctx.address, apiPath: trimmed)
+      else { return nil }
+      return (url: fullURL, attachAuth: true)
+    }
+    guard let parsed = URL(string: trimmed),
+      let scheme = parsed.scheme?.lowercased(),
+      scheme == "http" || scheme == "https"
+    else { return nil }
+    let isSameOrigin = sessionContextProvider()?.address.contains(parsed) ?? false
+    return (url: parsed, attachAuth: isSameOrigin)
   }
 
   private func refreshNowPlayingPlaybackState() {

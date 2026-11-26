@@ -321,6 +321,7 @@ fun LocalPluginShellWebView(
 
         fun bindLiveSlotCallbacks(slot: PooledAndroidPluginWebView, resolvedPluginName: String) {
             slot.bridge.nativeCapabilities.activityHost = activityHost
+            slot.bridge.nativeCapabilities.activePluginId = pluginId
             slot.bridge.onOpenRoute = { deepLink ->
                 activityHost.openDeepLink(deepLink)
             }
