@@ -656,32 +656,32 @@ fun NativeNetworkEntityLogo(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
+    val context = LocalContext.current
+    val density = LocalDensity.current
     val isPureBlack = LocalAppearanceStore.current.pureBlackDark
     val skelPalette = remember(colors, isPureBlack) { resolveSkeletonPalette(colors, isPureBlack) }
     var loadFailed by remember(imageUrl) { mutableStateOf(false) }
-    var imageLoaded by remember(imageUrl) { mutableStateOf(false) }
-    val shape = RoundedCornerShape(cornerRadius)
+    val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
     if (!imageUrl.isNullOrBlank() && !loadFailed) {
+        val targetPx = with(density) { size.roundToPx().coerceIn(48, 256) }
+        val request = remember(context, imageUrl, targetPx) {
+            coil.request.ImageRequest.Builder(context)
+                .data(imageUrl)
+                .size(targetPx, targetPx)
+                .precision(coil.size.Precision.INEXACT)
+                .build()
+        }
         Box(
             modifier = modifier
                 .size(size)
                 .clip(shape)
-                .then(
-                    if (!imageLoaded) {
-                        Modifier
-                            .background(skelPalette.tileFill, shape)
-                            .border(0.6.dp, skelPalette.tileBorder, shape)
-                    } else {
-                        Modifier
-                    },
-                ),
+                .background(skelPalette.tileFill, shape),
             contentAlignment = Alignment.Center,
         ) {
             AsyncImage(
-                model = imageUrl,
+                model = request,
                 contentDescription = value.ifBlank { kind },
                 contentScale = ContentScale.Crop,
-                onSuccess = { imageLoaded = true },
                 onError = { loadFailed = true },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -756,14 +756,23 @@ fun NativePosterCard(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalMoviePilotColors.current
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val isPureBlack = LocalAppearanceStore.current.pureBlackDark
     val skelPalette = remember(colors, isPureBlack) { resolveSkeletonPalette(colors, isPureBlack) }
-    val shape = RoundedCornerShape((colors.cardRadiusDp - 4).coerceIn(12, 20).dp)
+    val shape = remember(colors.cardRadiusDp) { RoundedCornerShape((colors.cardRadiusDp - 4).coerceIn(12, 20).dp) }
     var imageFailed by remember(posterUrl) { mutableStateOf(false) }
-    var imageLoaded by remember(posterUrl) { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     val hasLongPress = contextMenuContent != null || onLongClick != null
+    val posterRequest = remember(context, posterUrl) {
+        posterUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            coil.request.ImageRequest.Builder(context)
+                .data(url)
+                .size(360, 540)
+                .precision(coil.size.Precision.INEXACT)
+                .build()
+        }
+    }
 
     Box(modifier = modifier) {
         Column(
@@ -794,27 +803,19 @@ fun NativePosterCard(
                 .aspectRatio(2f / 3f)
                 .clip(shape)
                 .background(
-                    if (!posterUrl.isNullOrBlank() && !imageFailed && !imageLoaded) {
+                    if (posterRequest != null && !imageFailed) {
                         skelPalette.tileFill
                     } else {
                         MaterialTheme.colorScheme.surfaceContainerHigh
                     },
                     shape,
-                )
-                .then(
-                    if (!posterUrl.isNullOrBlank() && !imageFailed && !imageLoaded) {
-                        Modifier.border(0.6.dp, skelPalette.tileBorder, shape)
-                    } else {
-                        Modifier
-                    },
                 ),
         ) {
-            if (!posterUrl.isNullOrBlank() && !imageFailed) {
+            if (posterRequest != null && !imageFailed) {
                 AsyncImage(
-                    model = posterUrl,
+                    model = posterRequest,
                     contentDescription = title,
                     contentScale = ContentScale.Crop,
-                    onSuccess = { imageLoaded = true },
                     onError = { imageFailed = true },
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -1013,10 +1014,12 @@ fun FloatingAgentMascot(
         modifier = modifier
             .onGloballyPositioned { coords ->
                 val rootPos = coords.positionInRoot()
-                anchorX = rootPos.x
-                anchorY = rootPos.y
-                rootWidthPx = view.width.toFloat()
-                rootHeightPx = view.height.toFloat()
+                val nw = view.width.toFloat()
+                val nh = view.height.toFloat()
+                if (kotlin.math.abs(rootPos.x - anchorX) > 0.5f) anchorX = rootPos.x
+                if (kotlin.math.abs(rootPos.y - anchorY) > 0.5f) anchorY = rootPos.y
+                if (kotlin.math.abs(nw - rootWidthPx) > 0.5f) rootWidthPx = nw
+                if (kotlin.math.abs(nh - rootHeightPx) > 0.5f) rootHeightPx = nh
             }
             .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
             .size(width = 56.dp, height = 68.dp)

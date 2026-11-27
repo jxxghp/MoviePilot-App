@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
@@ -153,8 +156,6 @@ import com.moviepilot.rustbridge.RustCoreBridge
 import com.moviepilot.rustbridge.SessionState
 import com.moviepilot.rustbridge.WorkflowItemDto
 import com.moviepilot.rustcore.PermissionsFfi
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -308,7 +309,6 @@ fun MoviePilotRootShell(
     val session by repository.session.collectAsState()
     val savedServers by repository.savedServers.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val shellHazeState = remember { HazeState() }
     val saveableStateHolder = rememberSaveableStateHolder()
     val localHistoryStore = remember(context) { LocalPlaybackHistoryStore(context) }
     val medalJson = remember { Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true } }
@@ -317,6 +317,12 @@ fun MoviePilotRootShell(
     var isSwitchingServer by rememberSaveable { mutableStateOf(false) }
     var selectedTabId by rememberSaveable { mutableStateOf(MainTab.Discover.id) }
     val selectedTab = MainTab.entries.firstOrNull { it.id == selectedTabId } ?: MainTab.Discover
+    val visitedTabs = remember { mutableStateListOf(MainTab.Discover) }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab !in visitedTabs) {
+            visitedTabs.add(selectedTab)
+        }
+    }
 
     var nextEntrySeq by rememberSaveable { mutableIntStateOf(1) }
     val tabStacks = remember {
@@ -409,6 +415,8 @@ fun MoviePilotRootShell(
             clearTabStack(tab)
             saveableStateHolder.removeState("tab_root_${tab.id}")
         }
+        visitedTabs.clear()
+        visitedTabs.add(MainTab.Discover)
         selectedTabId = MainTab.Discover.id
         clearIsolatedPluginWebViewSession(context)
     }
@@ -1334,7 +1342,6 @@ fun MoviePilotRootShell(
     CompositionLocalProvider(
         LocalSnackbarHostState provides snackbarHostState,
         LocalBottomOverlayInset provides bottomOverlayInset,
-        LocalHazeState provides shellHazeState,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -1362,9 +1369,7 @@ fun MoviePilotRootShell(
                         ),
                 ) {
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .hazeSource(shellHazeState),
+                        modifier = Modifier.fillMaxSize(),
                     ) {
                         CinematicAmbientGradient()
 
@@ -1440,75 +1445,105 @@ fun MoviePilotRootShell(
                                 }
 
                                 is SessionState.Authenticated -> {
-                                    AnimatedContent(
-                                        targetState = Triple(selectedTab, currentRoute, currentStateKey),
-                                        transitionSpec = {
-                                            val sameTab = targetState.first == initialState.first
-                                            val enteringSub = sameTab && targetState.second != AppRoute.TabRoot && initialState.second == AppRoute.TabRoot
-                                            val returningRoot = sameTab && targetState.second == AppRoute.TabRoot && initialState.second != AppRoute.TabRoot
-                                            when {
-                                                enteringSub -> (slideInHorizontally(tween(220)) { it / 5 } + fadeIn(tween(220)))
-                                                    .togetherWith(fadeOut(tween(150)))
-                                                returningRoot -> fadeIn(tween(200))
-                                                    .togetherWith(slideOutHorizontally(tween(200)) { it / 5 } + fadeOut(tween(180)))
-                                                else -> fadeIn(tween(160)).togetherWith(fadeOut(tween(120)))
-                                            }
-                                        },
-                                        label = "mpMainRouter",
-                                    ) { (tabAtFrame, route, stateKey) ->
-                                        saveableStateHolder.SaveableStateProvider(stateKey) {
-                                            when (route) {
-                                                AppRoute.TabRoot -> when (tabAtFrame) {
-                                                    MainTab.Discover -> DiscoverScreen(
-                                                        repository = repository,
-                                                        onOpenMedia = ::openMediaSmart,
-                                                        onOpenExplore = { src -> pushRoute(AppRoute.Explore(src)) },
-                                                        onOpenMusic = { pushRoute(AppRoute.Music) },
-                                                        onOpenMusicAlbum = { album -> pushRoute(AppRoute.MusicAlbumDetail(album)) },
-                                                        onOpenMediaLibrary = { lib -> pushRoute(AppRoute.MediaServerLibrary(lib)) },
-                                                        onPlayMedia = ::startPlayback,
-                                                    )
-                                                    MainTab.Subscribe -> SubscriptionsScreen(
-                                                        repository = repository,
-                                                        initialCategory = null,
-                                                        onBack = null,
-                                                        onOpenCalendar = { pushRoute(AppRoute.Calendar) },
-                                                        onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
-                                                        onOpenSubscribeHistory = { mtype ->
-                                                            pushRoute(AppRoute.SubscribeHistory(mtype))
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        // 常驻保活已访问过的 4 个一级主 Tab：未激活或处于二级页面下层时置为 unplaced（零绘制、零点击命中、零无障碍冲突），切换与返回实现 0ms 秒开
+                                        visitedTabs.forEach { tab ->
+                                            key(tab.id) {
+                                                val isActiveRoot = isTopLevelTab && selectedTab == tab
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .layout { measurable, constraints ->
+                                                            val placeable = measurable.measure(constraints)
+                                                            if (isActiveRoot) {
+                                                                layout(placeable.width, placeable.height) {
+                                                                    placeable.placeRelative(0, 0)
+                                                                }
+                                                            } else {
+                                                                layout(0, 0) {}
+                                                            }
                                                         },
-                                                        onOpenMedia = ::openMediaSmart,
-                                                        onPlayMedia = ::startPlayback,
-                                                        onOpenServerItem = { itemId, server, title ->
-                                                            pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
-                                                        },
-                                                    )
-                                                    MainTab.Dashboard -> DashboardScreen(
-                                                        repository = repository,
-                                                        onOpenMessages = { pushRoute(AppRoute.Messages) },
-                                                        onOpenDiagnosticTab = { tab -> pushRoute(AppRoute.Diagnostics(tab)) },
-                                                        onOpenMedalShowcase = { profile, key -> activeMedalShowcase = profile to key },
-                                                        permissions = s.permissions,
-                                                    )
-                                                    MainTab.Workspace -> WorkspaceHubScreen(
-                                                        repository = repository,
-                                                        onOpenSettings = { pushRoute(AppRoute.SettingsHub) },
-                                                        onOpenAgent = { pushRoute(AppRoute.Agent()) },
-                                                        onOpenMusic = { pushRoute(AppRoute.Music) },
-                                                        onOpenResources = { pushRoute(AppRoute.Resources()) },
-                                                        onOpenDownloads = { pushRoute(AppRoute.Downloads) },
-                                                        onOpenFiles = { pushRoute(AppRoute.Files()) },
-                                                        onOpenHistory = { pushRoute(AppRoute.History()) },
-                                                        onOpenWorkflows = { pushRoute(AppRoute.Workflows) },
-                                                        onOpenPlugins = { pushRoute(AppRoute.Plugins(installedOnly = true)) },
-                                                        onOpenSites = { pushRoute(AppRoute.Sites) },
-                                                        onOpenCalendar = { pushRoute(AppRoute.Calendar) },
-                                                        onOpenSubscribeCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
-                                                        onOpenMediaLibrary = { lib -> pushRoute(AppRoute.MediaServerLibrary(lib)) },
-                                                        onOpenDiagnosticTab = { tab -> pushRoute(AppRoute.Diagnostics(tab)) },
-                                                        permissions = s.permissions,
-                                                    )
+                                                ) {
+                                                    saveableStateHolder.SaveableStateProvider("tab_root_${tab.id}") {
+                                                        when (tab) {
+                                                            MainTab.Discover -> DiscoverScreen(
+                                                                repository = repository,
+                                                                onOpenMedia = ::openMediaSmart,
+                                                                onOpenExplore = { src -> pushRoute(AppRoute.Explore(src)) },
+                                                                onOpenMusic = { pushRoute(AppRoute.Music) },
+                                                                onOpenMusicAlbum = { album -> pushRoute(AppRoute.MusicAlbumDetail(album)) },
+                                                                onOpenMediaLibrary = { lib -> pushRoute(AppRoute.MediaServerLibrary(lib)) },
+                                                                onPlayMedia = ::startPlayback,
+                                                            )
+                                                            MainTab.Subscribe -> SubscriptionsScreen(
+                                                                repository = repository,
+                                                                initialCategory = null,
+                                                                onBack = null,
+                                                                onOpenCalendar = { pushRoute(AppRoute.Calendar) },
+                                                                onOpenCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
+                                                                onOpenSubscribeHistory = { mtype ->
+                                                                    pushRoute(AppRoute.SubscribeHistory(mtype))
+                                                                },
+                                                                onOpenMedia = ::openMediaSmart,
+                                                                onPlayMedia = ::startPlayback,
+                                                                onOpenServerItem = { itemId, server, title ->
+                                                                    pushRoute(AppRoute.MediaServerDetail(itemId, server, title))
+                                                                },
+                                                            )
+                                                            MainTab.Dashboard -> DashboardScreen(
+                                                                repository = repository,
+                                                                onOpenMessages = { pushRoute(AppRoute.Messages) },
+                                                                onOpenDiagnosticTab = { tabName -> pushRoute(AppRoute.Diagnostics(tabName)) },
+                                                                onOpenMedalShowcase = { profile, key -> activeMedalShowcase = profile to key },
+                                                                permissions = s.permissions,
+                                                            )
+                                                            MainTab.Workspace -> WorkspaceHubScreen(
+                                                                repository = repository,
+                                                                onOpenSettings = { pushRoute(AppRoute.SettingsHub) },
+                                                                onOpenAgent = { pushRoute(AppRoute.Agent()) },
+                                                                onOpenMusic = { pushRoute(AppRoute.Music) },
+                                                                onOpenResources = { pushRoute(AppRoute.Resources()) },
+                                                                onOpenDownloads = { pushRoute(AppRoute.Downloads) },
+                                                                onOpenFiles = { pushRoute(AppRoute.Files()) },
+                                                                onOpenHistory = { pushRoute(AppRoute.History()) },
+                                                                onOpenWorkflows = { pushRoute(AppRoute.Workflows) },
+                                                                onOpenPlugins = { pushRoute(AppRoute.Plugins(installedOnly = true)) },
+                                                                onOpenSites = { pushRoute(AppRoute.Sites) },
+                                                                onOpenCalendar = { pushRoute(AppRoute.Calendar) },
+                                                                onOpenSubscribeCommunity = { pushRoute(AppRoute.SubscribeCommunity) },
+                                                                onOpenMediaLibrary = { lib -> pushRoute(AppRoute.MediaServerLibrary(lib)) },
+                                                                onOpenDiagnosticTab = { tabName -> pushRoute(AppRoute.Diagnostics(tabName)) },
+                                                                permissions = s.permissions,
+                                                            )
+                                                        }
+                                                    }
                                                 }
+                                            }
+                                        }
+
+                                        AnimatedContent(
+                                            targetState = Pair(currentRoute, currentStateKey),
+                                            transitionSpec = {
+                                                val enteringSub = targetState.first != AppRoute.TabRoot && initialState.first == AppRoute.TabRoot
+                                                val returningRoot = targetState.first == AppRoute.TabRoot && initialState.first != AppRoute.TabRoot
+                                                when {
+                                                    enteringSub -> (slideInHorizontally(tween(200)) { it / 6 } + fadeIn(tween(180)))
+                                                        .togetherWith(fadeOut(tween(120)))
+                                                    returningRoot -> fadeIn(tween(140))
+                                                        .togetherWith(slideOutHorizontally(tween(180)) { it / 6 } + fadeOut(tween(150)))
+                                                    else -> fadeIn(tween(150)).togetherWith(fadeOut(tween(110)))
+                                                }
+                                            },
+                                            label = "mpMainRouter",
+                                        ) { (route, stateKey) ->
+                                            if (route == AppRoute.TabRoot) {
+                                                Spacer(Modifier.fillMaxSize())
+                                            } else {
+                                                Box(modifier = Modifier.fillMaxSize()) {
+                                                    CinematicAmbientGradient()
+                                                    saveableStateHolder.SaveableStateProvider(stateKey) {
+                                                        when (route) {
+                                                            AppRoute.TabRoot -> Unit
 
                                                 is AppRoute.Explore -> ExploreScreen(
                                                     repository = repository,
@@ -1723,6 +1758,9 @@ fun MoviePilotRootShell(
                                                 )
                                                 is AppRoute.Agent -> AgentChatScreen(repository, route.prompt, onBack = ::popRoute)
                                                 AppRoute.Appearance -> AppearanceSettingsScreen(onBack = ::popRoute)
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }

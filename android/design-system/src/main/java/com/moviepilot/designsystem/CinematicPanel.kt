@@ -251,7 +251,25 @@ fun NativeTopStatusBarProgressiveBlur(
 ) {
     val alpha = visibilityProgress.coerceIn(0f, 1f)
     if (alpha <= 0.005f) return
+    NativeTopStatusBarProgressiveBlur(
+        visibilityProgressProvider = { alpha },
+        extraHeight = extraHeight,
+        blurSourceState = blurSourceState,
+        modifier = modifier,
+    )
+}
 
+/**
+ * 仅在绘制阶段读取滚动进度的顶部状态栏安全区柔化罩重载：
+ * 滚动期间通过 `graphicsLayer` 动态更新透明度，避免首屏滚动逐像素触发整页重组与离屏纹理拷贝。
+ */
+@Composable
+fun NativeTopStatusBarProgressiveBlur(
+    visibilityProgressProvider: () -> Float,
+    extraHeight: Dp = 38.dp,
+    blurSourceState: HazeState? = null,
+    modifier: Modifier = Modifier,
+) {
     val colors = LocalMoviePilotColors.current
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val totalHeight = statusBarTop + extraHeight
@@ -267,7 +285,9 @@ fun NativeTopStatusBarProgressiveBlur(
         modifier = modifier
             .fillMaxWidth()
             .height(totalHeight)
-            .graphicsLayer { this.alpha = alpha },
+            .graphicsLayer {
+                this.alpha = visibilityProgressProvider().coerceIn(0f, 1f)
+            },
     ) {
         if (blurSourceState != null) {
             Box(

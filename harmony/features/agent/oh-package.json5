@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/agent",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "description": "MoviePilot HarmonyOS NEXT agent HAR",
   "main": "Index.ets",
   "dependencies": {

@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/design_system",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "description": "MoviePilot HarmonyOS NEXT design_system HAR",
   "main": "Index.ets",
   "dependencies": {}

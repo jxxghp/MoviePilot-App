@@ -1225,7 +1225,15 @@ export struct HarmonyDiscoverPage {
       .scrollBar(BarState.Off)
       .onDidScroll(() => {
         const off = this.scroller.currentOffset();
-        this.scrollOffsetY = off ? off.yOffset : 0;
+        const rawY = off ? off.yOffset : 0;
+        const clamped = Math.min(160, Math.max(0, rawY));
+        if (
+          Math.abs(clamped - this.scrollOffsetY) >= 2
+          || (clamped === 0 && this.scrollOffsetY !== 0)
+          || (clamped === 160 && this.scrollOffsetY !== 160)
+        ) {
+          this.scrollOffsetY = clamped;
+        }
       })
       .width('100%')
       .height('100%')

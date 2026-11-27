@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/core_rust_bridge",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "description": "MoviePilot HarmonyOS NEXT core_rust_bridge HAR",
   "main": "Index.ets",
   "dependencies": {

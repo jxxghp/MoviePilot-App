@@ -126,8 +126,6 @@ import com.moviepilot.rustbridge.MediaPersonDto
 import com.moviepilot.rustbridge.MediaSeasonDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.SubscribeItemDto
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -171,7 +169,6 @@ fun MediaDetailScreen(
     val heroHeightPx = with(density) { heroHeight.toPx().coerceAtLeast(1f) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val localHaze = remember { HazeState() }
 
     var detail by remember(item.resolvedId) { mutableStateOf(item) }
     var credits by remember(item.resolvedId) { mutableStateOf<List<MediaPersonDto>>(emptyList()) }
@@ -277,17 +274,22 @@ fun MediaDetailScreen(
 
     LaunchedEffect(item.resolvedId) { loadDetail(clearUserOverrides = false) }
 
-    val scrollUpPx by remember {
-        derivedStateOf {
-            if (listState.firstVisibleItemIndex == 0) {
-                listState.firstVisibleItemScrollOffset.toFloat().coerceAtLeast(0f)
-            } else {
-                heroHeightPx
-            }
+    val scrollUpPxProvider: () -> Float = {
+        if (listState.firstVisibleItemIndex == 0) {
+            listState.firstVisibleItemScrollOffset.toFloat().coerceAtLeast(0f)
+        } else {
+            heroHeightPx
         }
     }
-    val progress = (scrollUpPx / (heroHeightPx * 0.62f)).coerceIn(0f, 1f)
-    val eased = progress * progress * (3f - 2f * progress)
+    val easedProvider: () -> Float = {
+        val p = (scrollUpPxProvider() / (heroHeightPx * 0.62f)).coerceIn(0f, 1f)
+        p * p * (3f - 2f * p)
+    }
+    val isHeroScrolledAway by remember(heroHeightPx) {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset >= (heroHeightPx * 0.62f).toInt()
+        }
+    }
 
     val isTv = MoviePilotRepository.isTvType(detail.type) || MoviePilotRepository.isTvType(item.type) || seasons.isNotEmpty()
     val effectiveSubscribedSeasons = remember(subscribedSeasons, userSeasonOverrides.toMap()) {
@@ -357,25 +359,23 @@ fun MediaDetailScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 底层固定沉浸海报 + 滚动正文（共同作为顶部渐进状态栏模糊源）
+        // 1. 底层固定沉浸海报 + 滚动正文（仅在绘制阶段更新视差与透明度，零整页重组）
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(localHaze),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            if (colors.isDark) {
+            if (colors.isDark && !isHeroScrolledAway) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF0A0A16).copy(alpha = ((1f - eased * 1.15f).coerceAtLeast(0f)) * 0.55f)),
+                        .graphicsLayer {
+                            alpha = ((1f - easedProvider() * 1.15f).coerceAtLeast(0f)) * 0.55f
+                        }
+                        .background(Color(0xFF0A0A16)),
                 )
             }
 
-            if (progress < 0.99f) {
+            if (!isHeroScrolledAway) {
                 val backdropHeight = heroHeight * 1.06f
-                val parallaxY = -scrollUpPx.coerceAtMost(heroHeightPx) * 0.08f
-                val maskShiftY = -scrollUpPx * 0.85f
-                val visibility = (1f - eased * 0.96f).coerceIn(0f, 1f)
                 val fadeBase = androidx.compose.material3.MaterialTheme.colorScheme.background
 
                 Box(
@@ -383,12 +383,14 @@ fun MediaDetailScreen(
                         .fillMaxWidth()
                         .height(backdropHeight)
                         .graphicsLayer {
-                            translationY = parallaxY
-                            alpha = visibility
+                            val sPx = scrollUpPxProvider()
+                            translationY = -sPx.coerceAtMost(heroHeightPx) * 0.08f
+                            alpha = (1f - easedProvider() * 0.96f).coerceIn(0f, 1f)
                             compositingStrategy = CompositingStrategy.Offscreen
                         }
                         .drawWithContent {
                             drawContent()
+                            val maskShiftY = -scrollUpPxProvider() * 0.85f
                             val h = size.height.coerceAtLeast(1f)
                             val shiftFraction = (maskShiftY / h).coerceIn(-0.95f, 0f)
                             val p1 = (0.58f + shiftFraction).coerceIn(0f, 1f)
@@ -433,9 +435,7 @@ fun MediaDetailScreen(
                             contentDescription = detail.title,
                             contentScale = ContentScale.Crop,
                             onError = { if (artIdx + 1 < artCandidates.size) artIdx++ },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .blur((eased * 14f).dp),
+                            modifier = Modifier.fillMaxSize(),
                         )
                     } else {
                         Box(
@@ -1195,11 +1195,10 @@ fun MediaDetailScreen(
             }
         }
 
-        // 顶部状态栏渐进模糊（上滚后平滑浮现，保护状态栏文字与悬浮返回按钮清晰可读）
+        // 顶部状态栏渐进柔化罩（上滚后仅在绘制层平滑浮现，保护状态栏文字与悬浮返回按钮清晰可读）
         NativeTopStatusBarProgressiveBlur(
-            visibilityProgress = eased,
+            visibilityProgressProvider = easedProvider,
             extraHeight = 56.dp,
-            blurSourceState = localHaze,
             modifier = Modifier.align(Alignment.TopCenter),
         )
 

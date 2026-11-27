@@ -620,8 +620,10 @@ struct NativePluginMarketPage: View {
           Array(loadedRemotes), for: remotesCacheKey, session: session)
       }
       NativePageDataCache.shared.set(valid, for: cacheKey, session: session)
-      Task { await syncInstalledUpdateFlags(forceMarket: forceRefresh) }
-      Task { await loadPluginStatsAndRatings(pluginIDs: valid.map { $0.sourcePluginID ?? $0.id }) }
+      Task(priority: .utility) { await syncInstalledUpdateFlags(forceMarket: forceRefresh) }
+      Task(priority: .utility) {
+        await loadPluginStatsAndRatings(pluginIDs: valid.map { $0.sourcePluginID ?? $0.id })
+      }
     } catch is CancellationError {
       return
     } catch {

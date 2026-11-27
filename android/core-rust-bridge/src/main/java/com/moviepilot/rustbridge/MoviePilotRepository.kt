@@ -39,6 +39,16 @@ data class PluginWidgetMetaDto(
     val hasPage: Boolean = false,
 )
 
+/** 设置中心摘要快照缓存（二次进入设置页零等待秒开）。 */
+data class SettingsSummarySnapshot(
+    val stats: DashboardStatsDto,
+    val activeSitesCount: Int = 0,
+    val usersCount: Int = 1,
+    val mediaServersCount: Int = 0,
+    val notificationsCount: Int = 0,
+    val authorizedCount: Int = 0,
+)
+
 /** 登录请求结果（支持正常登录、MFA/OTP 二次挑战与错误提示）。 */
 sealed interface LoginOutcome {
     data class Success(val identity: UserIdentity) : LoginOutcome
@@ -100,6 +110,12 @@ class MoviePilotRepository(context: Context) {
     var cachedDashboard: DashboardSessionSnapshot? = null
     @Volatile
     var cachedWorkspace: WorkspaceSessionSnapshot? = null
+    @Volatile
+    var cachedSettingsSummary: SettingsSummarySnapshot? = null
+    @Volatile
+    var cachedInstalledPlugins: List<PluginItemDto>? = null
+    @Volatile
+    var cachedMarketPlugins: List<PluginItemDto>? = null
 
     /** 清空当前会话内存数据缓存（在登出、切换实例或遗忘实例时调用）。 */
     fun clearSessionCaches() {
@@ -108,6 +124,9 @@ class MoviePilotRepository(context: Context) {
         cachedSubscriptions = null
         cachedDashboard = null
         cachedWorkspace = null
+        cachedSettingsSummary = null
+        cachedInstalledPlugins = null
+        cachedMarketPlugins = null
         siteIconCache.clear()
         mediaLogoCache.clear()
         resourceRawCache.clear()
@@ -3556,7 +3575,11 @@ class MoviePilotRepository(context: Context) {
         return ok to (obj?.str("message") ?: if (ok) "已复用工作流「${share.shareTitle.ifBlank { share.name }}」" else "复用失败（HTTP ${resp.status}）")
     }
 
-    suspend fun fetchPlugins(installedOnly: Boolean): List<PluginItemDto> {
+    suspend fun fetchPlugins(installedOnly: Boolean, forceRefresh: Boolean = false): List<PluginItemDto> {
+        if (!forceRefresh) {
+            val cached = if (installedOnly) cachedInstalledPlugins else cachedMarketPlugins
+            if (!cached.isNullOrEmpty()) return cached
+        }
         val state = if (installedOnly) "installed" else "market"
         val (resp, remotesResp, statsAndRatings) = coroutineScope {
             val listDeferred = async {
@@ -3670,7 +3693,15 @@ class MoviePilotRepository(context: Context) {
                     ?: sourceId?.let { ratingsMap[it] }
                     ?: 0.0,
             )
-        }.distinctBy { it.id }
+        }.distinctBy { it.id }.also { parsed ->
+            if (parsed.isNotEmpty() || resp?.status in 200..299) {
+                if (installedOnly) {
+                    cachedInstalledPlugins = parsed
+                } else {
+                    cachedMarketPlugins = parsed
+                }
+            }
+        }
     }
 
     /** 从市场安装或更新插件（`GET /api/v1/plugin/install/{plugin_id}?repo_url=...&force=...`）。 */
@@ -3683,6 +3714,10 @@ class MoviePilotRepository(context: Context) {
             ?: return false to "安装请求失败，请检查网络连接"
         val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
         val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        if (ok) {
+            cachedInstalledPlugins = null
+            cachedMarketPlugins = null
+        }
         return ok to (obj?.str("message") ?: if (ok) (if (force) "插件更新成功" else "插件安装成功") else "安装失败（HTTP ${resp.status}）")
     }
 
@@ -3692,6 +3727,10 @@ class MoviePilotRepository(context: Context) {
             ?: return false to "卸载请求失败"
         val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
         val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        if (ok) {
+            cachedInstalledPlugins = null
+            cachedMarketPlugins = null
+        }
         return ok to (obj?.str("message") ?: if (ok) "插件已卸载" else "卸载失败（HTTP ${resp.status}）")
     }
 
@@ -3701,6 +3740,9 @@ class MoviePilotRepository(context: Context) {
             ?: return false to "重置请求失败"
         val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
         val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        if (ok) {
+            cachedInstalledPlugins = null
+        }
         return ok to (obj?.str("message") ?: if (ok) "插件已重置" else "重置失败（HTTP ${resp.status}）")
     }
 
@@ -3710,6 +3752,9 @@ class MoviePilotRepository(context: Context) {
             ?: return false to "重新加载请求失败"
         val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
         val ok = obj?.bool("success") ?: (resp.status in 200..299)
+        if (ok) {
+            cachedInstalledPlugins = null
+        }
         return ok to (obj?.str("message")?.takeIf { it.isNotBlank() } ?: if (ok) "插件已重新加载" else "重新加载失败（HTTP ${resp.status}）")
     }
 

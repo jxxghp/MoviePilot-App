@@ -3404,6 +3404,7 @@ final class NativeMediaArtworkCache {
   }
 
   nonisolated static func decodeThumbnail(_ data: Data, limit: Int) -> UIImage? {
+    let rawImage: UIImage?
     if limit > 0,
       let source = CGImageSourceCreateWithData(data as CFData, nil),
       let cgImage = CGImageSourceCreateThumbnailAtIndex(
@@ -3414,9 +3415,13 @@ final class NativeMediaArtworkCache {
           kCGImageSourceThumbnailMaxPixelSize: limit,
         ] as CFDictionary)
     {
-      return UIImage(cgImage: cgImage)
+      rawImage = UIImage(cgImage: cgImage)
+    } else {
+      rawImage = UIImage(data: data)
     }
-    return UIImage(data: data)
+    guard let rawImage else { return nil }
+    // 在后台线程提前完成位图解压，避免 ProMotion 高刷滚动首帧在主线程同步解码 JPEG/PNG
+    return rawImage.preparingForDisplay() ?? rawImage
   }
 
   nonisolated private static func pruneDiskCache(scopeDir: String) {

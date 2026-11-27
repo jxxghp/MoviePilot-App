@@ -21,9 +21,11 @@ import coil.Coil
 import coil.ImageLoader
 import coil.decode.DataSource
 import coil.decode.ImageSource
+import coil.disk.DiskCache
 import coil.fetch.FetchResult
 import coil.fetch.Fetcher
 import coil.fetch.SourceResult
+import coil.memory.MemoryCache
 import coil.request.Options
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.MoviePilotTheme
@@ -85,7 +87,20 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 }
-                .crossfade(true)
+                .memoryCache {
+                    MemoryCache.Builder(applicationContext)
+                        .maxSizePercent(0.25)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(applicationContext.cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(256L * 1024L * 1024L)
+                        .build()
+                }
+                .respectCacheHeaders(false)
+                .allowRgb565(true)
+                .crossfade(120)
                 .build(),
         )
         appearanceStore = NativeAppearanceStore(applicationContext)

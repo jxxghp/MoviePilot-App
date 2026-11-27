@@ -145,8 +145,6 @@ import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.MusicAlbumDto
 import com.moviepilot.rustbridge.RecommendSourceDto
 import com.moviepilot.rustbridge.SubscribeItemDto
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -287,7 +285,6 @@ fun DiscoverScreen(
     val heroHeightPx = with(density) { heroHeight.toPx().coerceAtLeast(1f) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val localHaze = remember { HazeState() }
 
     val initialSnapshot = remember { repository.cachedDiscover }
     var trending by remember { mutableStateOf(initialSnapshot?.trending.orEmpty()) }
@@ -461,42 +458,45 @@ fun DiscoverScreen(
     val heroItems = trending.take(6)
     val pagerState = rememberPagerState(pageCount = { heroItems.size.coerceAtLeast(1) })
 
-    // 1:1 复刻 iOS `NativeDiscoverPage` 滚动物理曲线：
-    // 背景固定于滚动层后方，上滚时 0.07x 轻视差 + smoothstep 18dp 渐进柔焦 + 6 段软边溶解 + 淡出；
-    // 前景透明 Logo/标题/评分以 1.0x 正常速度随列表上滚，离开首屏后顶部渐进状态栏模糊同步浮现。
-    val scrollUpPx by remember {
-        derivedStateOf {
-            if (listState.firstVisibleItemIndex == 0) {
-                listState.firstVisibleItemScrollOffset.toFloat().coerceAtLeast(0f)
-            } else {
-                heroHeightPx
-            }
+    // 1:1 复刻 iOS `NativeDiscoverPage` 滚动物理曲线（全部滚动偏移仅在绘制阶段读取，彻底消除滚动逐像素整页重组）：
+    // 背景固定于滚动层后方，上滚时 0.07x 轻视差 + 6 段软边溶解 + 平滑淡出；
+    // 前景透明 Logo/标题/评分以 1.0x 正常速度随列表上滚，离开首屏后顶部状态栏柔化罩同步浮现。
+    val scrollUpPxProvider: () -> Float = {
+        if (listState.firstVisibleItemIndex == 0) {
+            listState.firstVisibleItemScrollOffset.toFloat().coerceAtLeast(0f)
+        } else {
+            heroHeightPx
         }
     }
-    val progress = (scrollUpPx / (heroHeightPx * 0.62f)).coerceIn(0f, 1f)
-    val eased = progress * progress * (3f - 2f * progress)
+    val easedProvider: () -> Float = {
+        val p = (scrollUpPxProvider() / (heroHeightPx * 0.62f)).coerceIn(0f, 1f)
+        p * p * (3f - 2f * p)
+    }
+    val isHeroScrolledAway by remember(heroHeightPx) {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset >= (heroHeightPx * 0.62f).toInt()
+        }
+    }
     val currentHero = heroItems.getOrNull(pagerState.currentPage)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. 底层固定沉浸 Hero 背景（与滚动正文分离，形成 0.07x 景深视差与渐进柔焦）
+        // 1. 底层固定沉浸 Hero 背景（与滚动正文分离，仅在绘制层更新视差与透明度）
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(localHaze),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            if (colors.isDark) {
+            if (colors.isDark && !isHeroScrolledAway) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF0A0A16).copy(alpha = ((1f - eased * 1.15f).coerceAtLeast(0f)) * 0.52f)),
+                        .graphicsLayer {
+                            alpha = ((1f - easedProvider() * 1.15f).coerceAtLeast(0f)) * 0.52f
+                        }
+                        .background(Color(0xFF0A0A16)),
                 )
             }
 
-            if (currentHero != null && progress < 0.99f) {
+            if (currentHero != null && !isHeroScrolledAway) {
                 val backdropHeight = heroHeight * 1.08f
-                val parallaxY = -scrollUpPx.coerceAtMost(heroHeightPx) * 0.07f
-                val maskShiftY = -scrollUpPx * 0.88f
-                val visibility = (1f - eased * 0.94f).coerceIn(0f, 1f)
                 val fadeBase = androidx.compose.material3.MaterialTheme.colorScheme.background
 
                 Box(
@@ -504,13 +504,16 @@ fun DiscoverScreen(
                         .fillMaxWidth()
                         .height(backdropHeight)
                         .graphicsLayer {
-                            translationY = parallaxY
-                            alpha = visibility
+                            val sPx = scrollUpPxProvider()
+                            val easedVal = easedProvider()
+                            translationY = -sPx.coerceAtMost(heroHeightPx) * 0.07f
+                            alpha = (1f - easedVal * 0.94f).coerceIn(0f, 1f)
                             compositingStrategy = CompositingStrategy.Offscreen
                         }
                         .drawWithContent {
                             drawContent()
-                            // 6 段动态软边溶解蒙版（随上滚同步上推，丝滑融进流光背景）
+                            val sPx = scrollUpPxProvider()
+                            val maskShiftY = -sPx * 0.88f
                             val h = size.height.coerceAtLeast(1f)
                             val shiftFraction = (maskShiftY / h).coerceIn(-0.95f, 0f)
                             val p1 = (0.44f + shiftFraction).coerceIn(0f, 1f)
@@ -534,7 +537,7 @@ fun DiscoverScreen(
                 ) {
                     Crossfade(
                         targetState = currentHero.backdropPath ?: currentHero.posterPath,
-                        animationSpec = tween(durationMillis = 360),
+                        animationSpec = tween(durationMillis = 320),
                         label = "discoverHeroBackdrop",
                     ) { backdropUrl ->
                         if (!backdropUrl.isNullOrBlank()) {
@@ -542,9 +545,7 @@ fun DiscoverScreen(
                                 model = backdropUrl,
                                 contentDescription = currentHero.title,
                                 contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .blur((eased * 18f).dp),
+                                modifier = Modifier.fillMaxSize(),
                             )
                         } else {
                             Box(
@@ -562,22 +563,21 @@ fun DiscoverScreen(
                                 Brush.verticalGradient(
                                     0.0f to Color.Transparent,
                                     0.36f to Color.Transparent,
-                                    0.64f to fadeBase.copy(alpha = (if (colors.isDark) 0.45f else 0.56f) * (1f - eased * 0.4f)),
+                                    0.64f to fadeBase.copy(alpha = if (colors.isDark) 0.45f else 0.56f),
                                     0.86f to fadeBase.copy(alpha = if (colors.isDark) 0.86f else 0.92f),
                                     1.0f to fadeBase,
                                 ),
                             ),
                     )
-                    if (eased > 0.01f) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    if (colors.isDark) Color.Black.copy(alpha = eased * 0.22f)
-                                    else fadeBase.copy(alpha = eased * 0.32f),
-                                ),
-                        )
-                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val easedVal = easedProvider()
+                                alpha = easedVal * (if (colors.isDark) 0.34f else 0.44f)
+                            }
+                            .background(if (colors.isDark) Color.Black else fadeBase),
+                    )
                 }
             }
 
@@ -784,7 +784,7 @@ fun DiscoverScreen(
                                             contentPadding = PaddingValues(horizontal = margin),
                                             horizontalArrangement = Arrangement.spacedBy(14.dp),
                                         ) {
-                                            items(continueItems) { cw ->
+                                            items(continueItems, key = { "cw_${it.server}_${it.id}_${it.title}" }, contentType = { "continue_card" }) { cw ->
                                                 Column(
                                                     modifier = Modifier
                                                         .width(238.dp)
@@ -934,7 +934,7 @@ fun DiscoverScreen(
                                             contentPadding = PaddingValues(horizontal = margin),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
-                                            items(movies) { item ->
+                                            items(movies, key = { "mv_${it.resolvedId}_${it.title}" }, contentType = { "poster" }) { item ->
                                                 NativePosterCard(
                                                     title = item.title,
                                                     year = item.year,
@@ -963,7 +963,7 @@ fun DiscoverScreen(
                                             contentPadding = PaddingValues(horizontal = margin),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
-                                            items(tvs) { item ->
+                                            items(tvs, key = { "tv_${it.resolvedId}_${it.title}" }, contentType = { "poster" }) { item ->
                                                 NativePosterCard(
                                                     title = item.title,
                                                     year = item.year,
@@ -1110,7 +1110,7 @@ fun DiscoverScreen(
                                             contentPadding = PaddingValues(horizontal = margin),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
-                                            items(doubanShowing) { item ->
+                                            items(doubanShowing, key = { "dbs_${it.resolvedId}_${it.title}" }, contentType = { "poster" }) { item ->
                                                 NativePosterCard(
                                                     title = item.title,
                                                     year = item.year,
@@ -1139,7 +1139,7 @@ fun DiscoverScreen(
                                             contentPadding = PaddingValues(horizontal = margin),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
-                                            items(doubanTop250) { item ->
+                                            items(doubanTop250, key = { "dbt_${it.resolvedId}_${it.title}" }, contentType = { "poster" }) { item ->
                                                 NativePosterCard(
                                                     title = item.title,
                                                     year = item.year,
@@ -1167,7 +1167,7 @@ fun DiscoverScreen(
                                             contentPadding = PaddingValues(horizontal = margin),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
-                                            items(latestItems) { item ->
+                                            items(latestItems, key = { "lat_${it.serverName}_${it.serverItemId}_${it.resolvedId}_${it.title}" }, contentType = { "poster" }) { item ->
                                                 NativePosterCard(
                                                     title = item.title,
                                                     year = item.year,
@@ -1402,11 +1402,10 @@ fun DiscoverScreen(
             }
         }
 
-        // 顶部状态栏渐进模糊（首屏 scroll=0 时 0% 透明保持海报无遮挡，上滚后平滑浮现防止内容与状态栏重叠）
+        // 顶部状态栏渐进柔化罩（首屏 scroll=0 时 0% 透明保持海报无遮挡，上滚后仅在绘制层平滑浮现防止内容与状态栏重叠）
         NativeTopStatusBarProgressiveBlur(
-            visibilityProgress = eased,
+            visibilityProgressProvider = easedProvider,
             extraHeight = 40.dp,
-            blurSourceState = localHaze,
             modifier = Modifier.align(Alignment.TopCenter),
         )
     }

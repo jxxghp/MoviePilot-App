@@ -2566,6 +2566,7 @@ export struct NativeMediaPlayerView {
       }
       MenuItem({ content: '停止并关闭' })
         .onClick(() => {
+          HarmonyAudioSession.shared().stopAndRelease();
           this.onClose();
         })
     }

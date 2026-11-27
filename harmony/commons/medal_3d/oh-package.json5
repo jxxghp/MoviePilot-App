@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/medal_3d",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "description": "MoviePilot HarmonyOS NEXT medal_3d HAR",
   "main": "Index.ets",
   "dependencies": {

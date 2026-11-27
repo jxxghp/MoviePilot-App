@@ -322,14 +322,14 @@ public final class APIClient: Sendable {
     session = URLSession(
       configuration: configuration, delegate: APIRedirectGuard(), delegateQueue: nil)
     let imageConfiguration = (configuration.copy() as? URLSessionConfiguration) ?? .ephemeral
-    imageConfiguration.httpMaximumConnectionsPerHost = 8
+    imageConfiguration.httpMaximumConnectionsPerHost = 12
     imageSession = URLSession(
       configuration: imageConfiguration, delegate: APIRedirectGuard(), delegateQueue: nil)
     let directConfiguration = (configuration.copy() as? URLSessionConfiguration) ?? .ephemeral
     directConfiguration.httpShouldSetCookies = false
     directConfiguration.httpCookieStorage = nil
     directConfiguration.urlCredentialStorage = nil
-    directConfiguration.httpMaximumConnectionsPerHost = 8
+    directConfiguration.httpMaximumConnectionsPerHost = 12
     directConfiguration.timeoutIntervalForRequest = 10
     directConfiguration.timeoutIntervalForResource = 20
     directExternalImageSession = URLSession(configuration: directConfiguration)

@@ -234,13 +234,14 @@ fun SettingsHubScreen(
     val listState = rememberLazyListState()
     val isAdmin = permissions?.admin != false
 
-    var stats by remember { mutableStateOf(DashboardStatsDto()) }
-    var activeSitesCount by remember { mutableIntStateOf(0) }
-    var usersCount by remember { mutableIntStateOf(1) }
-    var mediaServersCount by remember { mutableIntStateOf(0) }
-    var notificationsCount by remember { mutableIntStateOf(0) }
-    var authorizedCount by remember { mutableIntStateOf(0) }
-    var isLoading by remember { mutableStateOf(true) }
+    val initialSummary = remember { repository.cachedSettingsSummary }
+    var stats by remember { mutableStateOf(initialSummary?.stats ?: repository.cachedDashboard?.stats ?: DashboardStatsDto()) }
+    var activeSitesCount by remember { mutableIntStateOf(initialSummary?.activeSitesCount ?: 0) }
+    var usersCount by remember { mutableIntStateOf(initialSummary?.usersCount ?: 1) }
+    var mediaServersCount by remember { mutableIntStateOf(initialSummary?.mediaServersCount ?: 0) }
+    var notificationsCount by remember { mutableIntStateOf(initialSummary?.notificationsCount ?: 0) }
+    var authorizedCount by remember { mutableIntStateOf(initialSummary?.authorizedCount ?: 0) }
+    var isLoading by remember { mutableStateOf(initialSummary == null) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     suspend fun loadAll() {
@@ -262,11 +263,23 @@ fun SettingsHubScreen(
                 stats = statsDef.await()
             }
         }
+        repository.cachedSettingsSummary = com.moviepilot.rustbridge.SettingsSummarySnapshot(
+            stats = stats,
+            activeSitesCount = activeSitesCount,
+            usersCount = usersCount,
+            mediaServersCount = mediaServersCount,
+            notificationsCount = notificationsCount,
+            authorizedCount = authorizedCount,
+        )
         isLoading = false
         isRefreshing = false
     }
 
-    LaunchedEffect(isAdmin) { loadAll() }
+    LaunchedEffect(isAdmin) {
+        if (repository.cachedSettingsSummary == null) {
+            loadAll()
+        }
+    }
 
     val showInlineShimmer = isLoading && !isRefreshing
     val usedRatio = if (stats.totalBytes > 0) (stats.usedBytes / stats.totalBytes).toFloat().coerceIn(0.02f, 1f) else 0f
@@ -1111,10 +1124,12 @@ fun PluginsCenterScreen(
     val snackbar = LocalSnackbarHostState.current
     val pagerState = rememberPagerState(initialPage = if (initialInstalledOnly) 0 else 1, pageCount = { 2 })
 
-    var installedPlugins by remember { mutableStateOf<List<PluginItemDto>>(emptyList()) }
-    var marketPlugins by remember { mutableStateOf<List<PluginItemDto>>(emptyList()) }
-    var isLoadingInstalled by remember { mutableStateOf(true) }
-    var isLoadingMarket by remember { mutableStateOf(true) }
+    val initialInstalledCache = remember { repository.cachedInstalledPlugins }
+    val initialMarketCache = remember { repository.cachedMarketPlugins }
+    var installedPlugins by remember { mutableStateOf(initialInstalledCache.orEmpty()) }
+    var marketPlugins by remember { mutableStateOf(initialMarketCache.orEmpty()) }
+    var isLoadingInstalled by remember { mutableStateOf(initialInstalledCache == null) }
+    var isLoadingMarket by remember { mutableStateOf(initialMarketCache == null) }
     var isRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var sortMode by remember { mutableStateOf("default") } // default, latest, installs, rating, name
@@ -1143,35 +1158,42 @@ fun PluginsCenterScreen(
         }
     }
 
-    suspend fun loadTab(installedOnly: Boolean) {
+    suspend fun loadTab(installedOnly: Boolean, forceRefresh: Boolean = true) {
         if (installedOnly) {
-            val loadedInstalled = repository.fetchPlugins(true)
+            val loadedInstalled = repository.fetchPlugins(installedOnly = true, forceRefresh = forceRefresh)
             installedPlugins = mergeMarketUpdates(loadedInstalled, marketPlugins)
+            repository.cachedInstalledPlugins = installedPlugins
             isLoadingInstalled = false
         } else {
-            val loadedMarket = repository.fetchPlugins(false)
+            val loadedMarket = repository.fetchPlugins(installedOnly = false, forceRefresh = forceRefresh)
             marketPlugins = loadedMarket
             installedPlugins = mergeMarketUpdates(installedPlugins, loadedMarket)
+            repository.cachedInstalledPlugins = installedPlugins
             isLoadingMarket = false
         }
         isRefreshing = false
     }
 
-    suspend fun reloadBoth() {
+    suspend fun reloadBoth(forceRefresh: Boolean = false) {
         val (loadedInstalled, loadedMarket) = coroutineScope {
-            val instDef = async { repository.fetchPlugins(true) }
-            val mktDef = async { repository.fetchPlugins(false) }
+            val instDef = async { repository.fetchPlugins(installedOnly = true, forceRefresh = forceRefresh) }
+            val mktDef = async { repository.fetchPlugins(installedOnly = false, forceRefresh = forceRefresh) }
             instDef.await() to mktDef.await()
         }
         marketPlugins = loadedMarket
         installedPlugins = mergeMarketUpdates(loadedInstalled, loadedMarket)
+        repository.cachedInstalledPlugins = installedPlugins
         isLoadingInstalled = false
         isLoadingMarket = false
         isRefreshing = false
     }
 
     LaunchedEffect(Unit) {
-        reloadBoth()
+        if (initialInstalledCache == null || initialMarketCache == null) {
+            reloadBoth(forceRefresh = false)
+        } else {
+            installedPlugins = mergeMarketUpdates(initialInstalledCache, initialMarketCache)
+        }
     }
 
     val installedTabTitle = if (isLoadingInstalled && installedPlugins.isEmpty()) "已安装" else "已安装 (${installedPlugins.size})"

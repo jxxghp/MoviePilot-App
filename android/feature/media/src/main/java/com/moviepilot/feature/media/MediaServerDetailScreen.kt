@@ -129,8 +129,6 @@ import com.moviepilot.rustbridge.MediaServerSourceDto
 import com.moviepilot.rustbridge.MediaServerStreamTrackDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.SubscribeItemDto
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import java.util.Locale
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -216,7 +214,6 @@ fun MediaServerDetailScreen(
     val heroHeightPx = with(density) { heroHeight.toPx().coerceAtLeast(1f) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val localHaze = remember { HazeState() }
 
     val screenKey = "$server:$itemId"
     var detail by remember(screenKey) { mutableStateOf<MediaServerItemDetailDto?>(null) }
@@ -734,38 +731,41 @@ fun MediaServerDetailScreen(
         }
     }
 
-    val scrollUpPx by remember {
-        derivedStateOf {
-            if (listState.firstVisibleItemIndex == 0) {
-                listState.firstVisibleItemScrollOffset.toFloat().coerceAtLeast(0f)
-            } else {
-                heroHeightPx
-            }
+    val scrollUpPxProvider: () -> Float = {
+        if (listState.firstVisibleItemIndex == 0) {
+            listState.firstVisibleItemScrollOffset.toFloat().coerceAtLeast(0f)
+        } else {
+            heroHeightPx
         }
     }
-    val progress = (scrollUpPx / (heroHeightPx * 0.62f)).coerceIn(0f, 1f)
-    val eased = progress * progress * (3f - 2f * progress)
+    val easedProvider: () -> Float = {
+        val p = (scrollUpPxProvider() / (heroHeightPx * 0.62f)).coerceIn(0f, 1f)
+        p * p * (3f - 2f * p)
+    }
+    val isHeroScrolledAway by remember(heroHeightPx) {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset >= (heroHeightPx * 0.62f).toInt()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .hazeSource(localHaze),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            if (colors.isDark) {
+            if (colors.isDark && !isHeroScrolledAway) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF0A0A16).copy(alpha = ((1f - eased * 1.15f).coerceAtLeast(0f)) * 0.55f)),
+                        .graphicsLayer {
+                            alpha = ((1f - easedProvider() * 1.15f).coerceAtLeast(0f)) * 0.55f
+                        }
+                        .background(Color(0xFF0A0A16)),
                 )
             }
 
-            // 底层摄影感视差 Hero 背景
-            if (progress < 0.99f) {
+            // 底层摄影感视差 Hero 背景（仅在绘制层更新视差与透明度）
+            if (!isHeroScrolledAway) {
                 val backdropHeight = heroHeight * 1.06f
-                val parallaxY = -scrollUpPx.coerceAtMost(heroHeightPx) * 0.08f
-                val maskShiftY = -scrollUpPx * 0.85f
-                val visibility = (1f - eased * 0.96f).coerceIn(0f, 1f)
                 val fadeBase = MaterialTheme.colorScheme.background
 
                 Box(
@@ -773,12 +773,14 @@ fun MediaServerDetailScreen(
                         .fillMaxWidth()
                         .height(backdropHeight)
                         .graphicsLayer {
-                            translationY = parallaxY
-                            alpha = visibility
+                            val sPx = scrollUpPxProvider()
+                            translationY = -sPx.coerceAtMost(heroHeightPx) * 0.08f
+                            alpha = (1f - easedProvider() * 0.96f).coerceIn(0f, 1f)
                             compositingStrategy = CompositingStrategy.Offscreen
                         }
                         .drawWithContent {
                             drawContent()
+                            val maskShiftY = -scrollUpPxProvider() * 0.85f
                             val hPx = size.height.coerceAtLeast(1f)
                             val shiftFraction = (maskShiftY / hPx).coerceIn(-0.95f, 0f)
                             val p1 = (0.56f + shiftFraction).coerceIn(0f, 1f)
@@ -813,9 +815,7 @@ fun MediaServerDetailScreen(
                             contentDescription = d?.title ?: fallbackTitle,
                             contentScale = ContentScale.Crop,
                             onError = { if (artIdx + 1 < artCandidates.size) artIdx++ },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .blur((eased * 14f).dp),
+                            modifier = Modifier.fillMaxSize(),
                         )
                     } else {
                         Box(
@@ -1795,11 +1795,10 @@ fun MediaServerDetailScreen(
             }
         }
 
-        // 顶部状态栏渐进模糊保护
+        // 顶部状态栏渐进柔化保护
         NativeTopStatusBarProgressiveBlur(
-            visibilityProgress = eased,
+            visibilityProgressProvider = easedProvider,
             extraHeight = 56.dp,
-            blurSourceState = localHaze,
             modifier = Modifier.align(Alignment.TopCenter),
         )
 

@@ -900,6 +900,125 @@ export struct HarmonyPluginsPage {
     .width('100%')
   }
 
+  @Builder
+  private pluginListBodyBuilder(items: MpPluginItem[]) {
+    if (items.length === 0) {
+      Column({ space: 8 }) {
+        SymbolGlyph($r('sys.symbol.puzzle')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
+        Text('暂无匹配的插件条目').fontSize(14).fontColor(mpSecondaryText(this.isDark))
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .justifyContent(FlexAlign.Center)
+    } else {
+      Grid() {
+        ForEach(items, (pl: MpPluginItem) => {
+          GridItem() {
+            Column() {
+              CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: this.activeTabIdx === 0 }) {
+                Row({ space: 12 }) {
+                  HarmonyPluginCardIcon({
+                    iconUrl: pl.iconUrl,
+                    pluginName: pl.pluginName
+                  })
+
+                  Column({ space: 4 }) {
+                    Row({ space: 6 }) {
+                      Text(pl.pluginName).fontSize(15).fontWeight(FontWeight.Bold)
+                        .fontColor(mpPrimaryText(this.isDark)).maxLines(1).layoutWeight(1)
+                      if (pl.pluginVersion.length > 0) {
+                        NativeAdaptiveBadge({ text: `v${pl.pluginVersion}`, tintHex: this.accentHex })
+                      }
+                    }.width('100%')
+                    Text(pl.pluginDesc || pl.id).fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                      .maxLines(2).width('100%')
+                    Row({ space: 8 }) {
+                      Text(`作者：${pl.pluginAuthor || 'MoviePilot'}`).fontSize(11).fontColor(mpSecondaryText(this.isDark))
+                      if (pl.hasPage) {
+                        NativeAdaptiveBadge({ text: '数据页', tintHex: '#5AC8FA' })
+                      }
+                    }
+                  }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+
+                  if (this.activeTabIdx === 0) {
+                    Row({ space: 6 }) {
+                      if (pl.hasUpdate) {
+                        Button(this.installingId === pl.id ? '更新中…' : '更新')
+                          .height(28).padding({ left: 10, right: 10 }).borderRadius(14)
+                          .fontSize(12).fontWeight(FontWeight.Bold)
+                          .backgroundColor('#F29B38').fontColor(Color.White)
+                          .enabled(this.installingId.length === 0)
+                          .onClick(() => { this.handleInstallPlugin(pl, true); })
+                      } else {
+                        NativeAdaptiveBadge({
+                          text: pl.state ? '已启用' : '配置',
+                          tintHex: pl.state ? '#34C759' : this.accentHex
+                        })
+                      }
+                      Button({ type: ButtonType.Circle }) {
+                        SymbolGlyph($r('sys.symbol.dot_grid_1x2'))
+                          .fontSize(16)
+                          .fontColor([mpSecondaryText(this.isDark)])
+                      }
+                      .width(34)
+                      .height(34)
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      .accessibilityText(`更多操作 ${pl.pluginName}`)
+                      .onClick(() => { this.openActionSheetForPlugin(pl); })
+                    }
+                  } else if (pl.hasUpdate) {
+                    Button(this.installingId === pl.id ? '更新中…' : '更新')
+                      .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
+                      .fontSize(12).fontWeight(FontWeight.Bold)
+                      .backgroundColor('#F29B38').fontColor(Color.White)
+                      .enabled(this.installingId.length === 0)
+                      .onClick(() => { this.handleInstallPlugin(pl, true); })
+                  } else if (pl.installed || this.isInstalledInList(pl.id)) {
+                    NativeAdaptiveBadge({ text: '已安装', tintHex: '#34C759' })
+                  } else {
+                    Button(this.installingId === pl.id ? '安装中…' : '安装')
+                      .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
+                      .fontSize(12).fontWeight(FontWeight.Bold)
+                      .backgroundColor(this.accentHex).fontColor(Color.White)
+                      .enabled(this.installingId.length === 0)
+                      .onClick(() => { this.handleInstallPlugin(pl, false); })
+                  }
+                }.width('100%')
+              }
+            }
+            .width('100%')
+            .gesture(
+              LongPressGesture({ repeat: false })
+                .onAction(() => {
+                  if (this.activeTabIdx === 0) {
+                    this.openActionSheetForPlugin(pl);
+                  } else if (this.isInstalledInList(pl.id)) {
+                    const installed = this.installedPlugins.find((x: MpPluginItem) => x.id === pl.id);
+                    if (installed) { this.openActionSheetForPlugin(installed); }
+                  }
+                })
+            )
+            .onClick(() => {
+              if (this.activeTabIdx === 0) {
+                this.openPluginDetail(pl);
+              } else {
+                this.marketDetailTarget = pl;
+                this.showMarketDetailSheet = true;
+              }
+            })
+          }
+        }, (pl: MpPluginItem) => `${this.activeTabIdx}_${pl.id}_${this.isInstalledInList(pl.id)}_${Boolean(pl.hasUpdate)}_${this.installingId === pl.id}`)
+      }
+      .cachedCount(6)
+      .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
+      .columnsGap(10)
+      .rowsGap(10)
+      .padding({ left: 16, right: 16, top: 2, bottom: 44 })
+      .scrollBar(BarState.Off)
+      .layoutWeight(1)
+    }
+  }
+
   build() {
     if (this.activePlugin) {
       Column({ space: this.shouldHideAppTopBar() ? 0 : 8 }) {
@@ -1094,119 +1213,8 @@ export struct HarmonyPluginsPage {
             fillViewport: true,
             bottomPadding: 44
           })
-        } else if (this.filteredPlugins().length === 0) {
-          Column({ space: 8 }) {
-            SymbolGlyph($r('sys.symbol.puzzle')).fontSize(38).fontColor([mpSecondaryText(this.isDark)])
-            Text('暂无匹配的插件条目').fontSize(14).fontColor(mpSecondaryText(this.isDark))
-          }
-          .width('100%')
-          .layoutWeight(1)
-          .justifyContent(FlexAlign.Center)
         } else {
-          Grid() {
-            ForEach(this.filteredPlugins(), (pl: MpPluginItem) => {
-              GridItem() {
-                Column() {
-                  CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: this.activeTabIdx === 0 }) {
-                    Row({ space: 12 }) {
-                      HarmonyPluginCardIcon({
-                        iconUrl: pl.iconUrl,
-                        pluginName: pl.pluginName
-                      })
-
-                      Column({ space: 4 }) {
-                        Row({ space: 6 }) {
-                          Text(pl.pluginName).fontSize(15).fontWeight(FontWeight.Bold)
-                            .fontColor(mpPrimaryText(this.isDark)).maxLines(1).layoutWeight(1)
-                          if (pl.pluginVersion.length > 0) {
-                            NativeAdaptiveBadge({ text: `v${pl.pluginVersion}`, tintHex: this.accentHex })
-                          }
-                        }.width('100%')
-                        Text(pl.pluginDesc || pl.id).fontSize(12).fontColor(mpSecondaryText(this.isDark))
-                          .maxLines(2).width('100%')
-                        Row({ space: 8 }) {
-                          Text(`作者：${pl.pluginAuthor || 'MoviePilot'}`).fontSize(11).fontColor(mpSecondaryText(this.isDark))
-                          if (pl.hasPage) {
-                            NativeAdaptiveBadge({ text: '数据页', tintHex: '#5AC8FA' })
-                          }
-                        }
-                      }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-
-                      if (this.activeTabIdx === 0) {
-                        Row({ space: 6 }) {
-                          if (pl.hasUpdate) {
-                            Button(this.installingId === pl.id ? '更新中…' : '更新')
-                              .height(28).padding({ left: 10, right: 10 }).borderRadius(14)
-                              .fontSize(12).fontWeight(FontWeight.Bold)
-                              .backgroundColor('#F29B38').fontColor(Color.White)
-                              .enabled(this.installingId.length === 0)
-                              .onClick(() => { this.handleInstallPlugin(pl, true); })
-                          } else {
-                            NativeAdaptiveBadge({
-                              text: pl.state ? '已启用' : '配置',
-                              tintHex: pl.state ? '#34C759' : this.accentHex
-                            })
-                          }
-                          Button({ type: ButtonType.Circle }) {
-                            SymbolGlyph($r('sys.symbol.dot_grid_1x2'))
-                              .fontSize(16)
-                              .fontColor([mpSecondaryText(this.isDark)])
-                          }
-                          .width(34)
-                          .height(34)
-                          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                          .accessibilityText(`更多操作 ${pl.pluginName}`)
-                          .onClick(() => { this.openActionSheetForPlugin(pl); })
-                        }
-                      } else if (pl.hasUpdate) {
-                        Button(this.installingId === pl.id ? '更新中…' : '更新')
-                          .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
-                          .fontSize(12).fontWeight(FontWeight.Bold)
-                          .backgroundColor('#F29B38').fontColor(Color.White)
-                          .enabled(this.installingId.length === 0)
-                          .onClick(() => { this.handleInstallPlugin(pl, true); })
-                      } else if (pl.installed || this.isInstalledInList(pl.id)) {
-                        NativeAdaptiveBadge({ text: '已安装', tintHex: '#34C759' })
-                      } else {
-                        Button(this.installingId === pl.id ? '安装中…' : '安装')
-                          .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
-                          .fontSize(12).fontWeight(FontWeight.Bold)
-                          .backgroundColor(this.accentHex).fontColor(Color.White)
-                          .enabled(this.installingId.length === 0)
-                          .onClick(() => { this.handleInstallPlugin(pl, false); })
-                      }
-                    }.width('100%')
-                  }
-                }
-                .width('100%')
-                .gesture(
-                  LongPressGesture({ repeat: false })
-                    .onAction(() => {
-                      if (this.activeTabIdx === 0) {
-                        this.openActionSheetForPlugin(pl);
-                      } else if (this.isInstalledInList(pl.id)) {
-                        const installed = this.installedPlugins.find((x: MpPluginItem) => x.id === pl.id);
-                        if (installed) { this.openActionSheetForPlugin(installed); }
-                      }
-                    })
-                )
-                .onClick(() => {
-                  if (this.activeTabIdx === 0) {
-                    this.openPluginDetail(pl);
-                  } else {
-                    this.marketDetailTarget = pl;
-                    this.showMarketDetailSheet = true;
-                  }
-                })
-              }
-            }, (pl: MpPluginItem) => `${this.activeTabIdx}_${pl.id}_${this.isInstalledInList(pl.id)}_${Boolean(pl.hasUpdate)}_${this.installingId === pl.id}`)
-          }
-          .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
-          .columnsGap(10)
-          .rowsGap(10)
-          .padding({ left: 16, right: 16, top: 2, bottom: 44 })
-          .scrollBar(BarState.Off)
-          .layoutWeight(1)
+          this.pluginListBodyBuilder(this.filteredPlugins())
         }
 
         Blank().width(0).height(0).bindSheet($$this.showPluginActionSheet, this.pluginActionSheetBuilder(), {
