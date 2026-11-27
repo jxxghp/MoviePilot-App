@@ -1217,11 +1217,9 @@ struct Index {
       }
 
       if (!this.hydratingSession && this.authStage === 'main' && !this.activePlayer) {
-        HarmonyPluginFloatingCapsule()
-          .position({
-            right: 16 + this.safeRightVp,
-            bottom: (this.routeStack.length === 0 && !this.isWideLayout() ? 94 : 24) + Math.max(10, this.safeBottomVp)
-          })
+        HarmonyPluginFloatingCapsule({
+          bottomClearanceVp: (this.routeStack.length === 0 && !this.isWideLayout() ? 94 : 24)
+        })
 
         HarmonyGlobalVuePluginOverlay({
           serverUrl: this.serverUrl,

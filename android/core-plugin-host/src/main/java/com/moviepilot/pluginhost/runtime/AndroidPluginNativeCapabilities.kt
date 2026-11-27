@@ -73,6 +73,29 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
+ * 计算系统状态栏 `MediaSession` 的播放状态码与推进倍速（`#89`）：
+ * 当原生内联音频处于 `loading` / `buffering` 或插件显式声明缓冲态时，强制下发 `STATE_BUFFERING` 与 `0f` 倍速，
+ * 确保未真正出声或弱网缓冲期间系统通知栏/锁屏进度条停住不空跑。
+ */
+internal fun buildResolvedMediaSessionStateParams(
+    playbackState: String,
+    hasInlineSession: Boolean,
+    explicitBuffering: Boolean,
+    requestedIsPlaying: Boolean,
+    rate: Float,
+): Pair<Int, Float> {
+    val isInlineBuffering = hasInlineSession && (playbackState == "loading" || playbackState == "buffering")
+    if (isInlineBuffering || explicitBuffering || playbackState == "buffering") {
+        return PlaybackState.STATE_BUFFERING to 0f
+    }
+    return if (requestedIsPlaying) {
+        PlaybackState.STATE_PLAYING to rate
+    } else {
+        PlaybackState.STATE_PAUSED to 0f
+    }
+}
+
+/**
  * Activity 作用域交互回调接口：由 `LocalPluginShellWebView` 在 Compose 宿主中通过
  * `rememberLauncherForActivityResult` 实现并绑定到当前活跃 WebView 槽，释放时自动解绑。
  */
@@ -124,6 +147,7 @@ class AndroidPluginNativeCapabilities(
         private const val MAX_WIDGET_PAYLOAD_BYTES = 32 * 1024
         private const val MAX_WIDGET_LAYOUT_DEPTH = 5
         private const val MAX_WIDGET_LAYOUT_NODES = 40
+        private const val MEDIA_INFO_AUDIO_RENDERING_START_CODE = 4
     }
 
     private data class NowPlayingLyricLine(
@@ -162,11 +186,18 @@ class AndroidPluginNativeCapabilities(
     private var isRecordingPaused: Boolean = false
     private var recordingTickRunnable: Runnable? = null
 
-    // Inline audio playback & real-time spectrum state (#79)
+    // Inline audio playback & real-time spectrum state (#79 / #89)
     private var mediaPlayer: MediaPlayer? = null
     private var playbackId: String? = null
     private var playbackTempFile: File? = null
     private var playbackState: String = "idle"
+    private var playbackDesiredPlaying: Boolean = false
+    private var isMediaBuffering: Boolean = false
+    private var isSeekPending: Boolean = false
+    private var hasRenderedAudioSinceStartOrSeek: Boolean = false
+    private var playbackAnchorPositionMs: Int = 0
+    private var pinnedBufferingPositionMs: Int = 0
+    private var nowPlayingExplicitBuffering: Boolean = false
     private var playbackLoop: Boolean = false
     private var playbackRate: Float = 1.0f
     private var playbackVolume: Float = 1.0f
@@ -1030,15 +1061,40 @@ class AndroidPluginNativeCapabilities(
         mainHandler.post {
             stopInlinePlayback(emitEvent = false)
             val playId = "play_${UUID.randomUUID().toString().take(12)}"
+            val isLocalTempSource = tempFile != null
             playbackId = playId
             playbackTempFile = tempFile
             playbackLoop = loop
             playbackVolume = volume
             playbackRate = rate
-            playbackState = "loading"
+            playbackDesiredPlaying = true
+            isMediaBuffering = !isLocalTempSource
+            isSeekPending = false
+            hasRenderedAudioSinceStartOrSeek = isLocalTempSource
+            playbackAnchorPositionMs = startPosMs
+            pinnedBufferingPositionMs = startPosMs
+            playbackState = "buffering"
             spectrumEnabled = reqSpecEnabled
             spectrumBands = reqSpecBands
             spectrumIntervalMs = reqSpecIntervalMs
+
+            // 起播缓冲阶段先把状态栏播控与前端状态置于 buffering（speed=0f），防止未出声期间进度条提前空跑。
+            if (showInStatusBar && playTitle.isNotBlank()) {
+                applyNowPlayingNotification(
+                    title = playTitle,
+                    artist = playArtist,
+                    album = playAlbum,
+                    artworkUrl = playArtworkUrl,
+                    durationMs = null,
+                    positionMs = startPosMs.toLong(),
+                    isPlaying = true,
+                    rate = rate,
+                    canNext = false,
+                    canPrevious = false,
+                    canSeek = true,
+                )
+            }
+            emitPlaybackState()
 
             runCatching {
                 val mp = MediaPlayer().apply {
@@ -1057,28 +1113,83 @@ class AndroidPluginNativeCapabilities(
                     } else {
                         setDataSource(dataSourceUrl!!)
                     }
+                    setOnInfoListener { player, what, _ ->
+                        if (playbackId != playId) return@setOnInfoListener false
+                        when (what) {
+                            MediaPlayer.MEDIA_INFO_BUFFERING_START -> {
+                                if (playbackDesiredPlaying) {
+                                    isMediaBuffering = true
+                                    pinnedBufferingPositionMs = runCatching { player.currentPosition }
+                                        .getOrDefault(pinnedBufferingPositionMs)
+                                        .coerceAtLeast(0)
+                                    if (playbackState != "buffering") {
+                                        playbackState = "buffering"
+                                        releaseVisualizer()
+                                        emitPlaybackState()
+                                    }
+                                }
+                            }
+                            MediaPlayer.MEDIA_INFO_BUFFERING_END -> {
+                                isMediaBuffering = false
+                                maybePromoteBufferingToPlaying(player)
+                            }
+                            MEDIA_INFO_AUDIO_RENDERING_START_CODE -> {
+                                hasRenderedAudioSinceStartOrSeek = true
+                                isMediaBuffering = false
+                                maybePromoteBufferingToPlaying(player)
+                            }
+                        }
+                        false
+                    }
+                    setOnSeekCompleteListener { player ->
+                        if (playbackId != playId) return@setOnSeekCompleteListener
+                        isSeekPending = false
+                        val settledPos = runCatching { player.currentPosition }
+                            .getOrDefault(pinnedBufferingPositionMs)
+                            .coerceAtLeast(0)
+                        playbackAnchorPositionMs = settledPos
+                        pinnedBufferingPositionMs = settledPos
+                        maybePromoteBufferingToPlaying(player)
+                    }
                     setOnPreparedListener { player ->
                         if (playbackId != playId) return@setOnPreparedListener
-                        if (startPosMs > 0) runCatching { player.seekTo(startPosMs) }
+                        isMediaBuffering = false
+                        if (startPosMs > 0) {
+                            isSeekPending = !isLocalTempSource
+                            playbackAnchorPositionMs = startPosMs
+                            pinnedBufferingPositionMs = startPosMs
+                            runCatching { player.seekTo(startPosMs) }
+                        } else {
+                            playbackAnchorPositionMs = 0
+                            pinnedBufferingPositionMs = 0
+                        }
                         if (rate != 1.0f) {
                             runCatching { player.playbackParams = player.playbackParams.setSpeed(rate) }
                         }
-                        player.start()
-                        playbackState = "playing"
+                        if (playbackDesiredPlaying) {
+                            player.start()
+                        }
+                        playbackState = when {
+                            !playbackDesiredPlaying -> "paused"
+                            isLocalTempSource -> "playing"
+                            hasRenderedAudioSinceStartOrSeek && !isSeekPending && !isMediaBuffering -> "playing"
+                            else -> "buffering"
+                        }
                         startPlaybackProgressTicker()
                         val specActive = syncVisualizerState()
+                        val durMs = player.duration.coerceAtLeast(0)
                         if (showInStatusBar && playTitle.isNotBlank()) {
                             applyNowPlayingNotification(
                                 title = playTitle,
                                 artist = playArtist,
                                 album = playAlbum,
                                 artworkUrl = playArtworkUrl,
-                                durationMs = player.duration.coerceAtLeast(0).toLong(),
-                                positionMs = startPosMs.toLong(),
-                                isPlaying = true,
+                                durationMs = durMs.toLong(),
+                                positionMs = pinnedBufferingPositionMs.toLong(),
+                                isPlaying = playbackDesiredPlaying,
                                 rate = rate,
-                                canNext = false,
-                                canPrevious = false,
+                                canNext = nowPlayingCanNext,
+                                canPrevious = nowPlayingCanPrevious,
                                 canSeek = true,
                             )
                         }
@@ -1087,8 +1198,8 @@ class AndroidPluginNativeCapabilities(
                             requestId,
                             buildJsonObject {
                                 put("playbackId", playId)
-                                put("state", "playing")
-                                put("durationMs", player.duration.coerceAtLeast(0))
+                                put("state", playbackState)
+                                put("durationMs", durMs)
                                 put("spectrumActive", specActive)
                             },
                         )
@@ -1096,6 +1207,9 @@ class AndroidPluginNativeCapabilities(
                     setOnCompletionListener { player ->
                         if (playbackId != playId) return@setOnCompletionListener
                         if (!playbackLoop) {
+                            playbackDesiredPlaying = false
+                            isMediaBuffering = false
+                            isSeekPending = false
                             playbackState = "ended"
                             stopPlaybackProgressTicker()
                             releaseVisualizer()
@@ -1111,6 +1225,9 @@ class AndroidPluginNativeCapabilities(
                     }
                     setOnErrorListener { _, what, extra ->
                         if (playbackId == playId) {
+                            playbackDesiredPlaying = false
+                            isMediaBuffering = false
+                            isSeekPending = false
                             playbackState = "error"
                             stopPlaybackProgressTicker()
                             releaseVisualizer()
@@ -1136,9 +1253,31 @@ class AndroidPluginNativeCapabilities(
         }
     }
 
+    /** 当网络流完成缓冲且真正开始消费 PCM 音频帧后，将状态从 `buffering` 切换为 `playing` 并恢复通知栏进度推进。 */
+    private fun maybePromoteBufferingToPlaying(player: MediaPlayer) {
+        if (!playbackDesiredPlaying || isMediaBuffering || isSeekPending) return
+        val isActuallyPlaying = runCatching { player.isPlaying }.getOrDefault(false)
+        if (!isActuallyPlaying) return
+        val curPos = runCatching { player.currentPosition }.getOrDefault(pinnedBufferingPositionMs).coerceAtLeast(0)
+        val hasAdvanced = curPos > playbackAnchorPositionMs + 15
+        if (hasRenderedAudioSinceStartOrSeek || playbackTempFile != null || hasAdvanced) {
+            hasRenderedAudioSinceStartOrSeek = true
+            pinnedBufferingPositionMs = curPos
+            if (playbackState != "playing") {
+                playbackState = "playing"
+                syncVisualizerState()
+                emitPlaybackState()
+            }
+        }
+    }
+
     private fun handleAudioPause(requestId: String) {
+        playbackDesiredPlaying = false
         mediaPlayer?.let {
-            if (it.isPlaying) it.pause()
+            pinnedBufferingPositionMs = runCatching { it.currentPosition }.getOrDefault(pinnedBufferingPositionMs).coerceAtLeast(0)
+            if (runCatching { it.isPlaying }.getOrDefault(false)) {
+                runCatching { it.pause() }
+            }
             playbackState = "paused"
         }
         releaseVisualizer()
@@ -1147,9 +1286,13 @@ class AndroidPluginNativeCapabilities(
     }
 
     private fun handleAudioResume(requestId: String) {
+        playbackDesiredPlaying = true
         mediaPlayer?.let {
-            it.start()
-            playbackState = "playing"
+            val curPos = runCatching { it.currentPosition }.getOrDefault(pinnedBufferingPositionMs).coerceAtLeast(0)
+            playbackAnchorPositionMs = curPos
+            pinnedBufferingPositionMs = curPos
+            runCatching { it.start() }
+            playbackState = if (isMediaBuffering || isSeekPending) "buffering" else "playing"
             startPlaybackProgressTicker()
             syncVisualizerState()
         }
@@ -1159,8 +1302,31 @@ class AndroidPluginNativeCapabilities(
 
     private fun handleAudioSeek(requestId: String, payload: JsonObject) {
         val posMs = ((payload["positionMs"] as? JsonPrimitive)?.intOrNull ?: 0).coerceAtLeast(0)
-        mediaPlayer?.let { runCatching { it.seekTo(posMs) } }
+        performInlineSeek(posMs)
         sendSuccess(requestId, currentPlaybackStatusJson())
+    }
+
+    /** 执行音频跳转：在线流跳转未完成前钉住 `pinnedBufferingPositionMs` 并置为 `buffering`，防止通知栏与前端提前空走。 */
+    private fun performInlineSeek(posMs: Int) {
+        val clampedPos = posMs.coerceAtLeast(0)
+        pinnedBufferingPositionMs = clampedPos
+        playbackAnchorPositionMs = clampedPos
+        nowPlayingPositionMs = clampedPos.toLong()
+        val mp = mediaPlayer
+        if (mp != null) {
+            val isRemoteStream = playbackTempFile == null
+            if (isRemoteStream && playbackDesiredPlaying) {
+                isSeekPending = true
+                hasRenderedAudioSinceStartOrSeek = false
+                playbackState = "buffering"
+                releaseVisualizer()
+            }
+            runCatching { mp.seekTo(clampedPos) }
+            if (playbackDesiredPlaying) {
+                startPlaybackProgressTicker()
+            }
+            emitPlaybackState()
+        }
     }
 
     private fun handleAudioSetRate(requestId: String, payload: JsonObject) {
@@ -1196,6 +1362,13 @@ class AndroidPluginNativeCapabilities(
         stopPlaybackProgressTicker()
         releaseVisualizer()
         spectrumEnabled = false
+        playbackDesiredPlaying = false
+        isMediaBuffering = false
+        isSeekPending = false
+        hasRenderedAudioSinceStartOrSeek = false
+        playbackAnchorPositionMs = 0
+        pinnedBufferingPositionMs = 0
+        nowPlayingExplicitBuffering = false
         runCatching { mediaPlayer?.stop() }
         runCatching { mediaPlayer?.release() }
         mediaPlayer = null
@@ -1558,9 +1731,24 @@ class AndroidPluginNativeCapabilities(
             override fun run() {
                 val mp = mediaPlayer ?: return
                 val pid = playbackId ?: return
+                if (playbackState == "buffering" && playbackDesiredPlaying) {
+                    maybePromoteBufferingToPlaying(mp)
+                    mainHandler.postDelayed(this, 120L)
+                    return
+                }
                 if (playbackState == "playing") {
-                    val pos = runCatching { mp.currentPosition }.getOrDefault(0).coerceAtLeast(0)
+                    val isActuallyPlaying = runCatching { mp.isPlaying }.getOrDefault(false)
+                    if (!isActuallyPlaying || isMediaBuffering || isSeekPending) {
+                        if (playbackDesiredPlaying && (isMediaBuffering || isSeekPending)) {
+                            playbackState = "buffering"
+                            emitPlaybackState()
+                        }
+                        mainHandler.postDelayed(this, 150L)
+                        return
+                    }
+                    val pos = runCatching { mp.currentPosition }.getOrDefault(pinnedBufferingPositionMs).coerceAtLeast(0)
                     val dur = runCatching { mp.duration }.getOrDefault(0).coerceAtLeast(0)
+                    pinnedBufferingPositionMs = pos
                     sendDeviceEvent(
                         "audio.play.progress",
                         buildJsonObject {
@@ -1586,7 +1774,7 @@ class AndroidPluginNativeCapabilities(
             }
         }
         playbackProgressRunnable = r
-        mainHandler.postDelayed(r, 250L)
+        mainHandler.postDelayed(r, 120L)
     }
 
     private fun stopPlaybackProgressTicker() {
@@ -1594,9 +1782,17 @@ class AndroidPluginNativeCapabilities(
         playbackProgressRunnable = null
     }
 
+    private fun currentEffectivePlaybackPositionMs(): Int {
+        if (playbackState == "buffering" || playbackState == "loading" || isSeekPending) {
+            return pinnedBufferingPositionMs.coerceAtLeast(0)
+        }
+        val mp = mediaPlayer ?: return pinnedBufferingPositionMs.coerceAtLeast(0)
+        return runCatching { mp.currentPosition }.getOrDefault(pinnedBufferingPositionMs).coerceAtLeast(0)
+    }
+
     private fun currentPlaybackStatusJson(): JsonObject {
         val mp = mediaPlayer
-        val pos = runCatching { mp?.currentPosition ?: 0 }.getOrDefault(0).coerceAtLeast(0)
+        val pos = currentEffectivePlaybackPositionMs()
         val dur = runCatching { mp?.duration ?: 0 }.getOrDefault(0).coerceAtLeast(0)
         return buildJsonObject {
             put("state", playbackState)
@@ -1613,7 +1809,7 @@ class AndroidPluginNativeCapabilities(
         AndroidPluginCapsuleManager.syncAudioPlaybackState(
             context = appContext,
             pluginId = activePluginId,
-            isPlaying = playbackState == "playing",
+            isPlaying = playbackState == "playing" || (playbackDesiredPlaying && playbackState == "buffering"),
         )
         if (nowPlayingActive && nowPlayingTitle.isNotBlank()) {
             updateNowPlayingPlaybackState()
@@ -1633,7 +1829,11 @@ class AndroidPluginNativeCapabilities(
         val artworkUrl = payload["artworkUrl"]?.strOrNull()?.trim().orEmpty()
         val durationMs = (payload["durationMs"] as? JsonPrimitive)?.doubleOrNull?.toLong()
         val positionMs = (payload["positionMs"] as? JsonPrimitive)?.doubleOrNull?.toLong()
-        val isPlaying = (payload["isPlaying"] as? JsonPrimitive)?.booleanOrNull ?: (playbackState == "playing")
+        val explicitBuffering = (payload["isBuffering"] as? JsonPrimitive)?.booleanOrNull == true ||
+            payload["state"]?.strOrNull()?.equals("buffering", ignoreCase = true) == true
+        nowPlayingExplicitBuffering = explicitBuffering
+        val isPlaying = (payload["isPlaying"] as? JsonPrimitive)?.booleanOrNull
+            ?: (playbackState == "playing" || (playbackDesiredPlaying && playbackState == "buffering"))
         val rate = ((payload["rate"] as? JsonPrimitive)?.doubleOrNull ?: playbackRate.toDouble()).toFloat()
         val canNext = (payload["canNext"] as? JsonPrimitive)?.booleanOrNull ?: false
         val canPrevious = (payload["canPrevious"] as? JsonPrimitive)?.booleanOrNull ?: false
@@ -1733,12 +1933,19 @@ class AndroidPluginNativeCapabilities(
         if (nowPlayingCanNext) actions = actions or PlaybackState.ACTION_SKIP_TO_NEXT
         if (nowPlayingCanPrevious) actions = actions or PlaybackState.ACTION_SKIP_TO_PREVIOUS
         if (nowPlayingCanSeek) actions = actions or PlaybackState.ACTION_SEEK_TO
+        val (resolvedState, resolvedSpeed) = buildResolvedMediaSessionStateParams(
+            playbackState = playbackState,
+            hasInlineSession = playbackId != null,
+            explicitBuffering = nowPlayingExplicitBuffering,
+            requestedIsPlaying = isPlaying,
+            rate = rate,
+        )
         val stateBuilder = PlaybackState.Builder()
             .setActions(actions)
             .setState(
-                if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
+                resolvedState,
                 positionMs.coerceAtLeast(0L),
-                if (isPlaying) rate else 0f,
+                resolvedSpeed,
             )
         if (nowPlayingHasLike) {
             stateBuilder.addCustomAction(
@@ -1833,11 +2040,8 @@ class AndroidPluginNativeCapabilities(
                 object : MediaSession.Callback() {
                     override fun onPlay() {
                         mainHandler.post {
-                            mediaPlayer?.let {
-                                it.start()
-                                playbackState = "playing"
-                                startPlaybackProgressTicker()
-                                emitPlaybackState()
+                            if (mediaPlayer != null) {
+                                handleAudioResume("")
                             }
                             sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "play") })
                         }
@@ -1845,10 +2049,8 @@ class AndroidPluginNativeCapabilities(
 
                     override fun onPause() {
                         mainHandler.post {
-                            mediaPlayer?.let {
-                                if (it.isPlaying) it.pause()
-                                playbackState = "paused"
-                                emitPlaybackState()
+                            if (mediaPlayer != null) {
+                                handleAudioPause("")
                             }
                             sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "pause") })
                         }
@@ -1874,12 +2076,15 @@ class AndroidPluginNativeCapabilities(
                         val targetMs = pos.coerceAtLeast(0L)
                         mainHandler.post {
                             nowPlayingPositionMs = targetMs
-                            mediaPlayer?.let { runCatching { it.seekTo(targetMs.toInt()) } }
-                            if (nowPlayingLyricLines.isNotEmpty()) {
-                                lastDisplayedLyricLine = resolveCurrentLyricLine(targetMs)
-                                mediaSession?.setMetadata(buildNowPlayingMediaMetadata(nowPlayingDurationMs))
+                            if (mediaPlayer != null) {
+                                performInlineSeek(targetMs.toInt())
+                            } else {
+                                if (nowPlayingLyricLines.isNotEmpty()) {
+                                    lastDisplayedLyricLine = resolveCurrentLyricLine(targetMs)
+                                    mediaSession?.setMetadata(buildNowPlayingMediaMetadata(nowPlayingDurationMs))
+                                }
+                                updateNowPlayingPlaybackState()
                             }
-                            updateNowPlayingPlaybackState()
                             sendDeviceEvent(
                                 "audio.remoteCommand",
                                 buildJsonObject {
@@ -1910,11 +2115,11 @@ class AndroidPluginNativeCapabilities(
                 override fun onReceive(context: Context?, intent: Intent?) {
                     when (intent?.action) {
                         ACTION_MEDIA_TOGGLE -> {
-                            if (playbackState == "playing") {
-                                mediaPlayer?.let { if (it.isPlaying) it.pause(); playbackState = "paused"; emitPlaybackState() }
+                            if (playbackState == "playing" || (playbackDesiredPlaying && playbackState == "buffering")) {
+                                if (mediaPlayer != null) handleAudioPause("")
                                 sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "pause") })
                             } else {
-                                mediaPlayer?.let { it.start(); playbackState = "playing"; startPlaybackProgressTicker(); emitPlaybackState() }
+                                if (mediaPlayer != null) handleAudioResume("")
                                 sendDeviceEvent("audio.remoteCommand", buildJsonObject { put("command", "play") })
                             }
                         }
@@ -2057,12 +2262,16 @@ class AndroidPluginNativeCapabilities(
 
     private fun updateNowPlayingPlaybackState() {
         val session = mediaSession ?: return
-        val isPlaying = playbackState == "playing"
-        val pos = runCatching { mediaPlayer?.currentPosition?.toLong() ?: nowPlayingPositionMs }.getOrDefault(nowPlayingPositionMs)
+        val isActiveOrBufferingPlay = playbackState == "playing" || (playbackDesiredPlaying && playbackState == "buffering")
+        val pos = if (playbackId != null) {
+            currentEffectivePlaybackPositionMs().toLong()
+        } else {
+            nowPlayingPositionMs
+        }
         nowPlayingPositionMs = pos
-        session.setPlaybackState(buildNowPlayingPlaybackState(isPlaying, pos, playbackRate))
-        postMediaStyleNotification(session, isPlaying)
-        syncNowPlayingWidgetPrefs(active = nowPlayingActive, isPlaying = isPlaying)
+        session.setPlaybackState(buildNowPlayingPlaybackState(isActiveOrBufferingPlay, pos, playbackRate))
+        postMediaStyleNotification(session, isActiveOrBufferingPlay)
+        syncNowPlayingWidgetPrefs(active = nowPlayingActive, isPlaying = playbackState == "playing")
     }
 
     @Suppress("DEPRECATION")
@@ -2165,6 +2374,7 @@ class AndroidPluginNativeCapabilities(
     private fun clearNowPlayingNotification() {
         val hadActiveNowPlaying = nowPlayingActive
         nowPlayingActive = false
+        nowPlayingExplicitBuffering = false
         nowPlayingTitle = ""
         nowPlayingArtist = ""
         nowPlayingAlbum = ""

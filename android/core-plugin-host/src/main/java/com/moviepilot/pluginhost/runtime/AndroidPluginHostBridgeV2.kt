@@ -183,6 +183,24 @@ class AndroidPluginHostBridgeV2(
         sendToWeb(type = "capsule.action", payload = buildJsonObject { put("actionId", actionId) })
     }
 
+    /** 向前端插件推送最小化胶囊形态变化事件（`capsule.state`）。 */
+    fun sendCapsuleState(minimized: Boolean, superMinimized: Boolean, dockedEdge: String) {
+        sendToWeb(
+            type = "device.event",
+            payload = buildJsonObject {
+                put("event", "capsule.state")
+                put(
+                    "data",
+                    buildJsonObject {
+                        put("minimized", minimized)
+                        put("superMinimized", superMinimized)
+                        put("dockedEdge", dockedEdge)
+                    },
+                )
+            },
+        )
+    }
+
     fun sendSimpleSuccess(requestId: String, vararg fields: Pair<String, Boolean>) {
         if (requestId.isBlank()) return
         sendToWeb(

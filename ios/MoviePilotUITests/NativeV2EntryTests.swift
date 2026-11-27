@@ -3680,7 +3680,7 @@ final class NativeV2EntryTests: XCTestCase {
       "native-cron-field-apply", "native-combobox-apply", "native-combobox-cancel",
       "native-modules-save", "native-modules-cancel",
       "native-subscribe-editor-save", "native-subscribe-editor-cancel",
-      "native-agent-sessions-close",
+      "native-agent-new", "native-agent-sessions", "native-agent-sessions-close",
       "native-workflow-node-editor-apply", "native-workflow-node-editor-cancel",
       "native-workflow-catalog-close",
       "native-user-editor-save", "native-user-editor-cancel",

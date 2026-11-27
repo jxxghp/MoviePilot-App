@@ -73,15 +73,19 @@ final class PluginNativeCapabilitiesService: NSObject {
   private var recordingTimer: Timer?
   private var isRecordingPaused: Bool = false
 
-  // MARK: - Inline Audio Playback & Real-Time Spectrum State (#79)
+  // MARK: - Inline Audio Playback & Real-Time Spectrum State (#79 / #89)
   private var avAudioPlayer: AVAudioPlayer?
   private var avPlayer: AVPlayer?
   private var avPlayerEndObserver: NSObjectProtocol?
+  private var avPlayerStatusObservation: NSKeyValueObservation?
   private var playbackID: String?
   private var playbackLoop: Bool = false
   private var playbackRate: Float = 1.0
   private var playbackVolume: Float = 1.0
   private var playbackState: String = "idle"
+  private var playbackDesiredPlaying: Bool = false
+  private var pinnedBufferingPositionMs: Int = 0
+  private var nowPlayingExplicitBuffering: Bool = false
   private var playbackProgressTimer: Timer?
   private var spectrumEnabled: Bool = false
   private var spectrumBands: Int = 64
@@ -872,6 +876,8 @@ final class PluginNativeCapabilitiesService: NSObject {
             userInfo: [NSLocalizedDescriptionKey: "无法启动原生音频播放"])
         }
         avAudioPlayer = player
+        playbackDesiredPlaying = true
+        pinnedBufferingPositionMs = Int(startPosMs)
         playbackState = "playing"
         startPlaybackProgressTimer()
         let specActive = syncSpectrumTimerState()
@@ -937,7 +943,9 @@ final class PluginNativeCapabilitiesService: NSObject {
           maybeApplyNowPlaying()
           self.sendSuccess(
             requestId: requestId,
-            data: ["playbackId": playID, "state": "playing", "spectrumActive": specActive]
+            data: [
+              "playbackId": playID, "state": self.playbackState, "spectrumActive": specActive,
+            ]
           )
         } catch {
           self.stopInlinePlayback(emitEvent: false)
@@ -988,7 +996,9 @@ final class PluginNativeCapabilitiesService: NSObject {
           maybeApplyNowPlaying()
           self.sendSuccess(
             requestId: requestId,
-            data: ["playbackId": playID, "state": "playing", "spectrumActive": specActive]
+            data: [
+              "playbackId": playID, "state": self.playbackState, "spectrumActive": specActive,
+            ]
           )
         } catch {
           self.stopInlinePlayback(emitEvent: false)
@@ -1015,7 +1025,9 @@ final class PluginNativeCapabilitiesService: NSObject {
           maybeApplyNowPlaying()
           self.sendSuccess(
             requestId: requestId,
-            data: ["playbackId": playID, "state": "playing", "spectrumActive": specActive]
+            data: [
+              "playbackId": playID, "state": self.playbackState, "spectrumActive": specActive,
+            ]
           )
         } catch {
           self.stopInlinePlayback(emitEvent: false)
@@ -1062,17 +1074,62 @@ final class PluginNativeCapabilitiesService: NSObject {
     }
 
     let player = AVPlayer(playerItem: item)
-    player.automaticallyWaitsToMinimizeStalling = false
+    player.automaticallyWaitsToMinimizeStalling = true
+    player.defaultRate = rate
     player.volume = volume
     if startPosMs > 0 {
       await player.seek(to: CMTime(seconds: startPosMs / 1000.0, preferredTimescale: 1000))
     }
-    player.playImmediately(atRate: rate)
 
     avPlayer = player
     playbackID = playID
-    playbackState = "playing"
-    if specActive {
+    playbackDesiredPlaying = true
+    pinnedBufferingPositionMs = Int(startPosMs)
+    playbackState = "buffering"
+
+    avPlayerStatusObservation?.invalidate()
+    avPlayerStatusObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) {
+      [weak self] observedPlayer, _ in
+      let status = observedPlayer.timeControlStatus
+      Task { @MainActor [weak self] in
+        guard let self, self.avPlayer === observedPlayer else { return }
+        switch status {
+        case .playing:
+          guard self.playbackDesiredPlaying else { return }
+          self.pinnedBufferingPositionMs = self.currentPlaybackPositionMs()
+          if self.playbackState != "playing" {
+            self.playbackState = "playing"
+            _ = self.syncSpectrumTimerState()
+            self.emitPlaybackState()
+          }
+        case .waitingToPlayAtSpecifiedRate:
+          guard self.playbackDesiredPlaying else { return }
+          self.pinnedBufferingPositionMs = self.currentPlaybackPositionMs()
+          if self.playbackState != "buffering" {
+            self.playbackState = "buffering"
+            self.stopSpectrumTimerOnly()
+            self.emitPlaybackState()
+          }
+        case .paused:
+          if !self.playbackDesiredPlaying && self.playbackState != "paused"
+            && self.playbackState != "ended" && self.playbackState != "idle"
+          {
+            self.playbackState = "paused"
+            self.stopSpectrumTimerOnly()
+            self.emitPlaybackState()
+          }
+        @unknown default:
+          break
+        }
+      }
+    }
+
+    player.play()
+    if rate != 1.0 {
+      player.rate = rate
+    }
+    if specActive && player.timeControlStatus == .playing {
+      playbackState = "playing"
       _ = syncSpectrumTimerState()
     }
     avPlayerEndObserver = NotificationCenter.default.addObserver(
@@ -1083,10 +1140,15 @@ final class PluginNativeCapabilitiesService: NSObject {
       Task { @MainActor [weak self] in
         guard let self, self.avPlayer === player else { return }
         if self.playbackLoop {
+          self.pinnedBufferingPositionMs = 0
           player.seek(to: .zero)
-          player.playImmediately(atRate: self.playbackRate)
+          player.play()
+          if self.playbackRate != 1.0 {
+            player.rate = self.playbackRate
+          }
         } else {
           let dur = self.currentPlaybackDurationMs()
+          self.playbackDesiredPlaying = false
           self.playbackState = "ended"
           self.playbackProgressTimer?.invalidate()
           self.playbackProgressTimer = nil
@@ -1105,6 +1167,8 @@ final class PluginNativeCapabilitiesService: NSObject {
   }
 
   private func handleAudioPause(requestId: String) {
+    playbackDesiredPlaying = false
+    pinnedBufferingPositionMs = currentPlaybackPositionMs()
     if let p = avAudioPlayer {
       p.pause()
       playbackState = "paused"
@@ -1118,6 +1182,7 @@ final class PluginNativeCapabilitiesService: NSObject {
   }
 
   private func handleAudioResume(requestId: String) {
+    playbackDesiredPlaying = true
     if let p = avAudioPlayer {
       p.rate = playbackRate
       p.play()
@@ -1125,8 +1190,12 @@ final class PluginNativeCapabilitiesService: NSObject {
       startPlaybackProgressTimer()
       _ = syncSpectrumTimerState()
     } else if let p = avPlayer {
-      p.playImmediately(atRate: playbackRate)
-      playbackState = "playing"
+      p.defaultRate = playbackRate
+      p.play()
+      if playbackRate != 1.0 {
+        p.rate = playbackRate
+      }
+      playbackState = p.timeControlStatus == .playing ? "playing" : "buffering"
       startPlaybackProgressTimer()
       _ = syncSpectrumTimerState()
     }
@@ -1136,10 +1205,25 @@ final class PluginNativeCapabilitiesService: NSObject {
 
   private func handleAudioSeek(requestId: String, payload: [String: Any]) {
     let posMs = max((payload["positionMs"] as? Double) ?? 0, 0)
+    pinnedBufferingPositionMs = Int(posMs)
     if let p = avAudioPlayer {
       p.currentTime = min(posMs / 1000.0, p.duration)
     } else if let p = avPlayer {
-      p.seek(to: CMTime(seconds: posMs / 1000.0, preferredTimescale: 1000))
+      if playbackDesiredPlaying {
+        playbackState = "buffering"
+        stopSpectrumTimerOnly()
+        emitPlaybackState()
+      }
+      p.seek(to: CMTime(seconds: posMs / 1000.0, preferredTimescale: 1000)) { [weak self] _ in
+        Task { @MainActor [weak self] in
+          guard let self, let activePlayer = self.avPlayer, activePlayer === p else { return }
+          if self.playbackDesiredPlaying && activePlayer.timeControlStatus == .playing {
+            self.playbackState = "playing"
+            _ = self.syncSpectrumTimerState()
+            self.emitPlaybackState()
+          }
+        }
+      }
     }
     sendSuccess(requestId: requestId, data: currentPlaybackStatusDict())
   }
@@ -1175,6 +1259,11 @@ final class PluginNativeCapabilitiesService: NSObject {
     playbackProgressTimer = nil
     detachSpectrumProcessor()
     spectrumEnabled = false
+    playbackDesiredPlaying = false
+    pinnedBufferingPositionMs = 0
+    nowPlayingExplicitBuffering = false
+    avPlayerStatusObservation?.invalidate()
+    avPlayerStatusObservation = nil
     if let obs = avPlayerEndObserver {
       NotificationCenter.default.removeObserver(obs)
       avPlayerEndObserver = nil
@@ -1558,6 +1647,15 @@ final class PluginNativeCapabilitiesService: NSObject {
   }
 
   private func currentPlaybackPositionMs() -> Int {
+    if playbackState == "buffering" || playbackState == "loading" {
+      if let p = avPlayer {
+        let sec = p.currentTime().seconds
+        if sec.isFinite && sec > 0 {
+          return max(pinnedBufferingPositionMs, Int(sec * 1000))
+        }
+      }
+      return max(0, pinnedBufferingPositionMs)
+    }
     if let p = avAudioPlayer {
       return max(0, Int(p.currentTime * 1000))
     }
@@ -1628,7 +1726,13 @@ final class PluginNativeCapabilitiesService: NSObject {
       in: .whitespacesAndNewlines)
     let durationMs = (payload["durationMs"] as? NSNumber)?.intValue
     let positionMs = (payload["positionMs"] as? NSNumber)?.intValue
-    let isPlaying = (payload["isPlaying"] as? Bool) ?? (playbackState == "playing")
+    let explicitBuffering =
+      ((payload["isBuffering"] as? Bool) == true)
+      || ((payload["state"] as? String)?.lowercased() == "buffering")
+    nowPlayingExplicitBuffering = explicitBuffering
+    let isPlaying =
+      (payload["isPlaying"] as? Bool)
+      ?? (playbackState == "playing" || (playbackDesiredPlaying && playbackState == "buffering"))
     let rate = (payload["rate"] as? NSNumber)?.floatValue ?? playbackRate
     let canNext = (payload["canNext"] as? Bool) ?? false
     let canPrevious = (payload["canPrevious"] as? Bool) ?? false
@@ -1745,7 +1849,11 @@ final class PluginNativeCapabilitiesService: NSObject {
       info[MPMediaItemPropertyPlaybackDuration] = Double(effectiveDurationMs) / 1000.0
     }
     info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(max(effectivePositionMs, 0)) / 1000.0
-    info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(rate) : 0.0
+    let isBufferingNow =
+      nowPlayingExplicitBuffering
+      || (avPlayer != nil && (playbackState == "loading" || playbackState == "buffering"))
+    info[MPNowPlayingInfoPropertyPlaybackRate] =
+      (isPlaying && !isBufferingNow) ? Double(rate) : 0.0
     let resolvedArtwork = resolveArtworkSource(artworkUrl)
     let resolvedArtworkKey = resolvedArtwork?.url.absoluteString ?? ""
     if let artwork = nowPlayingArtwork, !resolvedArtworkKey.isEmpty,
@@ -1877,13 +1985,16 @@ final class PluginNativeCapabilitiesService: NSObject {
       Task { @MainActor [weak self] in
         guard let self else { return }
         if self.avAudioPlayer != nil || self.avPlayer != nil {
+          self.playbackDesiredPlaying = true
           if let p = self.avAudioPlayer {
             p.rate = self.playbackRate
             p.play()
             self.playbackState = "playing"
           } else if let p = self.avPlayer {
-            p.playImmediately(atRate: self.playbackRate)
-            self.playbackState = "playing"
+            p.defaultRate = self.playbackRate
+            p.play()
+            if self.playbackRate != 1.0 { p.rate = self.playbackRate }
+            self.playbackState = p.timeControlStatus == .playing ? "playing" : "buffering"
           }
           self.startPlaybackProgressTimer()
           self.emitPlaybackState()
@@ -1896,6 +2007,8 @@ final class PluginNativeCapabilitiesService: NSObject {
       Task { @MainActor [weak self] in
         guard let self else { return }
         if self.avAudioPlayer != nil || self.avPlayer != nil {
+          self.playbackDesiredPlaying = false
+          self.pinnedBufferingPositionMs = self.currentPlaybackPositionMs()
           self.avAudioPlayer?.pause()
           self.avPlayer?.pause()
           self.playbackState = "paused"
@@ -1908,19 +2021,26 @@ final class PluginNativeCapabilitiesService: NSObject {
     bind(center.togglePlayPauseCommand, enabled: true) { [weak self] _ in
       Task { @MainActor [weak self] in
         guard let self else { return }
-        if self.playbackState == "playing" {
+        if self.playbackState == "playing"
+          || (self.playbackDesiredPlaying && self.playbackState == "buffering")
+        {
+          self.playbackDesiredPlaying = false
+          self.pinnedBufferingPositionMs = self.currentPlaybackPositionMs()
           self.avAudioPlayer?.pause()
           self.avPlayer?.pause()
           self.playbackState = "paused"
           self.emitPlaybackState()
         } else if self.avAudioPlayer != nil || self.avPlayer != nil {
+          self.playbackDesiredPlaying = true
           if let p = self.avAudioPlayer {
             p.rate = self.playbackRate
             p.play()
             self.playbackState = "playing"
           } else if let p = self.avPlayer {
-            p.playImmediately(atRate: self.playbackRate)
-            self.playbackState = "playing"
+            p.defaultRate = self.playbackRate
+            p.play()
+            if self.playbackRate != 1.0 { p.rate = self.playbackRate }
+            self.playbackState = p.timeControlStatus == .playing ? "playing" : "buffering"
           }
           self.startPlaybackProgressTimer()
           self.emitPlaybackState()
@@ -1956,12 +2076,26 @@ final class PluginNativeCapabilitiesService: NSObject {
       let targetMs = max(0, Int(posEvent.positionTime * 1000))
       Task { @MainActor [weak self] in
         guard let self else { return }
+        self.pinnedBufferingPositionMs = targetMs
         if let p = self.avAudioPlayer {
           p.currentTime = min(posEvent.positionTime, p.duration)
+          self.refreshNowPlayingPlaybackState()
         } else if let p = self.avPlayer {
-          p.seek(to: CMTime(seconds: posEvent.positionTime, preferredTimescale: 1000))
+          if self.playbackDesiredPlaying {
+            self.playbackState = "buffering"
+            self.emitPlaybackState()
+          }
+          p.seek(to: CMTime(seconds: posEvent.positionTime, preferredTimescale: 1000)) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in
+              guard let self, let activePlayer = self.avPlayer, activePlayer === p else { return }
+              if self.playbackDesiredPlaying && activePlayer.timeControlStatus == .playing {
+                self.playbackState = "playing"
+                self.emitPlaybackState()
+              }
+            }
+          }
         }
-        self.refreshNowPlayingPlaybackState()
         self.sendDeviceEvent("audio.remoteCommand", ["command": "seek", "positionMs": targetMs])
       }
       return .success

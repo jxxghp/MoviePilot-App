@@ -160,7 +160,7 @@ const offEvent = native?.onEvent?.(({ event, data }) => {
     // data: { volume: 0..1, muted: boolean, currentSteps?: number, maxSteps?: number }
   }
   if (event === 'audio.play.state') {
-    // data.state: loading | playing | paused | ended | stopped | error
+    // data.state: loading | buffering | playing | paused | ended | stopped | error
   }
   if (event === 'audio.play.error') {
     sdk?.ui?.toast.error('音频播放出错，请重试')

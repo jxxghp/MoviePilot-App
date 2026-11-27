@@ -644,42 +644,216 @@ struct NativePluginLocalRuntimeView: View {
   }
 }
 
+private struct CapsuleMeasuredSizePreferenceKey: PreferenceKey {
+  static let defaultValue: CGSize = .zero
+  static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+    let candidate = nextValue()
+    if candidate.width > 0 && candidate.height > 0 {
+      value = candidate
+    }
+  }
+}
+
+/// 兼容 iOS 16+ 的贴边半圆胶囊裁剪形状（贴左或贴右为直角，朝内为全圆弧，未贴边为完整胶囊）。
+private struct DockedCapsuleShape: Shape {
+  let dockedEdge: String
+
+  func path(in rect: CGRect) -> Path {
+    let radius = min(rect.width, rect.height) * 0.5
+    let corners: UIRectCorner
+    switch dockedEdge {
+    case "left":
+      corners = [.topRight, .bottomRight]
+    case "right":
+      corners = [.topLeft, .bottomLeft]
+    default:
+      corners = .allCorners
+    }
+    let bezier = UIBezierPath(
+      roundedRect: rect,
+      byRoundingCorners: corners,
+      cornerRadii: CGSize(width: radius, height: radius)
+    )
+    return Path(bezier.cgPath)
+  }
+}
+
 /// iOS 全应用跨标签紧凑单行横向悬浮胶囊视图：
-/// `[圆形鉴权封面 (29pt)] + [标题/副标题文字区 (点击直接恢复完整插件窗口)] + [最多 3 个内联快捷图标按钮] + [关闭按钮 ✕]`。
+/// - 拖动与松手全程约束在屏幕安全区内（避开灵动岛/状态栏与底部栏），持久化安全坐标；
+/// - 拖至左右边缘 `< edgeSnapThresholdDp`（默认 24pt）自动吸附并收缩为半圆「超级最小化」，点击恢复完整单行胶囊。
 @MainActor
 struct NativePluginFloatingCapsuleOverlay: View {
   @ObservedObject var manager: PluginCapsuleManager
   let onOpenFullWindow: (MinimizedPluginSession) -> Void
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
-  @State private var dragOffset: CGSize = .zero
-  @State private var accumulatedOffset: CGSize = .zero
+  @AppStorage("mp.pluginCapsule.normX") private var normX: Double = 1.0
+  @AppStorage("mp.pluginCapsule.normY") private var normY: Double = 0.78
+  @AppStorage("mp.pluginCapsule.dockedEdge") private var dockedEdge: String = "none"
+
+  @State private var measuredSize: CGSize = .zero
+  @State private var isDragging: Bool = false
+  @State private var liveDragOrigin: CGPoint = .zero
+
+  private var isSuperMinimized: Bool {
+    dockedEdge == "left" || dockedEdge == "right"
+  }
 
   var body: some View {
     if let session = manager.currentSession {
       let snap = session.snapshot
-      capsulePill(session: session, snap: snap)
-        .task(id: "\(session.serverURL.absoluteString)|\(snap.iconURL ?? "")") {
-          manager.ensureIconLoaded(for: session)
+      GeometryReader { proxy in
+        let viewportW = max(proxy.size.width, 1)
+        let viewportH = max(proxy.size.height, 1)
+        let itemW = max(measuredSize.width, isSuperMinimized ? 42 : 230)
+        let itemH = max(measuredSize.height, 40)
+        let hMargin: CGFloat = 12
+        let topMargin: CGFloat = 10
+        let bottomClearance: CGFloat = 94
+        let snapThreshold = CGFloat(snap.edgeSnapThresholdDp)
+
+        let minDragX: CGFloat = 0
+        let maxDragX = max(viewportW - itemW, minDragX)
+        let minY = topMargin
+        let maxY = max(viewportH - bottomClearance - itemH, minY)
+
+        let resolvedOrigin: CGPoint = {
+          let clampedNormY = min(max(CGFloat(normY), 0), 1)
+          let y = min(max(minY + (maxY - minY) * clampedNormY, minY), maxY)
+          switch dockedEdge {
+          case "left":
+            return CGPoint(x: 0, y: y)
+          case "right":
+            return CGPoint(x: max(viewportW - itemW, 0), y: y)
+          default:
+            let minFreeX = hMargin
+            let maxFreeX = max(viewportW - hMargin - itemW, minFreeX)
+            let clampedNormX = min(max(CGFloat(normX), 0), 1)
+            let x = min(max(minFreeX + (maxFreeX - minFreeX) * clampedNormX, minFreeX), maxFreeX)
+            return CGPoint(x: x, y: y)
+          }
+        }()
+
+        let activeOrigin: CGPoint =
+          isDragging
+          ? CGPoint(
+            x: min(max(liveDragOrigin.x, minDragX), maxDragX),
+            y: min(max(liveDragOrigin.y, minY), maxY)
+          )
+          : resolvedOrigin
+
+        capsuleContent(session: session, snap: snap)
+          .background(
+            GeometryReader { pillProxy in
+              Color.clear.preference(
+                key: CapsuleMeasuredSizePreferenceKey.self, value: pillProxy.size)
+            }
+          )
+          .onPreferenceChange(CapsuleMeasuredSizePreferenceKey.self) { nextSize in
+            if abs(nextSize.width - measuredSize.width) > 0.5
+              || abs(nextSize.height - measuredSize.height) > 0.5
+            {
+              measuredSize = nextSize
+            }
+          }
+          .task(id: "\(session.serverURL.absoluteString)|\(snap.iconURL ?? "")") {
+            manager.ensureIconLoaded(for: session)
+          }
+          .position(x: activeOrigin.x + itemW * 0.5, y: activeOrigin.y + itemH * 0.5)
+          .gesture(
+            DragGesture(minimumDistance: 4, coordinateSpace: .named("mp-plugin-capsule-space"))
+              .onChanged { value in
+                let startOrigin = resolvedOrigin
+                let rawX = startOrigin.x + value.translation.width
+                let rawY = startOrigin.y + value.translation.height
+                var t = Transaction()
+                t.disablesAnimations = true
+                withTransaction(t) {
+                  isDragging = true
+                  liveDragOrigin = CGPoint(
+                    x: min(max(rawX, minDragX), maxDragX),
+                    y: min(max(rawY, minY), maxY)
+                  )
+                }
+              }
+              .onEnded { value in
+                let startOrigin = resolvedOrigin
+                let clampedX = min(max(startOrigin.x + value.translation.width, minDragX), maxDragX)
+                let clampedY = min(max(startOrigin.y + value.translation.height, minY), maxY)
+                let distLeft = max(clampedX, 0)
+                let distRight = max(viewportW - (clampedX + itemW), 0)
+                let nextNormY =
+                  maxY > minY ? Double(min(max((clampedY - minY) / (maxY - minY), 0), 1)) : 0.78
+
+                let nextEdge: String
+                let nextNormX: Double
+                if snapThreshold > 0 && distLeft <= snapThreshold && distLeft <= distRight {
+                  nextEdge = "left"
+                  nextNormX = 0.0
+                } else if snapThreshold > 0 && distRight <= snapThreshold {
+                  nextEdge = "right"
+                  nextNormX = 1.0
+                } else {
+                  nextEdge = "none"
+                  let minFreeX = hMargin
+                  let maxFreeX = max(viewportW - hMargin - itemW, minFreeX)
+                  let settledX = min(max(clampedX, minFreeX), maxFreeX)
+                  nextNormX =
+                    maxFreeX > minFreeX
+                    ? Double(min(max((settledX - minFreeX) / (maxFreeX - minFreeX), 0), 1))
+                    : 1.0
+                }
+
+                if nextEdge != dockedEdge {
+                  UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+                  isDragging = false
+                  normX = nextNormX
+                  normY = nextNormY
+                  dockedEdge = nextEdge
+                }
+              }
+          )
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .coordinateSpace(name: "mp-plugin-capsule-space")
+    }
+  }
+
+  @ViewBuilder
+  private func capsuleContent(session: MinimizedPluginSession, snap: PluginCapsuleSnapshot)
+    -> some View
+  {
+    let shape = DockedCapsuleShape(dockedEdge: dockedEdge)
+    if isSuperMinimized {
+      Button {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
+          normX = dockedEdge == "left" ? 0.0 : 1.0
+          dockedEdge = "none"
         }
-        .offset(
-          x: accumulatedOffset.width + dragOffset.width,
-          y: accumulatedOffset.height + dragOffset.height
-        )
-        .gesture(
-          DragGesture()
-            .onChanged { value in
-              dragOffset = value.translation
-            }
-            .onEnded { value in
-              accumulatedOffset.width += value.translation.width
-              accumulatedOffset.height += value.translation.height
-              dragOffset = .zero
-            }
-        )
-        .padding(.trailing, 16)
-        .padding(.bottom, 102)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+      } label: {
+        capsuleIcon(session: session, size: 28)
+          .padding(.leading, dockedEdge == "left" ? 6 : 8)
+          .padding(.trailing, dockedEdge == "right" ? 6 : 8)
+          .padding(.vertical, 5)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .background(.ultraThinMaterial, in: shape)
+      .overlay(
+        shape
+          .stroke(
+            appearance.accentColor.opacity(snap.isPlaying ? 0.62 : 0.38),
+            lineWidth: 0.9
+          )
+      )
+      .shadow(color: .black.opacity(0.22), radius: 10, y: 4)
+      .accessibilityLabel("展开插件胶囊")
+      .accessibilityIdentifier("native-plugin-floating-capsule-docked")
+    } else {
+      capsulePill(session: session, snap: snap)
     }
   }
 

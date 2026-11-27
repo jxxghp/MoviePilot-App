@@ -1854,10 +1854,8 @@ fun MoviePilotRootShell(
                             },
                             onDispatchAction = { actionId -> AndroidPluginCapsuleManager.dispatchAction(actionId) },
                             onCloseCapsule = { AndroidPluginCapsuleManager.closeAndRelease(context) },
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .navigationBarsPadding()
-                                .padding(end = 16.dp, bottom = capsuleBottom),
+                            bottomClearanceDp = capsuleBottom,
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
 

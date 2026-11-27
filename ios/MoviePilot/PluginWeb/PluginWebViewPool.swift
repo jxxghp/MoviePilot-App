@@ -417,10 +417,16 @@ struct PluginCapsuleSnapshot: Equatable {
   var iconURL: String?
   var mode: String  // "jump" | "mini"
   var isPlaying: Bool
+  var edgeSnapThresholdDp: Int
   var actions: [PluginCapsuleActionItem]
 
   var isMiniWindowMode: Bool {
     mode.lowercased() == "mini" || !actions.isEmpty
+  }
+
+  private static func normalizeSnapThreshold(_ raw: Any?) -> Int? {
+    guard let num = (raw as? NSNumber)?.intValue else { return nil }
+    return min(max(num, 0), 72)
   }
 
   /// 同步更新动作数组中播放控制项的 `active` 状态。
@@ -456,6 +462,8 @@ struct PluginCapsuleSnapshot: Equatable {
       (payload["isPlaying"] as? Bool)
       ?? actions.first(where: { $0.inlineKind == .playPause })?.active
       ?? false
+    let snapThreshold =
+      normalizeSnapThreshold(payload["edgeSnapThresholdDp"] ?? payload["snapThresholdDp"]) ?? 24
     return PluginCapsuleSnapshot(
       pluginID: pluginID,
       pluginName: resolvedName,
@@ -466,6 +474,7 @@ struct PluginCapsuleSnapshot: Equatable {
         .nonEmptyOrNil,
       mode: mode,
       isPlaying: resolvedPlaying,
+      edgeSnapThresholdDp: snapThreshold,
       actions: syncPlayActions(actions, isPlaying: resolvedPlaying)
     )
   }
@@ -491,6 +500,11 @@ struct PluginCapsuleSnapshot: Equatable {
       nextMode == "jump" || nextMode == "mini"
     {
       mode = nextMode
+    }
+    if let nextSnap = Self.normalizeSnapThreshold(
+      payload["edgeSnapThresholdDp"] ?? payload["snapThresholdDp"]
+    ) {
+      edgeSnapThresholdDp = nextSnap
     }
     var nextActions = actions
     if payload["actions"] != nil {

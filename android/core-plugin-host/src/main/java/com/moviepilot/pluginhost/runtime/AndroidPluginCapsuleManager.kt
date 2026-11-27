@@ -22,6 +22,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.WindowInsets as PlatformWindowInsets
 import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -33,10 +34,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -69,11 +74,16 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moviepilot.designsystem.LocalMoviePilotColors
@@ -85,8 +95,168 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+/** 最小化胶囊贴边方向（用于左右边缘自动吸附并收缩为半圆「超级最小化」形态）。 */
+enum class CapsuleDockedEdge(val wireValue: String) {
+    NONE("none"),
+    LEFT("left"),
+    RIGHT("right");
+
+    companion object {
+        fun fromWire(raw: String?): CapsuleDockedEdge = when (raw?.lowercase()) {
+            "left" -> LEFT
+            "right" -> RIGHT
+            else -> NONE
+        }
+    }
+}
+
+/** 最小化胶囊在安全区内的归一化坐标与贴边吸附状态（供应用内浮层与系统级悬浮窗共享持久化）。 */
+data class CapsulePlacementState(
+    val normX: Float = 1f,
+    val normY: Float = 0.78f,
+    val dockedEdge: CapsuleDockedEdge = CapsuleDockedEdge.NONE,
+) {
+    val isSuperMinimized: Boolean
+        get() = dockedEdge != CapsuleDockedEdge.NONE
+}
+
+/** 屏幕视口与安全区边界参数（单位 px）。 */
+data class CapsuleSafeBounds(
+    val viewportWidthPx: Int,
+    val viewportHeightPx: Int,
+    val insetLeftPx: Int,
+    val insetTopPx: Int,
+    val insetRightPx: Int,
+    val insetBottomPx: Int,
+    val horizontalMarginPx: Int,
+    val verticalMarginPx: Int,
+)
+
+/**
+ * 应用内 Compose 悬浮胶囊与系统级 `TYPE_APPLICATION_OVERLAY` 悬浮窗共用的纯几何边界约束与贴边吸附计算器：
+ * 1. 拖动全程限制在安全区内（避开状态栏、底部手势条、挖孔/刘海）；
+ * 2. 松手时若距左/右安全边缘小于 `snapThresholdPx`（默认 24dp，可配置），自动贴边收缩为半圆「超级最小化」；
+ * 3. 点击半圆恢复完整单行胶囊时自动内缩回安全留白区间并持久化安全坐标，杜绝越界丢失。
+ */
+internal object PluginCapsuleLayoutCalculator {
+    const val DEFAULT_EDGE_SNAP_THRESHOLD_DP = 24
+    const val MAX_EDGE_SNAP_THRESHOLD_DP = 72
+
+    fun normalizeSnapThresholdDp(rawDp: Int?): Int =
+        (rawDp ?: DEFAULT_EDGE_SNAP_THRESHOLD_DP).coerceIn(0, MAX_EDGE_SNAP_THRESHOLD_DP)
+
+    /** 拖动过程中实时将左上角像素坐标约束在安全区内（允许触及左右安全边缘以触发贴边吸附，绝不越出屏幕）。 */
+    fun clampDuringDrag(
+        rawX: Int,
+        rawY: Int,
+        itemWidthPx: Int,
+        itemHeightPx: Int,
+        bounds: CapsuleSafeBounds,
+    ): Pair<Int, Int> {
+        val safeW = itemWidthPx.coerceAtLeast(1)
+        val safeH = itemHeightPx.coerceAtLeast(1)
+        val minDragX = bounds.insetLeftPx.coerceAtLeast(0)
+        val maxDragX = (bounds.viewportWidthPx - bounds.insetRightPx.coerceAtLeast(0) - safeW)
+            .coerceAtLeast(minDragX)
+        val minY = (bounds.insetTopPx + bounds.verticalMarginPx).coerceAtLeast(0)
+        val maxY = (bounds.viewportHeightPx - bounds.insetBottomPx - bounds.verticalMarginPx - safeH)
+            .coerceAtLeast(minY)
+        return rawX.coerceIn(minDragX, maxDragX) to rawY.coerceIn(minY, maxY)
+    }
+
+    /** 松手后根据左右边缘距离判定是否进入贴边「超级最小化」，并换算为可持久化的归一化安全坐标。 */
+    fun settleAfterDrag(
+        rawX: Int,
+        rawY: Int,
+        itemWidthPx: Int,
+        itemHeightPx: Int,
+        bounds: CapsuleSafeBounds,
+        snapThresholdPx: Int,
+    ): CapsulePlacementState {
+        val safeW = itemWidthPx.coerceAtLeast(1)
+        val safeH = itemHeightPx.coerceAtLeast(1)
+        val (clampedX, clampedY) = clampDuringDrag(rawX, rawY, safeW, safeH, bounds)
+
+        val leftSafeEdge = bounds.insetLeftPx.coerceAtLeast(0)
+        val rightSafeEdge = (bounds.viewportWidthPx - bounds.insetRightPx.coerceAtLeast(0))
+            .coerceAtLeast(leftSafeEdge + safeW)
+        val distToLeft = (clampedX - leftSafeEdge).coerceAtLeast(0)
+        val distToRight = (rightSafeEdge - (clampedX + safeW)).coerceAtLeast(0)
+
+        val minY = (bounds.insetTopPx + bounds.verticalMarginPx).coerceAtLeast(0)
+        val maxY = (bounds.viewportHeightPx - bounds.insetBottomPx - bounds.verticalMarginPx - safeH)
+            .coerceAtLeast(minY)
+        val normY = if (maxY > minY) {
+            ((clampedY - minY).toFloat() / (maxY - minY).toFloat()).coerceIn(0f, 1f)
+        } else {
+            0.78f
+        }
+
+        if (snapThresholdPx > 0) {
+            if (distToLeft <= snapThresholdPx && distToLeft <= distToRight) {
+                return CapsulePlacementState(normX = 0f, normY = normY, dockedEdge = CapsuleDockedEdge.LEFT)
+            }
+            if (distToRight <= snapThresholdPx) {
+                return CapsulePlacementState(normX = 1f, normY = normY, dockedEdge = CapsuleDockedEdge.RIGHT)
+            }
+        }
+
+        val minFreeX = leftSafeEdge + bounds.horizontalMarginPx.coerceAtLeast(0)
+        val maxFreeX = (rightSafeEdge - bounds.horizontalMarginPx.coerceAtLeast(0) - safeW)
+            .coerceAtLeast(minFreeX)
+        val settledX = clampedX.coerceIn(minFreeX, maxFreeX)
+        val normX = if (maxFreeX > minFreeX) {
+            ((settledX - minFreeX).toFloat() / (maxFreeX - minFreeX).toFloat()).coerceIn(0f, 1f)
+        } else {
+            1f
+        }
+        return CapsulePlacementState(normX = normX, normY = normY, dockedEdge = CapsuleDockedEdge.NONE)
+    }
+
+    /** 将持久化归一化状态还原为当前屏幕与组件尺寸下的安全左上角像素坐标。 */
+    fun resolveTopLeftPx(
+        placement: CapsulePlacementState,
+        itemWidthPx: Int,
+        itemHeightPx: Int,
+        bounds: CapsuleSafeBounds,
+    ): Pair<Int, Int> {
+        val safeW = itemWidthPx.coerceAtLeast(1)
+        val safeH = itemHeightPx.coerceAtLeast(1)
+        val leftSafeEdge = bounds.insetLeftPx.coerceAtLeast(0)
+        val rightSafeEdge = (bounds.viewportWidthPx - bounds.insetRightPx.coerceAtLeast(0))
+            .coerceAtLeast(leftSafeEdge + safeW)
+
+        val minY = (bounds.insetTopPx + bounds.verticalMarginPx).coerceAtLeast(0)
+        val maxY = (bounds.viewportHeightPx - bounds.insetBottomPx - bounds.verticalMarginPx - safeH)
+            .coerceAtLeast(minY)
+        val resolvedY = (minY + ((maxY - minY) * placement.normY.coerceIn(0f, 1f)).roundToInt())
+            .coerceIn(minY, maxY)
+
+        val resolvedX = when (placement.dockedEdge) {
+            CapsuleDockedEdge.LEFT -> leftSafeEdge
+            CapsuleDockedEdge.RIGHT -> (rightSafeEdge - safeW).coerceAtLeast(leftSafeEdge)
+            CapsuleDockedEdge.NONE -> {
+                val minFreeX = leftSafeEdge + bounds.horizontalMarginPx.coerceAtLeast(0)
+                val maxFreeX = (rightSafeEdge - bounds.horizontalMarginPx.coerceAtLeast(0) - safeW)
+                    .coerceAtLeast(minFreeX)
+                (minFreeX + ((maxFreeX - minFreeX) * placement.normX.coerceIn(0f, 1f)).roundToInt())
+                    .coerceIn(minFreeX, maxFreeX)
+            }
+        }
+        return resolvedX to resolvedY
+    }
+
+    /** 从贴边「超级最小化」点击恢复为完整单行胶囊，保持当前纵向位置并停靠在对应侧安全留白内。 */
+    fun expandFromDocked(placement: CapsulePlacementState): CapsulePlacementState = when (placement.dockedEdge) {
+        CapsuleDockedEdge.LEFT -> placement.copy(normX = 0f, dockedEdge = CapsuleDockedEdge.NONE)
+        CapsuleDockedEdge.RIGHT -> placement.copy(normX = 1f, dockedEdge = CapsuleDockedEdge.NONE)
+        CapsuleDockedEdge.NONE -> placement
+    }
+}
 
 /** 最小化悬浮胶囊上的单个插件快捷动作描述。 */
 data class PluginCapsuleActionItem(
@@ -159,6 +329,7 @@ data class PluginCapsuleSnapshot(
     val mode: String = "jump", // "jump" | "mini"
     val isPlaying: Boolean = false,
     val keepOutsideApp: Boolean = false,
+    val edgeSnapThresholdDp: Int = PluginCapsuleLayoutCalculator.DEFAULT_EDGE_SNAP_THRESHOLD_DP,
     val actions: List<PluginCapsuleActionItem> = emptyList(),
 ) {
     val isMiniWindowMode: Boolean
@@ -190,6 +361,13 @@ data class PluginCapsuleSnapshot(
                 isPlaying
             }
         val nextKeepOutside = (payload["keepOutsideApp"] as? JsonPrimitive)?.booleanOrNull ?: keepOutsideApp
+        val rawSnapDp = (payload["edgeSnapThresholdDp"] as? JsonPrimitive)?.intOrNull
+            ?: (payload["snapThresholdDp"] as? JsonPrimitive)?.intOrNull
+        val nextSnapDp = if (rawSnapDp != null) {
+            PluginCapsuleLayoutCalculator.normalizeSnapThresholdDp(rawSnapDp)
+        } else {
+            edgeSnapThresholdDp
+        }
         return copy(
             title = nextTitle,
             subtitle = nextSubtitle,
@@ -198,6 +376,7 @@ data class PluginCapsuleSnapshot(
             mode = nextMode,
             isPlaying = nextPlaying,
             keepOutsideApp = nextKeepOutside,
+            edgeSnapThresholdDp = nextSnapDp,
             actions = syncPlayActionActive(parsedActions, nextPlaying),
         )
     }
@@ -227,6 +406,8 @@ data class PluginCapsuleSnapshot(
             val resolvedPlaying = explicitPlaying
                 ?: actions.firstOrNull { classifyCapsuleAction(it) == CapsuleInlineActionKind.PLAY_PAUSE }?.active
                 ?: false
+            val rawSnapDp = (payload["edgeSnapThresholdDp"] as? JsonPrimitive)?.intOrNull
+                ?: (payload["snapThresholdDp"] as? JsonPrimitive)?.intOrNull
             return PluginCapsuleSnapshot(
                 pluginId = pluginId,
                 pluginName = resolvedName,
@@ -237,6 +418,7 @@ data class PluginCapsuleSnapshot(
                 mode = resolvedMode,
                 isPlaying = resolvedPlaying,
                 keepOutsideApp = (payload["keepOutsideApp"] as? JsonPrimitive)?.booleanOrNull ?: false,
+                edgeSnapThresholdDp = PluginCapsuleLayoutCalculator.normalizeSnapThresholdDp(rawSnapDp),
                 actions = syncPlayActionActive(actions, resolvedPlaying),
             )
         }
@@ -278,13 +460,15 @@ data class MinimizedAndroidPluginSession(
 )
 
 /**
- * 支持触摸拖拽拦截的系统悬浮胶囊横向容器：
- * 当手指滑动距离超过阈值时由外层统一接管窗口移动；轻点子按钮或标题区时正常触发各自点击事件。
+ * 支持触摸拖拽拦截与松手吸附回调的系统悬浮胶囊横向容器：
+ * 当手指滑动距离超过阈值时由外层统一接管窗口安全区移动，松手时执行边缘吸附收敛；
+ * 轻点子按钮、半圆胶囊或标题区时正常触发各自点击事件。
  */
 private class DraggableOverlayPillRow(
     context: Context,
     private val touchSlopPx: Int,
     private val onDragBy: (dx: Int, dy: Int) -> Unit,
+    private val onDragEnd: () -> Unit,
 ) : LinearLayout(context) {
     private var downRawX = 0f
     private var downRawY = 0f
@@ -328,6 +512,7 @@ private class DraggableOverlayPillRow(
                 val dx = (event.rawX - lastRawX).roundToInt()
                 val dy = (event.rawY - lastRawY).roundToInt()
                 if (dx != 0 || dy != 0) {
+                    isDragging = true
                     lastRawX = event.rawX
                     lastRawY = event.rawY
                     onDragBy(dx, dy)
@@ -335,7 +520,13 @@ private class DraggableOverlayPillRow(
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val hadDragged = isDragging
                 isDragging = false
+                if (hadDragged) {
+                    onDragEnd()
+                    return true
+                }
+                performClick()
                 return true
             }
         }
@@ -346,16 +537,24 @@ private class DraggableOverlayPillRow(
 /**
  * Android 端联邦插件最小化保活与紧凑单行悬浮胶囊协调器：
  * 1. 最小化时不调用 `plugin.unmount`，保留运行态 `WebView`、JS 上下文与音频播放状态；
- * 2. 统一采用紧凑单行横向播控胶囊（圆形鉴权封面 + 点击直达标题区 + 最多 3 个内联快捷图标按钮 + 关闭按钮）；
- * 3. 原生音频状态变化与 `setNowPlaying` 自动同步更新胶囊播放/暂停图标及曲目信息；
- * 4. 当开启 `keepOutsideApp` 且授予悬浮窗权限时，退回桌面自动无缝切换为单行系统级悬浮胶囊。
+ * 2. 统一采用紧凑单行横向播控胶囊，并在靠近左右边缘时自动吸附收缩为半圆「超级最小化」；
+ * 3. 应用内浮条与 `TYPE_APPLICATION_OVERLAY` 系统悬浮窗共用同一套安全区边界约束与持久化坐标；
+ * 4. 原生音频状态变化与 `setNowPlaying` 自动同步更新胶囊播放/暂停图标及曲目信息。
  */
 object AndroidPluginCapsuleManager {
+    private const val PREF_CAPSULE_PLACEMENT = "mp_plugin_capsule_prefs_v1"
+    private const val KEY_NORM_X = "norm_x"
+    private const val KEY_NORM_Y = "norm_y"
+    private const val KEY_DOCKED_EDGE = "docked_edge"
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val iconCache = LruCache<String, Bitmap>(24)
     private val inflightIconKeys = HashSet<String>()
 
     var currentSession by mutableStateOf<MinimizedAndroidPluginSession?>(null)
+        private set
+
+    var placementState by mutableStateOf(CapsulePlacementState())
         private set
 
     var isMiniCardExpanded by mutableStateOf(false)
@@ -366,9 +565,61 @@ object AndroidPluginCapsuleManager {
     var iconCacheRevision by mutableIntStateOf(0)
         private set
 
+    private var hasLoadedPlacement = false
     private var isAppInBackground = false
     private var systemOverlayRoot: LinearLayout? = null
     private var overlayLayoutParams: WindowManager.LayoutParams? = null
+
+    /** 从本地 `SharedPreferences` 懒加载已持久化的安全吸附坐标。 */
+    fun ensurePlacementLoaded(context: Context) {
+        if (hasLoadedPlacement) return
+        hasLoadedPlacement = true
+        val prefs = context.applicationContext.getSharedPreferences(PREF_CAPSULE_PLACEMENT, Context.MODE_PRIVATE)
+        val normX = prefs.getFloat(KEY_NORM_X, 1f).coerceIn(0f, 1f)
+        val normY = prefs.getFloat(KEY_NORM_Y, 0.78f).coerceIn(0f, 1f)
+        val dockedEdge = CapsuleDockedEdge.fromWire(prefs.getString(KEY_DOCKED_EDGE, null))
+        placementState = CapsulePlacementState(
+            normX = normX,
+            normY = normY,
+            dockedEdge = dockedEdge,
+        )
+    }
+
+    /** 更新并持久化胶囊位置与贴边吸附状态，形态变化时同步推送 `capsule.state`。 */
+    fun updatePlacement(context: Context, next: CapsulePlacementState) {
+        val sanitized = CapsulePlacementState(
+            normX = next.normX.coerceIn(0f, 1f),
+            normY = next.normY.coerceIn(0f, 1f),
+            dockedEdge = next.dockedEdge,
+        )
+        val prevEdge = placementState.dockedEdge
+        placementState = sanitized
+        hasLoadedPlacement = true
+        val appCtx = context.applicationContext
+        appCtx.getSharedPreferences(PREF_CAPSULE_PLACEMENT, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(KEY_NORM_X, sanitized.normX)
+            .putFloat(KEY_NORM_Y, sanitized.normY)
+            .putString(KEY_DOCKED_EDGE, sanitized.dockedEdge.wireValue)
+            .apply()
+        if (prevEdge != sanitized.dockedEdge) {
+            currentSession?.slot?.bridge?.sendCapsuleState(
+                minimized = true,
+                superMinimized = sanitized.isSuperMinimized,
+                dockedEdge = sanitized.dockedEdge.wireValue,
+            )
+            if (isAppInBackground) {
+                refreshSystemOverlayIfNeeded(appCtx)
+            }
+        }
+    }
+
+    /** 点击贴边半圆「超级最小化」胶囊时恢复为完整单行胶囊并停留在安全区内。 */
+    fun expandSuperMinimized(context: Context) {
+        if (!placementState.isSuperMinimized) return
+        val expanded = PluginCapsuleLayoutCalculator.expandFromDocked(placementState)
+        updatePlacement(context, expanded)
+    }
 
     /** 判断指定 WebView 槽是否正处于最小化保活托管中（供 `onDispose` 跳过销毁）。 */
     fun isSlotParked(slot: PooledAndroidPluginWebView): Boolean =
@@ -424,6 +675,7 @@ object AndroidPluginCapsuleManager {
     /** 将运行中的联邦插件槽转入后台保活胶囊状态。 */
     fun parkSession(context: Context, session: MinimizedAndroidPluginSession) {
         val appCtx = context.applicationContext
+        ensurePlacementLoaded(appCtx)
         val previous = currentSession
         if (previous != null && previous.slot !== session.slot) {
             AndroidPluginWebViewPool.release(previous.slot, appCtx)
@@ -434,6 +686,11 @@ object AndroidPluginCapsuleManager {
         currentSession = session
         isMiniCardExpanded = false
         ensureIconLoaded(session, appCtx)
+        session.slot.bridge.sendCapsuleState(
+            minimized = true,
+            superMinimized = placementState.isSuperMinimized,
+            dockedEdge = placementState.dockedEdge.wireValue,
+        )
 
         // 绑定后台驻留期桥接回调：支持最小化期间实时更新胶囊标题/状态、主动恢复或关闭
         session.slot.bridge.onCapsuleUpdate = { patch ->
@@ -526,6 +783,7 @@ object AndroidPluginCapsuleManager {
         currentSession = null
         isMiniCardExpanded = false
         pendingRestorePluginId = null
+        cur.slot.bridge.sendCapsuleState(minimized = false, superMinimized = false, dockedEdge = "none")
         removeSystemOverlay(cur.slot.webView.context.applicationContext)
         return cur
     }
@@ -582,13 +840,13 @@ object AndroidPluginCapsuleManager {
         }
     }
 
-    /** 宿主 Activity 进入前台：收起系统级悬浮窗，交由应用内 Compose 悬浮胶囊接管。 */
+    /** 宿主 Activity 进入前台：收起系统级悬浮窗，交由应用内 Compose 悬浮胶囊无缝承接同一位置状态。 */
     fun onHostAppForegrounded(context: Context) {
         isAppInBackground = false
         removeSystemOverlay(context.applicationContext)
     }
 
-    /** 宿主 Activity 退至后台：若插件声明 `keepOutsideApp` 且具备悬浮窗权限，展示单行系统级悬浮胶囊。 */
+    /** 宿主 Activity 退至后台：若插件声明 `keepOutsideApp` 且具备悬浮窗权限，按同一安全区位置展示系统悬浮窗。 */
     fun onHostAppBackgrounded(context: Context) {
         isAppInBackground = true
         refreshSystemOverlayIfNeeded(context.applicationContext)
@@ -610,9 +868,46 @@ object AndroidPluginCapsuleManager {
             CapsuleInlineActionKind.GENERIC -> null
         }
 
-    /** 刷新系统级 `WindowManager` 紧凑单行圆角悬浮胶囊。 */
+    /** 计算系统窗口当前真实屏幕视口与状态栏/手势条/刘海安全区内边距。 */
+    private fun querySystemSafeBounds(appContext: Context, wm: WindowManager, horizontalMarginPx: Int, verticalMarginPx: Int): CapsuleSafeBounds {
+        val dm = appContext.resources.displayMetrics
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = wm.currentWindowMetrics
+            val rect = metrics.bounds
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                PlatformWindowInsets.Type.systemBars() or PlatformWindowInsets.Type.displayCutout(),
+            )
+            return CapsuleSafeBounds(
+                viewportWidthPx = rect.width().coerceAtLeast(dm.widthPixels),
+                viewportHeightPx = rect.height().coerceAtLeast(dm.heightPixels),
+                insetLeftPx = insets.left,
+                insetTopPx = insets.top,
+                insetRightPx = insets.right,
+                insetBottomPx = insets.bottom,
+                horizontalMarginPx = horizontalMarginPx,
+                verticalMarginPx = verticalMarginPx,
+            )
+        }
+        val statusResId = appContext.resources.getIdentifier("status_bar_height", "dimen", "android")
+        val navResId = appContext.resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        val statusBarPx = if (statusResId > 0) appContext.resources.getDimensionPixelSize(statusResId) else (28 * dm.density).roundToInt()
+        val navBarPx = if (navResId > 0) appContext.resources.getDimensionPixelSize(navResId) else (24 * dm.density).roundToInt()
+        return CapsuleSafeBounds(
+            viewportWidthPx = dm.widthPixels,
+            viewportHeightPx = dm.heightPixels,
+            insetLeftPx = 0,
+            insetTopPx = statusBarPx,
+            insetRightPx = 0,
+            insetBottomPx = navBarPx,
+            horizontalMarginPx = horizontalMarginPx,
+            verticalMarginPx = verticalMarginPx,
+        )
+    }
+
+    /** 刷新系统级 `WindowManager` 紧凑单行圆角悬浮胶囊（支持贴边半圆「超级最小化」与安全区约束）。 */
     @SuppressLint("ClickableViewAccessibility")
     private fun refreshSystemOverlayIfNeeded(appContext: Context) {
+        ensurePlacementLoaded(appContext)
         val session = currentSession
         if (session == null || !session.snapshot.keepOutsideApp || !canDrawSystemOverlays(appContext)) {
             removeSystemOverlay(appContext)
@@ -628,6 +923,12 @@ object AndroidPluginCapsuleManager {
             appContext.resources.displayMetrics,
         ).roundToInt()
 
+        val dockedEdge = placementState.dockedEdge
+        val isSuperMini = dockedEdge != CapsuleDockedEdge.NONE
+        val snapThresholdPx = dp(snap.edgeSnapThresholdDp)
+        val hMarginPx = dp(12)
+        val vMarginPx = dp(10)
+
         val params = overlayLayoutParams ?: WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -640,43 +941,93 @@ object AndroidPluginCapsuleManager {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = dp(16)
-            y = dp(160)
+            gravity = Gravity.TOP or Gravity.START
             overlayLayoutParams = this
         }
+        params.gravity = Gravity.TOP or Gravity.START
 
         val root = systemOverlayRoot ?: LinearLayout(appContext).apply {
             orientation = LinearLayout.VERTICAL
         }
         root.removeAllViews()
 
+        fun currentMeasuredSize(): Pair<Int, Int> {
+            val w = root.width.takeIf { it > 0 } ?: root.measuredWidth.takeIf { it > 0 } ?: if (isSuperMini) dp(42) else dp(240)
+            val h = root.height.takeIf { it > 0 } ?: root.measuredHeight.takeIf { it > 0 } ?: dp(40)
+            return w to h
+        }
+
+        val pillRadius = dp(999).toFloat()
         val pillRow = DraggableOverlayPillRow(
             context = appContext,
             touchSlopPx = dp(5),
             onDragBy = { dx, dy ->
-                params.x = (params.x - dx).coerceAtLeast(0)
-                params.y = (params.y + dy).coerceAtLeast(dp(48))
+                val bounds = querySystemSafeBounds(appContext, wm, hMarginPx, vMarginPx)
+                val (itemW, itemH) = currentMeasuredSize()
+                val (clampedX, clampedY) = PluginCapsuleLayoutCalculator.clampDuringDrag(
+                    rawX = params.x + dx,
+                    rawY = params.y + dy,
+                    itemWidthPx = itemW,
+                    itemHeightPx = itemH,
+                    bounds = bounds,
+                )
+                params.x = clampedX
+                params.y = clampedY
                 runCatching { wm.updateViewLayout(root, params) }
+            },
+            onDragEnd = {
+                val bounds = querySystemSafeBounds(appContext, wm, hMarginPx, vMarginPx)
+                val (itemW, itemH) = currentMeasuredSize()
+                val nextPlacement = PluginCapsuleLayoutCalculator.settleAfterDrag(
+                    rawX = params.x,
+                    rawY = params.y,
+                    itemWidthPx = itemW,
+                    itemHeightPx = itemH,
+                    bounds = bounds,
+                    snapThresholdPx = snapThresholdPx,
+                )
+                val edgeChanged = nextPlacement.dockedEdge != placementState.dockedEdge
+                updatePlacement(appContext, nextPlacement)
+                if (!edgeChanged) {
+                    val (settledX, settledY) = PluginCapsuleLayoutCalculator.resolveTopLeftPx(
+                        placement = nextPlacement,
+                        itemWidthPx = itemW,
+                        itemHeightPx = itemH,
+                        bounds = bounds,
+                    )
+                    params.x = settledX
+                    params.y = settledY
+                    runCatching { wm.updateViewLayout(root, params) }
+                }
             },
         ).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(999).toFloat()
+                cornerRadii = when (dockedEdge) {
+                    CapsuleDockedEdge.LEFT -> floatArrayOf(0f, 0f, pillRadius, pillRadius, pillRadius, pillRadius, 0f, 0f)
+                    CapsuleDockedEdge.RIGHT -> floatArrayOf(pillRadius, pillRadius, 0f, 0f, 0f, 0f, pillRadius, pillRadius)
+                    CapsuleDockedEdge.NONE -> FloatArray(8) { pillRadius }
+                }
                 setColor(AndroidColor.parseColor("#EE161924"))
-                setStroke(dp(1), AndroidColor.parseColor("#42FFFFFF"))
+                setStroke(
+                    dp(1),
+                    if (snap.isPlaying) AndroidColor.parseColor("#885E9CFF") else AndroidColor.parseColor("#42FFFFFF"),
+                )
             }
-            setPadding(dp(8), dp(6), dp(6), dp(6))
+            when (dockedEdge) {
+                CapsuleDockedEdge.LEFT -> setPadding(dp(6), dp(5), dp(8), dp(5))
+                CapsuleDockedEdge.RIGHT -> setPadding(dp(8), dp(5), dp(6), dp(5))
+                CapsuleDockedEdge.NONE -> setPadding(dp(8), dp(6), dp(6), dp(6))
+            }
         }
 
-        // 1. 圆形封面 ImageView (28dp)
         val coverSize = dp(28)
         val cachedBmp = getCachedIconBitmap(session.serverUrl, snap.iconUrl)
         val coverView = ImageView(appContext).apply {
             layoutParams = LinearLayout.LayoutParams(coverSize, coverSize).apply {
-                marginEnd = dp(8)
+                marginEnd = if (isSuperMini) 0 else dp(8)
             }
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = GradientDrawable().apply {
@@ -699,112 +1050,133 @@ object AndroidPluginCapsuleManager {
             }
             setOnClickListener {
                 performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                requestRestoreToForeground(appContext, snap.pluginId)
+                if (isSuperMini) {
+                    expandSuperMinimized(appContext)
+                } else {
+                    requestRestoreToForeground(appContext, snap.pluginId)
+                }
             }
         }
         pillRow.addView(coverView)
 
-        // 2. 标题与副标题点击直达区
-        val textCol = LinearLayout(appContext).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                marginEnd = dp(6)
+        if (isSuperMini) {
+            pillRow.contentDescription = "展开最小化胶囊"
+            pillRow.setOnClickListener {
+                it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                expandSuperMinimized(appContext)
             }
-            setOnClickListener {
-                performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                requestRestoreToForeground(appContext, snap.pluginId)
+        } else {
+            val textCol = LinearLayout(appContext).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    marginEnd = dp(6)
+                }
+                setOnClickListener {
+                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    requestRestoreToForeground(appContext, snap.pluginId)
+                }
             }
-        }
-        textCol.addView(
-            TextView(appContext).apply {
-                text = snap.title
-                setTextColor(AndroidColor.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-                paint.isFakeBoldText = true
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-                maxWidth = dp(148)
-            },
-        )
-        val secondary = snap.subtitle.ifBlank { snap.statusText }
-        if (secondary.isNotBlank()) {
             textCol.addView(
                 TextView(appContext).apply {
-                    text = secondary
-                    setTextColor(AndroidColor.parseColor("#B5FFFFFF"))
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+                    text = snap.title
+                    setTextColor(AndroidColor.WHITE)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                    paint.isFakeBoldText = true
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
                     maxWidth = dp(148)
                 },
             )
-        }
-        pillRow.addView(textCol)
+            val secondary = snap.subtitle.ifBlank { snap.statusText }
+            if (secondary.isNotBlank()) {
+                textCol.addView(
+                    TextView(appContext).apply {
+                        text = secondary
+                        setTextColor(AndroidColor.parseColor("#B5FFFFFF"))
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.END
+                        maxWidth = dp(148)
+                    },
+                )
+            }
+            pillRow.addView(textCol)
 
-        // 3. 最多 3 个内联快捷纯图标按钮
-        snap.actions.take(3).forEach { act ->
-            val iconRes = resolveOverlayActionDrawableRes(act, snap.isPlaying)
-            val btnSize = dp(28)
-            val actionView: View = if (iconRes != null) {
-                ImageView(appContext).apply {
-                    layoutParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
-                        marginEnd = dp(2)
+            snap.actions.take(3).forEach { act ->
+                val iconRes = resolveOverlayActionDrawableRes(act, snap.isPlaying)
+                val btnSize = dp(28)
+                val actionView: View = if (iconRes != null) {
+                    ImageView(appContext).apply {
+                        layoutParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
+                            marginEnd = dp(2)
+                        }
+                        val pad = dp(5)
+                        setPadding(pad, pad, pad, pad)
+                        setImageResource(iconRes)
+                        val kind = classifyCapsuleAction(act)
+                        val tint = when {
+                            act.destructive -> AndroidColor.parseColor("#FF7B7B")
+                            kind == CapsuleInlineActionKind.HEART && act.active -> AndroidColor.parseColor("#FF5C8A")
+                            kind != CapsuleInlineActionKind.PLAY_PAUSE && act.active -> AndroidColor.parseColor("#8AB4F8")
+                            else -> AndroidColor.WHITE
+                        }
+                        setColorFilter(tint)
+                        contentDescription = act.label
+                        setOnClickListener {
+                            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            dispatchAction(act.id)
+                        }
                     }
-                    val pad = dp(5)
-                    setPadding(pad, pad, pad, pad)
-                    setImageResource(iconRes)
-                    val kind = classifyCapsuleAction(act)
-                    val tint = when {
-                        act.destructive -> AndroidColor.parseColor("#FF7B7B")
-                        kind == CapsuleInlineActionKind.HEART && act.active -> AndroidColor.parseColor("#FF5C8A")
-                        kind != CapsuleInlineActionKind.PLAY_PAUSE && act.active -> AndroidColor.parseColor("#8AB4F8")
-                        else -> AndroidColor.WHITE
-                    }
-                    setColorFilter(tint)
-                    contentDescription = act.label
-                    setOnClickListener {
-                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                        dispatchAction(act.id)
+                } else {
+                    TextView(appContext).apply {
+                        layoutParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
+                            marginEnd = dp(2)
+                        }
+                        gravity = Gravity.CENTER
+                        text = act.label.take(1)
+                        setTextColor(if (act.destructive) AndroidColor.parseColor("#FF7B7B") else AndroidColor.WHITE)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                        paint.isFakeBoldText = true
+                        contentDescription = act.label
+                        setOnClickListener {
+                            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            dispatchAction(act.id)
+                        }
                     }
                 }
-            } else {
-                TextView(appContext).apply {
-                    layoutParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
-                        marginEnd = dp(2)
-                    }
-                    gravity = Gravity.CENTER
-                    text = act.label.take(1)
-                    setTextColor(if (act.destructive) AndroidColor.parseColor("#FF7B7B") else AndroidColor.WHITE)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-                    paint.isFakeBoldText = true
-                    contentDescription = act.label
-                    setOnClickListener {
-                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                        dispatchAction(act.id)
-                    }
+                pillRow.addView(actionView)
+            }
+
+            val closeView = TextView(appContext).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
+                gravity = Gravity.CENTER
+                text = "✕"
+                setTextColor(AndroidColor.parseColor("#B0FFFFFF"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                contentDescription = "关闭悬浮胶囊"
+                setOnClickListener {
+                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    closeAndRelease(appContext)
                 }
             }
-            pillRow.addView(actionView)
+            pillRow.addView(closeView)
         }
 
-        // 4. 关闭按钮 ✕
-        val closeView = TextView(appContext).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
-            gravity = Gravity.CENTER
-            text = "✕"
-            setTextColor(AndroidColor.parseColor("#B0FFFFFF"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            contentDescription = "关闭悬浮胶囊"
-            setOnClickListener {
-                performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                closeAndRelease(appContext)
-            }
-        }
-        pillRow.addView(closeView)
         root.addView(pillRow)
+        val unspec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        root.measure(unspec, unspec)
+        val initBounds = querySystemSafeBounds(appContext, wm, hMarginPx, vMarginPx)
+        val (initX, initY) = PluginCapsuleLayoutCalculator.resolveTopLeftPx(
+            placement = placementState,
+            itemWidthPx = root.measuredWidth.coerceAtLeast(dp(42)),
+            itemHeightPx = root.measuredHeight.coerceAtLeast(dp(38)),
+            bounds = initBounds,
+        )
+        params.x = initX
+        params.y = initY
 
         runCatching {
             if (systemOverlayRoot == null) {
@@ -826,7 +1198,8 @@ object AndroidPluginCapsuleManager {
 
 /**
  * 应用内跨页面紧凑单行横向悬浮胶囊组件：
- * `[圆形鉴权封面 (29dp)] + [标题/副标题文字区 (点击直接恢复完整插件窗口)] + [最多 3 个内联快捷图标按钮] + [关闭按钮 ✕]`。
+ * - 与 `TYPE_APPLICATION_OVERLAY` 系统悬浮窗共用安全区边界约束与持久化坐标；
+ * - 拖至左右边缘 `< edgeSnapThresholdDp`（默认 24dp）松手自动贴边收缩为半圆「超级最小化」，点击恢复完整单行胶囊。
  */
 @Composable
 fun PluginFloatingCapsuleOverlay(
@@ -836,102 +1209,243 @@ fun PluginFloatingCapsuleOverlay(
     onOpenPluginWindow: () -> Unit,
     onDispatchAction: (String) -> Unit,
     onCloseCapsule: () -> Unit,
+    bottomClearanceDp: Dp = 96.dp,
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
+    val appContext = view.context.applicationContext
     val colors = LocalMoviePilotColors.current
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val safeDrawingInsets = WindowInsets.safeDrawing
     val snap = session.snapshot
-    var dragOffsetX by remember { mutableFloatStateOf(0f) }
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
 
+    LaunchedEffect(Unit) {
+        AndroidPluginCapsuleManager.ensurePlacementLoaded(appContext)
+    }
     LaunchedEffect(session.serverUrl, snap.iconUrl) {
-        AndroidPluginCapsuleManager.ensureIconLoaded(session, view.context.applicationContext)
+        AndroidPluginCapsuleManager.ensureIconLoaded(session, appContext)
     }
 
-    Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = colors.surfaceContainerHigh.copy(alpha = 0.95f),
-        border = BorderStroke(1.dp, colors.accent.copy(alpha = 0.36f)),
-        shadowElevation = 10.dp,
-        modifier = modifier
-            .offset { IntOffset(dragOffsetX.roundToInt(), dragOffsetY.roundToInt()) }
-            .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    dragOffsetX += dragAmount.x
-                    dragOffsetY += dragAmount.y
-                }
-            },
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.padding(start = 8.dp, end = 5.dp, top = 5.dp, bottom = 5.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable {
-                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                        if (isExpanded) onToggleExpanded(false)
-                        onOpenPluginWindow()
-                    }
-                    .padding(end = 4.dp, top = 1.dp, bottom = 1.dp),
-            ) {
-                CapsulePluginIcon(
-                    serverUrl = session.serverUrl,
-                    iconUrl = snap.iconUrl,
-                    accent = colors.accent,
-                    sizeDp = 29,
-                )
-                Column(modifier = Modifier.widthIn(max = 152.dp)) {
-                    Text(
-                        text = snap.title,
-                        color = colors.textPrimary,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+    val placement = AndroidPluginCapsuleManager.placementState
+    val dockedEdge = placement.dockedEdge
+    val isSuperMini = dockedEdge != CapsuleDockedEdge.NONE
+
+    var measuredSize by remember(isSuperMini) { mutableStateOf(IntSize.Zero) }
+    var isDragging by remember { mutableStateOf(false) }
+    var liveDragX by remember { mutableFloatStateOf(0f) }
+    var liveDragY by remember { mutableFloatStateOf(0f) }
+
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val viewportWidthPx = constraints.maxWidth.coerceAtLeast(1)
+        val viewportHeightPx = constraints.maxHeight.coerceAtLeast(1)
+        val insetLeftPx = safeDrawingInsets.getLeft(density, layoutDirection)
+        val insetTopPx = safeDrawingInsets.getTop(density)
+        val insetRightPx = safeDrawingInsets.getRight(density, layoutDirection)
+        val insetBottomPx = safeDrawingInsets.getBottom(density) + with(density) { bottomClearanceDp.roundToPx() }
+        val hMarginPx = with(density) { 12.dp.roundToPx() }
+        val vMarginPx = with(density) { 8.dp.roundToPx() }
+        val snapThresholdPx = with(density) { snap.edgeSnapThresholdDp.dp.roundToPx() }
+        val fallbackWidthPx = with(density) { (if (isSuperMini) 42.dp else 236.dp).roundToPx() }
+        val fallbackHeightPx = with(density) { 40.dp.roundToPx() }
+        val itemWidthPx = measuredSize.width.takeIf { it > 0 } ?: fallbackWidthPx
+        val itemHeightPx = measuredSize.height.takeIf { it > 0 } ?: fallbackHeightPx
+
+        val safeBounds = CapsuleSafeBounds(
+            viewportWidthPx = viewportWidthPx,
+            viewportHeightPx = viewportHeightPx,
+            insetLeftPx = insetLeftPx,
+            insetTopPx = insetTopPx,
+            insetRightPx = insetRightPx,
+            insetBottomPx = insetBottomPx,
+            horizontalMarginPx = hMarginPx,
+            verticalMarginPx = vMarginPx,
+        )
+        val (resolvedX, resolvedY) = PluginCapsuleLayoutCalculator.resolveTopLeftPx(
+            placement = placement,
+            itemWidthPx = itemWidthPx,
+            itemHeightPx = itemHeightPx,
+            bounds = safeBounds,
+        )
+        val (displayX, displayY) = if (isDragging) {
+            PluginCapsuleLayoutCalculator.clampDuringDrag(
+                rawX = liveDragX.roundToInt(),
+                rawY = liveDragY.roundToInt(),
+                itemWidthPx = itemWidthPx,
+                itemHeightPx = itemHeightPx,
+                bounds = safeBounds,
+            )
+        } else {
+            resolvedX to resolvedY
+        }
+
+        val pillShape = when (dockedEdge) {
+            CapsuleDockedEdge.LEFT -> RoundedCornerShape(
+                topStart = 0.dp,
+                bottomStart = 0.dp,
+                topEnd = 999.dp,
+                bottomEnd = 999.dp,
+            )
+            CapsuleDockedEdge.RIGHT -> RoundedCornerShape(
+                topStart = 999.dp,
+                bottomStart = 999.dp,
+                topEnd = 0.dp,
+                bottomEnd = 0.dp,
+            )
+            CapsuleDockedEdge.NONE -> RoundedCornerShape(999.dp)
+        }
+
+        Surface(
+            shape = pillShape,
+            color = colors.surfaceContainerHigh.copy(alpha = 0.95f),
+            border = BorderStroke(
+                1.dp,
+                colors.accent.copy(alpha = if (snap.isPlaying && isSuperMini) 0.62f else 0.36f),
+            ),
+            shadowElevation = 10.dp,
+            modifier = Modifier
+                .onSizeChanged { measuredSize = it }
+                .offset { IntOffset(displayX, displayY) }
+                .pointerInput(viewportWidthPx, viewportHeightPx, insetBottomPx, snapThresholdPx, isSuperMini) {
+                    detectDragGestures(
+                        onDragStart = {
+                            val (startX, startY) = PluginCapsuleLayoutCalculator.resolveTopLeftPx(
+                                placement = AndroidPluginCapsuleManager.placementState,
+                                itemWidthPx = itemWidthPx,
+                                itemHeightPx = itemHeightPx,
+                                bounds = safeBounds,
+                            )
+                            liveDragX = startX.toFloat()
+                            liveDragY = startY.toFloat()
+                            isDragging = true
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                        },
+                        onDragEnd = {
+                            val nextPlacement = PluginCapsuleLayoutCalculator.settleAfterDrag(
+                                rawX = liveDragX.roundToInt(),
+                                rawY = liveDragY.roundToInt(),
+                                itemWidthPx = itemWidthPx,
+                                itemHeightPx = itemHeightPx,
+                                bounds = safeBounds,
+                                snapThresholdPx = snapThresholdPx,
+                            )
+                            isDragging = false
+                            if (nextPlacement.dockedEdge != AndroidPluginCapsuleManager.placementState.dockedEdge) {
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            }
+                            AndroidPluginCapsuleManager.updatePlacement(appContext, nextPlacement)
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val (clampedX, clampedY) = PluginCapsuleLayoutCalculator.clampDuringDrag(
+                                rawX = (liveDragX + dragAmount.x).roundToInt(),
+                                rawY = (liveDragY + dragAmount.y).roundToInt(),
+                                itemWidthPx = itemWidthPx,
+                                itemHeightPx = itemHeightPx,
+                                bounds = safeBounds,
+                            )
+                            liveDragX = clampedX.toFloat()
+                            liveDragY = clampedY.toFloat()
+                        },
                     )
-                    val secondary = snap.subtitle.ifBlank { snap.statusText }
-                    if (secondary.isNotBlank()) {
-                        Text(
-                            text = secondary,
-                            color = colors.textSecondary,
-                            fontSize = 10.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                },
+        ) {
+            if (isSuperMini) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .clickable {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            AndroidPluginCapsuleManager.expandSuperMinimized(appContext)
+                        }
+                        .padding(
+                            start = if (dockedEdge == CapsuleDockedEdge.LEFT) 6.dp else 8.dp,
+                            end = if (dockedEdge == CapsuleDockedEdge.RIGHT) 6.dp else 8.dp,
+                            top = 5.dp,
+                            bottom = 5.dp,
+                        ),
+                ) {
+                    CapsulePluginIcon(
+                        serverUrl = session.serverUrl,
+                        iconUrl = snap.iconUrl,
+                        accent = colors.accent,
+                        sizeDp = 28,
+                    )
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(start = 8.dp, end = 5.dp, top = 5.dp, bottom = 5.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .clickable {
+                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                if (isExpanded) onToggleExpanded(false)
+                                onOpenPluginWindow()
+                            }
+                            .padding(end = 4.dp, top = 1.dp, bottom = 1.dp),
+                    ) {
+                        CapsulePluginIcon(
+                            serverUrl = session.serverUrl,
+                            iconUrl = snap.iconUrl,
+                            accent = colors.accent,
+                            sizeDp = 29,
+                        )
+                        Column(modifier = Modifier.widthIn(max = 152.dp)) {
+                            Text(
+                                text = snap.title,
+                                color = colors.textPrimary,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            val secondary = snap.subtitle.ifBlank { snap.statusText }
+                            if (secondary.isNotBlank()) {
+                                Text(
+                                    text = secondary,
+                                    color = colors.textSecondary,
+                                    fontSize = 10.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+
+                    snap.actions.take(3).forEach { action ->
+                        CapsuleInlineActionButton(
+                            action = action,
+                            isPlaying = snap.isPlaying,
+                            onClick = {
+                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                onDispatchAction(action.id)
+                            },
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            onCloseCapsule()
+                        },
+                        modifier = Modifier.size(26.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = "关闭最小化插件",
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(15.dp),
                         )
                     }
                 }
-            }
-
-            snap.actions.take(3).forEach { action ->
-                CapsuleInlineActionButton(
-                    action = action,
-                    isPlaying = snap.isPlaying,
-                    onClick = {
-                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                        onDispatchAction(action.id)
-                    },
-                )
-            }
-
-            IconButton(
-                onClick = {
-                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                    onCloseCapsule()
-                },
-                modifier = Modifier.size(26.dp),
-            ) {
-                Icon(
-                    Icons.Rounded.Close,
-                    contentDescription = "关闭最小化插件",
-                    tint = colors.textMuted,
-                    modifier = Modifier.size(15.dp),
-                )
             }
         }
     }

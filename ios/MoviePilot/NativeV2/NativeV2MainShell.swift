@@ -141,6 +141,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
             onOpen: { showsAgentSheet = true },
             onHide: { showFloatingAssistant = false }
           )
+          .zIndex(48)
         }
         if let banner = routeHub.bannerMessage {
           systemBannerOverlay(banner)

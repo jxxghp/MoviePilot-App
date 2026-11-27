@@ -22,4 +22,5 @@ dependencies {
     api(project(":core-rust-bridge"))
     implementation(libs.androidx.webkit)
     implementation(libs.okhttp)
+    testImplementation(libs.junit)
 }
