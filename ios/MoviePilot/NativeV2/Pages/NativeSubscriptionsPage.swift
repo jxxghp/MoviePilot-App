@@ -1302,8 +1302,11 @@ struct NativeSubscribeHistoryPage: View {
             historyFeedbackBanner(feedback)
           }
           if isLoading && items.isEmpty {
-            NativeSubscriptionsHubSkeletonView(columns: columnCount)
-              .transition(.opacity)
+            NativeSubscriptionsHubSkeletonView(
+              columns: columnCount,
+              includesOverviewHeader: false
+            )
+            .transition(.opacity)
           } else if loadFailed && items.isEmpty {
             failureCard
           } else if items.isEmpty {
@@ -1496,30 +1499,11 @@ struct NativeSubscribeHistoryPage: View {
 
             Spacer(minLength: 4)
 
-            Button(role: .destructive) {
-              pendingDelete = item
-            } label: {
-              Group {
-                if isDeleting {
-                  ProgressView().controlSize(.mini).tint(NativeTheme.danger)
-                } else {
-                  Image(systemName: "trash")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(NativeTheme.danger)
-                }
-              }
-              .frame(width: 34, height: 34)
-              .background {
-                Circle()
-                  .fill(NativeTheme.danger.opacity(colorScheme == .light ? 0.11 : 0.16))
-              }
-              .frame(minWidth: 44, minHeight: 44)
-              .contentShape(Rectangle())
+            if isDeleting {
+              ProgressView()
+                .controlSize(.small)
+                .tint(NativeTheme.danger)
             }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
-            .accessibilityLabel("\(L10n.text("删除订阅历史")) \(item.displayTitle)")
-            .accessibilityIdentifier("native-subscribe-history-delete-\(item.id)")
           }
           .padding(.top, 2)
         }
@@ -1530,6 +1514,21 @@ struct NativeSubscribeHistoryPage: View {
           detailDestination = identity
         }
       }
+    }
+    .contextMenu {
+      Button {
+        Task { await reSubscribe(item) }
+      } label: {
+        Label(L10n.text("重新订阅"), systemImage: "arrow.clockwise")
+      }
+      .disabled(isBusy)
+
+      Button(role: .destructive) {
+        pendingDelete = item
+      } label: {
+        Label(L10n.text("删除订阅历史"), systemImage: "trash")
+      }
+      .disabled(isBusy)
     }
     .accessibilityIdentifier("native-subscribe-history-card-\(item.id)")
   }

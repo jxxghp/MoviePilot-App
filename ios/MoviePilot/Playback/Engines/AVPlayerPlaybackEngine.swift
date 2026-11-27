@@ -155,6 +155,11 @@ final class AVPlayerPlaybackEngine: NSObject, PlaybackEngine {
       // 网络音频禁用全文件精确时长预扫描，确保收到首片 Range 数据后立即边加载边播放
       assetOptions[AVURLAssetPreferPreciseDurationAndTimingKey] = false
     }
+    if !source.url.isFileURL && source.url.pathExtension.isEmpty,
+      let mimeHint = source.mimeTypeHint
+    {
+      assetOptions["AVURLAssetOutOfBandMIMETypeKey"] = mimeHint
+    }
 
     let asset = AVURLAsset(url: source.url, options: assetOptions.isEmpty ? nil : assetOptions)
     let item = AVPlayerItem(asset: asset)
@@ -368,6 +373,9 @@ final class AVPlayerPlaybackEngine: NSObject, PlaybackEngine {
         return .unsupportedFormat
       }
       return .decoderFailure
+    }
+    if nsError.domain == "CoreMediaErrorDomain" || nsError.domain == NSOSStatusErrorDomain {
+      return .unsupportedFormat
     }
     return .unknown
   }

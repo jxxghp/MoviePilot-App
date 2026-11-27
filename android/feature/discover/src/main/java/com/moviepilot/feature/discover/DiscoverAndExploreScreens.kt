@@ -119,6 +119,7 @@ import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
 import com.moviepilot.designsystem.LocalSnackbarHostState
+import com.moviepilot.designsystem.MultiSourceRatingsRow
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeBrandDrawable
@@ -139,6 +140,7 @@ import com.moviepilot.rustbridge.ContinueWatchingItem
 import com.moviepilot.rustbridge.DiscoverSessionSnapshot
 import com.moviepilot.rustbridge.ExploreSessionSnapshot
 import com.moviepilot.rustbridge.MediaCardItem
+import com.moviepilot.rustbridge.MediaRatingBadgeDto
 import com.moviepilot.rustbridge.MediaSearchSourceDto
 import com.moviepilot.rustbridge.MediaServerLibraryDto
 import com.moviepilot.rustbridge.MoviePilotRepository
@@ -308,6 +310,11 @@ fun DiscoverScreen(
             initialSnapshot?.heroLogos?.let { putAll(it) }
         }
     }
+    val heroRatings = remember {
+        mutableStateMapOf<String, List<MediaRatingBadgeDto>>().apply {
+            initialSnapshot?.heroRatings?.let { putAll(it) }
+        }
+    }
     var showModulesSheet by remember { mutableStateOf(false) }
     var isInitialLoading by remember { mutableStateOf(initialSnapshot == null) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -330,6 +337,7 @@ fun DiscoverScreen(
             latestItems = latestItems,
             libraries = mediaLibraries,
             heroLogos = heroLogos.toMap(),
+            heroRatings = heroRatings.toMap(),
             extraSources = extraRecommendSources,
             extraRails = pluginRailItems.toMap(),
         )
@@ -402,12 +410,19 @@ fun DiscoverScreen(
             isRefreshing = false
             syncDiscoverCache()
 
-            // 异步并发补拉前 6 条 Hero 的透明片名 Logo（对齐 iOS `hydrateHeroLogos`）
+            // 异步并发补拉前 6 条 Hero 的透明片名 Logo 与免配置多元评分
             fetchedTrending.take(6).forEach { hero ->
                 launch {
                     val logo = repository.fetchHeroLogo(hero)
                     if (!logo.isNullOrBlank()) {
                         heroLogos[hero.resolvedId] = logo
+                        syncDiscoverCache()
+                    }
+                }
+                launch {
+                    val badges = repository.fetchMultiSourceRatings(hero)
+                    if (badges.isNotEmpty()) {
+                        heroRatings[hero.resolvedId] = badges
                         syncDiscoverCache()
                     }
                 }
@@ -684,55 +699,25 @@ fun DiscoverScreen(
                                             Spacer(Modifier.height(if (compactHeight) 6.dp else 12.dp))
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                                             ) {
-                                                val srcName = when {
-                                                    item.source.contains("douban", true) -> "豆瓣"
-                                                    item.source.contains("bangumi", true) -> "Bangumi"
-                                                    else -> "TMDB"
-                                                }
-                                                Row(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(7.dp))
-                                                        .background(Color.Black.copy(alpha = if (colors.isDark) 0.45f else 0.08f))
-                                                        .border(0.6.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(7.dp))
-                                                        .padding(horizontal = 6.dp, vertical = 3.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                                ) {
-                                                    NativeEntityLogo(
-                                                        kind = "datasource",
-                                                        value = item.source,
-                                                        size = 16.dp,
-                                                        cornerRadius = 4.dp,
+                                                val resolvedHeroBadges = heroRatings[item.resolvedId]
+                                                    ?.takeIf { it.isNotEmpty() }
+                                                    ?: repository.seedRatingsForCard(item)
+                                                if (resolvedHeroBadges.isNotEmpty()) {
+                                                    MultiSourceRatingsRow(
+                                                        badges = resolvedHeroBadges.map { it.source to it.label },
+                                                        isDark = colors.isDark,
+                                                        compact = compactHeight,
                                                     )
+                                                } else {
                                                     Text(
-                                                        text = srcName,
-                                                        color = if (colors.isDark) Color.White else colors.textPrimary,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                    )
-                                                }
-                                                if (item.voteAverage > 0.0) {
-                                                    Text(
-                                                        text = String.format("%.1f", item.voteAverage),
-                                                        color = if (colors.isDark) Color.White else colors.textPrimary,
+                                                        text = "查看详情",
+                                                        color = if (colors.isDark) Color.White.copy(alpha = 0.92f) else colors.textPrimary,
                                                         fontSize = 13.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                    )
-                                                    Icon(
-                                                        Icons.Rounded.Star,
-                                                        contentDescription = null,
-                                                        tint = Color(0xFFFFC845),
-                                                        modifier = Modifier.size(14.dp),
+                                                        fontWeight = FontWeight.SemiBold,
                                                     )
                                                 }
-                                                Text(
-                                                    text = "查看详情",
-                                                    color = if (colors.isDark) Color.White.copy(alpha = 0.92f) else colors.textPrimary,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                )
                                             }
                                         }
                                     }

@@ -2266,12 +2266,17 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         genreText.isEmpty ? media.identity?.type : genreText,
         dateText,
       ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+      let seedRatings = NativeMediaRatingsStore.seedBadges(
+        source: item.mediaSource ?? media.identity?.source ?? "themoviedb",
+        voteAverage: item.voteAverage
+      )
       return NativeDiscoverFeature(
         id: media.id,
         title: media.title,
         subtitle: subtitle,
         synopsis: item.overview ?? "",
         rating: item.voteAverage.flatMap { $0 > 0 ? String(format: "%.1f", $0) : nil },
+        ratings: seedRatings,
         backdropReference: item.backdropPath ?? item.posterPath,
         logoReference: item.logoPath,
         logoLanguage: item.logoLanguage,
@@ -2286,7 +2291,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     mediaIdentities = identities
     hasLoadedDiscoveryOnce = true
 
-    // 异步补拉主视觉透明标题 Logo 与风格摘要，不阻塞发现首屏呈现。
+    // 异步补拉主视觉透明标题 Logo、风格摘要与免配置多源评分，不阻塞发现首屏呈现。
     Task {
       await NativeMediaLanguageStore.shared.refresh(using: session, force: forceRefresh)
       await enrichFeaturedLogos(
@@ -2294,15 +2299,15 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
   }
 
-  /// 为缺少 `logo_path` 的主视觉条目异步补拉 `GET /api/v1/media/{id}` 透明标题 Logo。
+  /// 为主视觉条目异步补拉 `GET /api/v1/media/{id}` 透明标题 Logo 与免配置多元评分（IMDb / TMDB / 豆瓣 / Bangumi）。
   private func enrichFeaturedLogos(
     generation: UUID, items: [NativeDiscoverFeature], identities: [String: NativeMediaIdentity]
   ) async {
     var updated = items
     var changed = false
-    for index in updated.indices.prefix(5) {
+    for index in updated.indices.prefix(6) {
       guard !Task.isCancelled, discoveryGeneration == generation else { return }
-      guard updated[index].logoReference == nil, let identity = identities[updated[index].id] else {
+      guard let identity = identities[updated[index].id] else {
         continue
       }
       do {
@@ -2317,17 +2322,41 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         ).value
         let preferredMediaLanguage = NativeMediaLanguageStore.shared.preferredMediaLanguage(
           for: session)
-        let logoDecision = NativeMediaLogoLanguagePolicy.metadataDecision(
-          logoLanguage: detail.logoLanguage,
-          preferredMediaLanguage: preferredMediaLanguage
-        )
-        let acceptedLogo: String? =
-          if let logo = detail.logoPath, !logo.isEmpty, logoDecision != .confirmedMismatch {
-            logo
-          } else {
-            nil
-          }
         let current = updated[index]
+        let acceptedLogo: String?
+        if let existingLogo = current.logoReference, !existingLogo.isEmpty {
+          acceptedLogo = existingLogo
+        } else {
+          let logoDecision = NativeMediaLogoLanguagePolicy.metadataDecision(
+            logoLanguage: detail.logoLanguage,
+            preferredMediaLanguage: preferredMediaLanguage
+          )
+          if let logo = detail.logoPath, !logo.isEmpty, logoDecision != .confirmedMismatch {
+            acceptedLogo = logo
+          } else {
+            acceptedLogo = nil
+          }
+        }
+        let enrichedRatings = await NativeMediaRatingsStore.shared.resolveRatings(
+          session: session,
+          query: NativeMediaRatingsQuery(
+            source: detail.mediaSource ?? identity.source,
+            mediaID: detail.mediaID ?? identity.mediaID,
+            type: detail.type ?? identity.type,
+            title: detail.title ?? current.title,
+            year: detail.year,
+            tmdbID: detail.tmdbID.map(String.init),
+            imdbID: detail.imdbID,
+            doubanID: detail.doubanID,
+            bangumiID: detail.bangumiID.map(String.init),
+            anilistID: detail.anilistID.map(String.init),
+            seedVote: detail.voteAverage,
+            genres: detail.genreNames,
+            originalLanguage: detail.originalLanguage ?? current.originalLanguage,
+            alreadyLoadedPrimarySource: true
+          )
+        )
+        guard !Task.isCancelled, discoveryGeneration == generation else { return }
         let genreText = detail.genreNames.prefix(3).joined(separator: " ")
         let dateText = detail.releaseDate?.isEmpty == false ? detail.releaseDate : detail.year
         let richSubtitle = [genreText, dateText].compactMap { $0 }.filter { !$0.isEmpty }
@@ -2338,15 +2367,16 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           subtitle: richSubtitle.isEmpty ? current.subtitle : richSubtitle,
           synopsis: current.synopsis.isEmpty ? (detail.overview ?? "") : current.synopsis,
           rating: current.rating,
+          ratings: enrichedRatings.isEmpty ? current.ratings : enrichedRatings,
           backdropReference: current.backdropReference ?? detail.backdropPath,
           logoReference: acceptedLogo,
-          logoLanguage: acceptedLogo != nil ? detail.logoLanguage : nil,
+          logoLanguage: acceptedLogo != nil ? (current.logoLanguage ?? detail.logoLanguage) : nil,
           originalLanguage: detail.originalLanguage ?? current.originalLanguage
         )
         if nextFeature != current {
           updated[index] = nextFeature
           changed = true
-          // 首个或任一主视觉拿到中文 Logo 或补充元数据后立即刷新，不等其余精选条目全部串行返回。
+          // 首个或任一主视觉拿到中文 Logo 或多源评分后立即刷新，不等其余精选条目全部串行返回。
           discovery = NativeDiscoverContent(
             featuredItems: updated,
             rails: discovery.rails,
@@ -3744,6 +3774,7 @@ private struct NativeDiscoverAPIItem: Decodable, Sendable {
   let mediaSource: String?
   let mediaID: String?
   let tmdbID: Int?
+  let imdbID: String?
   let doubanID: String?
   let bangumiID: Int?
   let anilistID: Int?
@@ -3771,6 +3802,7 @@ private struct NativeDiscoverAPIItem: Decodable, Sendable {
     case mediaSource = "media_source"
     case mediaID = "media_id"
     case tmdbID = "tmdb_id"
+    case imdbID = "imdb_id"
     case doubanID = "douban_id"
     case bangumiID = "bangumi_id"
     case anilistID = "anilist_id"

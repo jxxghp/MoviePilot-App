@@ -15,6 +15,7 @@ struct NativeMediaServerDetailPage: View {
   let fallbackPoster: String?
 
   @State private var detail: MediaServerItemDetailDTO?
+  @State private var multiRatings: [NativeMediaRatingBadge] = []
   @State private var parentSeriesDetail: MediaServerItemDetailDTO?
   @State private var fetchedLogo: MediaServerLogoCacheEntry?
   @State private var enrichedIDs = MediaServerEnrichedIDs()
@@ -503,6 +504,15 @@ struct NativeMediaServerDetailPage: View {
           .foregroundStyle(isLight ? Color.primary.opacity(0.82) : Color.white.opacity(0.86))
           .multilineTextAlignment(.center)
           .lineLimit(isCompactLandscape ? 1 : 2)
+      }
+
+      let ratingBadges = displayedRatings(detail)
+      if !ratingBadges.isEmpty {
+        NativeMediaRatingsRow(
+          badges: ratingBadges,
+          textColor: isLight ? Color.primary : Color.white,
+          compact: isCompactLandscape
+        )
       }
 
       HStack(spacing: 6) {
@@ -1520,6 +1530,7 @@ struct NativeMediaServerDetailPage: View {
             .foregroundStyle(appearance.accentColor)
           }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
   }
@@ -2079,6 +2090,30 @@ struct NativeMediaServerDetailPage: View {
     return detail.title
   }
 
+  private func displayedRatings(_ detail: MediaServerItemDetailDTO) -> [NativeMediaRatingBadge] {
+    if !multiRatings.isEmpty {
+      return multiRatings
+    }
+    let inferredSource: String? =
+      if let ms = detail.mediaSource, !ms.isEmpty {
+        ms
+      } else if Self.cleanExternalID(detail.imdbId) != nil {
+        "imdb"
+      } else if Self.cleanExternalID(detail.tmdbId) != nil {
+        "themoviedb"
+      } else if Self.cleanExternalID(detail.doubanId) != nil {
+        "douban"
+      } else {
+        nil
+      }
+    return NativeMediaRatingsStore.seedBadges(
+      source: inferredSource,
+      voteAverage: detail.rating,
+      criticRating: detail.criticRating,
+      serverRatings: detail.ratings
+    )
+  }
+
   private func metadataLineParts(_ detail: MediaServerItemDetailDTO) -> [String] {
     var parts: [String] = []
     if let year = detail.yearText, !year.isEmpty { parts.append(year) }
@@ -2094,7 +2129,7 @@ struct NativeMediaServerDetailPage: View {
     {
       parts.append("共 \(count) 部")
     }
-    if let rating = detail.rating, rating > 0 {
+    if displayedRatings(detail).isEmpty, let rating = detail.rating, rating > 0 {
       parts.append(String(format: "★ %.1f", rating))
     }
     if let official = detail.officialRating, !official.isEmpty {
@@ -2548,6 +2583,7 @@ struct NativeMediaServerDetailPage: View {
         tvdbID: Self.cleanExternalID(loaded.tvdbId),
         bangumiID: nil
       )
+      multiRatings = displayedRatings(loaded)
       let preferZh =
         UserDefaults.standard.object(forKey: "nativeV2.playback.preferChineseSub") as? Bool ?? true
       if let firstSource = loaded.mediaSources.first {
@@ -2587,6 +2623,36 @@ struct NativeMediaServerDetailPage: View {
         for: loaded, external: resolvedExt)
       async let similarTask: Void = loadSimilarWorks(for: loaded, external: resolvedExt)
       _ = await (childrenTask, subStatusTask, logoAndIDsTask, similarTask)
+      if loaded.kind == .movie || loaded.kind.isTelevisionHierarchy {
+        let queryTitle =
+          (loaded.kind == .season || loaded.kind == .episode)
+          ? (loaded.seriesName ?? parentSeriesDetail?.title ?? loaded.title)
+          : loaded.title
+        let queryYear = loaded.yearText ?? parentSeriesDetail?.yearText
+        let resolvedRatings = await NativeMediaRatingsStore.shared.resolveRatings(
+          session: session,
+          query: NativeMediaRatingsQuery(
+            source: resolvedExt?.source ?? loaded.mediaSource,
+            mediaID: resolvedExt?.mediaID ?? loaded.mediaId,
+            type: resolvedExt?.type ?? (loaded.kind.isTelevisionHierarchy ? "电视剧" : "电影"),
+            title: queryTitle,
+            year: queryYear,
+            tmdbID: enrichedIDs.tmdbID,
+            imdbID: enrichedIDs.imdbID,
+            doubanID: enrichedIDs.doubanID,
+            bangumiID: enrichedIDs.bangumiID,
+            seedVote: loaded.rating,
+            criticRating: loaded.criticRating ?? parentSeriesDetail?.criticRating,
+            serverRatings: loaded.ratings.isEmpty
+              ? (parentSeriesDetail?.ratings ?? []) : loaded.ratings,
+            genres: loaded.genres.isEmpty ? (parentSeriesDetail?.genres ?? []) : loaded.genres,
+            originalLanguage: fetchedLogo?.originalLanguage
+          )
+        )
+        if !Task.isCancelled, !resolvedRatings.isEmpty {
+          multiRatings = resolvedRatings
+        }
+      }
     } catch is CancellationError {
       return
     } catch {

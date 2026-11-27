@@ -999,8 +999,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertTrue(app.scrollViews["native-downloads-scroll"].waitForExistence(timeout: 10))
     let dlToggle = app.buttons["native-download-toggle-abc123def456"]
     XCTAssertTrue(dlToggle.waitForExistence(timeout: 10))
-    let dlDeleteBtn = app.buttons["native-download-delete-abc123def456"]
-    XCTAssertTrue(dlDeleteBtn.waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["native-download-delete-abc123def456"].exists)
     capture("native-v2-fixture-downloads")
     tap(dlToggle, app: app)
     XCTAssertTrue(
@@ -2237,6 +2236,18 @@ final class NativeV2EntryTests: XCTestCase {
         try await Task.sleep(nanoseconds: 400_000_000)
       }
       capture(step.shot)
+      if step.expectedValue == "enhanced" {
+        // 旋转至横屏并收起控制层，验证 MPV 全能内核竖屏转横屏后画面完整居中铺满而非裁切在左下角。
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        try await Task.sleep(nanoseconds: 1_600_000_000)
+        let landscapeWin = app.windows.firstMatch
+        if app.buttons["video-playback-more"].firstMatch.isHittable {
+          landscapeWin.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+          try await Task.sleep(nanoseconds: 500_000_000)
+        }
+        capture("multi-engine-04b-engine-mpv-landscape")
+      }
     }
 
     // 4. 关闭播放器并校验流清单、流切片请求均由回环夹具正常响应，无意外请求

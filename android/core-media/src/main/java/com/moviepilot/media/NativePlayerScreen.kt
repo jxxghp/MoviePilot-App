@@ -3,6 +3,7 @@ package com.moviepilot.media
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -12,6 +13,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.util.Rational
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
@@ -70,6 +72,7 @@ import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AspectRatio
+import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ClosedCaption
@@ -743,6 +746,7 @@ private class PlayerUiPersistentState(
     var showAudioTrackSheet by mutableStateOf(false)
     var showSpeedSheet by mutableStateOf(false)
     var showEngineSheet by mutableStateOf(false)
+    var showCastSheet by mutableStateOf(false)
     var showTopMoreMenu by mutableStateOf(false)
     var showDanmakuSettingsSheet by mutableStateOf(false)
     var showDanmakuMatchSheet by mutableStateOf(false)
@@ -758,7 +762,7 @@ private class PlayerUiPersistentState(
 
     val anySheetOpen: Boolean
         get() = showQueueSheet || showSubtitleSheet || showAudioTrackSheet ||
-            showSpeedSheet || showEngineSheet || showTopMoreMenu ||
+            showSpeedSheet || showEngineSheet || showCastSheet || showTopMoreMenu ||
             showDanmakuSettingsSheet || showDanmakuMatchSheet
 
     fun bumpInteraction() {
@@ -771,6 +775,7 @@ private class PlayerUiPersistentState(
         showQueueSheet = false
         showSpeedSheet = false
         showEngineSheet = false
+        showCastSheet = false
         showDanmakuSettingsSheet = false
         showDanmakuMatchSheet = false
     }
@@ -2738,6 +2743,14 @@ private fun NativeAudioPlayerStage(
                 ),
             )
         }
+        add(
+            ExpressiveDockAction(
+                icon = Icons.Rounded.Cast,
+                contentDescription = "投屏与输出设备",
+                active = ui.showCastSheet,
+                onClick = { ui.showCastSheet = true },
+            ),
+        )
     }
 
     val onPreviousTrack = {
@@ -2867,6 +2880,11 @@ private fun NativeAudioPlayerStage(
             ui.showSpeedSheet = false
         },
         onDismiss = { ui.showSpeedSheet = false },
+    )
+    CastOptionsBottomSheet(
+        visible = ui.showCastSheet,
+        controller = controller,
+        onDismiss = { ui.showCastSheet = false },
     )
 }
 
@@ -3998,6 +4016,11 @@ private fun NativeVideoPlayerStage(
         },
         onDismiss = { ui.showEngineSheet = false },
     )
+    CastOptionsBottomSheet(
+        visible = ui.showCastSheet,
+        controller = controller,
+        onDismiss = { ui.showCastSheet = false },
+    )
 }
 
 @OptIn(UnstableApi::class)
@@ -4135,6 +4158,19 @@ private fun VideoTopBarOverlay(
                     contentDescription = if (isLandscape) "退出全屏横屏" else "全屏横屏播放",
                     tint = Color.White,
                 )
+            }
+        }
+        Surface(
+            onClick = {
+                ui.bumpInteraction()
+                ui.showCastSheet = true
+            },
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.45f),
+            modifier = Modifier.size(btnSize),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Cast, contentDescription = "投屏", tint = Color.White)
             }
         }
         Surface(
@@ -5154,6 +5190,144 @@ fun FloatingMiniMusicBar(
                     modifier = Modifier.size(18.dp),
                 )
             }
+        }
+    }
+}
+
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CastOptionsBottomSheet(
+    visible: Boolean,
+    controller: PlayerRuntimeController,
+    onDismiss: () -> Unit,
+) {
+    if (!visible) return
+    val colors = LocalMoviePilotColors.current
+    val request = controller.request
+    val ctx = controller.context
+    val canExternalCast = request.url.startsWith("http://", ignoreCase = true) ||
+        request.url.startsWith("https://", ignoreCase = true)
+
+    NativeGlassSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "投屏与输出设备",
+                color = colors.textPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "无线镜像投屏可保留全部字幕、弹幕与多音轨；外部投屏器支持 DLNA 与 Chromecast 直投。",
+                color = colors.textSecondary,
+                fontSize = 12.5.sp,
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colors.surfaceContainerLow)
+                    .clickable {
+                        onDismiss()
+                        val launched = runCatching {
+                            ctx.startActivity(
+                                Intent(Settings.ACTION_CAST_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                            true
+                        }.getOrElse {
+                            runCatching {
+                                ctx.startActivity(
+                                    Intent(Settings.ACTION_WIRELESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                                true
+                            }.getOrDefault(false)
+                        }
+                        if (!launched) {
+                            controller.ui.hudMessage = "请从系统快捷控制面板开启无线投屏"
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(Icons.Rounded.Cast, contentDescription = null, tint = colors.accent, modifier = Modifier.size(22.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("系统无线投屏（Miracast）", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("兼容全部播放内核、外挂特效字幕与实时弹幕", color = colors.textSecondary, fontSize = 12.sp)
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colors.surfaceContainerLow)
+                    .clickable {
+                        onDismiss()
+                        val launched = runCatching {
+                            val panelIntent = Intent("com.android.settings.panel.action.MEDIA_OUTPUT")
+                                .putExtra("com.android.settings.panel.extra.PACKAGE_NAME", ctx.packageName)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            ctx.startActivity(panelIntent)
+                            true
+                        }.getOrElse {
+                            runCatching {
+                                ctx.startActivity(
+                                    Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                                true
+                            }.getOrDefault(false)
+                        }
+                        if (!launched) {
+                            controller.ui.hudMessage = "请从系统音量面板切换输出设备"
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = colors.accent, modifier = Modifier.size(22.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("切换音频输出设备", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("选择蓝牙耳机、无线音箱或系统媒体输出", color = colors.textSecondary, fontSize = 12.sp)
+                }
+            }
+
+            if (canExternalCast) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(colors.surfaceContainerLow)
+                        .clickable {
+                            onDismiss()
+                            controller.activePause()
+                            val ok = ExternalPlayerLauncher.launchExternalPlayerChooser(
+                                context = ctx,
+                                streamUrl = request.url,
+                                title = request.title,
+                                isAudio = request.isAudio,
+                                headers = request.headers,
+                            )
+                            if (!ok) controller.ui.hudMessage = "未找到可用的外部投屏或播放应用"
+                        }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, tint = colors.accent, modifier = Modifier.size(22.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("使用外部 DLNA / Chromecast 应用投屏", color = colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text("调用 VLC、BubbleUPnP、Web Video Caster 等直投电视", color = colors.textSecondary, fontSize = 12.sp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
         }
     }
 }

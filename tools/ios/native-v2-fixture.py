@@ -406,7 +406,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 or re.fullmatch(r"api/v1/download/(?:start|stop)/[a-z0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/site/(?:test|icon)/[0-9]+", endpoint)
                 or re.fullmatch(r"api/v1/search/media/1[0-9]{2}", endpoint)
-                or re.fullmatch(r"api/v1/media/[0-9]+", endpoint)
+                or re.fullmatch(r"api/v1/media/(?:[0-9]+|tt[0-9]+)", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/(?:credits|recommend|similar)/[0-9]+/(?:电影|电视剧)", endpoint)
                 or re.fullmatch(r"api/v1/tmdb/person(?:/credits)?/[0-9]{3}", endpoint)
                 or re.fullmatch(r"api/v1/user/config/[A-Za-z0-9_.-]+", endpoint)
@@ -691,7 +691,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             or endpoint.startswith("api/v1/tmdb/")
             or endpoint.startswith("api/v1/music/")
             or endpoint == "api/v1/media/search"
-            or re.fullmatch(r"api/v1/media/[0-9]+", endpoint)
+            or re.fullmatch(r"api/v1/media/(?:[0-9]+|tt[0-9]+)", endpoint)
         )
         if requires_discovery and not self.permissions(mode)["discovery"]:
             self.reply(403, {"success": False})
@@ -982,12 +982,15 @@ class NativeHandler(BaseHTTPRequestHandler):
         elif re.fullmatch(r"api/v1/tmdb/person/credits/[0-9]{3}", endpoint):
             value = [self.media(101, "电影"), self.media(111, "电视剧")]
         else:
-            item_id = int(endpoint.rsplit("/", 1)[-1])
+            raw_id = endpoint.rsplit("/", 1)[-1]
+            media_src = query.get("media_source", [""])[0]
             media_type = query.get("type_name", [""])[0]
-            if query.get("media_source") != ["themoviedb"] or media_type not in {"电影", "电视剧"}:
+            if media_src not in {"themoviedb", "imdb", "douban", "bangumi"} or media_type not in {"电影", "电视剧"}:
                 self.reply(422, {"success": False})
                 return
-            value = self.media(item_id, media_type)
+            digits = "".join(ch for ch in raw_id if ch.isdigit()) or "101"
+            item_id = int(digits[-3:]) if len(digits) > 3 else int(digits)
+            value = self.media(item_id, media_type, media_source=media_src, raw_id=raw_id)
         self.reply(200, {"success": True, "message": "", "data": value}, self.resource_headers(name))
 
     def media_status_endpoint(self, name, body):
@@ -2630,7 +2633,11 @@ export async function get(moduleName) {
                     "title": "星际迷航：新世界", "original_title": "Star Trek: Strange New Worlds",
                     "tagline": "探索未知星海的壮丽航程",
                     "overview": "讲述派克船长带领进取号探索银河系中全新世界的经典科幻剧集，每集呈现独立而震撼的星际冒险。",
-                    "year": "2025", "premiere_date": "2024-05-05", "rating": 8.9,
+                    "year": "2025", "premiere_date": "2024-05-05", "rating": 8.9, "critic_rating": 98.0,
+                    "ratings": [
+                        {"source": "imdb", "value": 8.9, "scale": "ten"},
+                        {"source": "rottentomatoes", "value": 98.0, "scale": "percent"},
+                    ],
                     "genres": ["科幻", "冒险", "剧情"], "studios": ["Paramount+"],
                     "poster": "https://images.example.test/301/poster.png",
                     "backdrop": "https://images.example.test/301/backdrop.png",
@@ -2657,7 +2664,11 @@ export async function get(moduleName) {
                 "title": "陌生新世界", "series_id": "series-100", "series_name": "星际迷航：新世界",
                 "season_id": "season-1", "season_name": "第 1 季",
                 "season_number": 1, "episode_number": 1,
-                "year": "2024", "premiere_date": "2024-05-05", "rating": 9.1,
+                "year": "2024", "premiere_date": "2024-05-05", "rating": 9.1, "critic_rating": 96.0,
+                "ratings": [
+                    {"source": "imdb", "value": 9.1, "scale": "ten"},
+                    {"source": "rottentomatoes", "value": 96.0, "scale": "percent"},
+                ],
                 "duration_ms": 3120000, "resume_position_ms": 1310000, "played_percentage": 42.0,
                 "overview": "进取号在未知星系收到神秘求救信号，派克船长必须决定是否介入这颗行星的首次接触事件。",
                 "genres": ["科幻", "冒险"], "tmdb_id": "103516",
@@ -2784,10 +2795,12 @@ export async function get(moduleName) {
                 pass
 
     @staticmethod
-    def media(item_id, media_type):
-        """提供显式标记的合成记录，编号区分搜索、发现与详情请求。"""
+    def media(item_id, media_type, media_source="themoviedb", raw_id=None):
+        """提供显式标记的合成记录，编号区分搜索、发现与详情请求，并附带多来源评分字段。"""
+        vote_by_source = {"imdb": 8.5, "douban": 8.6, "bangumi": 8.4}
         base = {
-            "media_source": "themoviedb", "media_id": str(item_id), "tmdb_id": item_id,
+            "media_source": media_source, "media_id": str(raw_id or item_id), "tmdb_id": item_id,
+            "imdb_id": f"tt0000{item_id}", "douban_id": f"3000{item_id}",
             "type": media_type, "title": f"合成{media_type} {item_id}", "year": "2025",
             "release_date": "2025-07-15",
             "tagline": "跨越边界的原生体验",
@@ -2797,7 +2810,8 @@ export async function get(moduleName) {
             "directors": [{"id": 503, "name": "合成导演", "source": "themoviedb"}],
             "poster_path": f"https://images.example.test/{item_id}/poster.png",
             "backdrop_path": f"https://images.example.test/{item_id}/backdrop.png",
-            "overview": "本条记录用于验证原生客户端的检索与详情直连。", "vote_average": 8.3,
+            "overview": "本条记录用于验证原生客户端的检索与详情直连。",
+            "vote_average": vote_by_source.get(media_source, 8.3),
         }
         if media_type == "电视剧":
             base["season_info"] = [

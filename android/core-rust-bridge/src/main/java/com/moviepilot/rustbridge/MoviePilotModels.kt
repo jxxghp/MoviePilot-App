@@ -1287,6 +1287,13 @@ data class MediaServerPersonDto(
     val image: String? = null,
 )
 
+/** 单来源评分展示项（如 IMDb / TMDB / 烂番茄影评新鲜度 / 豆瓣 / Bangumi）。 */
+@Serializable
+data class MediaRatingBadgeDto(
+    val source: String = "tmdb",
+    val label: String = "",
+)
+
 /** 媒体服务器条目完整详情（对应 `GET /api/v1/mediaserver/detail`）。 */
 @Serializable
 data class MediaServerItemDetailDto(
@@ -1304,6 +1311,8 @@ data class MediaServerItemDetailDto(
     val premiereDate: String = "",
     val officialRating: String = "",
     val rating: Double = 0.0,
+    val criticRating: Double = 0.0,
+    val ratings: List<MediaRatingBadgeDto> = emptyList(),
     val durationMs: Long? = null,
     val poster: String? = null,
     val backdrop: String? = null,
@@ -1356,6 +1365,7 @@ data class DiscoverSessionSnapshot(
     val latestItems: List<MediaCardItem> = emptyList(),
     val libraries: List<MediaServerLibraryDto> = emptyList(),
     val heroLogos: Map<String, String> = emptyMap(),
+    val heroRatings: Map<String, List<MediaRatingBadgeDto>> = emptyList<Pair<String, List<MediaRatingBadgeDto>>>().toMap(),
     val extraSources: List<RecommendSourceDto> = emptyList(),
     val extraRails: Map<String, List<MediaCardItem>> = emptyMap(),
 )

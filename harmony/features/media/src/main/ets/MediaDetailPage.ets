@@ -1,6 +1,7 @@
 import {
   MoviePilotRepository,
   MpMediaItem,
+  MpMediaRatingBadge,
   MpCastMember,
   MpSeasonInfo,
   MpTmdbEpisodeItem,
@@ -18,6 +19,7 @@ import {
   HarmonySurfaceModifier,
   HarmonyThemeColors,
   HarmonyEntityLogo,
+  HarmonyMultiRatingsRow,
   HarmonySkeletonHost,
   HarmonySkeletonBlock,
   HarmonyEpisodeStripSkeleton,
@@ -55,6 +57,7 @@ export struct HarmonyMediaDetailPage {
     inLibrary: false, subtitle: '', percent: 0, serverName: '', playUrl: ''
   };
   @State private hydratedItem: MpMediaItem | null = null;
+  @State private multiRatings: MpMediaRatingBadge[] = [];
   @State private scrollOffsetY: number = 0;
   @State private subscribed: boolean = false;
   @State private subscribedSeasons: number[] = [];
@@ -86,6 +89,7 @@ export struct HarmonyMediaDetailPage {
 
   onItemChanged(): void {
     this.hydratedItem = null;
+    this.multiRatings = [];
     this.overviewExpanded = false;
     this.subscribed = false;
     this.subscribedSeasons = [];
@@ -154,6 +158,7 @@ export struct HarmonyMediaDetailPage {
     this.loadingDetail = true;
     const repo = MoviePilotRepository.shared();
     let workingItem: MpMediaItem = this.item;
+    this.multiRatings = repo.seedRatingsForItem(workingItem);
 
     // 1. 当缺少 tmdbId 或简介为空时，通过 V3 GET /api/v1/media/{rawMediaId}?media_source=... 补全详情与分季
     if (!workingItem.tmdbId || workingItem.overview.trim().length === 0) {
@@ -245,6 +250,19 @@ export struct HarmonyMediaDetailPage {
           this.subscribedSeasons = mergedSeasons;
         }
       }
+
+      this.multiRatings = repo.seedRatingsForItem(workingItem);
+      repo.fetchMultiSourceRatings(
+        workingItem,
+        0,
+        [],
+        workingItem.serverItemId ?? '',
+        workingItem.serverName
+      ).then((badges: MpMediaRatingBadge[]) => {
+        if (seq === this.detailLoadSeq && badges.length > 0) {
+          this.multiRatings = badges;
+        }
+      }).catch(() => {});
 
       // 3. 初始化电视剧默认选中季并拉取 16:9 横版分集剧照卡片 + 各季入库集数映射
       if (this.seasons.length > 0 || this.isTvMedia(workingItem)) {
@@ -900,7 +918,13 @@ export struct HarmonyMediaDetailPage {
                 if (this.activeMedia().year.length > 0) {
                   NativeAdaptiveBadge({ text: this.activeMedia().year })
                 }
-                if (this.activeMedia().vote > 0) {
+                if (this.multiRatings.length > 0) {
+                  HarmonyMultiRatingsRow({
+                    badges: this.multiRatings,
+                    forceLightText: true,
+                    compact: this.isShortLandscape()
+                  })
+                } else if (this.activeMedia().vote > 0) {
                   NativeAdaptiveBadge({ text: `★ ${this.activeMedia().vote.toFixed(1)}`, tintHex: '#FFC845' })
                 }
                 if (this.activeMedia().inLibrary) {

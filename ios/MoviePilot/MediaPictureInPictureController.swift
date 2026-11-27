@@ -3,7 +3,7 @@ import AVKit
 import UIKit
 import VLCKit
 
-/// 统一桥接 `AVPlayerLayer`（系统原生）与 `VLCMediaPlayer`（`AVSampleBufferDisplayLayer`）的系统画中画控制器。
+/// 统一桥接 `AVPlayerLayer`（系统原生）与 `AVSampleBufferDisplayLayer`（`MPV` / `VLCMediaPlayer`）的系统画中画控制器。
 @MainActor
 final class MediaPictureInPictureController: NSObject,
   @preconcurrency AVPictureInPictureControllerDelegate,
@@ -72,6 +72,7 @@ final class MediaPictureInPictureController: NSObject,
 
     switch engine.pipSource {
     case .avPlayerLayer(let playerLayer):
+      vlcPlayer = nil
       if controller?.playerLayer !== playerLayer, !keepsPlaybackAlive {
         availability = nil
         if let pictureInPicture = AVPictureInPictureController(playerLayer: playerLayer) {
@@ -84,6 +85,21 @@ final class MediaPictureInPictureController: NSObject,
         }
       }
       controller?.requiresLinearPlayback = !engine.isSeekable
+
+    case .sampleBufferLayer(let layer):
+      vlcPlayer = nil
+      if controller?.contentSource?.sampleBufferDisplayLayer !== layer, !keepsPlaybackAlive {
+        availability = nil
+        let source = AVPictureInPictureController.ContentSource(
+          sampleBufferDisplayLayer: layer, playbackDelegate: self)
+        let pictureInPicture = AVPictureInPictureController(contentSource: source)
+        pictureInPicture.delegate = self
+        pictureInPicture.canStartPictureInPictureAutomaticallyFromInline = true
+        controller = pictureInPicture
+        observeAvailability(for: pictureInPicture)
+      }
+      controller?.requiresLinearPlayback = !engine.isSeekable
+      controller?.invalidatePlaybackState()
 
     case .vlcSampleBuffer(let player, let view):
       vlcPlayer = player
@@ -118,6 +134,7 @@ final class MediaPictureInPictureController: NSObject,
     }
     guard !controller.isPictureInPictureActive else { return }
     restored = false
+    engine?.setPictureInPictureActive(true)
     controller.startPictureInPicture()
   }
 
@@ -125,6 +142,7 @@ final class MediaPictureInPictureController: NSObject,
   func stop() {
     closed = true
     availability = nil
+    engine?.setPictureInPictureActive(false)
     controller?.delegate = nil
     controller?.stopPictureInPicture()
     controller = nil
@@ -153,11 +171,19 @@ final class MediaPictureInPictureController: NSObject,
     return nil
   }
 
+  func pictureInPictureControllerWillStartPictureInPicture(
+    _ pictureInPictureController: AVPictureInPictureController
+  ) {
+    guard !closed else { return }
+    engine?.setPictureInPictureActive(true)
+  }
+
   func pictureInPictureControllerDidStartPictureInPicture(
     _ pictureInPictureController: AVPictureInPictureController
   ) {
     guard !closed else { return }
     restored = false
+    engine?.setPictureInPictureActive(true)
     onStart()
   }
 
@@ -179,6 +205,7 @@ final class MediaPictureInPictureController: NSObject,
     _ pictureInPictureController: AVPictureInPictureController
   ) {
     guard !closed else { return }
+    engine?.setPictureInPictureActive(false)
     onStop(restored)
     restored = false
   }
@@ -188,25 +215,40 @@ final class MediaPictureInPictureController: NSObject,
     failedToStartPictureInPictureWithError error: any Error
   ) {
     guard !closed else { return }
+    engine?.setPictureInPictureActive(false)
     onFailure()
   }
 
   func pictureInPictureController(
     _ pictureInPictureController: AVPictureInPictureController, setPlaying playing: Bool
   ) {
-    guard !closed, let vlcPlayer else { return }
-    if playing { vlcPlayer.play() } else { vlcPlayer.pause() }
+    guard !closed else { return }
+    if let vlcPlayer {
+      if playing { vlcPlayer.play() } else { vlcPlayer.pause() }
+    } else if let engine {
+      if playing { engine.play() } else { engine.pause() }
+    }
     pictureInPictureController.invalidatePlaybackState()
   }
 
   func pictureInPictureControllerTimeRangeForPlayback(
     _ pictureInPictureController: AVPictureInPictureController
   ) -> CMTimeRange {
-    let duration = Double(vlcPlayer?.media?.length.intValue ?? 0) / 1000
+    let duration: Double
+    let elapsed: Double
+    if let vlcPlayer {
+      duration = Double(vlcPlayer.media?.length.intValue ?? 0) / 1000
+      elapsed = Double(vlcPlayer.time.intValue) / 1000
+    } else if let engine {
+      duration = Double(engine.durationMs) / 1000
+      elapsed = Double(engine.currentTimeMs) / 1000
+    } else {
+      duration = 0
+      elapsed = 0
+    }
     guard duration > 0 else {
       return CMTimeRange(start: .negativeInfinity, duration: .positiveInfinity)
     }
-    let elapsed = Double(vlcPlayer?.time.intValue ?? 0) / 1000
     return CMTimeRange(
       start: CMTime(seconds: CACurrentMediaTime() - elapsed, preferredTimescale: 1_000_000),
       duration: CMTime(seconds: duration, preferredTimescale: 1_000_000))
@@ -215,7 +257,10 @@ final class MediaPictureInPictureController: NSObject,
   func pictureInPictureControllerIsPlaybackPaused(
     _ pictureInPictureController: AVPictureInPictureController
   ) -> Bool {
-    vlcPlayer?.isPlaying != true
+    if let vlcPlayer {
+      return !vlcPlayer.isPlaying
+    }
+    return engine?.isPlaying != true
   }
 
   func pictureInPictureController(
@@ -227,7 +272,7 @@ final class MediaPictureInPictureController: NSObject,
     _ pictureInPictureController: AVPictureInPictureController, skipByInterval skipInterval: CMTime,
     completion completionHandler: @escaping () -> Void
   ) {
-    guard !closed, let vlcPlayer, vlcPlayer.isSeekable else {
+    guard !closed else {
       completionHandler()
       return
     }
@@ -236,8 +281,23 @@ final class MediaPictureInPictureController: NSObject,
       completionHandler()
       return
     }
-    if !vlcPlayer.jump(withOffset: Int32(clamping: Int64(milliseconds)), completion: completionHandler)
-    {
+    if let vlcPlayer {
+      guard vlcPlayer.isSeekable else {
+        completionHandler()
+        return
+      }
+      if !vlcPlayer.jump(
+        withOffset: Int32(clamping: Int64(milliseconds)), completion: completionHandler)
+      {
+        completionHandler()
+      }
+      return
+    }
+    guard let engine, engine.isSeekable else {
+      completionHandler()
+      return
+    }
+    engine.jump(byOffsetMs: Int(milliseconds.rounded())) {
       completionHandler()
     }
   }

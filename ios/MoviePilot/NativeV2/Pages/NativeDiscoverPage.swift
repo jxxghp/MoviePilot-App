@@ -53,6 +53,7 @@ struct NativeDiscoverFeature: Identifiable, Hashable {
   let subtitle: String
   let synopsis: String
   let rating: String?
+  let ratings: [NativeMediaRatingBadge]
   let backdropReference: String?
   let logoReference: String?
   let logoLanguage: String?
@@ -61,7 +62,8 @@ struct NativeDiscoverFeature: Identifiable, Hashable {
   /// 图片引用不在此处请求或解释成任意 URL，图像边界交由认证宿主处理。
   init(
     id: String, title: String, subtitle: String, synopsis: String,
-    rating: String? = nil, backdropReference: String? = nil, logoReference: String? = nil,
+    rating: String? = nil, ratings: [NativeMediaRatingBadge] = [],
+    backdropReference: String? = nil, logoReference: String? = nil,
     logoLanguage: String? = nil, originalLanguage: String? = nil
   ) {
     self.id = id
@@ -69,6 +71,7 @@ struct NativeDiscoverFeature: Identifiable, Hashable {
     self.subtitle = subtitle
     self.synopsis = synopsis
     self.rating = rating
+    self.ratings = ratings
     self.backdropReference = backdropReference
     self.logoReference = logoReference
     self.logoLanguage = logoLanguage
@@ -919,32 +922,33 @@ struct NativeDiscoverPage: View {
     .padding(.bottom, isCompactLandscape ? 6 : 10)
   }
 
-  /// 紧凑评分微标排布：深/浅色均保持高对比可读性。
+  /// 紧凑多元评分微标排布：深/浅色均保持高对比可读性。
   @ViewBuilder private func featureLabels(_ item: NativeDiscoverFeature) -> some View {
     let isLight = colorScheme == .light
-    if let rating = item.rating, !rating.isEmpty {
-      HStack(spacing: 5) {
-        Text("TheMovieDB")
-          .font(.system(size: 9.5, weight: .heavy))
-          .foregroundStyle(.black)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
-          .background(
-            Color(red: 0.42, green: 0.86, blue: 0.78),
-            in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-        Text(rating)
-          .font(.caption.monospacedDigit().weight(.bold))
-          .foregroundStyle(isLight ? Color.primary : Color.white)
+    let resolvedBadges: [NativeMediaRatingBadge] =
+      if !item.ratings.isEmpty {
+        item.ratings
+      } else if let rating = item.rating, !rating.isEmpty {
+        [NativeMediaRatingBadge(source: .tmdb, displayText: rating)]
+      } else {
+        []
       }
-    }
-    HStack(spacing: 4) {
-      Image(systemName: "star.fill")
-        .font(.caption2)
-        .foregroundStyle(
-          isLight
-            ? Color(red: 0.84, green: 0.56, blue: 0.04) : Color(red: 0.98, green: 0.78, blue: 0.30))
-      Text("查看详情")
-        .foregroundStyle(isLight ? Color.primary.opacity(0.82) : Color.white.opacity(0.88))
+    if !resolvedBadges.isEmpty {
+      NativeMediaRatingsRow(
+        badges: resolvedBadges,
+        textColor: isLight ? Color.primary : Color.white
+      )
+    } else {
+      HStack(spacing: 4) {
+        Image(systemName: "star.fill")
+          .font(.caption2)
+          .foregroundStyle(
+            isLight
+              ? Color(red: 0.84, green: 0.56, blue: 0.04)
+              : Color(red: 0.98, green: 0.78, blue: 0.30))
+        Text("查看详情")
+          .foregroundStyle(isLight ? Color.primary.opacity(0.82) : Color.white.opacity(0.88))
+      }
     }
   }
 

@@ -103,6 +103,7 @@ import com.moviepilot.designsystem.CinematicGlassCapsule
 import com.moviepilot.designsystem.CinematicPanel
 import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
+import com.moviepilot.designsystem.MultiSourceRatingsRow
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeEntityLogo
@@ -123,6 +124,7 @@ import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaLibraryStatusDto
 import com.moviepilot.rustbridge.MediaPersonDto
+import com.moviepilot.rustbridge.MediaRatingBadgeDto
 import com.moviepilot.rustbridge.MediaServerBrowseItemDto
 import com.moviepilot.rustbridge.MediaServerItemDetailDto
 import com.moviepilot.rustbridge.MediaServerSourceDto
@@ -217,6 +219,7 @@ fun MediaServerDetailScreen(
 
     val screenKey = "$server:$itemId"
     var detail by remember(screenKey) { mutableStateOf<MediaServerItemDetailDto?>(null) }
+    var multiRatings by remember(screenKey) { mutableStateOf<List<MediaRatingBadgeDto>>(emptyList()) }
     var seasons by remember(screenKey) { mutableStateOf<List<MediaServerBrowseItemDto>>(emptyList()) }
     var selectedSeasonId by remember(screenKey) { mutableStateOf<String?>(null) }
     var selectedSeasonNum by remember(screenKey) { mutableStateOf<Int?>(null) }
@@ -294,6 +297,28 @@ fun MediaServerDetailScreen(
             previewedEpisodeId = epItemId
             episodeFallbackSources = epDetail.mediaSources
             selectedSourceIndex = 0
+        }
+    }
+
+    LaunchedEffect(detail?.itemId, detail?.tmdbId, detail?.imdbId, detail?.doubanId) {
+        val current = detail ?: return@LaunchedEffect
+        val itemTypeLower = current.itemType.lowercase()
+        if (itemTypeLower == "musicalbum" || itemTypeLower == "audio" || itemTypeLower == "folder" || itemTypeLower == "boxset") {
+            return@LaunchedEffect
+        }
+        val seedCard = toCardSeed(current)
+        multiRatings = repository.seedRatingsForCard(
+            item = seedCard,
+            criticRating = current.criticRating,
+            serverRatings = current.ratings,
+        )
+        val enriched = repository.fetchMultiSourceRatings(
+            item = seedCard,
+            criticRating = current.criticRating,
+            serverRatings = current.ratings,
+        )
+        if (enriched.isNotEmpty()) {
+            multiRatings = enriched
         }
     }
 
@@ -961,7 +986,25 @@ fun MediaServerDetailScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
-                                    if ((d?.rating ?: 0.0) > 0.0) {
+                                    val resolvedBadges = multiRatings.ifEmpty {
+                                        if (d != null) {
+                                            repository.seedRatingsForCard(
+                                                item = toCardSeed(d),
+                                                criticRating = d.criticRating,
+                                                serverRatings = d.ratings,
+                                            )
+                                        } else {
+                                            emptyList()
+                                        }
+                                    }
+                                    if (resolvedBadges.isNotEmpty()) {
+                                        MultiSourceRatingsRow(
+                                            badges = resolvedBadges.map { it.source to it.label },
+                                            isDark = colors.isDark,
+                                            compact = isCompactLandscape,
+                                            modifier = Modifier.padding(end = 2.dp),
+                                        )
+                                    } else if ((d?.rating ?: 0.0) > 0.0) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(3.dp),

@@ -2,6 +2,7 @@ import { common, Want } from '@kit.AbilityKit';
 import {
   MoviePilotRepository,
   MpMediaItem,
+  MpMediaRatingBadge,
   MpCastMember,
   MpMediaServerDetail,
   MpMediaServerEpisode,
@@ -23,6 +24,7 @@ import {
   HarmonySurfaceModifier,
   HarmonyThemeColors,
   HarmonyEntityLogo,
+  HarmonyMultiRatingsRow,
   HarmonySkeletonHost,
   HarmonyEpisodeStripSkeleton,
   HarmonyMediaDetailBodySkeleton,
@@ -86,6 +88,7 @@ export struct HarmonyMediaServerDetailPage {
 
   @State private loading: boolean = true;
   @State private detail: MpMediaServerDetail | null = null;
+  @State private multiRatings: MpMediaRatingBadge[] = [];
   @State private seasons: MpMediaServerEpisode[] = [];
   @State private activeSeasonIdx: number = 0;
   @State private episodes: MpMediaServerEpisode[] = [];
@@ -121,6 +124,7 @@ export struct HarmonyMediaServerDetailPage {
 
   onItemChanged(): void {
     this.detail = null;
+    this.multiRatings = [];
     this.seasons = [];
     this.activeSeasonIdx = 0;
     this.episodes = [];
@@ -322,6 +326,8 @@ export struct HarmonyMediaServerDetailPage {
         year: fetched.year,
         premiereDate: fetched.premiereDate,
         rating: fetched.rating,
+        criticRating: fetched.criticRating,
+        ratings: fetched.ratings,
         officialRating: fetched.officialRating,
         durationMs: fetched.durationMs,
         posterUrl: fetched.posterUrl,
@@ -354,6 +360,22 @@ export struct HarmonyMediaServerDetailPage {
       };
 
       const subProxy = this.buildSubscribeProxyItem(this.detail);
+      if (!this.isMusicAlbum(this.detail)) {
+        this.multiRatings = repo.seedRatingsForItem(
+          subProxy,
+          this.detail.criticRating ?? 0,
+          this.detail.ratings ?? []
+        );
+        repo.fetchMultiSourceRatings(
+          subProxy,
+          this.detail.criticRating ?? 0,
+          this.detail.ratings ?? []
+        ).then((badges: MpMediaRatingBadge[]) => {
+          if (seq === this.loadSeq && badges.length > 0) {
+            this.multiRatings = badges;
+          }
+        }).catch(() => {});
+      }
       const tailRes = await Promise.all([
         repo.fetchMediaStatus(subProxy),
         repo.fetchMediaServerSimilar(this.detail)
@@ -1396,7 +1418,13 @@ export struct HarmonyMediaServerDetailPage {
                   .borderRadius(10)
                   .backgroundColor('#66000000')
 
-                  if ((this.detail ? this.detail.rating : this.item.vote) > 0) {
+                  if (this.multiRatings.length > 0) {
+                    HarmonyMultiRatingsRow({
+                      badges: this.multiRatings,
+                      forceLightText: true,
+                      compact: this.isShortLandscape()
+                    })
+                  } else if ((this.detail ? this.detail.rating : this.item.vote) > 0) {
                     NativeAdaptiveBadge({
                       text: `★ ${(this.detail ? this.detail.rating : this.item.vote).toFixed(1)}`,
                       tintHex: '#FFC845'

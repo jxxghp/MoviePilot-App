@@ -147,6 +147,7 @@ export {
   MpPlaybackSource,
   MpMediaServerPerson,
   MpMediaServerEpisode,
+  MpMediaRatingBadge,
   MpMediaServerDetail,
   formatByteSize,
   formatSpeed

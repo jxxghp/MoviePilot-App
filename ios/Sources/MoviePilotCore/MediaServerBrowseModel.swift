@@ -453,6 +453,30 @@ public struct MediaServerPersonDTO: Decodable, Identifiable, Hashable, Sendable 
   public var stableID: String { id ?? "\(name):\(role ?? type ?? "")" }
 }
 
+/// 媒体服务器条目附带的单来源评分项（如 IMDb / TMDB / 豆瓣 / 烂番茄影评新鲜度）。
+public struct MediaServerRatingDTO: Decodable, Hashable, Sendable {
+  public let source: String
+  public let value: Double
+  public let scale: String
+
+  public init(source: String, value: Double, scale: String = "ten") {
+    self.source = source
+    self.value = value
+    self.scale = scale
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case source, value, scale
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    source = (try? container.decodeIfPresent(String.self, forKey: .source)) ?? "community"
+    value = (try? container.decodeIfPresent(Double.self, forKey: .value)) ?? 0
+    scale = (try? container.decodeIfPresent(String.self, forKey: .scale)) ?? "ten"
+  }
+}
+
 /// 媒体服务器浏览、季列表与分集列表共用的轻量卡片 DTO。
 public struct MediaServerBrowseItemDTO: Decodable, Identifiable, Hashable, Sendable {
   public let itemId: String
@@ -467,6 +491,7 @@ public struct MediaServerBrowseItemDTO: Decodable, Identifiable, Hashable, Senda
   public let yearScalar: MediaServerFlexibleScalar?
   public let premiereDate: String?
   public let rating: Double?
+  public let criticRating: Double?
   public let durationMs: Int?
   public let poster: String?
   public let backdrop: String?
@@ -533,6 +558,7 @@ public struct MediaServerBrowseItemDTO: Decodable, Identifiable, Hashable, Senda
 
   private enum CodingKeys: String, CodingKey {
     case server, title, subtitle, overview, rating, poster, backdrop, thumb, played
+    case criticRating = "critic_rating"
     case itemId = "item_id"
     case serverType = "server_type"
     case itemType = "item_type"
@@ -565,6 +591,7 @@ public struct MediaServerBrowseItemDTO: Decodable, Identifiable, Hashable, Senda
     year: String? = nil,
     premiereDate: String? = nil,
     rating: Double? = nil,
+    criticRating: Double? = nil,
     durationMs: Int? = nil,
     poster: String? = nil,
     backdrop: String? = nil,
@@ -592,6 +619,7 @@ public struct MediaServerBrowseItemDTO: Decodable, Identifiable, Hashable, Senda
     self.yearScalar = year.map(MediaServerFlexibleScalar.init)
     self.premiereDate = premiereDate
     self.rating = rating
+    self.criticRating = criticRating
     self.durationMs = durationMs
     self.poster = poster
     self.backdrop = backdrop
@@ -622,6 +650,7 @@ public struct MediaServerBrowseItemDTO: Decodable, Identifiable, Hashable, Senda
     yearScalar = try container.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .yearScalar)
     premiereDate = try container.decodeIfPresent(String.self, forKey: .premiereDate)
     rating = try container.decodeIfPresent(Double.self, forKey: .rating)
+    criticRating = try? container.decodeIfPresent(Double.self, forKey: .criticRating)
     durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
     poster = try container.decodeIfPresent(String.self, forKey: .poster)
     backdrop = try container.decodeIfPresent(String.self, forKey: .backdrop)
@@ -718,6 +747,8 @@ public struct MediaServerItemDetailDTO: Decodable, Identifiable, Hashable, Senda
   public let premiereDate: String?
   public let officialRating: String?
   public let rating: Double?
+  public let criticRating: Double?
+  public let ratings: [MediaServerRatingDTO]
   public let durationMs: Int?
   public let poster: String?
   public let backdrop: String?
@@ -794,7 +825,8 @@ public struct MediaServerItemDetailDTO: Decodable, Identifiable, Hashable, Senda
   }
 
   private enum CodingKeys: String, CodingKey {
-    case server, title, subtitle, overview, tagline, rating, poster, backdrop, thumb, logo
+    case server, title, subtitle, overview, tagline, rating, ratings, poster, backdrop, thumb, logo
+    case criticRating = "critic_rating"
     case logoPath = "logo_path"
     case logoLanguage = "logo_language"
     case genres, studios, people, played
@@ -848,6 +880,9 @@ public struct MediaServerItemDetailDTO: Decodable, Identifiable, Hashable, Senda
     premiereDate = try container.decodeIfPresent(String.self, forKey: .premiereDate)
     officialRating = try container.decodeIfPresent(String.self, forKey: .officialRating)
     rating = try container.decodeIfPresent(Double.self, forKey: .rating)
+    criticRating = try? container.decodeIfPresent(Double.self, forKey: .criticRating)
+    ratings =
+      (try? container.decodeIfPresent([MediaServerRatingDTO].self, forKey: .ratings)) ?? []
     durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
     poster = try container.decodeIfPresent(String.self, forKey: .poster)
     backdrop = try container.decodeIfPresent(String.self, forKey: .backdrop)

@@ -48,19 +48,46 @@ struct EngineMediaSource: Sendable {
   let isSameOriginInstance: Bool
   let sameOriginCookie: HTTPCookie?
   let rawExternalSafeURL: URL?
+  let mimeTypeHint: String?
 
   init(
     url: URL,
     headers: [String: String] = [:],
     isSameOriginInstance: Bool = false,
     sameOriginCookie: HTTPCookie? = nil,
-    rawExternalSafeURL: URL? = nil
+    rawExternalSafeURL: URL? = nil,
+    mimeTypeHint: String? = nil
   ) {
     self.url = url
     self.headers = headers
     self.isSameOriginInstance = isSameOriginInstance
     self.sameOriginCookie = sameOriginCookie
     self.rawExternalSafeURL = rawExternalSafeURL
+    self.mimeTypeHint = mimeTypeHint
+  }
+
+  /// 根据文件名提示或 URL 后缀推断无扩展名代理流的 MIME 类型，协助系统解码器即时识别容器。
+  static func inferMimeType(url: URL, fileNameHint: String?) -> String? {
+    let rawExt =
+      !url.pathExtension.isEmpty
+      ? url.pathExtension
+      : ((fileNameHint ?? "") as NSString).pathExtension
+    switch rawExt.lowercased() {
+    case "flac": return "audio/flac"
+    case "mp3": return "audio/mpeg"
+    case "wav": return "audio/wav"
+    case "aac": return "audio/aac"
+    case "m4a", "alac": return "audio/mp4"
+    case "aif", "aiff": return "audio/aiff"
+    case "ogg", "oga", "opus": return "audio/ogg"
+    case "mp4", "m4v": return "video/mp4"
+    case "mov": return "video/quicktime"
+    case "m3u8": return "application/vnd.apple.mpegurl"
+    case "ts", "m2ts": return "video/mp2t"
+    case "mkv": return "video/x-matroska"
+    case "webm": return "video/webm"
+    default: return nil
+    }
   }
 }
 
@@ -81,6 +108,7 @@ struct EngineLoadOptions: Sendable {
 /// 供 `MediaPictureInPictureController` 绑定的底层画中画输出源。
 enum EnginePictureInPictureSource {
   case avPlayerLayer(AVPlayerLayer)
+  case sampleBufferLayer(AVSampleBufferDisplayLayer)
   case vlcSampleBuffer(VLCMediaPlayer, UIView)
   case none
 }
@@ -120,8 +148,15 @@ protocol PlaybackEngine: AnyObject {
   @discardableResult
   func addExternalSubtitle(fileURL: URL) -> Bool
 
+  /// 通知引擎系统画中画窗口是否即将/已经接管输出（用于后台软解渲染保活与恢复前台硬解）。
+  func setPictureInPictureActive(_ active: Bool)
+
   /// 异步释放底层解码器，严禁在 UI 主线程阻塞等待解码/渲染线程退出。
   func stopAndReleaseAsync(on queue: DispatchQueue, completion: (@Sendable () -> Void)?)
+}
+
+extension PlaybackEngine {
+  func setPictureInPictureActive(_ active: Bool) {}
 }
 
 /// iOS 播放偏好统一读写入口（键名严格对齐 `docs/design/multi-engine-playback-design.md`）。

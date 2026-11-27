@@ -98,6 +98,7 @@ import com.moviepilot.designsystem.ExpressiveHeaderActionButton
 import com.moviepilot.designsystem.ExpressiveTintedScaffold
 import com.moviepilot.designsystem.LocalBottomOverlayInset
 import com.moviepilot.designsystem.LocalMoviePilotColors
+import com.moviepilot.designsystem.MultiSourceRatingsRow
 import com.moviepilot.designsystem.NativeAdaptiveBadge
 import com.moviepilot.designsystem.NativeAdaptivePill
 import com.moviepilot.designsystem.NativeCardListSkeleton
@@ -123,6 +124,7 @@ import com.moviepilot.rustbridge.MediaCardItem
 import com.moviepilot.rustbridge.MediaEpisodeDto
 import com.moviepilot.rustbridge.MediaLibraryStatusDto
 import com.moviepilot.rustbridge.MediaPersonDto
+import com.moviepilot.rustbridge.MediaRatingBadgeDto
 import com.moviepilot.rustbridge.MediaSeasonDto
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.SubscribeItemDto
@@ -171,6 +173,7 @@ fun MediaDetailScreen(
     val listState = rememberLazyListState()
 
     var detail by remember(item.resolvedId) { mutableStateOf(item) }
+    var multiRatings by remember(item.resolvedId) { mutableStateOf(repository.seedRatingsForCard(item)) }
     var credits by remember(item.resolvedId) { mutableStateOf<List<MediaPersonDto>>(emptyList()) }
     var seasons by remember(item.resolvedId) { mutableStateOf<List<MediaSeasonDto>>(emptyList()) }
     val episodesBySeason = remember(item.resolvedId) { mutableStateMapOf<Int, List<MediaEpisodeDto>>() }
@@ -267,6 +270,17 @@ fun MediaDetailScreen(
             }
             if (libStatus.inLibrary && !detail.inLibrary) {
                 detail = detail.copy(inLibrary = true)
+            }
+            multiRatings = repository.seedRatingsForCard(detail)
+            launch {
+                val enrichedRatings = repository.fetchMultiSourceRatings(
+                    item = detail,
+                    serverItemId = libStatus.itemId,
+                    serverName = libStatus.server,
+                )
+                if (enrichedRatings.isNotEmpty()) {
+                    multiRatings = enrichedRatings
+                }
             }
             isRefreshing = false
         }
@@ -548,7 +562,16 @@ fun MediaDetailScreen(
                                         textAlign = TextAlign.Center,
                                     )
                                 }
-                                if (detail.voteAverage > 0.0) {
+                                val resolvedDetailRatings = multiRatings.ifEmpty {
+                                    repository.seedRatingsForCard(detail)
+                                }
+                                if (resolvedDetailRatings.isNotEmpty()) {
+                                    MultiSourceRatingsRow(
+                                        badges = resolvedDetailRatings.map { it.source to it.label },
+                                        isDark = colors.isDark,
+                                        compact = isCompactLandscape,
+                                    )
+                                } else if (detail.voteAverage > 0.0) {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Icon(Icons.Rounded.Star, contentDescription = null, tint = Color(0xFFFFC845), modifier = Modifier.size(17.dp))
                                         Text(String.format("%.1f", detail.voteAverage), color = Color(0xFFFFC845), fontWeight = FontWeight.Bold, fontSize = 15.sp)

@@ -1000,6 +1000,12 @@ export interface MpMediaServerEpisode {
   resumePositionMs: number;
 }
 
+/** 单来源媒体评分微标展示模型（如 IMDb / TMDB / 烂番茄新鲜度 / 豆瓣 / Bangumi）。 */
+export interface MpMediaRatingBadge {
+  source: string;
+  label: string;
+}
+
 /** 媒体服务器单个条目完整详情模型（`/api/v1/mediaserver/detail`）。 */
 export interface MpMediaServerDetail {
   itemId: string;
@@ -1015,6 +1021,8 @@ export interface MpMediaServerDetail {
   year: string;
   premiereDate: string;
   rating: number;
+  criticRating?: number;
+  ratings?: MpMediaRatingBadge[];
   officialRating: string;
   durationMs: number;
   posterUrl: string;
@@ -1257,6 +1265,7 @@ export function formatSpeed(bytesPerSec: number): string {
 export class MoviePilotRepository {
   private static instance: MoviePilotRepository | null = null;
   readonly transport: NativeRcpTransport = new NativeRcpTransport();
+  private multiRatingsCache: Map<string, MpMediaRatingBadge[]> = new Map<string, MpMediaRatingBadge[]>();
   baseUrl: string = '';
   token: string = '';
   userName: string = '';
@@ -2698,6 +2707,217 @@ export class MoviePilotRepository {
       });
     }
     return { item: mergedItem, cast: cast, seasons: seasons };
+  }
+
+  private normalizeRatingSourceKey(raw: string): string {
+    const clean = (raw ?? '').trim().toLowerCase();
+    if (clean === 'imdb') { return 'imdb'; }
+    if (clean === 'themoviedb' || clean === 'tmdb') { return 'tmdb'; }
+    if (clean === 'rottentomatoes' || clean === 'rotten_tomatoes' || clean === 'rt' || clean === 'critic') {
+      return 'rottentomatoes';
+    }
+    if (clean === 'douban' || clean === 'douban_movie') { return 'douban'; }
+    if (clean === 'bangumi' || clean === 'bgm') { return 'bangumi'; }
+    if (clean === 'anilist') { return 'anilist'; }
+    if (clean === 'community') { return 'community'; }
+    return '';
+  }
+
+  private orderRatingBadges(scores: Map<string, string>): MpMediaRatingBadge[] {
+    const order: string[] = ['imdb', 'tmdb', 'rottentomatoes', 'douban', 'bangumi', 'anilist'];
+    const out: MpMediaRatingBadge[] = [];
+    for (let i = 0; i < order.length; i++) {
+      const k = order[i];
+      const v = scores.get(k);
+      if (v && v.length > 0) {
+        out.push({ source: k, label: v });
+      }
+    }
+    const hasNamedTenScale = out.some((b: MpMediaRatingBadge) => b.source !== 'rottentomatoes');
+    if (!hasNamedTenScale) {
+      const comm = scores.get('community');
+      if (comm && comm.length > 0) {
+        out.unshift({ source: 'community', label: comm });
+      }
+    }
+    return out;
+  }
+
+  /** 基于手头已有的媒体或媒体库评分构造零延迟初始多元评分列表。 */
+  seedRatingsForItem(
+    item: MpMediaItem,
+    criticRating: number = 0,
+    serverRatings: MpMediaRatingBadge[] = []
+  ): MpMediaRatingBadge[] {
+    const scores: Map<string, string> = new Map<string, string>();
+    for (let i = 0; i < serverRatings.length; i++) {
+      const norm = this.normalizeRatingSourceKey(serverRatings[i].source);
+      if (norm.length > 0 && serverRatings[i].label.length > 0 && !scores.has(norm)) {
+        scores.set(norm, serverRatings[i].label);
+      }
+    }
+    if (!scores.has('rottentomatoes') && Number.isFinite(criticRating) && criticRating > 0) {
+      scores.set('rottentomatoes', `${Math.max(1, Math.min(100, Math.round(criticRating)))}%`);
+    }
+    if (Number.isFinite(item.vote) && item.vote > 0) {
+      const norm = this.normalizeRatingSourceKey(item.source) || 'community';
+      if (!scores.has(norm)) {
+        scores.set(norm, Math.min(10, item.vote).toFixed(1));
+      }
+    }
+    return this.orderRatingBadges(scores);
+  }
+
+  private async recognizeRatingBySource(
+    title: string,
+    year: string,
+    expectedType: string,
+    mediaSource: string
+  ): Promise<string> {
+    const cleanTitle = title.trim();
+    if (!cleanTitle) { return ''; }
+    const queryTitle = year.trim().length >= 4 ? `${cleanTitle} ${year.trim().substring(0, 4)}` : cleanTitle;
+    const q: Record<string, string> = {
+      'title': queryTitle,
+      'media_source': mediaSource
+    };
+    const resp = await this.get(['media', 'recognize'], q);
+    if (resp.status !== 200) { return ''; }
+    const env = unwrapObject(parseJsonSafe(resp.body));
+    const media = env ? asRec(env['media_info']) : null;
+    if (!media) { return ''; }
+    const vote = numVal(media, 'vote_average', 0);
+    if (vote <= 0) { return ''; }
+    const rawType = strVal(media, 'type');
+    if (rawType.length > 0 && normalizeMediaTypeForV3(rawType) !== expectedType) {
+      return '';
+    }
+    if (year.trim().length >= 4) {
+      const reqY = Number(year.trim().substring(0, 4));
+      const gotYearStr = strVal(media, 'year');
+      const gotY = gotYearStr.length >= 4 ? Number(gotYearStr.substring(0, 4)) : NaN;
+      if (Number.isFinite(reqY) && Number.isFinite(gotY) && Math.abs(reqY - gotY) > 1) {
+        return '';
+      }
+    }
+    return Math.min(10, vote).toFixed(1);
+  }
+
+  /**
+   * 异步并发聚合免配置多元评分（IMDb / TMDB / 烂番茄影评新鲜度 / 豆瓣 / Bangumi），带实例隔离内存缓存。
+   */
+  async fetchMultiSourceRatings(
+    item: MpMediaItem,
+    criticRating: number = 0,
+    serverRatings: MpMediaRatingBadge[] = [],
+    serverItemId: string = '',
+    serverName: string = ''
+  ): Promise<MpMediaRatingBadge[]> {
+    const typeName = normalizeMediaTypeForV3(item.type);
+    const idKey = item.tmdbId.trim().length > 0
+      ? `tmdb:${item.tmdbId.trim()}`
+      : ((item.imdbId && item.imdbId.trim().length > 0)
+        ? `imdb:${item.imdbId.trim()}`
+        : (item.doubanId.trim().length > 0 ? `douban:${item.doubanId.trim()}` : `${item.source}:${item.id}`));
+    const cacheKey = `${this.baseUrl}|${typeName}|${idKey}`;
+    const cached = this.multiRatingsCache.get(cacheKey);
+    if (cached && cached.length > 0) {
+      return cached;
+    }
+
+    const scores: Map<string, string> = new Map<string, string>();
+    const seeded = this.seedRatingsForItem(item, criticRating, serverRatings);
+    for (let i = 0; i < seeded.length; i++) {
+      scores.set(seeded[i].source, seeded[i].label);
+    }
+
+    let tmdbId = stripKnownMediaPrefix(item.tmdbId);
+    if (!tmdbId && normalizeMediaSourceCode(item.source) === 'themoviedb') {
+      tmdbId = stripKnownMediaPrefix(item.mediaId || item.id);
+    }
+    let imdbId = stripKnownMediaPrefix(item.imdbId ?? '');
+    let doubanId = stripKnownMediaPrefix(item.doubanId);
+    if (!doubanId && normalizeMediaSourceCode(item.source) === 'douban') {
+      doubanId = stripKnownMediaPrefix(item.mediaId || item.id);
+    }
+    const isBangumiSrc = normalizeMediaSourceCode(item.source) === 'bangumi';
+    const bangumiId = isBangumiSrc ? stripKnownMediaPrefix(item.mediaId || item.id) : '';
+    let title = item.title.trim();
+    let year = item.year.trim();
+
+    if (tmdbId.length > 0 && (!scores.has('tmdb') || imdbId.length === 0)) {
+      try {
+        const q: Record<string, string> = { 'media_source': 'themoviedb', 'type_name': typeName };
+        const resp = await this.get(['media', tmdbId], q);
+        if (resp.status === 200) {
+          const r = unwrapObject(parseJsonSafe(resp.body));
+          if (r) {
+            const v = numVal(r, 'vote_average', 0);
+            if (v > 0 && !scores.has('tmdb')) {
+              scores.set('tmdb', Math.min(10, v).toFixed(1));
+            }
+            if (!imdbId) { imdbId = stripKnownMediaPrefix(strVal(r, 'imdb_id')); }
+            if (!doubanId) { doubanId = stripKnownMediaPrefix(strVal(r, 'douban_id')); }
+            if (!title) { title = strVal(r, 'title'); }
+            if (!year) { year = strVal(r, 'year'); }
+          }
+        }
+      } catch {
+        // ignore tmdb enrichment failure
+      }
+    }
+
+    const fetchById = async (src: string, rawId: string): Promise<string> => {
+      if (!rawId || rawId === '0') { return ''; }
+      try {
+        const q: Record<string, string> = { 'media_source': src, 'type_name': typeName };
+        const resp = await this.get(['media', rawId], q);
+        if (resp.status !== 200) { return ''; }
+        const r = unwrapObject(parseJsonSafe(resp.body));
+        const v = r ? numVal(r, 'vote_average', 0) : 0;
+        return v > 0 ? Math.min(10, v).toFixed(1) : '';
+      } catch {
+        return '';
+      }
+    };
+
+    const tasks = await Promise.all([
+      (!scores.has('imdb') && imdbId.toLowerCase().startsWith('tt'))
+        ? fetchById('imdb', imdbId)
+        : Promise.resolve(''),
+      !scores.has('douban')
+        ? (doubanId.length > 0 ? fetchById('douban', doubanId) : this.recognizeRatingBySource(title, year, typeName, 'douban'))
+        : Promise.resolve(''),
+      (!scores.has('bangumi') && bangumiId.length > 0)
+        ? fetchById('bangumi', bangumiId)
+        : Promise.resolve(''),
+      (!scores.has('rottentomatoes') && serverItemId.trim().length > 0)
+        ? this.fetchMediaServerDetail(serverItemId.trim(), serverName)
+        : Promise.resolve(null as MpMediaServerDetail | null)
+    ]);
+
+    if (tasks[0].length > 0 && !scores.has('imdb')) { scores.set('imdb', tasks[0]); }
+    if (tasks[1].length > 0 && !scores.has('douban')) { scores.set('douban', tasks[1]); }
+    if (tasks[2].length > 0 && !scores.has('bangumi')) { scores.set('bangumi', tasks[2]); }
+    const srvDetail = tasks[3];
+    if (srvDetail) {
+      const srvRatings = srvDetail.ratings ?? [];
+      for (let i = 0; i < srvRatings.length; i++) {
+        const norm = this.normalizeRatingSourceKey(srvRatings[i].source);
+        if (norm.length > 0 && srvRatings[i].label.length > 0 && !scores.has(norm)) {
+          scores.set(norm, srvRatings[i].label);
+        }
+      }
+      if (!scores.has('rottentomatoes') && srvDetail.criticRating && srvDetail.criticRating > 0) {
+        scores.set('rottentomatoes', `${Math.max(1, Math.min(100, Math.round(srvDetail.criticRating)))}%`);
+      }
+    }
+
+    const ordered = this.orderRatingBadges(scores);
+    if (ordered.length > 0) {
+      this.multiRatingsCache.set(cacheKey, ordered);
+    }
+    return ordered;
   }
 
   /**
@@ -5455,6 +5675,21 @@ export class MoviePilotRepository {
       doubanId = rawMediaIdVal;
     }
 
+    const parsedRatings: MpMediaRatingBadge[] = [];
+    const ratingsRaw = asArr(r['ratings']);
+    for (let i = 0; i < ratingsRaw.length; i++) {
+      const rr = asRec(ratingsRaw[i]);
+      if (!rr) { continue; }
+      const normSrc = this.normalizeRatingSourceKey(strVal(rr, 'source'));
+      const val = numVal(rr, 'value', 0);
+      if (!normSrc || val <= 0) { continue; }
+      const scale = strVal(rr, 'scale', 'ten').toLowerCase();
+      const label = scale === 'percent'
+        ? `${Math.max(1, Math.min(100, Math.round(val)))}%`
+        : Math.min(10, val).toFixed(1);
+      parsedRatings.push({ source: normSrc, label: label });
+    }
+
     return {
       itemId: strVal(r, 'item_id', cleanId),
       server: strVal(r, 'server', server),
@@ -5469,6 +5704,8 @@ export class MoviePilotRepository {
       year: strVal(r, 'year'),
       premiereDate: strVal(r, 'premiere_date'),
       rating: numVal(r, 'rating', 0),
+      criticRating: numVal(r, 'critic_rating', 0),
+      ratings: parsedRatings,
       officialRating: strVal(r, 'official_rating'),
       durationMs: Math.round(numVal(r, 'duration_ms', 0)),
       posterUrl: this.resolveImageUrl(strVal(r, 'poster') || strVal(r, 'image'), useCookies),

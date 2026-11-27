@@ -1454,6 +1454,7 @@ export struct HarmonyDownloadsPage {
                   }.width('100%')
 
                   Row({ space: 10 }) {
+                    Blank()
                     Button(this.isPaused(task.state) ? '恢复' : '暂停')
                       .height(32).padding({ left: 14, right: 14 }).borderRadius(16).fontSize(12)
                       .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
@@ -1461,16 +1462,6 @@ export struct HarmonyDownloadsPage {
                       .onClick(async () => {
                         const ok = await MoviePilotRepository.shared().toggleDownloadTask(task.hash, task.downloader, !this.isPaused(task.state));
                         this.notice = ok ? (this.isPaused(task.state) ? '已恢复任务' : '已暂停任务') : '操作失败';
-                        await this.loadDownloads();
-                      })
-                    Blank()
-                    Button('删除')
-                      .height(32).padding({ left: 14, right: 14 }).borderRadius(16).fontSize(12)
-                      .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
-                      .fontColor('#E84855')
-                      .onClick(async () => {
-                        const ok = await MoviePilotRepository.shared().deleteDownloadTask(task.hash, task.downloader);
-                        this.notice = ok ? '已删除下载任务' : '删除失败';
                         await this.loadDownloads();
                       })
                   }.width('100%')

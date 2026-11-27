@@ -73,8 +73,10 @@ export {
 export {
   resolveEntityLogoAsset,
   clearEntityLogoCache,
+  HarmonyRatingBadgeItem,
   HarmonyEntityLogo,
-  HarmonyEntityLogoPill
+  HarmonyEntityLogoPill,
+  HarmonyMultiRatingsRow
 } from './src/main/ets/components/HarmonyEntityLogo';
 
 export {

@@ -93,6 +93,7 @@ class MoviePilotRepository(context: Context) {
 
     private val siteIconCache = ConcurrentHashMap<Int, String>()
     private val mediaLogoCache = ConcurrentHashMap<String, String>()
+    private val multiRatingsCache = ConcurrentHashMap<String, List<MediaRatingBadgeDto>>()
     private val resourceRawCache = ConcurrentHashMap<String, JsonObject>()
     @Volatile
     private var resourceCookiePrimed = false
@@ -129,6 +130,7 @@ class MoviePilotRepository(context: Context) {
         cachedMarketPlugins = null
         siteIconCache.clear()
         mediaLogoCache.clear()
+        multiRatingsCache.clear()
         resourceRawCache.clear()
     }
 
@@ -1051,6 +1053,199 @@ class MoviePilotRepository(context: Context) {
         val key = "${identity.first}:${identity.second}"
         mediaLogoCache[key]?.let { return it }
         return fetchMediaDetail(item)?.logoPath
+    }
+
+    /** 基于手头已有评分构造零延迟初始多元评分微标列表。 */
+    fun seedRatingsForCard(
+        item: MediaCardItem,
+        criticRating: Double = 0.0,
+        serverRatings: List<MediaRatingBadgeDto> = emptyList(),
+    ): List<MediaRatingBadgeDto> {
+        val bySrc = LinkedHashMap<String, String>()
+        serverRatings.forEach { badge ->
+            val norm = normalizeRatingSourceKey(badge.source)
+            if (badge.label.isNotBlank() && norm != null && !bySrc.containsKey(norm)) {
+                bySrc[norm] = badge.label
+            }
+        }
+        if (!bySrc.containsKey("rottentomatoes") && criticRating > 0.0) {
+            bySrc["rottentomatoes"] = "${criticRating.roundToInt().coerceIn(1, 100)}%"
+        }
+        if (item.voteAverage > 0.0) {
+            val norm = normalizeRatingSourceKey(item.source) ?: "community"
+            bySrc.putIfAbsent(norm, String.format(java.util.Locale.US, "%.1f", item.voteAverage.coerceAtMost(10.0)))
+        }
+        return orderRatingBadges(bySrc)
+    }
+
+    private fun normalizeRatingSourceKey(raw: String?): String? = when (raw?.trim()?.lowercase()) {
+        "imdb" -> "imdb"
+        "themoviedb", "tmdb" -> "tmdb"
+        "rottentomatoes", "rotten_tomatoes", "rt", "critic" -> "rottentomatoes"
+        "douban", "douban_movie" -> "douban"
+        "bangumi", "bgm" -> "bangumi"
+        "anilist" -> "anilist"
+        "community" -> "community"
+        else -> null
+    }
+
+    private fun orderRatingBadges(map: Map<String, String>): List<MediaRatingBadgeDto> {
+        val order = listOf("imdb", "tmdb", "rottentomatoes", "douban", "bangumi", "anilist")
+        val out = mutableListOf<MediaRatingBadgeDto>()
+        for (src in order) {
+            val label = map[src]
+            if (!label.isNullOrBlank()) out += MediaRatingBadgeDto(src, label)
+        }
+        val hasNamedTenScale = out.any { it.source != "rottentomatoes" }
+        if (!hasNamedTenScale) {
+            map["community"]?.takeIf { it.isNotBlank() }?.let { out.add(0, MediaRatingBadgeDto("community", it)) }
+        }
+        return out
+    }
+
+    /**
+     * 异步并发聚合免配置多元评分（IMDb / TMDB / 烂番茄影评新鲜度 / 豆瓣 / Bangumi），带会话级内存缓存。
+     */
+    suspend fun fetchMultiSourceRatings(
+        item: MediaCardItem,
+        criticRating: Double = 0.0,
+        serverRatings: List<MediaRatingBadgeDto> = emptyList(),
+        serverItemId: String? = null,
+        serverName: String? = null,
+    ): List<MediaRatingBadgeDto> {
+        val typeName = canonicalMediaType(item.type)
+        val cacheKey = buildString {
+            append(typeName).append('|')
+            append(item.tmdbId?.let { "tmdb:$it" } ?: item.imdbId?.takeIf { it.isNotBlank() }?.let { "imdb:$it" }
+                ?: item.doubanId?.takeIf { it.isNotBlank() }?.let { "douban:$it" } ?: item.resolvedId)
+        }
+        multiRatingsCache[cacheKey]?.takeIf { it.isNotEmpty() }?.let { return it }
+
+        val scores = LinkedHashMap<String, String>()
+        seedRatingsForCard(item, criticRating, serverRatings).forEach { scores[it.source] = it.label }
+
+        var tmdbId = item.tmdbId?.toString()
+            ?: (if (item.source.equals("themoviedb", true) || item.source.equals("tmdb", true)) item.mediaId?.substringAfterLast(':') else null)
+        var imdbId = item.imdbId?.takeIf { it.isNotBlank() }
+            ?: (if (item.source.equals("imdb", true)) item.mediaId?.substringAfterLast(':') else null)
+        var doubanId = item.doubanId?.takeIf { it.isNotBlank() }
+            ?: (if (item.source.equals("douban", true)) item.mediaId?.substringAfterLast(':') else null)
+        val bangumiId = item.bangumiId?.toString()
+            ?: (if (item.source.equals("bangumi", true)) item.mediaId?.substringAfterLast(':') else null)
+        var title = item.title.trim()
+        var year = item.year.trim()
+        var genres = item.genres
+
+        if (!tmdbId.isNullOrBlank() && (!scores.containsKey("tmdb") || imdbId.isNullOrBlank())) {
+            val resp = authedRequest(
+                segments = listOf("media", tmdbId),
+                query = listOf("media_source" to "themoviedb", "type_name" to typeName),
+            ).getOrNull()
+            val obj = if (resp != null && resp.status in 200..299) extractObject(resp.body) else null
+            if (obj != null) {
+                val v = obj.dbl("vote_average") ?: 0.0
+                if (v > 0.0 && !scores.containsKey("tmdb")) {
+                    scores["tmdb"] = String.format(java.util.Locale.US, "%.1f", v.coerceAtMost(10.0))
+                }
+                if (imdbId.isNullOrBlank()) imdbId = obj.str("imdb_id")?.takeIf { it.isNotBlank() }
+                if (doubanId.isNullOrBlank()) doubanId = obj.str("douban_id")?.takeIf { it.isNotBlank() }
+                if (title.isBlank()) title = obj.str("title").orEmpty()
+                if (year.isBlank()) year = obj.str("year").orEmpty()
+                if (genres.isEmpty()) genres = parseMediaCard(obj)?.genres.orEmpty()
+            }
+        }
+
+        val isAnime = item.source.equals("bangumi", true) || item.source.equals("anilist", true) ||
+            genres.any { it.contains("动画") || it.equals("Animation", true) }
+
+        coroutineScope {
+            val imdbDef = async {
+                val id = imdbId?.trim()
+                if (!scores.containsKey("imdb") && !id.isNullOrBlank() && id.startsWith("tt", true)) {
+                    val r = authedRequest(
+                        segments = listOf("media", id),
+                        query = listOf("media_source" to "imdb", "type_name" to typeName),
+                    ).getOrNull()
+                    val v = if (r != null && r.status in 200..299) extractObject(r.body)?.dbl("vote_average") ?: 0.0 else 0.0
+                    if (v > 0.0) String.format(java.util.Locale.US, "%.1f", v.coerceAtMost(10.0)) else null
+                } else null
+            }
+            val doubanDef = async {
+                if (scores.containsKey("douban")) return@async null
+                val id = doubanId?.trim()
+                if (!id.isNullOrBlank() && id != "0") {
+                    val r = authedRequest(
+                        segments = listOf("media", id),
+                        query = listOf("media_source" to "douban", "type_name" to typeName),
+                    ).getOrNull()
+                    val v = if (r != null && r.status in 200..299) extractObject(r.body)?.dbl("vote_average") ?: 0.0 else 0.0
+                    return@async if (v > 0.0) String.format(java.util.Locale.US, "%.1f", v.coerceAtMost(10.0)) else null
+                }
+                if (title.isBlank()) return@async null
+                recognizeRatingBySource(title, year, typeName, "douban")
+            }
+            val bangumiDef = async {
+                if (scores.containsKey("bangumi")) return@async null
+                val id = bangumiId?.trim()
+                if (!id.isNullOrBlank() && id != "0") {
+                    val r = authedRequest(
+                        segments = listOf("media", id),
+                        query = listOf("media_source" to "bangumi", "type_name" to typeName),
+                    ).getOrNull()
+                    val v = if (r != null && r.status in 200..299) extractObject(r.body)?.dbl("vote_average") ?: 0.0 else 0.0
+                    return@async if (v > 0.0) String.format(java.util.Locale.US, "%.1f", v.coerceAtMost(10.0)) else null
+                }
+                if (!isAnime || title.isBlank()) return@async null
+                recognizeRatingBySource(title, year, typeName, "bangumi")
+            }
+            val srvDef = async {
+                val sid = serverItemId?.trim()
+                if (!scores.containsKey("rottentomatoes") && !sid.isNullOrBlank()) {
+                    fetchMediaServerItemDetail(sid, serverName, enrichMetadata = false)
+                } else null
+            }
+
+            imdbDef.await()?.let { scores.putIfAbsent("imdb", it) }
+            doubanDef.await()?.let { scores.putIfAbsent("douban", it) }
+            bangumiDef.await()?.let { scores.putIfAbsent("bangumi", it) }
+            srvDef.await()?.let { srv ->
+                srv.ratings.forEach { b ->
+                    normalizeRatingSourceKey(b.source)?.let { k -> if (b.label.isNotBlank()) scores.putIfAbsent(k, b.label) }
+                }
+                if (srv.criticRating > 0.0) {
+                    scores.putIfAbsent("rottentomatoes", "${srv.criticRating.roundToInt().coerceIn(1, 100)}%")
+                }
+            }
+        }
+
+        val ordered = orderRatingBadges(scores)
+        if (ordered.isNotEmpty()) {
+            multiRatingsCache[cacheKey] = ordered
+        }
+        return ordered
+    }
+
+    private suspend fun recognizeRatingBySource(
+        title: String,
+        year: String,
+        expectedType: String,
+        mediaSource: String,
+    ): String? {
+        val queryTitle = if (year.length >= 4) "$title ${year.take(4)}" else title
+        val resp = authedRequest(
+            segments = listOf("media", "recognize"),
+            query = listOf("title" to queryTitle, "media_source" to mediaSource),
+        ).getOrNull() ?: return null
+        if (resp.status !in 200..299) return null
+        val media = extractObject(resp.body)?.get("media_info").asObj() ?: return null
+        val vote = media.dbl("vote_average") ?: 0.0
+        if (vote <= 0.0) return null
+        val gotType = media.str("type")?.let { canonicalMediaType(it) }
+        if (!gotType.isNullOrBlank() && gotType != expectedType) return null
+        val reqY = year.take(4).toIntOrNull()
+        val gotY = media.str("year")?.take(4)?.toIntOrNull()
+        if (reqY != null && gotY != null && kotlin.math.abs(reqY - gotY) > 1) return null
+        return String.format(java.util.Locale.US, "%.1f", vote.coerceAtMost(10.0))
     }
 
     /** 拉取影视演职员列表（自动路由 TMDB / 豆瓣 / Bangumi）。 */
@@ -4388,6 +4583,20 @@ class MoviePilotRepository(context: Context) {
             resolvedServerType = fetchMediaServers().firstOrNull { it.name.equals(resolvedServer, ignoreCase = true) }?.type.orEmpty()
         }
 
+        val serverRatings = obj["ratings"].asArr().orEmpty().mapNotNull { rEl ->
+            val rObj = rEl.asObj() ?: return@mapNotNull null
+            val src = normalizeRatingSourceKey(rObj.str("source")) ?: return@mapNotNull null
+            val value = rObj.dbl("value") ?: 0.0
+            if (value <= 0.0) return@mapNotNull null
+            val scale = rObj.str("scale")?.lowercase() ?: "ten"
+            val label = if (scale == "percent") {
+                "${value.roundToInt().coerceIn(1, 100)}%"
+            } else {
+                String.format(java.util.Locale.US, "%.1f", value.coerceAtMost(10.0))
+            }
+            MediaRatingBadgeDto(src, label)
+        }
+
         var detail = MediaServerItemDetailDto(
             itemId = obj.str("item_id") ?: itemId,
             server = resolvedServer,
@@ -4403,6 +4612,8 @@ class MoviePilotRepository(context: Context) {
             premiereDate = obj.str("premiere_date").orEmpty(),
             officialRating = obj.str("official_rating").orEmpty(),
             rating = obj.dbl("rating") ?: 0.0,
+            criticRating = obj.dbl("critic_rating") ?: 0.0,
+            ratings = serverRatings,
             durationMs = obj.lng("duration_ms"),
             poster = resolveImageUrl(obj.str("poster") ?: obj.str("image"), maxWidth = 600, useCookies = useCookies),
             backdrop = resolveImageUrl(obj.str("backdrop") ?: obj.str("backdrop_path"), maxWidth = 1280, useCookies = useCookies),

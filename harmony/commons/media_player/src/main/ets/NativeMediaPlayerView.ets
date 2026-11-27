@@ -1,5 +1,6 @@
 import { media } from '@kit.MediaKit';
 import { audio } from '@kit.AudioKit';
+import { common, Want } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import {
@@ -74,7 +75,7 @@ export {
   AudioStateListener
 };
 
-type PlayerSheetKind = 'none' | 'subtitles' | 'audioTracks' | 'speed' | 'queue' | 'engine' | 'danmakuSettings' | 'danmakuMatch';
+type PlayerSheetKind = 'none' | 'subtitles' | 'audioTracks' | 'speed' | 'queue' | 'engine' | 'cast' | 'danmakuSettings' | 'danmakuMatch';
 type PanGestureAxisMode = 'undecided' | 'scrub' | 'brightness' | 'volume';
 
 /**
@@ -1922,6 +1923,23 @@ export struct NativeMediaPlayerView {
     this.clearControlsAutoHideTimer();
   }
 
+  private openSystemCastOrBluetoothSettings(targetUri: string, fallbackHint: string): void {
+    const ctx = this.getUIContext().getHostContext();
+    if (!ctx) {
+      this.showTransientHud('waveform', fallbackHint, 2400);
+      return;
+    }
+    const abilityCtx = ctx as common.UIAbilityContext;
+    const want: Want = {
+      bundleName: 'com.huawei.hmos.settings',
+      abilityName: 'com.huawei.hmos.settings.MainAbility',
+      uri: targetUri
+    };
+    abilityCtx.startAbility(want).catch(() => {
+      this.showTransientHud('waveform', fallbackHint, 2600);
+    });
+  }
+
   private handleVideoDoubleTap(ev: GestureEvent): void {
     if (this.request.isAudio || this.isLocked) {
       return;
@@ -2313,6 +2331,18 @@ export struct NativeMediaPlayerView {
             })
 
             Stack() {
+              SymbolGlyph($r('sys.symbol.TV_tv'))
+                .fontSize(18)
+                .fontColor([Color.White])
+            }
+            .width(38)
+            .height(38)
+            .borderRadius(19)
+            .backgroundColor('#33FFFFFF')
+            .accessibilityText('投屏与音频流转')
+            .onClick(() => this.openSheet('cast'))
+
+            Stack() {
               SymbolGlyph($r('sys.symbol.dot_grid_1x2'))
                 .fontSize(20)
                 .fontColor([Color.White])
@@ -2585,11 +2615,13 @@ export struct NativeMediaPlayerView {
                 ? '播放倍速'
                 : (this.activeSheetKind === 'engine'
                   ? '更多播放选项'
-                  : (this.activeSheetKind === 'danmakuSettings'
-                    ? '弹幕设置'
-                    : (this.activeSheetKind === 'danmakuMatch'
-                      ? '搜索弹幕剧集'
-                      : (this.request.isAudio ? '播放队列' : '剧集选集'))))))
+                  : (this.activeSheetKind === 'cast'
+                    ? '投屏与音频流转'
+                    : (this.activeSheetKind === 'danmakuSettings'
+                      ? '弹幕设置'
+                      : (this.activeSheetKind === 'danmakuMatch'
+                        ? '搜索弹幕剧集'
+                        : (this.request.isAudio ? '播放队列' : '剧集选集')))))))
         )
           .fontSize(17)
           .fontWeight(FontWeight.Bold)
@@ -2930,6 +2962,99 @@ export struct NativeMediaPlayerView {
               launchHarmonyExternalPlayer(ctx, this.activeVideoReq).then((ok: boolean) => {
                 if (!ok) {
                   this.showTransientHud('xmark', '未找到可用的外部播放器');
+                }
+              }).catch(() => {});
+            })
+          }
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, bottom: 20 })
+      } else if (this.activeSheetKind === 'cast') {
+        Column({ space: 10 }) {
+          Text('通过鸿蒙无线投屏（Cast+）或播控中心流转，可将音视频输出至智慧屏、电视或无线音箱。')
+            .fontSize(12.5)
+            .fontColor('#99FFFFFF')
+            .width('100%')
+
+          Row() {
+            Column({ space: 3 }) {
+              Text('无线投屏（Cast+ / 智慧屏镜像）')
+                .fontSize(15)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Color.White)
+              Text('兼容全部播放内核、外挂字幕与实时弹幕')
+                .fontSize(12)
+                .fontColor('#99FFFFFF')
+            }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+            SymbolGlyph($r('sys.symbol.TV_tv')).fontSize(18).fontColor(['#317AF7'])
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+          .borderRadius(14)
+          .backgroundColor('#18FFFFFF')
+          .onClick(() => {
+            this.showPlayerSheet = false;
+            this.openSystemCastOrBluetoothSettings(
+              'multi_device_collaboration_settings',
+              '请从右上角下拉控制中心开启「无线投屏」'
+            );
+          })
+
+          Row() {
+            Column({ space: 3 }) {
+              Text('蓝牙与无线音频输出')
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Color.White)
+              Text('切换至蓝牙耳机、华为音箱或播控中心音频设备')
+                .fontSize(12)
+                .fontColor('#99FFFFFF')
+            }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+            SymbolGlyph($r('sys.symbol.speaker_wave_2_fill')).fontSize(18).fontColor(['#317AF7'])
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+          .borderRadius(14)
+          .backgroundColor('#18FFFFFF')
+          .onClick(() => {
+            this.showPlayerSheet = false;
+            this.openSystemCastOrBluetoothSettings(
+              'bluetooth_entry',
+              '请从右上角下拉播控中心切换音频输出设备'
+            );
+          })
+
+          if (resolveSafeExternalUri(this.request.isAudio ? this.request : this.activeVideoReq).length > 0) {
+            Row() {
+              Column({ space: 3 }) {
+                Text('使用外部 DLNA 投屏应用打开')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Color.White)
+                Text('通过系统安全打开无凭据直链或本机媒体文件')
+                  .fontSize(12)
+                  .fontColor('#99FFFFFF')
+              }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+              SymbolGlyph($r('sys.symbol.arrow_up_right')).fontSize(16).fontColor(['#CCFFFFFF'])
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+            .borderRadius(14)
+            .backgroundColor('#18FFFFFF')
+            .onClick(() => {
+              this.showPlayerSheet = false;
+              if (this.request.isAudio) {
+                if (HarmonyAudioSession.shared().isPlaying()) {
+                  HarmonyAudioSession.shared().togglePlayPause();
+                }
+              } else {
+                this.setVideoPlaying(false);
+              }
+              const ctx = this.getUIContext().getHostContext() ?? undefined;
+              const targetReq = this.request.isAudio ? this.request : this.activeVideoReq;
+              launchHarmonyExternalPlayer(ctx, targetReq).then((ok: boolean) => {
+                if (!ok) {
+                  this.showTransientHud('xmark', '未找到可用的外部投屏或播放应用');
                 }
               }).catch(() => {});
             })
@@ -3679,6 +3804,18 @@ export struct NativeMediaPlayerView {
                   this.pipController.startManualPip().catch(() => {});
                 })
               }
+
+              Stack() {
+                SymbolGlyph($r('sys.symbol.TV_tv'))
+                  .fontSize(19)
+                  .fontColor([Color.White])
+              }
+              .width(38)
+              .height(38)
+              .borderRadius(19)
+              .backgroundColor('#55000000')
+              .accessibilityText('投屏与无线流转')
+              .onClick(() => this.openSheet('cast'))
 
               Stack() {
                 SymbolGlyph($r('sys.symbol.full_screen_tv'))

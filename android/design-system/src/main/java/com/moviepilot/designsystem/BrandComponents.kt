@@ -147,6 +147,137 @@ fun NativeAdaptiveBadge(
 }
 
 /**
+ * 发现页主视觉与影视/媒体库详情页共用的紧凑多元评分微标横排（品牌微图标 + 分数）。
+ *
+ * @param badges 按展示顺序排列的 `(source, formattedScore)` 列表
+ * @param isDark 当前是否处于深色背景或暗色头图之上
+ * @param compact 是否使用紧凑字号（横屏窄高等场景）
+ * @param modifier 外部修饰符
+ */
+@Composable
+fun MultiSourceRatingsRow(
+    badges: List<Pair<String, String>>,
+    isDark: Boolean,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    if (badges.isEmpty()) return
+    val colors = LocalMoviePilotColors.current
+    val textColor = if (isDark) Color.White else colors.textPrimary
+    val iconSize = if (compact) 14.dp else 15.5.dp
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 9.dp else 12.dp),
+    ) {
+        badges.forEach { (rawSource, scoreText) ->
+            if (scoreText.isBlank()) return@forEach
+            val src = rawSource.trim().lowercase()
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                when (src) {
+                    "imdb" -> {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.5.dp))
+                                .background(Color(0xFFF5C518))
+                                .padding(horizontal = 4.5.dp, vertical = 1.2.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "IMDb",
+                                color = Color(0xFF141414),
+                                fontSize = if (compact) 8.5.sp else 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    "rottentomatoes", "rt", "critic" -> {
+                        Box(
+                            modifier = Modifier.size(iconSize),
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 1.5.dp)
+                                    .size(iconSize - 1.5.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFA320A)),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 6.5.dp, height = 2.6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF2EA84A)),
+                            )
+                        }
+                    }
+                    "douban" -> {
+                        NativeEntityLogo(
+                            kind = "datasource",
+                            value = "douban",
+                            size = iconSize,
+                            cornerRadius = 3.8.dp,
+                        )
+                    }
+                    "bangumi", "bgm" -> {
+                        NativeEntityLogo(
+                            kind = "datasource",
+                            value = "bangumi",
+                            size = iconSize,
+                            cornerRadius = 3.8.dp,
+                        )
+                    }
+                    "anilist" -> {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.5.dp))
+                                .background(Color(0xFF02A9FF))
+                                .padding(horizontal = 4.dp, vertical = 1.2.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "AL",
+                                color = Color.White,
+                                fontSize = if (compact) 8.5.sp else 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    "community" -> {
+                        Text(
+                            text = "★",
+                            color = Color(0xFFFFC845),
+                            fontSize = if (compact) 11.sp else 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    else -> {
+                        NativeEntityLogo(
+                            kind = "datasource",
+                            value = "themoviedb",
+                            size = iconSize,
+                            cornerRadius = 3.8.dp,
+                        )
+                    }
+                }
+                Text(
+                    text = scoreText,
+                    color = textColor,
+                    fontSize = if (compact) 11.5.sp else 12.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
  * Material 3 Expressive 一级页面切换页签栏：
  * - 委托 `ExpressivePillTabRow` 绘制柔和主色激活胶囊 + 正下方迷你居中小横杠指示器，
  *   配合 `HorizontalPager` 实现整屏丝滑滑动切换。

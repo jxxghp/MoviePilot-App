@@ -1547,9 +1547,6 @@ fun DownloadsScreen(
                                                 tint = colors.textPrimary,
                                             )
                                         }
-                                        IconButton(onClick = { confirmDeleteTask = task }) {
-                                            Icon(Icons.Rounded.Delete, contentDescription = "删除任务", tint = colors.danger)
-                                        }
                                     }
                                 }
 

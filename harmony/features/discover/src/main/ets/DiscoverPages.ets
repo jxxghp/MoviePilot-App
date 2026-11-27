@@ -2,6 +2,7 @@ import { promptAction } from '@kit.ArkUI';
 import {
   MoviePilotRepository,
   MpMediaItem,
+  MpMediaRatingBadge,
   MpMediaSearchSource,
   MpCastMember,
   MpMediaServerLibrary,
@@ -25,6 +26,7 @@ import {
   HarmonyThemeColors,
   HarmonyEntityLogo,
   HarmonyEntityLogoPill,
+  HarmonyMultiRatingsRow,
   HarmonySkeletonHost,
   HarmonySkeletonBlock,
   HarmonyDiscoverSkeleton,
@@ -276,6 +278,7 @@ export struct HarmonyDiscoverPage {
   @State private loading: boolean = true;
   @State private scrollOffsetY: number = 0;
   @State private heroItems: MpMediaItem[] = [];
+  @State private heroRatings: Record<string, MpMediaRatingBadge[]> = {};
   @State private trendingItems: MpMediaItem[] = [];
   @State private continueItems: MpMediaItem[] = [];
   @State private libraries: MpMediaServerLibrary[] = [];
@@ -346,7 +349,27 @@ export struct HarmonyDiscoverPage {
       // keep existing state
     }
     this.loading = false;
+    this.enrichHeroRatings();
     await this.loadOptionalModulesIfNeeded();
+  }
+
+  private enrichHeroRatings(): void {
+    const repo = MoviePilotRepository.shared();
+    const heroes = this.heroItems.slice(0, 6);
+    for (let i = 0; i < heroes.length; i++) {
+      const h = heroes[i];
+      repo.fetchMultiSourceRatings(h).then((badges: MpMediaRatingBadge[]) => {
+        if (badges.length > 0) {
+          const nextMap: Record<string, MpMediaRatingBadge[]> = {};
+          const keys = Object.keys(this.heroRatings);
+          for (let k = 0; k < keys.length; k++) {
+            nextMap[keys[k]] = this.heroRatings[keys[k]];
+          }
+          nextMap[h.id] = badges;
+          this.heroRatings = nextMap;
+        }
+      }).catch(() => {});
+    }
   }
 
   private async loadOptionalModulesIfNeeded(): Promise<void> {
@@ -1120,35 +1143,18 @@ export struct HarmonyDiscoverPage {
                           .constraintSize({ maxWidth: 640 })
                       }
                       Row({ space: 10 }) {
-                        Row({ space: 5 }) {
-                          HarmonyEntityLogo({
-                            kind: 'media_source',
-                            value: hero.source || 'themoviedb',
-                            logoSize: 15,
-                            cornerRadius: 4
+                        if ((this.heroRatings[hero.id] ?? MoviePilotRepository.shared().seedRatingsForItem(hero)).length > 0) {
+                          HarmonyMultiRatingsRow({
+                            badges: this.heroRatings[hero.id] ?? MoviePilotRepository.shared().seedRatingsForItem(hero),
+                            forceLightText: true,
+                            compact: this.isShortLandscape()
                           })
-                          Text((hero.source || '').toLowerCase().includes('douban')
-                            ? '豆瓣'
-                            : ((hero.source || '').toLowerCase().includes('bangumi') ? 'Bangumi' : 'TheMovieDB'))
-                            .fontSize(11.5)
-                            .fontWeight(FontWeight.Bold)
+                        } else {
+                          Text('查看详情 ›')
+                            .fontSize(13)
+                            .fontWeight(FontWeight.Medium)
                             .fontColor(Color.White)
                         }
-                        .padding({ left: 8, right: 9, top: 4, bottom: 4 })
-                        .borderRadius(11)
-                        .backgroundColor('#52000000')
-                        .border({ width: 0.6, color: '#38FFFFFF', radius: 11 })
-
-                        if (hero.vote > 0) {
-                          Text(`★ ${hero.vote.toFixed(1)}`)
-                            .fontSize(13)
-                            .fontWeight(FontWeight.Bold)
-                            .fontColor('#FFE27A')
-                        }
-                        Text('查看详情 ›')
-                          .fontSize(13)
-                          .fontWeight(FontWeight.Medium)
-                          .fontColor(Color.White)
                       }
                       .margin({ top: this.isShortLandscape() ? 2 : 4 })
                     }

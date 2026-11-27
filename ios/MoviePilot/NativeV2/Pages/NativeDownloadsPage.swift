@@ -362,71 +362,53 @@ struct NativeDownloadsPage: View {
             .truncationMode(.tail)
           Spacer(minLength: 6)
           if canManage {
-            HStack(spacing: 8) {
-              Button {
-                Task { await toggleTaskState(task) }
-              } label: {
-                HStack(spacing: 4) {
-                  if isMutating {
-                    ProgressView().controlSize(.mini).tint(.primary)
-                  } else {
-                    Image(systemName: task.isPaused ? "play.fill" : "pause.fill")
-                      .font(.caption2.weight(.semibold))
-                  }
-                  Text(task.isPaused ? "继续" : "暂停")
-                    .font(.caption.weight(.semibold))
+            Button {
+              Task { await toggleTaskState(task) }
+            } label: {
+              HStack(spacing: 4) {
+                if isMutating {
+                  ProgressView().controlSize(.mini).tint(.primary)
+                } else {
+                  Image(systemName: task.isPaused ? "play.fill" : "pause.fill")
+                    .font(.caption2.weight(.semibold))
                 }
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background {
-                  Capsule()
-                    .fill(.primary.opacity(colorScheme == .dark ? 0.14 : 0.09))
-                    .overlay {
-                      Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6)
-                    }
-                }
-                .frame(minHeight: 32)
-              }
-              .buttonStyle(.plain)
-              .disabled(mutatingHash != nil)
-              .accessibilityIdentifier("native-download-toggle-\(task.hash)")
-
-              Button {
-                pendingDelete = task
-              } label: {
-                Image(systemName: "trash")
+                Text(task.isPaused ? "继续" : "暂停")
                   .font(.caption.weight(.semibold))
-                  .foregroundStyle(.primary.opacity(0.72))
-                  .frame(width: 32, height: 32)
-                  .background {
-                    Circle()
-                      .fill(.primary.opacity(colorScheme == .dark ? 0.11 : 0.07))
-                      .overlay {
-                        Circle().strokeBorder(.primary.opacity(0.15), lineWidth: 0.6)
-                      }
+              }
+              .foregroundStyle(.primary)
+              .padding(.horizontal, 11)
+              .padding(.vertical, 6)
+              .background {
+                Capsule()
+                  .fill(.primary.opacity(colorScheme == .dark ? 0.14 : 0.09))
+                  .overlay {
+                    Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 0.6)
                   }
               }
-              .buttonStyle(.plain)
-              .disabled(mutatingHash != nil)
-              .accessibilityLabel("删除任务")
-              .accessibilityIdentifier("native-download-delete-\(task.hash)")
+              .frame(minHeight: 32)
             }
+            .buttonStyle(.plain)
+            .disabled(mutatingHash != nil)
+            .accessibilityIdentifier("native-download-toggle-\(task.hash)")
           }
         }
       }
     }
     .contextMenu {
-      Button {
-        Task { await toggleTaskState(task) }
-      } label: {
-        Label(
-          task.isPaused ? "恢复下载" : "暂停下载", systemImage: task.isPaused ? "play.fill" : "pause.fill")
-      }
-      Button(role: .destructive) {
-        pendingDelete = task
-      } label: {
-        Label("删除任务", systemImage: "trash")
+      if canManage {
+        Button {
+          Task { await toggleTaskState(task) }
+        } label: {
+          Label(
+            task.isPaused ? "恢复下载" : "暂停下载",
+            systemImage: task.isPaused ? "play.fill" : "pause.fill"
+          )
+        }
+        Button(role: .destructive) {
+          pendingDelete = task
+        } label: {
+          Label("删除任务", systemImage: "trash")
+        }
       }
     }
     .accessibilityElement(children: .contain)

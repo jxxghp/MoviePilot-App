@@ -116,6 +116,163 @@ struct NativeAdaptiveBadge: View {
   }
 }
 
+/// 免配置多来源媒体评分微标数据（统一承载 IMDb / TMDB / 烂番茄新鲜度 / 豆瓣 / Bangumi / AniList）。
+struct NativeMediaRatingBadge: Identifiable, Hashable, Sendable {
+  /// 受支持的评分来源标识及固定展示优先级顺序。
+  enum Source: String, CaseIterable, Hashable, Sendable {
+    case imdb
+    case tmdb
+    case rottenTomatoes = "rottentomatoes"
+    case douban
+    case bangumi
+    case anilist
+    case community
+  }
+
+  let source: Source
+  let displayText: String
+
+  var id: String { source.rawValue }
+
+  /// 将 10 分制浮点分数格式化为单小数位文本；无有效正分时返回 `nil`。
+  static func formatTenScale(_ value: Double?) -> String? {
+    guard let value, value.isFinite, value > 0 else { return nil }
+    return String(format: "%.1f", min(value, 10.0))
+  }
+
+  /// 将百分制新鲜度格式化为整数百分比文本；无有效正值时返回 `nil`。
+  static func formatPercent(_ value: Double?) -> String? {
+    guard let value, value.isFinite, value > 0 else { return nil }
+    return "\(Int(min(max(value, 1), 100).rounded()))%"
+  }
+
+  /// 将后端 `media_source` 或媒体服务器 `ratings[].source` 归一化为标准评分来源枚举。
+  static func mapSource(_ raw: String?) -> Source? {
+    switch (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "imdb": .imdb
+    case "themoviedb", "tmdb": .tmdb
+    case "rottentomatoes", "rotten_tomatoes", "rt", "critic": .rottenTomatoes
+    case "douban", "douban_movie": .douban
+    case "bangumi", "bgm": .bangumi
+    case "anilist": .anilist
+    case "community": .community
+    default: nil
+    }
+  }
+}
+
+/// 发现页主视觉与影视/媒体库详情页共用的紧凑多元评分微标横排（品牌小图标 + 等宽粗体分数）。
+@MainActor
+struct NativeMediaRatingsRow: View {
+  let badges: [NativeMediaRatingBadge]
+  var textColor: Color = .primary
+  var compact: Bool = false
+
+  var body: some View {
+    if !badges.isEmpty {
+      HStack(spacing: compact ? 9 : 12) {
+        ForEach(badges) { badge in
+          HStack(spacing: 4.5) {
+            sourceMicroIcon(for: badge.source)
+            Text(badge.displayText)
+              .font((compact ? Font.caption2 : Font.caption).monospacedDigit().weight(.bold))
+              .foregroundStyle(textColor)
+              .lineLimit(1)
+          }
+        }
+      }
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel(accessibilitySummary)
+    }
+  }
+
+  private var accessibilitySummary: String {
+    badges.map { badge in
+      let name: String =
+        switch badge.source {
+        case .imdb: "IMDb"
+        case .tmdb: "TMDB"
+        case .rottenTomatoes: "烂番茄"
+        case .douban: "豆瓣"
+        case .bangumi: "Bangumi"
+        case .anilist: "AniList"
+        case .community: "评分"
+        }
+      return "\(name) \(badge.displayText)"
+    }.joined(separator: "，")
+  }
+
+  @ViewBuilder
+  private func sourceMicroIcon(for source: NativeMediaRatingBadge.Source) -> some View {
+    let iconSide: CGFloat = compact ? 14 : 15.5
+    switch source {
+    case .imdb:
+      Text("IMDb")
+        .font(.system(size: compact ? 8.5 : 9.5, weight: .black, design: .rounded))
+        .tracking(-0.3)
+        .foregroundStyle(Color(red: 0.08, green: 0.08, blue: 0.08))
+        .padding(.horizontal, compact ? 4 : 4.8)
+        .padding(.vertical, compact ? 1.2 : 1.6)
+        .background(
+          Color(red: 0.96, green: 0.77, blue: 0.09),
+          in: RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+        )
+    case .tmdb:
+      Image("logo-tmdb")
+        .resizable()
+        .scaledToFit()
+        .frame(width: iconSide, height: iconSide)
+        .clipShape(RoundedRectangle(cornerRadius: 3.8, style: .continuous))
+    case .rottenTomatoes:
+      ZStack(alignment: .top) {
+        Circle()
+          .fill(
+            LinearGradient(
+              colors: [
+                Color(red: 1.00, green: 0.28, blue: 0.14),
+                Color(red: 0.88, green: 0.12, blue: 0.05),
+              ],
+              startPoint: .topLeading,
+              endPoint: .bottomTrailing
+            )
+          )
+          .frame(width: iconSide - 1.5, height: iconSide - 1.5)
+          .offset(y: 1)
+        Capsule()
+          .fill(Color(red: 0.18, green: 0.72, blue: 0.30))
+          .frame(width: 6.5, height: 2.6)
+      }
+      .frame(width: iconSide, height: iconSide)
+    case .douban:
+      Image("logo-douban")
+        .resizable()
+        .scaledToFit()
+        .frame(width: iconSide, height: iconSide)
+        .clipShape(RoundedRectangle(cornerRadius: 3.8, style: .continuous))
+    case .bangumi:
+      Image("logo-bangumi")
+        .resizable()
+        .scaledToFit()
+        .frame(width: iconSide, height: iconSide)
+        .clipShape(RoundedRectangle(cornerRadius: 3.8, style: .continuous))
+    case .anilist:
+      Text("AL")
+        .font(.system(size: compact ? 8.5 : 9.5, weight: .black, design: .rounded))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 1.5)
+        .background(
+          Color(red: 0.01, green: 0.66, blue: 1.00),
+          in: RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+        )
+    case .community:
+      Image(systemName: "star.fill")
+        .font(.system(size: compact ? 10.5 : 12, weight: .bold))
+        .foregroundStyle(NativeTheme.warning)
+    }
+  }
+}
+
 /// 统一自适应筛选/切换胶囊按钮：选中态高对比实色白字，未选态自适应磨砂底与清晰边框文字。
 @MainActor
 struct NativeAdaptivePill: View {
@@ -1520,6 +1677,7 @@ struct NativeCardListSkeletonView: View {
               cardItem(at: index)
             }
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
       }
     }
@@ -1590,7 +1748,9 @@ struct NativeCardListSkeletonView: View {
             }
             .padding(.top, 2)
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
 
     case .downloadCard:
@@ -1993,56 +2153,87 @@ struct NativeCardListSkeletonView: View {
   }
 }
 
-/// 订阅主页面首帧占位骨架：包含顶部分区切换胶囊（可选）、追剧总览英雄卡、分类与搜索栏以及多列自适应订阅卡片列表。
+/// 订阅主页面首帧占位骨架：包含顶部分区切换胶囊（可选）、追剧总览英雄卡、自适应双行/单行分类搜索栏以及多列自适应订阅卡片列表，严格对齐真实订阅卡片容器宽度。
 @MainActor
 struct NativeSubscriptionsHubSkeletonView: View {
   var columns: Int = 1
   var includesModePills: Bool = false
+  var includesOverviewHeader: Bool = true
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    VStack(alignment: .leading, spacing: 15) {
       if includesModePills {
         HStack(spacing: 8) {
-          NativeSkeletonBlock(width: 96, height: 36, cornerRadius: 18)
-          NativeSkeletonBlock(width: 92, height: 36, cornerRadius: 18)
-          NativeSkeletonBlock(width: 92, height: 36, cornerRadius: 18)
+          NativeSkeletonBlock(width: 84, height: 36, cornerRadius: 18)
+          NativeSkeletonBlock(width: 80, height: 36, cornerRadius: 18)
+          NativeSkeletonBlock(width: 80, height: 36, cornerRadius: 18)
           Spacer(minLength: 0)
         }
       }
 
-      CinematicPanel(padding: 16) {
-        VStack(alignment: .leading, spacing: 13) {
-          HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-              NativeSkeletonBlock(width: 118, height: 30, cornerRadius: 8)
-              NativeSkeletonBlock(width: 168, height: 13, cornerRadius: 5)
+      if includesOverviewHeader {
+        CinematicPanel(padding: 16) {
+          VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+              VStack(alignment: .leading, spacing: 6) {
+                NativeSkeletonBlock(width: 118, height: 30, cornerRadius: 8)
+                NativeSkeletonBlock(width: 168, height: 13, cornerRadius: 5)
+              }
+              Spacer(minLength: 8)
+              VStack(alignment: .trailing, spacing: 5) {
+                NativeSkeletonBlock(width: 48, height: 20, cornerRadius: 6)
+                NativeSkeletonBlock(width: 44, height: 11, cornerRadius: 4)
+              }
             }
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 5) {
-              NativeSkeletonBlock(width: 48, height: 20, cornerRadius: 6)
-              NativeSkeletonBlock(width: 44, height: 11, cornerRadius: 4)
+            NativeSkeletonBlock(height: 6.5, cornerRadius: 3.5)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .nativeSkeletonShimmer()
+
+        if columns > 1 {
+          HStack(spacing: 10) {
+            HStack(spacing: 8) {
+              NativeSkeletonBlock(width: 56, height: 36, cornerRadius: 18)
+              NativeSkeletonBlock(width: 52, height: 36, cornerRadius: 18)
+              NativeSkeletonBlock(width: 62, height: 36, cornerRadius: 18)
+              NativeSkeletonBlock(width: 52, height: 36, cornerRadius: 18)
+            }
+            Spacer(minLength: 4)
+            HStack(spacing: 8) {
+              NativeSkeletonBlock(height: 36, cornerRadius: 18)
+              NativeSkeletonBlock(width: 36, height: 36, cornerRadius: 18)
+            }
+            .frame(width: 284)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .nativeSkeletonShimmer()
+        } else {
+          VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+              NativeSkeletonBlock(width: 56, height: 36, cornerRadius: 18)
+              NativeSkeletonBlock(width: 52, height: 36, cornerRadius: 18)
+              NativeSkeletonBlock(width: 62, height: 36, cornerRadius: 18)
+              NativeSkeletonBlock(width: 52, height: 36, cornerRadius: 18)
+              Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+              NativeSkeletonBlock(height: 36, cornerRadius: 18)
+              NativeSkeletonBlock(width: 36, height: 36, cornerRadius: 18)
             }
           }
-          NativeSkeletonBlock(height: 7, cornerRadius: 3.5)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .nativeSkeletonShimmer()
         }
       }
-      .nativeSkeletonShimmer()
-
-      HStack(spacing: 8) {
-        NativeSkeletonBlock(width: 62, height: 34, cornerRadius: 17)
-        NativeSkeletonBlock(width: 58, height: 34, cornerRadius: 17)
-        NativeSkeletonBlock(width: 68, height: 34, cornerRadius: 17)
-        NativeSkeletonBlock(width: 58, height: 34, cornerRadius: 17)
-        Spacer(minLength: 6)
-        NativeSkeletonBlock(width: 120, height: 34, cornerRadius: 17)
-      }
-      .nativeSkeletonShimmer()
 
       NativeCardListSkeletonView(
         count: max(columns, 1) * 3,
         style: .subscribeCard,
         columns: max(columns, 1)
       )
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }

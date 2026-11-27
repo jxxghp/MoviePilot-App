@@ -255,3 +255,111 @@ export struct HarmonyEntityLogoPill {
     .onClick(() => this.onTap())
   }
 }
+
+/**
+ * 鸿蒙多元评分单项展示模型（如 IMDb / TMDB / 烂番茄新鲜度 / 豆瓣 / Bangumi）。
+ */
+export interface HarmonyRatingBadgeItem {
+  source: string;
+  label: string;
+}
+
+/**
+ * 鸿蒙发现页与影视/媒体库详情页共用的紧凑多元评分微标横排（品牌小图标 + 分数）。
+ */
+@Component
+export struct HarmonyMultiRatingsRow {
+  @StorageLink(HarmonyAppearanceStore.KEY_IS_DARK) isDark: boolean = true;
+  @Prop badges: HarmonyRatingBadgeItem[] = [];
+  @Prop forceLightText: boolean = false;
+  @Prop compact: boolean = false;
+
+  private resolvedTextColor(): ResourceColor {
+    if (this.forceLightText || this.isDark) {
+      return Color.White;
+    }
+    return HarmonyThemeColors.primaryText(false);
+  }
+
+  build() {
+    if (this.badges.length > 0) {
+      Row({ space: this.compact ? 9 : 12 }) {
+        ForEach(this.badges, (b: HarmonyRatingBadgeItem) => {
+          Row({ space: 4 }) {
+            if (b.source === 'imdb') {
+              Row() {
+                Text('IMDb')
+                  .fontSize(this.compact ? 8.5 : 9.5)
+                  .fontWeight(FontWeight.Bolder)
+                  .fontColor('#141414')
+              }
+              .padding({ left: 4.5, right: 4.5, top: 1.5, bottom: 1.5 })
+              .borderRadius(3.5)
+              .backgroundColor('#F5C518')
+            } else if (b.source === 'rottentomatoes') {
+              Stack({ alignContent: Alignment.Top }) {
+                Column()
+                  .width(this.compact ? 12.5 : 14)
+                  .height(this.compact ? 12.5 : 14)
+                  .borderRadius(7)
+                  .backgroundColor('#FA320A')
+                  .margin({ top: 1.5 })
+                Column()
+                  .width(6.5)
+                  .height(2.6)
+                  .borderRadius(1.5)
+                  .backgroundColor('#2EA84A')
+              }
+              .width(this.compact ? 14 : 15.5)
+              .height(this.compact ? 14 : 15.5)
+            } else if (b.source === 'douban') {
+              HarmonyEntityLogo({
+                kind: 'media_source',
+                value: 'douban',
+                logoSize: this.compact ? 14 : 15.5,
+                cornerRadius: 4
+              })
+            } else if (b.source === 'bangumi') {
+              HarmonyEntityLogo({
+                kind: 'media_source',
+                value: 'bangumi',
+                logoSize: this.compact ? 14 : 15.5,
+                cornerRadius: 4
+              })
+            } else if (b.source === 'anilist') {
+              Row() {
+                Text('AL')
+                  .fontSize(this.compact ? 8.5 : 9.5)
+                  .fontWeight(FontWeight.Bolder)
+                  .fontColor(Color.White)
+              }
+              .padding({ left: 4, right: 4, top: 1.5, bottom: 1.5 })
+              .borderRadius(3.5)
+              .backgroundColor('#02A9FF')
+            } else if (b.source === 'community') {
+              Text('★')
+                .fontSize(this.compact ? 11 : 12.5)
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#FFE27A')
+            } else {
+              HarmonyEntityLogo({
+                kind: 'media_source',
+                value: 'themoviedb',
+                logoSize: this.compact ? 14 : 15.5,
+                cornerRadius: 4
+              })
+            }
+
+            Text(b.label)
+              .fontSize(this.compact ? 11.5 : 12.5)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.resolvedTextColor())
+              .maxLines(1)
+          }
+          .alignItems(VerticalAlign.Center)
+        }, (b: HarmonyRatingBadgeItem) => `${b.source}_${b.label}`)
+      }
+      .alignItems(VerticalAlign.Center)
+    }
+  }
+}

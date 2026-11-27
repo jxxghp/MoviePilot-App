@@ -982,6 +982,7 @@ final class MediaPlaybackClient {
     let safeExternal = manifest.flatMap {
       ExternalPlayerLauncher.safeExternalURL(for: $0, activeURL: url)
     }
+    let mimeHint = EngineMediaSource.inferMimeType(url: url, fileNameHint: manifest?.fileNameHint)
     if address.contains(url) {
       guard let cookie = resourceCookie else {
         throw MediaPlaybackError.unavailable
@@ -1005,7 +1006,8 @@ final class MediaPlaybackClient {
         headers: headers,
         isSameOriginInstance: true,
         sameOriginCookie: cookie,
-        rawExternalSafeURL: safeExternal
+        rawExternalSafeURL: safeExternal,
+        mimeTypeHint: mimeHint
       )
     }
     return EngineMediaSource(
@@ -1013,7 +1015,8 @@ final class MediaPlaybackClient {
       headers: customHeaders,
       isSameOriginInstance: false,
       sameOriginCookie: nil,
-      rawExternalSafeURL: safeExternal
+      rawExternalSafeURL: safeExternal,
+      mimeTypeHint: mimeHint
     )
   }
 
@@ -1761,6 +1764,8 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       pipTopButton.addAction(
         UIAction { [weak self] _ in self?.minimizePlayback() }, for: .touchUpInside)
 
+      let airPlayTopControl = makeVideoAirPlayControl(diameter: topButtonDiameter)
+
       configureGlassButton(
         videoMoreButton, symbol: "ellipsis", accessibility: L10n.text("更多播放选项"),
         diameter: topButtonDiameter, pointSize: topButtonPointSize)
@@ -1772,6 +1777,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
 
       let topActionsStack = UIStackView(arrangedSubviews: [
         fixedSquareControl(danmakuToggleButton, diameter: topButtonDiameter),
+        airPlayTopControl,
         fixedSquareControl(pipTopButton, diameter: topButtonDiameter),
         fixedSquareControl(videoMoreButton, diameter: topButtonDiameter),
       ])
@@ -1821,12 +1827,18 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     ])
 
     // 仅横屏显示于右侧的纯图标锁屏/解锁按钮（紧凑横屏贴近顶栏下方以避让底部连播浮层，大屏居中）
+    // 注意：切勿在 iOS 26+ `UIButton.Configuration.glass()` 上置 `isSelected = true`，否则系统会将选中背景填为纯白（`tintColor`），
+    // 与白色前景图标叠成实心白圆。
     configureGlassButton(
       lockTopButton, symbol: "lock.open", accessibility: L10n.text("锁定屏幕"), diameter: 44,
       pointSize: 16)
+    lockTopButton.accessibilityIdentifier = "video-playback-lock"
+    lockTopButton.accessibilityValue = L10n.text("未锁定")
     lockTopButton.configurationUpdateHandler = { [weak self] button in
       guard let self, var config = button.configuration else { return }
       config.image = UIImage(systemName: self.isLocked ? "lock.fill" : "lock.open")
+      config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+        pointSize: 16, weight: .semibold)
       config.baseForegroundColor = .white
       button.configuration = config
     }
@@ -3729,12 +3741,14 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       manifest.flatMap {
         ExternalPlayerLauncher.safeExternalURL(for: $0, activeURL: url)
       } ?? (PlaybackRoutePlanner.isSafeHttpURL(url.absoluteString) ? url : nil)
+    let mimeHint = EngineMediaSource.inferMimeType(url: url, fileNameHint: manifest?.fileNameHint)
     return EngineMediaSource(
       url: url,
       headers: customHeaders,
       isSameOriginInstance: false,
       sameOriginCookie: nil,
-      rawExternalSafeURL: safeExternal
+      rawExternalSafeURL: safeExternal,
+      mimeTypeHint: mimeHint
     )
   }
 
@@ -4279,6 +4293,46 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     return button
   }
 
+  /// 创建与顶部玻璃按钮视觉一致的系统隔空播放（AirPlay 视频/音频）选择器容器。
+  private func makeVideoAirPlayControl(diameter: CGFloat) -> UIView {
+    let container = UIView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.backgroundColor = UIColor.black.withAlphaComponent(0.28)
+    container.layer.cornerRadius = diameter / 2
+    container.layer.cornerCurve = .continuous
+    container.layer.borderWidth = 0.7
+    container.layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
+    container.clipsToBounds = true
+
+    let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+    blur.isUserInteractionEnabled = false
+    blur.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(blur)
+
+    let picker = AVRoutePickerView()
+    picker.translatesAutoresizingMaskIntoConstraints = false
+    picker.prioritizesVideoDevices = true
+    picker.tintColor = .white
+    picker.activeTintColor = .systemCyan
+    picker.accessibilityIdentifier = "video-playback-airplay"
+    picker.accessibilityLabel = L10n.text("投屏与隔空播放")
+    container.addSubview(picker)
+
+    NSLayoutConstraint.activate([
+      container.widthAnchor.constraint(equalToConstant: diameter),
+      container.heightAnchor.constraint(equalToConstant: diameter),
+      blur.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      blur.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      blur.topAnchor.constraint(equalTo: container.topAnchor),
+      blur.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      picker.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      picker.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      picker.topAnchor.constraint(equalTo: container.topAnchor),
+      picker.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+    return container
+  }
+
   /// 为指定控件设置磨砂玻璃背景、边线、图标尺寸和固定触控区域。
   private func configureGlassButton(
     _ button: UIButton, symbol: String, accessibility: String, diameter: CGFloat,
@@ -4646,14 +4700,16 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     }
   }
 
-  /// 刷新右侧居中锁定/解锁纯图标按钮样式（锁定与解锁复用同一位置，无任何文字）。
+  /// 刷新右侧居中锁定/解锁纯图标按钮样式（保持半透明液态玻璃底色并切换锁头图标，避免 `isSelected` 在 iOS 26+ 将胶囊染成纯白）。
   private func updateLockButtonSymbol(locked: Bool) {
     let symbol = locked ? "lock.fill" : "lock.open"
     let accessibility = locked ? L10n.text("解锁屏幕") : L10n.text("锁定屏幕")
     lockTopButton.accessibilityLabel = accessibility
-    lockTopButton.isSelected = locked
+    lockTopButton.accessibilityValue = locked ? L10n.text("已锁定") : L10n.text("未锁定")
     if var config = lockTopButton.configuration {
       config.image = UIImage(systemName: symbol)
+      config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+        pointSize: 16, weight: .semibold)
       config.baseForegroundColor = .white
       lockTopButton.configuration = config
       lockTopButton.setNeedsUpdateConfiguration()

@@ -4,6 +4,474 @@ import MoviePilotCore
 import MoviePilotSession
 import SwiftUI
 
+/// 免配置多来源评分聚合查询参数。
+struct NativeMediaRatingsQuery: Sendable {
+  let source: String?
+  let mediaID: String?
+  let type: String?
+  let title: String?
+  let year: String?
+  let tmdbID: String?
+  let imdbID: String?
+  let doubanID: String?
+  let bangumiID: String?
+  let anilistID: String?
+  let seedVote: Double?
+  let criticRating: Double?
+  let serverRatings: [MediaServerRatingDTO]
+  let serverItemID: String?
+  let serverName: String?
+  let genres: [String]
+  let originalLanguage: String?
+  let alreadyLoadedPrimarySource: Bool
+
+  init(
+    source: String? = nil,
+    mediaID: String? = nil,
+    type: String? = nil,
+    title: String? = nil,
+    year: String? = nil,
+    tmdbID: String? = nil,
+    imdbID: String? = nil,
+    doubanID: String? = nil,
+    bangumiID: String? = nil,
+    anilistID: String? = nil,
+    seedVote: Double? = nil,
+    criticRating: Double? = nil,
+    serverRatings: [MediaServerRatingDTO] = [],
+    serverItemID: String? = nil,
+    serverName: String? = nil,
+    genres: [String] = [],
+    originalLanguage: String? = nil,
+    alreadyLoadedPrimarySource: Bool = false
+  ) {
+    self.source = source
+    self.mediaID = mediaID
+    self.type = type
+    self.title = title
+    self.year = year
+    self.tmdbID = tmdbID
+    self.imdbID = imdbID
+    self.doubanID = doubanID
+    self.bangumiID = bangumiID
+    self.anilistID = anilistID
+    self.seedVote = seedVote
+    self.criticRating = criticRating
+    self.serverRatings = serverRatings
+    self.serverItemID = serverItemID
+    self.serverName = serverName
+    self.genres = genres
+    self.originalLanguage = originalLanguage
+    self.alreadyLoadedPrimarySource = alreadyLoadedPrimarySource
+  }
+}
+
+/// 会话级免配置多源评分聚合与缓存中心（自动并发聚合 IMDb / TMDB / 烂番茄 / 豆瓣 / Bangumi）。
+@MainActor
+final class NativeMediaRatingsStore {
+  static let shared = NativeMediaRatingsStore()
+
+  private var cache: [String: [NativeMediaRatingBadge]] = [:]
+  private var inFlight: [String: Task<[NativeMediaRatingBadge], Never>] = [:]
+
+  private struct ProbeMediaInfo: Decodable, Sendable {
+    let mediaSource: String?
+    let type: String?
+    let title: String?
+    let year: String?
+    let tmdbID: Int?
+    let imdbID: String?
+    let doubanID: String?
+    let bangumiID: Int?
+    let anilistID: Int?
+    let voteAverage: Double?
+    let originalLanguage: String?
+    let genres: [MediaNamedTag]?
+
+    private enum CodingKeys: String, CodingKey {
+      case type, title, overview, genres
+      case mediaSource = "media_source"
+      case year
+      case tmdbID = "tmdb_id"
+      case imdbID = "imdb_id"
+      case doubanID = "douban_id"
+      case bangumiID = "bangumi_id"
+      case anilistID = "anilist_id"
+      case voteAverage = "vote_average"
+      case originalLanguage = "original_language"
+    }
+
+    init(from decoder: Decoder) throws {
+      let c = try decoder.container(keyedBy: CodingKeys.self)
+      mediaSource = try? c.decodeIfPresent(String.self, forKey: .mediaSource)
+      type = try? c.decodeIfPresent(String.self, forKey: .type)
+      title = try? c.decodeIfPresent(String.self, forKey: .title)
+      year = (try? c.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .year))?.value
+      tmdbID =
+        (try? c.decodeIfPresent(Int.self, forKey: .tmdbID))
+        ?? (try? c.decodeIfPresent(String.self, forKey: .tmdbID)).flatMap(Int.init)
+      imdbID = try? c.decodeIfPresent(String.self, forKey: .imdbID)
+      doubanID = (try? c.decodeIfPresent(MediaServerFlexibleScalar.self, forKey: .doubanID))?.value
+      bangumiID =
+        (try? c.decodeIfPresent(Int.self, forKey: .bangumiID))
+        ?? (try? c.decodeIfPresent(String.self, forKey: .bangumiID)).flatMap(Int.init)
+      anilistID =
+        (try? c.decodeIfPresent(Int.self, forKey: .anilistID))
+        ?? (try? c.decodeIfPresent(String.self, forKey: .anilistID)).flatMap(Int.init)
+      voteAverage = try? c.decodeIfPresent(Double.self, forKey: .voteAverage)
+      originalLanguage = try? c.decodeIfPresent(String.self, forKey: .originalLanguage)
+      genres = try? c.decodeIfPresent([MediaNamedTag].self, forKey: .genres)
+    }
+  }
+
+  private struct RecognizeEnvelope: Decodable, Sendable {
+    let mediaInfo: ProbeMediaInfo?
+
+    private enum CodingKeys: String, CodingKey {
+      case mediaInfo = "media_info"
+    }
+  }
+
+  /// 基于当前手头已有的单一或媒体库评分立即构造零延迟初始微标列表。
+  static func seedBadges(
+    source: String?,
+    voteAverage: Double?,
+    criticRating: Double? = nil,
+    serverRatings: [MediaServerRatingDTO] = []
+  ) -> [NativeMediaRatingBadge] {
+    var bySource: [NativeMediaRatingBadge.Source: String] = [:]
+    for item in serverRatings {
+      guard let mapped = NativeMediaRatingBadge.mapSource(item.source) else { continue }
+      let formatted =
+        item.scale == "percent"
+        ? NativeMediaRatingBadge.formatPercent(item.value)
+        : NativeMediaRatingBadge.formatTenScale(item.value)
+      if let formatted, bySource[mapped] == nil {
+        bySource[mapped] = formatted
+      }
+    }
+    if bySource[.rottenTomatoes] == nil,
+      let rtText = NativeMediaRatingBadge.formatPercent(criticRating)
+    {
+      bySource[.rottenTomatoes] = rtText
+    }
+    if let text = NativeMediaRatingBadge.formatTenScale(voteAverage) {
+      let mapped = NativeMediaRatingBadge.mapSource(source) ?? .community
+      if bySource[mapped] == nil {
+        bySource[mapped] = text
+      }
+    }
+    return orderedBadges(from: bySource)
+  }
+
+  private static func orderedBadges(
+    from map: [NativeMediaRatingBadge.Source: String]
+  ) -> [NativeMediaRatingBadge] {
+    let primaryOrder: [NativeMediaRatingBadge.Source] = [
+      .imdb, .tmdb, .rottenTomatoes, .douban, .bangumi, .anilist,
+    ]
+    var result: [NativeMediaRatingBadge] = []
+    for src in primaryOrder {
+      if let val = map[src] {
+        result.append(NativeMediaRatingBadge(source: src, displayText: val))
+      }
+    }
+    let hasTenPointNamedSource = result.contains { $0.source != .rottenTomatoes }
+    if !hasTenPointNamedSource, let comm = map[.community] {
+      result.insert(NativeMediaRatingBadge(source: .community, displayText: comm), at: 0)
+    }
+    return result
+  }
+
+  nonisolated private static func cleanID(_ raw: String?) -> String? {
+    guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !trimmed.isEmpty, trimmed != "0",
+      trimmed.lowercased() != "null", trimmed.lowercased() != "none"
+    else { return nil }
+    if let colonIdx = trimmed.lastIndex(of: ":") {
+      let tail = String(trimmed[trimmed.index(after: colonIdx)...])
+      return tail.isEmpty ? nil : tail
+    }
+    return trimmed
+  }
+
+  private func cacheKey(session: NativeSession, query: NativeMediaRatingsQuery) -> String {
+    let typePart = MediaSummaryItem.normalizeMediaType(query.type) ?? "电影"
+    let identityPart: String
+    if let tmdb = Self.cleanID(query.tmdbID) {
+      identityPart = "tmdb:\(tmdb)"
+    } else if let imdb = Self.cleanID(query.imdbID) {
+      identityPart = "imdb:\(imdb)"
+    } else if let douban = Self.cleanID(query.doubanID) {
+      identityPart = "douban:\(douban)"
+    } else if let mediaID = Self.cleanID(query.mediaID) {
+      let srcPrefix = (query.source ?? "src").lowercased()
+      identityPart = "\(srcPrefix):\(mediaID)"
+    } else {
+      identityPart = "title:\(query.title ?? "")|\(query.year ?? "")"
+    }
+    return "\(session.scope.instanceID.uuidString)|\(typePart)|\(identityPart)"
+  }
+
+  /// 命中内存缓存时直接返回已聚合的多元评分。
+  func cachedRatings(
+    session: NativeSession, query: NativeMediaRatingsQuery
+  ) -> [NativeMediaRatingBadge]? {
+    cache[cacheKey(session: session, query: query)]
+  }
+
+  /// 异步并发补齐零配置多源评分（IMDb / TMDB / 豆瓣 / Bangumi / 媒体库烂番茄新鲜度）。
+  func resolveRatings(
+    session: NativeSession,
+    query: NativeMediaRatingsQuery,
+    forceRefresh: Bool = false
+  ) async -> [NativeMediaRatingBadge] {
+    let key = cacheKey(session: session, query: query)
+    if !forceRefresh, let hit = cache[key], !hit.isEmpty {
+      return hit
+    }
+    if !forceRefresh, let running = inFlight[key] {
+      return await running.value
+    }
+
+    let task = Task<[NativeMediaRatingBadge], Never> { @MainActor in
+      let badges = await self.performResolve(session: session, query: query)
+      if !badges.isEmpty {
+        self.cache[key] = badges
+      }
+      self.inFlight.removeValue(forKey: key)
+      return badges
+    }
+    inFlight[key] = task
+    return await task.value
+  }
+
+  private func performResolve(
+    session: NativeSession,
+    query: NativeMediaRatingsQuery
+  ) async -> [NativeMediaRatingBadge] {
+    let normalizedType = MediaSummaryItem.normalizeMediaType(query.type) ?? "电影"
+    var scores: [NativeMediaRatingBadge.Source: String] = [:]
+    for badge in Self.seedBadges(
+      source: query.source,
+      voteAverage: query.seedVote,
+      criticRating: query.criticRating,
+      serverRatings: query.serverRatings
+    ) {
+      scores[badge.source] = badge.displayText
+    }
+
+    let normalizedSource = (query.source ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    var tmdbID = Self.cleanID(query.tmdbID)
+    if tmdbID == nil, normalizedSource == "themoviedb" || normalizedSource == "tmdb" {
+      tmdbID = Self.cleanID(query.mediaID)
+    }
+    var imdbID = Self.cleanID(query.imdbID)
+    if imdbID == nil, normalizedSource == "imdb" {
+      imdbID = Self.cleanID(query.mediaID)
+    }
+    var doubanID = Self.cleanID(query.doubanID)
+    if doubanID == nil, normalizedSource == "douban" {
+      doubanID = Self.cleanID(query.mediaID)
+    }
+    var bangumiID = Self.cleanID(query.bangumiID)
+    if bangumiID == nil, normalizedSource == "bangumi" {
+      bangumiID = Self.cleanID(query.mediaID)
+    }
+    var title = query.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    var year = query.year?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    var genres = query.genres
+    var originalLanguage = query.originalLanguage
+
+    // 1. 若缺少 IMDb ID 或 TMDB 分数且已知 TMDB ID（且调用方尚未拉取过 TMDB 源详情），先拉一次 TMDB 详情同时拿 TMDB 分与 IMDb ID。
+    let primaryIsTmdb = normalizedSource == "themoviedb" || normalizedSource == "tmdb"
+    if let currentTmdbID = tmdbID,
+      !(query.alreadyLoadedPrimarySource && primaryIsTmdb),
+      scores[.tmdb] == nil || imdbID == nil
+    {
+      if let tmdbProbe = await Self.fetchMediaByID(
+        session: session, source: "themoviedb", mediaID: currentTmdbID, typeName: normalizedType
+      ) {
+        if scores[.tmdb] == nil,
+          let text = NativeMediaRatingBadge.formatTenScale(tmdbProbe.voteAverage)
+        {
+          scores[.tmdb] = text
+        }
+        if imdbID == nil, let foundImdb = Self.cleanID(tmdbProbe.imdbID) {
+          imdbID = foundImdb
+        }
+        if doubanID == nil, let foundDouban = Self.cleanID(tmdbProbe.doubanID) {
+          doubanID = foundDouban
+        }
+        if title.isEmpty, let t = tmdbProbe.title, !t.isEmpty { title = t }
+        if year.isEmpty, let y = tmdbProbe.year, !y.isEmpty { year = y }
+        if genres.isEmpty, let g = tmdbProbe.genres {
+          genres = g.compactMap(\.name).filter { !$0.isEmpty }
+        }
+        if originalLanguage == nil { originalLanguage = tmdbProbe.originalLanguage }
+      }
+    }
+
+    let isAnime =
+      normalizedSource == "bangumi" || normalizedSource == "anilist"
+      || ((originalLanguage?.lowercased() == "ja")
+        && genres.contains(where: { $0.contains("动画") || $0.lowercased().contains("animation") }))
+
+    let capturedImdbID = imdbID
+    let capturedDoubanID = doubanID
+    let capturedBangumiID = bangumiID
+    let capturedTitle = title
+    let capturedYear = year
+    let capturedServerItemID = Self.cleanID(query.serverItemID)
+    let capturedServerName = query.serverName
+    let needImdb = scores[.imdb] == nil
+    let needDouban = scores[.douban] == nil
+    let needBangumi = scores[.bangumi] == nil
+    let needServerCritic = scores[.rottenTomatoes] == nil && capturedServerItemID != nil
+
+    async let imdbScoreTask: String? = {
+      guard needImdb, let id = capturedImdbID, id.lowercased().hasPrefix("tt") else { return nil }
+      let info = await Self.fetchMediaByID(
+        session: session, source: "imdb", mediaID: id, typeName: normalizedType)
+      return NativeMediaRatingBadge.formatTenScale(info?.voteAverage)
+    }()
+
+    async let doubanScoreTask: String? = {
+      guard needDouban, !Task.isCancelled else { return nil }
+      if let id = capturedDoubanID {
+        let info = await Self.fetchMediaByID(
+          session: session, source: "douban", mediaID: id, typeName: normalizedType)
+        return NativeMediaRatingBadge.formatTenScale(info?.voteAverage)
+      }
+      guard !capturedTitle.isEmpty, !Task.isCancelled else { return nil }
+      return await Self.recognizeRatingByTitle(
+        session: session,
+        source: "douban",
+        title: capturedTitle,
+        year: capturedYear,
+        expectedType: normalizedType
+      )
+    }()
+
+    async let bangumiScoreTask: String? = {
+      guard needBangumi, !Task.isCancelled else { return nil }
+      if let id = capturedBangumiID {
+        let info = await Self.fetchMediaByID(
+          session: session, source: "bangumi", mediaID: id, typeName: normalizedType)
+        return NativeMediaRatingBadge.formatTenScale(info?.voteAverage)
+      }
+      guard isAnime, !capturedTitle.isEmpty, !Task.isCancelled else { return nil }
+      return await Self.recognizeRatingByTitle(
+        session: session,
+        source: "bangumi",
+        title: capturedTitle,
+        year: capturedYear,
+        expectedType: normalizedType
+      )
+    }()
+
+    async let serverDetailTask: MediaServerItemDetailDTO? = {
+      guard needServerCritic, let srvItemID = capturedServerItemID else { return nil }
+      var q = [URLQueryItem(name: "itemid", value: srvItemID)]
+      if let srv = capturedServerName, !srv.isEmpty {
+        q.append(URLQueryItem(name: "server", value: srv))
+      }
+      guard let ep = try? APIEndpoint(path: ["mediaserver", "detail"], query: q, timeout: 12) else {
+        return nil
+      }
+      return try? await session.request(
+        ep, as: MediaServerItemDetailDTO.self, requiring: .init(category: .discovery)
+      ).value
+    }()
+
+    let (imdbText, doubanText, bangumiText, serverDetail) = await (
+      imdbScoreTask, doubanScoreTask, bangumiScoreTask, serverDetailTask
+    )
+    if let imdbText, scores[.imdb] == nil { scores[.imdb] = imdbText }
+    if let doubanText, scores[.douban] == nil { scores[.douban] = doubanText }
+    if let bangumiText, scores[.bangumi] == nil { scores[.bangumi] = bangumiText }
+    if let serverDetail {
+      for r in serverDetail.ratings {
+        guard let mapped = NativeMediaRatingBadge.mapSource(r.source), scores[mapped] == nil else {
+          continue
+        }
+        let formatted =
+          r.scale == "percent"
+          ? NativeMediaRatingBadge.formatPercent(r.value)
+          : NativeMediaRatingBadge.formatTenScale(r.value)
+        if let formatted { scores[mapped] = formatted }
+      }
+      if scores[.rottenTomatoes] == nil,
+        let rt = NativeMediaRatingBadge.formatPercent(serverDetail.criticRating)
+      {
+        scores[.rottenTomatoes] = rt
+      }
+    }
+
+    return Self.orderedBadges(from: scores)
+  }
+
+  nonisolated private static func fetchMediaByID(
+    session: NativeSession,
+    source: String,
+    mediaID: String,
+    typeName: String
+  ) async -> ProbeMediaInfo? {
+    guard
+      let endpoint = try? APIEndpoint(
+        path: ["media", mediaID],
+        query: [
+          URLQueryItem(name: "media_source", value: source),
+          URLQueryItem(name: "type_name", value: typeName),
+        ],
+        timeout: 15
+      )
+    else { return nil }
+    return try? await session.request(
+      endpoint, as: ProbeMediaInfo.self, requiring: .init(category: .discovery)
+    ).value
+  }
+
+  nonisolated private static func recognizeRatingByTitle(
+    session: NativeSession,
+    source: String,
+    title: String,
+    year: String,
+    expectedType: String
+  ) async -> String? {
+    let queryTitle = year.count >= 4 ? "\(title) \(year.prefix(4))" : title
+    guard
+      let endpoint = try? APIEndpoint(
+        path: ["media", "recognize"],
+        query: [
+          URLQueryItem(name: "title", value: queryTitle),
+          URLQueryItem(name: "media_source", value: source),
+        ],
+        timeout: 15
+      ),
+      let envelope = try? await session.request(
+        endpoint, as: RecognizeEnvelope.self, requiring: .init(category: .discovery)
+      ).value,
+      let media = envelope.mediaInfo,
+      let scoreText = NativeMediaRatingBadge.formatTenScale(media.voteAverage)
+    else { return nil }
+
+    if let matchedType = MediaSummaryItem.normalizeMediaType(media.type),
+      matchedType != expectedType
+    {
+      return nil
+    }
+    if year.count >= 4, let reqYear = Int(year.prefix(4)),
+      let gotYearStr = media.year, gotYearStr.count >= 4, let gotYear = Int(gotYearStr.prefix(4)),
+      abs(reqYear - gotYear) > 1
+    {
+      return nil
+    }
+    return scoreText
+  }
+}
+
 /// 原生影视详情页：全宽背景头图、订阅与媒体库状态操作栏、分季列表、演职员横栏与相似推荐。
 @MainActor
 struct NativeMediaDetailPage: View {
@@ -11,6 +479,7 @@ struct NativeMediaDetailPage: View {
   let identity: NativeMediaIdentity
 
   @State private var detail: MediaDetailPayload?
+  @State private var multiRatings: [NativeMediaRatingBadge] = []
   @State private var status = NativeMediaStatusSnapshot()
   @State private var subscribedRecordIDs: [Int: Int] = [:]
   @State private var credits: [MediaPersonSummary] = []
@@ -473,26 +942,30 @@ struct NativeMediaDetailPage: View {
           .multilineTextAlignment(.center)
           .lineLimit(isCompactLandscape ? 1 : 2)
       }
-      HStack(spacing: 10) {
-        if let rating = detail.voteAverage, rating > 0 {
-          Label(String(format: "%.1f", rating), systemImage: "star.fill")
-            .font(isCompactLandscape ? .footnote.weight(.semibold) : .subheadline.weight(.semibold))
-            .foregroundStyle(NativeTheme.warning)
-        }
-        if let server = status.server, !server.isEmpty, status.itemID != nil {
-          Label("已在 \(server) 入库", systemImage: "checkmark.seal.fill")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(NativeTheme.success)
-            .padding(.horizontal, 10)
-            .padding(.vertical, isCompactLandscape ? 3.5 : 5)
-            .background {
-              Capsule()
-                .fill(Color(red: 0.16, green: 0.36, blue: 0.28).opacity(0.55))
-                .overlay {
-                  Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6)
-                }
+      let badges = displayedRatings(detail)
+      let hasLibraryBadge = (status.server?.isEmpty == false) && status.itemID != nil
+      if !badges.isEmpty || hasLibraryBadge {
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: 11) {
+            NativeMediaRatingsRow(
+              badges: badges,
+              textColor: isLight ? Color.primary : Color.white,
+              compact: isCompactLandscape
+            )
+            if let server = status.server, !server.isEmpty, status.itemID != nil {
+              libraryInStockCapsule(server: server, isCompactLandscape: isCompactLandscape)
             }
-            .accessibilityIdentifier("native-media-detail-library-badge")
+          }
+          VStack(spacing: 6) {
+            NativeMediaRatingsRow(
+              badges: badges,
+              textColor: isLight ? Color.primary : Color.white,
+              compact: isCompactLandscape
+            )
+            if let server = status.server, !server.isEmpty, status.itemID != nil {
+              libraryInStockCapsule(server: server, isCompactLandscape: isCompactLandscape)
+            }
+          }
         }
       }
       let genres = detail.genreNames.prefix(isWide ? 4 : 3)
@@ -915,6 +1388,7 @@ struct NativeMediaDetailPage: View {
             .buttonStyle(.plain)
           }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
   }
@@ -1310,6 +1784,56 @@ struct NativeMediaDetailPage: View {
     )
   }
 
+  private func displayedRatings(_ detail: MediaDetailPayload) -> [NativeMediaRatingBadge] {
+    if !multiRatings.isEmpty {
+      return multiRatings
+    }
+    return NativeMediaRatingsStore.seedBadges(
+      source: detail.mediaSource ?? identity.source,
+      voteAverage: detail.voteAverage
+    )
+  }
+
+  private func makeRatingsQuery(
+    _ detail: MediaDetailPayload,
+    statusSnapshot: NativeMediaStatusSnapshot
+  ) -> NativeMediaRatingsQuery {
+    NativeMediaRatingsQuery(
+      source: detail.mediaSource ?? identity.source,
+      mediaID: detail.mediaID ?? identity.mediaID,
+      type: detail.type ?? identity.type,
+      title: detail.title,
+      year: detail.year,
+      tmdbID: detail.tmdbID.map(String.init),
+      imdbID: detail.imdbID,
+      doubanID: detail.doubanID,
+      bangumiID: detail.bangumiID.map(String.init),
+      anilistID: detail.anilistID.map(String.init),
+      seedVote: detail.voteAverage,
+      serverItemID: statusSnapshot.itemID,
+      serverName: statusSnapshot.server,
+      genres: detail.genreNames,
+      originalLanguage: detail.originalLanguage,
+      alreadyLoadedPrimarySource: true
+    )
+  }
+
+  private func libraryInStockCapsule(server: String, isCompactLandscape: Bool) -> some View {
+    Label("已在 \(server) 入库", systemImage: "checkmark.seal.fill")
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(NativeTheme.success)
+      .padding(.horizontal, 10)
+      .padding(.vertical, isCompactLandscape ? 3.5 : 5)
+      .background {
+        Capsule()
+          .fill(Color(red: 0.16, green: 0.36, blue: 0.28).opacity(0.55))
+          .overlay {
+            Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.6)
+          }
+      }
+      .accessibilityIdentifier("native-media-detail-library-badge")
+  }
+
   /// 并行读取核心详情与状态/演职员/推荐；命中作品缓存时首帧直出且静默复用，下拉刷新强制重拉。
   private func loadAll(forceRefresh: Bool = false) async {
     let normalizedType = MediaSummaryItem.normalizeMediaType(identity.type) ?? "电影"
@@ -1329,8 +1853,20 @@ struct NativeMediaDetailPage: View {
       subscribedRecordIDs = cached.subscribedRecordIDs
       credits = cached.credits
       recommendations = cached.recommendations
+      let ratingQuery = makeRatingsQuery(cached.detail, statusSnapshot: cached.status)
+      multiRatings =
+        NativeMediaRatingsStore.shared.cachedRatings(session: session, query: ratingQuery)
+        ?? NativeMediaRatingsStore.seedBadges(
+          source: cached.detail.mediaSource ?? identity.source,
+          voteAverage: cached.detail.voteAverage
+        )
       failed = false
       isLoading = false
+      let enriched = await NativeMediaRatingsStore.shared.resolveRatings(
+        session: session, query: ratingQuery)
+      if !Task.isCancelled, !enriched.isEmpty {
+        multiRatings = enriched
+      }
       return
     }
     failed = false
@@ -1353,6 +1889,10 @@ struct NativeMediaDetailPage: View {
         return
       }
       detail = loaded
+      multiRatings = NativeMediaRatingsStore.seedBadges(
+        source: loaded.mediaSource ?? identity.source,
+        voteAverage: loaded.voteAverage
+      )
 
       let mediaType = MediaSummaryItem.normalizeMediaType(loaded.type) ?? normalizedType
 
@@ -1368,12 +1908,21 @@ struct NativeMediaDetailPage: View {
       recommendations = loadedRecommendations
       syncDetailCache()
 
+      let ratingQuery = makeRatingsQuery(loaded, statusSnapshot: status)
+      let resolvedSeriesItemID = loadedStatus?.itemID ?? status.itemID
+      let resolvedSeriesServer = loadedStatus?.server ?? status.server
+      async let ratingsTask = NativeMediaRatingsStore.shared.resolveRatings(
+        session: session, query: ratingQuery, forceRefresh: forceRefresh)
       if mediaType == "电视剧" {
         await loadSeriesEpisodeAvailability(
           loaded,
-          seriesItemID: loadedStatus?.itemID ?? status.itemID,
-          server: loadedStatus?.server ?? status.server
+          seriesItemID: resolvedSeriesItemID,
+          server: resolvedSeriesServer
         )
+      }
+      let resolvedRatings = await ratingsTask
+      if !Task.isCancelled, !resolvedRatings.isEmpty {
+        multiRatings = resolvedRatings
       }
     } catch is CancellationError {
       return
@@ -2313,8 +2862,11 @@ struct NativeMediaSeasonDetailPage: View {
       }
 
       if isLoading && episodes.isEmpty {
-        NativeSubscriptionsHubSkeletonView(columns: columnCount)
-          .transition(.opacity)
+        NativeSubscriptionsHubSkeletonView(
+          columns: columnCount,
+          includesOverviewHeader: false
+        )
+        .transition(.opacity)
       } else if loadFailed && episodes.isEmpty {
         CinematicPanel {
           VStack(alignment: .leading, spacing: 10) {
