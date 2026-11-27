@@ -131,15 +131,16 @@ pub fn decode_state_hex_32(state_hex: &str) -> Result<[u8; 32], PasskeyErrorCode
     if trimmed.len() != 64 || !trimmed.is_ascii() {
         return Err(PasskeyErrorCode::Invalid);
     }
+    let raw = trimmed.as_bytes();
     let mut out = [0u8; 32];
-    for (i, chunk) in trimmed.as_bytes().chunks_exact(2).enumerate() {
-        let hi = (chunk[0] as char)
+    for (i, slot) in out.iter_mut().enumerate() {
+        let hi = (raw[i * 2] as char)
             .to_digit(16)
             .ok_or(PasskeyErrorCode::Invalid)?;
-        let lo = (chunk[1] as char)
+        let lo = (raw[i * 2 + 1] as char)
             .to_digit(16)
             .ok_or(PasskeyErrorCode::Invalid)?;
-        out[i] = ((hi << 4) | lo) as u8;
+        *slot = ((hi << 4) | lo) as u8;
     }
     Ok(out)
 }
