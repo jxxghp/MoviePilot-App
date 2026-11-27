@@ -12,6 +12,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
   ) -> Bool {
     UNUserNotificationCenter.current().delegate = NotificationService.shared
     LanguageSettings.refreshShortcuts()
+    Task.detached(priority: .utility) {
+      MpvSubtitleFontResolver.prewarm()
+    }
     return true
   }
 

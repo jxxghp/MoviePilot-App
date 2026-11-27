@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/settings",
-  "version": "2.0.9",
+  "version": "2.0.10",
   "description": "MoviePilot HarmonyOS NEXT settings HAR",
   "main": "Index.ets",
   "dependencies": {

@@ -10,90 +10,82 @@ import QuartzCore
 import UIKit
 import os
 
-/// 解析 iOS 18+ / iOS 26+ 系统简体与繁体中文字体真实路径，并通过沙盒软链目录注入 `libass` (`sub-fonts-dir`)，
-/// 彻底规避 `ass_coretext` 在新版 iOS 下无法通过字体名匹配 MobileAsset 中文字体导致简繁字幕显示为方框的问题。
-private enum MpvSubtitleFontResolver {
+/// 为 iOS `libmpv` / `libass` 合成并缓存包含标准 `glyf` 表的 `subfont.ttf`（`MPPingFangSub`）：
+/// iOS 26+ 系统内置 `PingFangUI.ttc` 移除了传统 `glyf`/`CFF` 表而改用私有 `hvgl` 表，
+/// 若任由 `ass_coretext` 将字体回退至 `PingFangUI.ttc`，`FreeType` 会因无法解析 `hvgl` 将所有汉字渲染为空心方框。
+/// 通过 `CoreText` 提取矢量轮廓合成标准 `.ttf` 并配合 `sub-font-provider=none`，彻底根治内嵌简繁字幕方框问题。
+enum MpvSubtitleFontResolver {
   struct ResolvedFontConfig: Sendable {
     let familyName: String
     let fontsDirectory: String?
   }
 
+  private static let defaultFamilyName = "MPPingFangSub"
+  private static let cacheSchemaVersion = "v1"
   private static let cachedConfig: ResolvedFontConfig = buildFontConfig()
+
+  /// 应用启动后可在后台低优先级预热合成缓存，使首次点播零等待。
+  static func prewarm() {
+    _ = cachedConfig
+  }
 
   static func resolve() -> ResolvedFontConfig {
     cachedConfig
   }
 
   private static func buildFontConfig() -> ResolvedFontConfig {
-    let probes = ["简体中文字幕", "繁體中文字幕", "日本語字幕"]
-    let baseFont = CTFontCreateWithName("Helvetica" as CFString, 18.0, nil)
-    var primaryFamily: String?
-    var discoveredURLs: [URL] = []
-    var seenPaths: Set<String> = []
-
-    for sample in probes {
-      let utf16Count = sample.utf16.count
-      let matched = CTFontCreateForString(
-        baseFont, sample as CFString, CFRange(location: 0, length: utf16Count))
-      let family = (CTFontCopyFamilyName(matched) as String)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      if primaryFamily == nil, !family.isEmpty, family.lowercased() != "helvetica" {
-        primaryFamily = family
-      }
-      if let url = CTFontCopyAttribute(matched, kCTFontURLAttribute) as? URL {
-        let stdPath = url.standardizedFileURL.path
-        if !stdPath.isEmpty, !seenPaths.contains(stdPath),
-          FileManager.default.isReadableFile(atPath: stdPath)
-        {
-          seenPaths.insert(stdPath)
-          discoveredURLs.append(url)
-        }
-      }
-    }
-
-    let fallbackHiragino = URL(fileURLWithPath: "/System/Library/Fonts/Core/HiraginoKakuGothic.ttc")
-    if FileManager.default.isReadableFile(atPath: fallbackHiragino.path),
-      !seenPaths.contains(fallbackHiragino.path)
-    {
-      seenPaths.insert(fallbackHiragino.path)
-      discoveredURLs.append(fallbackHiragino)
-    }
-
-    let familyName = primaryFamily ?? "Hiragino Sans"
-    guard !discoveredURLs.isEmpty else {
-      return ResolvedFontConfig(familyName: familyName, fontsDirectory: nil)
-    }
-
     let fm = FileManager.default
-    if let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
-      let linkDir = cachesDir.appendingPathComponent("mpv-sub-fonts", isDirectory: true)
-      do {
-        try fm.createDirectory(at: linkDir, withIntermediateDirectories: true)
-        var linkedCount = 0
-        for (idx, srcURL) in discoveredURLs.enumerated() {
-          let ext = srcURL.pathExtension.isEmpty ? "ttc" : srcURL.pathExtension
-          let dstURL = linkDir.appendingPathComponent("cjk-\(idx).\(ext)")
-          if fm.fileExists(atPath: dstURL.path) {
-            try? fm.removeItem(at: dstURL)
-          }
-          try fm.createSymbolicLink(at: dstURL, withDestinationURL: srcURL)
-          if fm.isReadableFile(atPath: dstURL.path) {
-            linkedCount += 1
-          }
-        }
-        if linkedCount > 0 {
-          return ResolvedFontConfig(familyName: familyName, fontsDirectory: linkDir.path)
-        }
-      } catch {
-        // 软链创建受限时回退至字体所在真实系统目录
-      }
+    guard let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+      return ResolvedFontConfig(familyName: defaultFamilyName, fontsDirectory: nil)
     }
 
-    let directDir = discoveredURLs[0].deletingLastPathComponent().path
-    return ResolvedFontConfig(
-      familyName: familyName,
-      fontsDirectory: fm.isReadableFile(atPath: directDir) ? directDir : nil
-    )
+    // 清理旧版残留的系统 `.ttc` 软链目录，防止 `hvgl` 字体文件被意外扫描。
+    let legacyDir = cachesDir.appendingPathComponent("mpv-sub-fonts", isDirectory: true)
+    if fm.fileExists(atPath: legacyDir.path) {
+      try? fm.removeItem(at: legacyDir)
+    }
+
+    var fontDir = cachesDir.appendingPathComponent("mpv-sub-fonts-v2", isDirectory: true)
+    do {
+      try fm.createDirectory(at: fontDir, withIntermediateDirectories: true)
+      var resourceValues = URLResourceValues()
+      resourceValues.isExcludedFromBackup = true
+      try? fontDir.setResourceValues(resourceValues)
+    } catch {
+      return ResolvedFontConfig(familyName: defaultFamilyName, fontsDirectory: nil)
+    }
+
+    let fontURL = fontDir.appendingPathComponent("subfont.ttf", isDirectory: false)
+    let stampURL = fontDir.appendingPathComponent("subfont.stamp", isDirectory: false)
+    let expectedStamp =
+      "\(cacheSchemaVersion)|\(ProcessInfo.processInfo.operatingSystemVersionString)"
+
+    if let existingStamp = try? String(contentsOf: stampURL, encoding: .utf8),
+      existingStamp == expectedStamp,
+      SubtitleTrueTypeFontSynthesizer.isValidTrueTypeFile(at: fontURL)
+    {
+      return ResolvedFontConfig(familyName: defaultFamilyName, fontsDirectory: fontDir.path)
+    }
+
+    guard
+      let ttfData = SubtitleTrueTypeFontSynthesizer.synthesizeFontData(
+        familyName: defaultFamilyName)
+    else {
+      return ResolvedFontConfig(familyName: defaultFamilyName, fontsDirectory: nil)
+    }
+
+    do {
+      try ttfData.write(to: fontURL, options: .atomic)
+      try Data(expectedStamp.utf8).write(to: stampURL, options: .atomic)
+      if SubtitleTrueTypeFontSynthesizer.isValidTrueTypeFile(at: fontURL) {
+        return ResolvedFontConfig(familyName: defaultFamilyName, fontsDirectory: fontDir.path)
+      }
+    } catch {
+      try? fm.removeItem(at: fontURL)
+      try? fm.removeItem(at: stampURL)
+    }
+
+    return ResolvedFontConfig(familyName: defaultFamilyName, fontsDirectory: nil)
   }
 }
 
@@ -352,10 +344,10 @@ private final class MpvSession: @unchecked Sendable {
     initialRate: Float
   ) {
     let retainedView = hostView
-    let fontConfig = MpvSubtitleFontResolver.resolve()
     serialQueue.async { [weak self] in
       _ = retainedView
       guard let self, !self.isStopped else { return }
+      let fontConfig = MpvSubtitleFontResolver.resolve()
       guard let mpv = mpv_create() else {
         self.activeFlag.withLock { $0 = false }
         self.onEvent(.failed(.unknown))
@@ -385,9 +377,15 @@ private final class MpvSession: @unchecked Sendable {
       mpv_set_option_string(
         mpv, "sub-ass-override", options.ignoreAssStyle ? "force" : "no")
       mpv_set_option_string(mpv, "sub-scale", String(format: "%.2f", options.subtitleScale))
+      mpv_set_option_string(mpv, "sub-font-provider", "none")
+      mpv_set_option_string(mpv, "osd-font-provider", "none")
       mpv_set_option_string(mpv, "sub-font", fontConfig.familyName)
+      mpv_set_option_string(mpv, "osd-font", fontConfig.familyName)
       if let fontsDir = fontConfig.fontsDirectory {
+        mpv_set_option_string(mpv, "config", "yes")
+        mpv_set_option_string(mpv, "config-dir", fontsDir)
         mpv_set_option_string(mpv, "sub-fonts-dir", fontsDir)
+        mpv_set_option_string(mpv, "osd-fonts-dir", fontsDir)
       }
       if options.ignoreAssStyle {
         mpv_set_option_string(
