@@ -531,8 +531,11 @@ export struct HarmonyLoginPage {
   @State private notice: string = '密码仅在本机加密安全保存，验证码不会保存。';
   @State private isError: boolean = false;
   @State private loading: boolean = false;
+  @State private passkeySupported: boolean = false;
+  @State private passkeyLoading: boolean = false;
   @State private cfBusy: boolean = false;
   @State private cfAuthorized: boolean = false;
+  @State private cfChallengeDetected: boolean = false;
   onSwitchServer: () => void = () => {};
   onLoginSuccess: (token: string, userName: string, isSuperuser: boolean, avatar: string, keepLogin: boolean, userLevel?: number) => void = () => {};
 
@@ -541,11 +544,20 @@ export struct HarmonyLoginPage {
   }
 
   onServerUrlChanged(): void {
+    this.passkeySupported = false;
+    this.cfChallengeDetected = false;
     this.hydrateSavedCredentials();
   }
 
   private async hydrateSavedCredentials(): Promise<void> {
     if (!this.serverUrl) { return; }
+    const targetUrl = this.serverUrl;
+    MoviePilotRepository.shared().transport.setAllowSelfSigned(this.allowSelfSigned);
+    MoviePilotRepository.shared().probePasskeyEnabled(targetUrl).then((enabled: boolean) => {
+      if (this.serverUrl === targetUrl) {
+        this.passkeySupported = enabled;
+      }
+    }).catch(() => {});
     try {
       await CloudflareAccessOAuthManager.shared().hydrateOrigin(this.serverUrl);
       this.cfAuthorized = CloudflareAccessOAuthManager.shared().hasSession(this.serverUrl);
@@ -565,6 +577,9 @@ export struct HarmonyLoginPage {
   }
 
   private async submitLogin(): Promise<void> {
+    if (this.loading || this.passkeyLoading) {
+      return;
+    }
     if (!this.username.trim() || !this.password) {
       this.notice = '请输入用户名和密码';
       this.isError = true;
@@ -584,6 +599,9 @@ export struct HarmonyLoginPage {
         this.onLoginSuccess(res.token, res.userName, res.isSuperuser, res.avatar, this.keepLogin, res.userLevel ?? 1);
       } else {
         this.showOtp = res.requiresOtp || this.showOtp;
+        if (res.message && res.message.includes('Cloudflare Access')) {
+          this.cfChallengeDetected = true;
+        }
         this.notice = res.message || '登录失败';
         this.isError = true;
       }
@@ -592,6 +610,43 @@ export struct HarmonyLoginPage {
       this.isError = true;
     }
     this.loading = false;
+  }
+
+  private async submitPasskeyLogin(): Promise<void> {
+    if (!this.serverUrl || this.loading || this.passkeyLoading || this.cfBusy) {
+      return;
+    }
+    this.passkeyLoading = true;
+    this.isError = false;
+    try {
+      MoviePilotRepository.shared().transport.setAllowSelfSigned(this.allowSelfSigned);
+      const ctx = getContext(this) as common.UIAbilityContext;
+      const res = await MoviePilotRepository.shared().loginWithPasskey(
+        this.serverUrl,
+        this.username,
+        (authorizeUrl: string) => {
+          const want: Want = {
+            action: 'ohos.want.action.viewData',
+            entities: ['entity.system.browsable'],
+            uri: authorizeUrl
+          };
+          ctx.startAbility(want).catch(() => {});
+        }
+      );
+      if (res.success) {
+        this.onLoginSuccess(res.token, res.userName, res.isSuperuser, res.avatar, this.keepLogin, res.userLevel ?? 1);
+      } else if (!res.canceled) {
+        if (res.message && res.message.includes('Cloudflare Access')) {
+          this.cfChallengeDetected = true;
+        }
+        this.notice = res.message || '未能完成通行密钥验证，请重新尝试。';
+        this.isError = true;
+      }
+    } catch {
+      this.notice = '未能完成通行密钥验证，请重新尝试。';
+      this.isError = true;
+    }
+    this.passkeyLoading = false;
   }
 
   private isShortLandscape(): boolean {
@@ -733,72 +788,168 @@ export struct HarmonyLoginPage {
         .fontColor(this.isError ? GeneratedDesignTokens.semanticColor('danger', this.isDark) : mpSecondaryText(this.isDark))
         .width('100%')
 
-      Button(this.loading ? '正在登录...' : (this.locale === 'en-US' ? 'Sign In →' : '登录 →'))
+      if (this.isShortLandscape() && this.passkeySupported) {
+        Row({ space: 10 }) {
+          this.primaryLoginButtonBuilder()
+          this.passkeyButtonBuilder()
+        }
         .width('100%')
-        .height(this.isShortLandscape() ? 46 : 52)
-        .borderRadius(this.isShortLandscape() ? 23 : 26)
-        .backgroundColor(this.accentHex)
-        .fontColor(Color.White)
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .enabled(!this.loading)
-        .onClick(() => this.submitLogin())
-
-      CinematicPanel({ panelPadding: 14 }) {
+      } else {
         Column({ space: 10 }) {
-          Row({ space: 10 }) {
-            SymbolGlyph($r('sys.symbol.lock_shield'))
-              .fontSize(18)
-              .fontColor([this.cfAuthorized ? '#2FB36D' : this.accentHex])
-            Column({ space: 2 }) {
-              Text(
-                this.cfBusy
-                  ? '正在进行 Cloudflare Access 认证...'
-                  : (this.cfAuthorized ? '重新进行 Cloudflare Access 认证' : '通过 Cloudflare Access 认证')
-              )
-                .fontSize(14)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(mpPrimaryText(this.isDark))
-              Text(
-                this.cfAuthorized
-                  ? '已获取同源网关凭据，不影响 MoviePilot 账号令牌'
-                  : '若服务位于 Cloudflare Access 网关后可先完成 OAuth 授权'
-              )
-                .fontSize(11)
-                .fontColor(this.cfAuthorized ? '#2FB36D' : mpSecondaryText(this.isDark))
-            }
-            .alignItems(HorizontalAlign.Start)
-            .layoutWeight(1)
-
-            if (this.cfBusy) {
-              LoadingProgress().width(18).height(18).color(this.accentHex)
-            } else {
-              SymbolGlyph($r('sys.symbol.chevron_right'))
-                .fontSize(14)
-                .fontColor([mpSecondaryText(this.isDark)])
-            }
-          }
-          .width('100%')
-          .onClick(() => {
-            if (!this.cfBusy) {
-              this.authenticateCloudflareAccess();
-            }
-          })
-
-          if (this.cfAuthorized && !this.cfBusy) {
-            Divider().color(HarmonyThemeColors.divider(this.isDark))
-            Text('清除 Cloudflare Access 授权')
-              .fontSize(13)
-              .fontColor(GeneratedDesignTokens.semanticColor('danger', this.isDark))
-              .width('100%')
-              .onClick(() => this.clearCloudflareAccess())
+          this.primaryLoginButtonBuilder()
+          if (this.passkeySupported) {
+            this.passkeyButtonBuilder()
           }
         }
         .width('100%')
       }
+
+      if (!this.cfAuthorized && !this.cfChallengeDetected && !this.cfBusy) {
+        Row({ space: 6 }) {
+          SymbolGlyph($r('sys.symbol.lock_shield'))
+            .fontSize(14)
+            .fontColor([this.accentHex])
+          Text('通过 Cloudflare Access 认证')
+            .fontSize(12.5)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(mpSecondaryText(this.isDark))
+          SymbolGlyph($r('sys.symbol.chevron_right'))
+            .fontSize(12)
+            .fontColor([mpSecondaryText(this.isDark)])
+        }
+        .height(36)
+        .padding({ left: 14, right: 14 })
+        .borderRadius(18)
+        .backgroundColor(this.isDark ? '#18FFFFFF' : '#0F000000')
+        .border({ width: 0.6, color: this.isDark ? '#2BFFFFFF' : '#1E000000', radius: 18 })
+        .onClick(() => {
+          if (!this.loading && !this.passkeyLoading && !this.cfBusy) {
+            this.authenticateCloudflareAccess();
+          }
+        })
+      } else {
+        CinematicPanel({ panelPadding: 14 }) {
+          Column({ space: 10 }) {
+            Row({ space: 10 }) {
+              SymbolGlyph($r('sys.symbol.lock_shield'))
+                .fontSize(18)
+                .fontColor([this.cfAuthorized ? '#2FB36D' : this.accentHex])
+              Column({ space: 2 }) {
+                Text(
+                  this.cfBusy
+                    ? '正在进行 Cloudflare Access 认证...'
+                    : (this.cfAuthorized ? '重新进行 Cloudflare Access 认证' : '通过 Cloudflare Access 认证')
+                )
+                  .fontSize(14)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(mpPrimaryText(this.isDark))
+                Text(
+                  this.cfAuthorized
+                    ? '已获取同源网关凭据，不影响 MoviePilot 账号令牌'
+                    : '当前服务位于 Cloudflare Access 保护后，请先完成网关授权'
+                )
+                  .fontSize(11)
+                  .fontColor(this.cfAuthorized ? '#2FB36D' : mpSecondaryText(this.isDark))
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+
+              if (this.cfBusy) {
+                LoadingProgress().width(18).height(18).color(this.accentHex)
+              } else {
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(14)
+                  .fontColor([mpSecondaryText(this.isDark)])
+              }
+            }
+            .width('100%')
+            .onClick(() => {
+              if (!this.cfBusy) {
+                this.authenticateCloudflareAccess();
+              }
+            })
+
+            if (this.cfAuthorized && !this.cfBusy) {
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+              Text('清除 Cloudflare Access 授权')
+                .fontSize(13)
+                .fontColor(GeneratedDesignTokens.semanticColor('danger', this.isDark))
+                .width('100%')
+                .onClick(() => this.clearCloudflareAccess())
+            }
+          }
+          .width('100%')
+        }
+      }
     }
     .width('100%')
     .constraintSize({ maxWidth: 460 })
+  }
+
+  @Builder
+  private primaryLoginButtonBuilder() {
+    Button() {
+      Row({ space: 8 }) {
+        if (this.loading) {
+          LoadingProgress().width(18).height(18).color(Color.White)
+        }
+        Text(this.loading ? '正在登录...' : (this.locale === 'en-US' ? 'Sign In' : '登录'))
+          .fontSize(16)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(
+            (this.username.trim().length > 0 && this.password.length > 0 && !this.loading && !this.passkeyLoading)
+              ? Color.White
+              : mpSecondaryText(this.isDark)
+          )
+      }
+      .justifyContent(FlexAlign.Center)
+    }
+    .layoutWeight(this.isShortLandscape() && this.passkeySupported ? 1 : 0)
+    .width(this.isShortLandscape() && this.passkeySupported ? undefined : '100%')
+    .height(this.isShortLandscape() ? 46 : 52)
+    .borderRadius(this.isShortLandscape() ? 23 : 26)
+    .backgroundColor(
+      (this.username.trim().length > 0 && this.password.length > 0 && !this.loading && !this.passkeyLoading)
+        ? this.accentHex
+        : (this.isDark ? '#24FFFFFF' : '#16000000')
+    )
+    .enabled(!this.loading && !this.passkeyLoading && this.username.trim().length > 0 && this.password.length > 0)
+    .onClick(() => this.submitLogin())
+  }
+
+  @Builder
+  private passkeyButtonBuilder() {
+    Button() {
+      Row({ space: 8 }) {
+        if (this.passkeyLoading) {
+          LoadingProgress().width(18).height(18).color(this.accentHex)
+        } else {
+          SymbolGlyph($r('sys.symbol.lock_shield'))
+            .fontSize(17)
+            .fontColor([(!this.loading && !this.cfBusy) ? this.accentHex : mpSecondaryText(this.isDark)])
+        }
+        Text(this.locale === 'en-US' ? 'Sign in with Passkey' : '使用通行密钥登录')
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor((!this.loading && !this.cfBusy) ? mpPrimaryText(this.isDark) : mpSecondaryText(this.isDark))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .justifyContent(FlexAlign.Center)
+      .padding({ left: 12, right: 12 })
+    }
+    .layoutWeight(this.isShortLandscape() && this.passkeySupported ? 1 : 0)
+    .width(this.isShortLandscape() && this.passkeySupported ? undefined : '100%')
+    .height(this.isShortLandscape() ? 46 : 50)
+    .borderRadius(this.isShortLandscape() ? 23 : 25)
+    .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, this.isDark ? '24' : '18'))
+    .border({
+      width: 0.85,
+      color: HarmonyAppearanceStore.withAlpha(this.accentHex, (!this.loading && !this.cfBusy) ? '6B' : '33'),
+      radius: this.isShortLandscape() ? 23 : 25
+    })
+    .enabled(!this.loading && !this.passkeyLoading && !this.cfBusy)
+    .onClick(() => this.submitPasskeyLogin())
   }
 
   private async authenticateCloudflareAccess(): Promise<void> {
@@ -820,8 +971,12 @@ export struct HarmonyLoginPage {
         }
       );
       this.cfAuthorized = true;
-      this.notice = 'Cloudflare Access 认证成功，请点击登录';
+      this.cfChallengeDetected = false;
+      this.notice = 'Cloudflare Access 认证成功，请继续登录';
       this.isError = false;
+      MoviePilotRepository.shared().probePasskeyEnabled(this.serverUrl).then((enabled: boolean) => {
+        this.passkeySupported = enabled;
+      }).catch(() => {});
     } catch (e) {
       this.notice = (e as Error).message || 'Cloudflare Access 认证失败';
       this.isError = true;

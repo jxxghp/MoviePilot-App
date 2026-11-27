@@ -1,17 +1,23 @@
 import Foundation
 
 /// 系统验证只返回固定错误类型，不将浏览器异常或认证数据展示给用户。
-public enum PasskeyFailure: String, Error, LocalizedError, Sendable {
-  case canceled, expired, unsupported, invalid, failed
+public enum PasskeyFailure: String, Error, LocalizedError, Equatable, Sendable {
+  case canceled
+  case expired
+  case unsupported
+  case frontendOutdated = "frontend_outdated"
+  case invalid
+  case failed
 
   /// 原生登录页保留明确的重新尝试入口，不显示服务器或系统内部信息。
   public var errorDescription: String? {
     switch self {
     case .canceled: nil
-    case .expired: L10n.text("通行密钥验证已过期，请重新尝试。")
-    case .unsupported: L10n.text("当前连接或系统不支持通行密钥，请使用 HTTPS 地址和支持的系统。")
-    case .invalid: L10n.text("通行密钥验证结果无效，请重新尝试。")
-    case .failed: L10n.text("未能完成通行密钥验证，请重新尝试。")
+    case .expired: "通行密钥验证已过期，请重新尝试。"
+    case .unsupported: "当前连接或系统不支持通行密钥，请使用 HTTPS 地址和支持的系统。"
+    case .frontendOutdated: "请更新实例的前端资源后，再使用 App 通行密钥登录。"
+    case .invalid: "通行密钥验证结果无效，请重新尝试。"
+    case .failed: "未能完成通行密钥验证，请重新尝试。"
     }
   }
 }
@@ -89,6 +95,7 @@ public struct PasskeyTransaction: Sendable {
     }
     if case .string(let error) = result["error"] {
       guard Set(result.keys) == ["version", "state", "error"],
+        error != PasskeyFailure.frontendOutdated.rawValue,
         let failure = PasskeyFailure(rawValue: error)
       else { throw PasskeyFailure.invalid }
       throw failure

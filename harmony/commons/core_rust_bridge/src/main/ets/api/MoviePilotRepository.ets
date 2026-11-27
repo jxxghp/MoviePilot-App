@@ -4,12 +4,14 @@ import { PlaybackRouteCandidate, RustCoreBridge } from '../bridge/RustCoreBridge
 import { NativeRcpTransport, NativeHttpResponse, SseEventChunk, ByteRangeFetchResult } from '../network/NativeRcpTransport';
 import { NativeHuksStore } from '../security/NativeHuksStore';
 import { CloudflareAccessOAuthManager } from './CloudflareAccessOAuthManager';
+import { PasskeyAuthManager } from './PasskeyAuthManager';
 import { HarmonyPlaybackProgressReporter } from './HarmonyPlaybackProgressReporter';
 import { HarmonyPlaybackRouteResolver } from './HarmonyPlaybackRouteResolver';
 
 export interface MpLoginResult {
   success: boolean;
   requiresOtp: boolean;
+  canceled?: boolean;
   token: string;
   userName: string;
   isSuperuser: boolean;
@@ -1766,6 +1768,192 @@ export class MoviePilotRepository {
       return {
         success: false, requiresOtp: false, token: '', userName: name, isSuperuser: su, avatar: '', userLevel: 1,
         message: '服务器未返回有效访问令牌'
+      };
+    }
+    this.configure(cleanUrl, token, name, su, avatar);
+    this.userLevel = level;
+    await this.hydrateSession();
+    return {
+      success: true, requiresOtp: false, token: token, userName: this.userName,
+      isSuperuser: this.isSuperuser, avatar: this.userAvatar, userLevel: this.userLevel, message: ''
+    };
+  }
+
+  /** 探测当前实例是否已启用系统通行密钥（`GET /api/v1/auth/providers`）。 */
+  async probePasskeyEnabled(serverUrl: string): Promise<boolean> {
+    try {
+      const cleanUrl = RustCoreBridge.normalizeServerAddress(serverUrl);
+      this.transport.setBaseUrl(cleanUrl);
+      await CloudflareAccessOAuthManager.shared().hydrateOrigin(cleanUrl);
+      await CloudflareAccessOAuthManager.shared().refreshIfNeeded(cleanUrl, this.transport.isAllowSelfSigned());
+      const url = RustCoreBridge.buildV3EndpointUrl(cleanUrl, ['auth', 'providers']);
+      const resp = await this.transport.execute(url, 'GET', '');
+      if (resp.status !== 200 || !resp.body) {
+        return false;
+      }
+      return RustCoreBridge.parsePasskeyProviderEnabled(resp.body);
+    } catch {
+      return false;
+    }
+  }
+
+  /** 使用系统浏览器完成 `moviepilot.passkey` v1 通行密钥登录并激活会话。 */
+  async loginWithPasskey(
+    serverUrl: string,
+    username: string,
+    launchBrowser: (authorizeUrl: string) => void
+  ): Promise<MpLoginResult> {
+    let cleanUrl = '';
+    try {
+      cleanUrl = RustCoreBridge.normalizeServerAddress(serverUrl);
+    } catch {
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: '服务地址格式无效，请检查后重试。'
+      };
+    }
+    if (!RustCoreBridge.isPasskeySecureOrigin(cleanUrl)) {
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: '当前连接或系统不支持通行密钥，请使用 HTTPS 地址和支持的系统。'
+      };
+    }
+    this.baseUrl = cleanUrl;
+    this.transport.setBaseUrl(cleanUrl);
+    await CloudflareAccessOAuthManager.shared().hydrateOrigin(cleanUrl);
+    await CloudflareAccessOAuthManager.shared().refreshIfNeeded(cleanUrl, this.transport.isAllowSelfSigned());
+
+    const markerUrl = `${cleanUrl}/native-passkey.json`;
+    const markerResp = await this.transport.execute(markerUrl, 'GET', '');
+    if (RustCoreBridge.detectCloudflareAccessChallenge(
+      markerResp.status, markerResp.headers ?? {}, markerResp.body, markerUrl
+    ).isChallenge) {
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: '检测到 Cloudflare Access 网关拦截，请先完成 Cloudflare Access 认证。'
+      };
+    }
+    if (markerResp.status !== 200 || !RustCoreBridge.supportsPasskeyFrontendMarker(markerResp.body)) {
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: '请更新实例的前端资源后，再使用 App 通行密钥登录。'
+      };
+    }
+
+    let stateHex = '';
+    try {
+      stateHex = PasskeyAuthManager.shared().generateStateHex32();
+    } catch {
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: '未能完成通行密钥验证，请重新尝试。'
+      };
+    }
+
+    const trimmedUser = (username ?? '').trim();
+    const startPayload: Record<string, string> = {};
+    if (trimmedUser.length > 0) {
+      startPayload['username'] = trimmedUser;
+    }
+    const startUrl = RustCoreBridge.buildV3EndpointUrl(cleanUrl, ['mfa', 'passkey', 'authenticate', 'start']);
+    const startResp = await this.transport.execute(
+      startUrl,
+      'POST',
+      '',
+      JSON.stringify(startPayload),
+      'application/json'
+    );
+    if (RustCoreBridge.detectCloudflareAccessChallenge(
+      startResp.status, startResp.headers ?? {}, startResp.body, startUrl
+    ).isChallenge) {
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: '检测到 Cloudflare Access 网关拦截，请先完成 Cloudflare Access 认证。'
+      };
+    }
+    if (startResp.status < 200 || startResp.status >= 300) {
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: '未能完成通行密钥验证，请重新尝试。'
+      };
+    }
+
+    let finishBodyJson = '';
+    try {
+      const prepared = RustCoreBridge.preparePasskeyRequest(startResp.body, cleanUrl, stateHex);
+      const callbackUrl = await PasskeyAuthManager.shared().waitForCallback(
+        prepared.authorizationUrl,
+        prepared.timeoutSecs,
+        launchBrowser
+      );
+      const verified = RustCoreBridge.verifyPasskeyCallback(
+        callbackUrl,
+        cleanUrl,
+        prepared.state,
+        prepared.challenge,
+        prepared.transactionToken
+      );
+      if (!verified.ok || !verified.finishBodyJson) {
+        if (verified.errorCode === 'canceled') {
+          return {
+            success: false, requiresOtp: false, canceled: true, token: '', userName: username,
+            isSuperuser: false, avatar: '', message: ''
+          };
+        }
+        return {
+          success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+          message: verified.errorMessageZh || '未能完成通行密钥验证，请重新尝试。'
+        };
+      }
+      finishBodyJson = verified.finishBodyJson;
+    } catch (e) {
+      const code = ((e as Error).message ?? '').trim();
+      if (code === 'canceled') {
+        return {
+          success: false, requiresOtp: false, canceled: true, token: '', userName: username,
+          isSuperuser: false, avatar: '', message: ''
+        };
+      }
+      const msg = code === 'expired'
+        ? '通行密钥验证已过期，请重新尝试。'
+        : (code === 'unsupported'
+          ? '当前连接或系统不支持通行密钥，请使用 HTTPS 地址和支持的系统。'
+          : (code === 'invalid'
+            ? '通行密钥验证结果无效，请重新尝试。'
+            : '未能完成通行密钥验证，请重新尝试。'));
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: msg
+      };
+    }
+
+    const finishUrl = RustCoreBridge.buildV3EndpointUrl(cleanUrl, ['mfa', 'passkey', 'authenticate', 'finish']);
+    const finishResp = await this.transport.execute(
+      finishUrl,
+      'POST',
+      '',
+      finishBodyJson,
+      'application/json'
+    );
+    if (finishResp.status < 200 || finishResp.status >= 300) {
+      return {
+        success: false, requiresOtp: false, token: '', userName: username, isSuperuser: false, avatar: '',
+        message: '未能完成通行密钥验证，请重新尝试。'
+      };
+    }
+    const parsedFinish = parseJsonSafe(finishResp.body);
+    const rec = unwrapObject(parsedFinish) ?? asRec(parsedFinish);
+    const token = strVal(rec, 'access_token');
+    const name = strVal(rec, 'user_name', trimmedUser);
+    const su = boolVal(rec, 'super_user', true);
+    const avatar = strVal(rec, 'avatar');
+    const rawLevel = rec && rec['level'] !== undefined && rec['level'] !== null ? Number(rec['level']) : NaN;
+    const jwtLevel = MoviePilotRepository.parseJwtLevel(token);
+    const level = Number.isFinite(rawLevel) && rawLevel >= 0 ? Math.trunc(rawLevel) : (jwtLevel ?? 1);
+    if (token.length === 0) {
+      return {
+        success: false, requiresOtp: false, token: '', userName: name, isSuperuser: su, avatar: '', userLevel: 1,
+        message: '未能完成通行密钥验证，请重新尝试。'
       };
     }
     this.configure(cleanUrl, token, name, su, avatar);
@@ -4334,15 +4522,18 @@ export class MoviePilotRepository {
     return out;
   }
 
-  /** 将相对路径规范化为同源绝对地址并执行 `RustCoreBridge.serverAddressContains` 严格同源守卫。 */
+  /** 将相对路径或反代协议失配的 `/api/v1/...` 绝对地址安全对齐至当前实例根地址，并执行严格同源守卫。 */
   private resolveTrustedSameOriginUrl(rawUrl: string): string {
     const trimmed = (rawUrl ?? '').trim();
     if (!trimmed || !this.baseUrl) {
       return '';
     }
-    const candidate = (trimmed.startsWith('http://') || trimmed.startsWith('https://'))
-      ? trimmed
-      : `${this.baseUrl}${trimmed.startsWith('/') ? '' : '/'}${trimmed}`;
+    const rebased = RustCoreBridge.rebaseInstanceApiUrl(this.baseUrl, trimmed);
+    const candidate = rebased.length > 0
+      ? rebased
+      : ((trimmed.startsWith('http://') || trimmed.startsWith('https://'))
+        ? trimmed
+        : `${this.baseUrl}${trimmed.startsWith('/') ? '' : '/'}${trimmed}`);
     if (!RustCoreBridge.serverAddressContains(this.baseUrl, candidate)) {
       return '';
     }

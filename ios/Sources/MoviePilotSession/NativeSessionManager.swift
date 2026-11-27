@@ -82,6 +82,46 @@ public final class NativeSessionManager: ObservableObject {
     }
   }
 
+  /// 独立探测目标实例是否已启用系统通行密钥登录，不改变当前会话状态机代次。
+  public func probePasskeyEnabled(for instance: NativeInstance) async -> Bool {
+    let authentication = makeAuthentication(instance)
+    defer { authentication.cancel() }
+    guard authentication.address == instance.address else { return false }
+    return await authentication.passkeyEnabled()
+  }
+
+  /// 执行完整通行密钥登录事务（`start` -> 系统认证窗口 -> 一次性回调校验 -> `finish`），尊重尝试代次与保持登录偏好。
+  @discardableResult
+  public func loginWithPasskey(
+    to instance: NativeInstance,
+    username: String?,
+    state: Data,
+    remember: Bool,
+    authenticateURL: @MainActor (URL) async throws -> URL
+  ) async throws -> NativeSession {
+    let pending = try begin(instance, connecting: false)
+    do {
+      var transaction = try await pending.authentication.beginPasskey(
+        username: username, state: state)
+      try check(pending)
+      let callback = try await authenticateURL(transaction.authorizationURL)
+      try check(pending)
+      let finishBody = try transaction.finishBody(callback: callback, address: instance.address)
+      let identity = try await pending.authentication.finishPasskey(body: finishBody)
+      try check(pending)
+      return try activate(identity, attempt: pending, remember: remember)
+    } catch let failure as PasskeyFailure where failure == .canceled {
+      guard attempt?.id == pending.id, selected == pending.instance else {
+        throw NativeSessionFailure.superseded
+      }
+      finish(pending)
+      self.state = .loginRequired(pending.instance, reason: .cancelled)
+      throw failure
+    } catch {
+      try fail(error, attempt: pending, restoring: false)
+    }
+  }
+
   /// 创建前重新探测；只有本次成功写入才清理旧自动登录，不自动重发或自动登录。
   @discardableResult
   public func initialize(

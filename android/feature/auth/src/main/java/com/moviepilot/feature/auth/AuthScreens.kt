@@ -428,17 +428,23 @@ fun LoginScreen(
     var showOtpField by remember { mutableStateOf(false) }
     var keepLogin by remember { mutableStateOf(repository.secretStore.keepLogin) }
     var rememberCreds by remember { mutableStateOf(repository.secretStore.rememberCredentials) }
-    var allowSelfSigned by remember { mutableStateOf(repository.secretStore.allowSelfSignedTls) }
     var loading by remember { mutableStateOf(false) }
+    var passkeySupported by remember(serverUrl) { mutableStateOf(false) }
+    var passkeyLoading by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf(initialNotice) }
     var cfAuthBusy by remember { mutableStateOf(false) }
     var cfRevision by remember { mutableStateOf(0) }
+    var cfChallengeDetected by remember(serverUrl) { mutableStateOf(false) }
 
     LaunchedEffect(serverUrl) {
         repository.secretStore.loadCredentials(serverUrl)?.let { (u, p) ->
             username = u
             password = p
         }
+    }
+
+    LaunchedEffect(serverUrl, cfRevision) {
+        passkeySupported = repository.probePasskeyEnabled(serverUrl)
     }
 
     @Composable
@@ -566,19 +572,6 @@ fun LoginScreen(
                             colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
                         )
                     }
-                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(vertical = 6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("允许自签名 HTTPS 证书", color = colors.textPrimary, fontSize = 15.sp)
-                        Switch(
-                            checked = allowSelfSigned,
-                            onCheckedChange = { allowSelfSigned = it; repository.secretStore.allowSelfSignedTls = it },
-                            colors = SwitchDefaults.colors(checkedTrackColor = colors.accent),
-                        )
-                    }
                 }
             }
 
@@ -590,60 +583,163 @@ fun LoginScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
             )
 
-            Spacer(Modifier.height(if (isShortWideLandscape) 14.dp else 20.dp))
-            GlassPrimaryPillButton(
-                title = if (loading) "正在登录..." else "登录",
-                enabled = !loading && username.isNotBlank() && password.isNotBlank(),
-                loading = loading,
-                onClick = {
-                    scope.launch {
-                        loading = true
-                        notice = null
-                        when (val res = repository.login(serverUrl, username, password, otpCode)) {
-                            is LoginOutcome.Success -> onLoginSuccess()
-                            is LoginOutcome.OtpRequired -> {
-                                showOtpField = true
+            Spacer(Modifier.height(if (isShortWideLandscape) 14.dp else 18.dp))
+
+            val submitPasswordLogin: () -> Unit = {
+                scope.launch {
+                    loading = true
+                    notice = null
+                    when (val res = repository.login(serverUrl, username, password, otpCode)) {
+                        is LoginOutcome.Success -> onLoginSuccess()
+                        is LoginOutcome.OtpRequired -> {
+                            showOtpField = true
+                            notice = res.message
+                        }
+                        is LoginOutcome.Failure -> {
+                            if (!res.canceled) {
+                                if (res.message.contains("Cloudflare Access")) cfChallengeDetected = true
                                 notice = res.message
                             }
-                            is LoginOutcome.Failure -> notice = res.message
                         }
-                        loading = false
                     }
-                },
-            )
-            Spacer(Modifier.height(12.dp))
+                    loading = false
+                }
+            }
+
+            val submitPasskeyLogin: () -> Unit = {
+                scope.launch {
+                    passkeyLoading = true
+                    notice = null
+                    val res = repository.loginWithPasskey(serverUrl, username) { authUrl ->
+                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(browserIntent)
+                    }
+                    passkeyLoading = false
+                    when (res) {
+                        is LoginOutcome.Success -> onLoginSuccess()
+                        is LoginOutcome.OtpRequired -> {
+                            showOtpField = true
+                            notice = res.message
+                        }
+                        is LoginOutcome.Failure -> {
+                            if (!res.canceled) {
+                                if (res.message.contains("Cloudflare Access")) cfChallengeDetected = true
+                                notice = res.message
+                            }
+                        }
+                    }
+                }
+            }
+
+            val anyBusy = loading || passkeyLoading || cfAuthBusy
+            if (isShortWideLandscape && passkeySupported) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    GlassPrimaryPillButton(
+                        title = if (loading) "正在登录..." else "登录",
+                        enabled = !anyBusy && username.isNotBlank() && password.isNotBlank(),
+                        loading = loading,
+                        modifier = Modifier.weight(1f),
+                        onClick = submitPasswordLogin,
+                    )
+                    GlassPasskeyPillButton(
+                        title = "使用通行密钥登录",
+                        enabled = !anyBusy,
+                        loading = passkeyLoading,
+                        modifier = Modifier.weight(1f),
+                        onClick = submitPasskeyLogin,
+                    )
+                }
+            } else {
+                GlassPrimaryPillButton(
+                    title = if (loading) "正在登录..." else "登录",
+                    enabled = !anyBusy && username.isNotBlank() && password.isNotBlank(),
+                    loading = loading,
+                    onClick = submitPasswordLogin,
+                )
+                if (passkeySupported) {
+                    Spacer(Modifier.height(10.dp))
+                    GlassPasskeyPillButton(
+                        title = "使用通行密钥登录",
+                        enabled = !anyBusy,
+                        loading = passkeyLoading,
+                        onClick = submitPasskeyLogin,
+                    )
+                }
+            }
+
             val hasCf = remember(serverUrl, cfRevision) { repository.cloudflareOAuth.hasSession(serverUrl) }
-            CloudflareAccessCard(
-                hasSession = hasCf,
-                busy = cfAuthBusy,
-                notice = null,
-                onAuthenticate = {
-                    scope.launch {
-                        cfAuthBusy = true
-                        notice = null
-                        val res = repository.cloudflareOAuth.authenticate(serverUrl) { authUrl ->
-                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(browserIntent)
-                        }
-                        cfAuthBusy = false
-                        res.fold(
-                            onSuccess = {
-                                cfRevision++
-                                notice = "Cloudflare Access 认证成功，请点击登录"
-                            },
-                            onFailure = { err ->
-                                notice = err.message ?: "Cloudflare Access 认证失败"
-                            },
-                        )
+            val startCfAuth: () -> Unit = {
+                scope.launch {
+                    cfAuthBusy = true
+                    notice = null
+                    val res = repository.cloudflareOAuth.authenticate(serverUrl) { authUrl ->
+                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(browserIntent)
                     }
-                },
-                onClear = {
-                    repository.cloudflareOAuth.clearSession(serverUrl)
-                    cfRevision++
-                    notice = "已清除当前服务的 Cloudflare Access 授权"
-                },
-            )
+                    cfAuthBusy = false
+                    res.fold(
+                        onSuccess = {
+                            cfChallengeDetected = false
+                            cfRevision++
+                            notice = "Cloudflare Access 认证成功，请继续登录"
+                        },
+                        onFailure = { err ->
+                            notice = err.message ?: "Cloudflare Access 认证失败"
+                        },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            if (!hasCf && !cfChallengeDetected && !cfAuthBusy) {
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(colors.chipFill)
+                        .border(0.7.dp, colors.chipBorder, CircleShape)
+                        .clickable(enabled = !anyBusy, onClick = startCfAuth)
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.Key,
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Text(
+                        text = "通过 Cloudflare Access 认证",
+                        color = colors.textSecondary,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Icon(
+                        Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
+            } else {
+                CloudflareAccessCard(
+                    hasSession = hasCf,
+                    busy = cfAuthBusy,
+                    notice = null,
+                    onAuthenticate = startCfAuth,
+                    onClear = {
+                        repository.cloudflareOAuth.clearSession(serverUrl)
+                        cfRevision++
+                        notice = "已清除当前服务的 Cloudflare Access 授权"
+                    },
+                )
+            }
             Spacer(Modifier.height(if (isShortWideLandscape) 20.dp else 36.dp))
         }
     }
@@ -860,6 +956,7 @@ private fun GlassPrimaryPillButton(
     title: String,
     enabled: Boolean,
     loading: Boolean = false,
+    modifier: Modifier = Modifier.fillMaxWidth(),
     onClick: () -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
@@ -879,8 +976,7 @@ private fun GlassPrimaryPillButton(
         )
     }
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .height(54.dp)
             .clip(CircleShape)
             .background(bgBrush)
@@ -891,6 +987,7 @@ private fun GlassPrimaryPillButton(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 14.dp),
         ) {
             if (loading) {
                 CircularProgressIndicator(
@@ -904,6 +1001,7 @@ private fun GlassPrimaryPillButton(
                 color = if (enabled) Color.White else colors.textMuted,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
             )
             if (!loading) {
                 Icon(
@@ -913,6 +1011,64 @@ private fun GlassPrimaryPillButton(
                     modifier = Modifier.size(18.dp),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun GlassPasskeyPillButton(
+    title: String,
+    enabled: Boolean,
+    loading: Boolean = false,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    onClick: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val fillAlpha = if (enabled) {
+        if (colors.isDark) 0.15f else 0.10f
+    } else {
+        if (colors.isDark) 0.07f else 0.05f
+    }
+    val borderAlpha = if (enabled) {
+        if (colors.isDark) 0.42f else 0.34f
+    } else {
+        if (colors.isDark) 0.20f else 0.16f
+    }
+    Box(
+        modifier = modifier
+            .height(50.dp)
+            .clip(CircleShape)
+            .background(colors.accent.copy(alpha = fillAlpha))
+            .border(0.85.dp, colors.accent.copy(alpha = borderAlpha), CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 14.dp),
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    color = colors.accent,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(18.dp),
+                )
+            } else {
+                Icon(
+                    Icons.Outlined.Key,
+                    contentDescription = null,
+                    tint = if (enabled) colors.accent else colors.textMuted,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Text(
+                text = title,
+                color = if (enabled) colors.textPrimary else colors.textMuted,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
         }
     }
 }

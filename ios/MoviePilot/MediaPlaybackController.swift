@@ -182,6 +182,62 @@ struct MediaPlaybackManifest: Decodable, Sendable {
     guard strmDirectEnabled, let strmUrl else { return false }
     return strmUrl != contentUrl
   }
+
+  /// 将反代环境生成的 `http://.../api/v1/mediaserver/...` 地址统一对齐到当前已验证的实例地址（保留外部直连流原样）。
+  func rebased(for address: ServerAddress) -> MediaPlaybackManifest {
+    let rebasedContent = address.rebasingInstanceAPIURL(contentUrl)
+    let rebasedSubtitles = subtitles.map {
+      MediaPlaybackSubtitle(
+        subtitleId: $0.subtitleId,
+        title: $0.title,
+        language: $0.language,
+        url: address.rebasingInstanceAPIURL($0.url)
+      )
+    }
+    let rebasedLyrics = lyricsUrl.map { address.rebasingInstanceAPIURL($0) }
+    let rebasedRoutes = playbackRoutes.map { route -> PlaybackRouteCandidate in
+      guard route.kind == .mpProxy, let rawURL = URL(string: route.url) else { return route }
+      return PlaybackRouteCandidate(
+        kind: route.kind,
+        url: address.rebasingInstanceAPIURL(rawURL).absoluteString,
+        probeUrl: route.probeUrl,
+        headers: route.headers,
+        priority: route.priority,
+        requiresSameOriginAuth: route.requiresSameOriginAuth
+      )
+    }
+    return MediaPlaybackManifest(
+      itemId: itemId,
+      server: server,
+      serverType: serverType,
+      title: title,
+      contentUrl: rebasedContent,
+      strmUrl: strmUrl,
+      customHeaders: customHeaders,
+      mediaType: mediaType,
+      artist: artist,
+      album: album,
+      subtitles: rebasedSubtitles,
+      lyricsUrl: rebasedLyrics,
+      mediaSourceId: mediaSourceId,
+      playSessionId: playSessionId,
+      progressSyncMode: progressSyncMode,
+      resumePositionMs: resumePositionMs,
+      durationMs: durationMs,
+      danmakuEnabled: danmakuEnabled,
+      seriesName: seriesName,
+      seasonNumber: seasonNumber,
+      episodeNumber: episodeNumber,
+      year: year,
+      tmdbId: tmdbId,
+      fileName: fileName,
+      fileSize: fileSize,
+      playbackRoutes: rebasedRoutes,
+      resolvedTarget: resolvedTarget,
+      fallbackRoutes: fallbackRoutes,
+      fileNameHint: fileNameHint
+    )
+  }
 }
 
 /// 后端发现的一条同名外挂字幕；内嵌字幕由 VLCKit 读取。
@@ -302,12 +358,16 @@ final class MediaPlaybackClient {
     guard
       let envelope = try? decoder.decode(
         MediaPlaybackEnvelope<MediaPlaybackManifest>.self, from: data),
-      envelope.success, let manifest = envelope.data,
+      envelope.success, let rawManifest = envelope.data
+    else { throw MediaPlaybackError.unavailable }
+    let manifest = rawManifest.rebased(for: address)
+    guard
       manifest.itemId == itemId,
       manifest.mediaType == nil || manifest.mediaType == "video" || manifest.mediaType == "audio",
       isTrustedMediaURL(
         manifest.contentUrl, itemId: itemId, server: server, mediaSourceId: mediaSourceId)
     else { throw MediaPlaybackError.unavailable }
+    selectedServer = manifest.server ?? server
     resourceCookie = cookie
     guard
       manifest.subtitles.allSatisfy({
@@ -673,7 +733,10 @@ final class MediaPlaybackClient {
     guard
       let envelope = try? decoder.decode(
         MediaPlaybackEnvelope<MediaPlaybackManifest>.self, from: data),
-      envelope.success, let manifest = envelope.data,
+      envelope.success, let rawManifest = envelope.data
+    else { throw MediaPlaybackError.unavailable }
+    let manifest = rawManifest.rebased(for: address)
+    guard
       isTrustedMediaURL(manifest.contentUrl, itemId: manifest.itemId, server: manifest.server)
     else { throw MediaPlaybackError.unavailable }
     selectedServer = manifest.server
@@ -1002,10 +1065,14 @@ final class MediaPlaybackClient {
       url.path == endpoint(["api", "v1", "mediaserver", "stream-subtitle"]).path,
       let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
     else { return false }
-    return queryItems.count == (server == nil ? 2 : 3)
-      && queryItems.first(where: { $0.name == "itemid" })?.value == itemId
-      && queryItems.first(where: { $0.name == "subtitle_id" })?.value != nil
-      && (server == nil || queryItems.first(where: { $0.name == "server" })?.value == server)
+    let allowedNames: Set<String> = ["itemid", "subtitle_id", "server"]
+    guard queryItems.allSatisfy({ allowedNames.contains($0.name) }),
+      Set(queryItems.map(\.name)).count == queryItems.count,
+      queryItems.first(where: { $0.name == "itemid" })?.value == itemId,
+      let subId = queryItems.first(where: { $0.name == "subtitle_id" })?.value, !subId.isEmpty,
+      server == nil || queryItems.first(where: { $0.name == "server" })?.value == server
+    else { return false }
+    return true
   }
 
   /// 校验歌词地址同源且只指向当前条目的 LRC 歌词路由。
@@ -1014,9 +1081,13 @@ final class MediaPlaybackClient {
       url.path == endpoint(["api", "v1", "mediaserver", "stream-lyrics"]).path,
       let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
     else { return false }
-    return queryItems.count == (server == nil ? 1 : 2)
-      && queryItems.first(where: { $0.name == "itemid" })?.value == itemId
-      && (server == nil || queryItems.first(where: { $0.name == "server" })?.value == server)
+    let allowedNames: Set<String> = ["itemid", "server"]
+    guard queryItems.allSatisfy({ allowedNames.contains($0.name) }),
+      Set(queryItems.map(\.name)).count == queryItems.count,
+      queryItems.first(where: { $0.name == "itemid" })?.value == itemId,
+      server == nil || queryItems.first(where: { $0.name == "server" })?.value == server
+    else { return false }
+    return true
   }
 
   /// 封面只能经当前实例图片代理或全局图片缓存端点；源站访问和 DNS 安全校验由后端负责。

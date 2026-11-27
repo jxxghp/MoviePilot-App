@@ -524,6 +524,7 @@ fun MediaServerLibraryScreen(
                                                         proxyFallbackUrl = manifest.proxyFallbackUrl,
                                                         activeRouteKind = manifest.activeRouteKind,
                                                         fallbackRoutes = manifest.fallbackRoutes,
+                                                        originUrl = manifest.originUrl,
                                                         itemId = manifest.itemId,
                                                         server = manifest.server.ifBlank { resolvedSrv },
                                                         serverType = manifest.serverType,

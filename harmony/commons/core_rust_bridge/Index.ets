@@ -23,13 +23,19 @@ export {
   ProtectedResourceMetadata,
   OAuthServerMetadata,
   OAuthCallbackResult,
-  AudioEmbeddedMetadataResult
+  AudioEmbeddedMetadataResult,
+  PreparedPasskeyRequest,
+  PasskeyCallbackOutcome
 } from './src/main/ets/bridge/RustCoreBridge';
 
 export {
   CloudflareAccessOAuthManager,
   CloudflareAccessSession
 } from './src/main/ets/api/CloudflareAccessOAuthManager';
+
+export {
+  PasskeyAuthManager
+} from './src/main/ets/api/PasskeyAuthManager';
 
 export {
   HarmonyPlaybackRouteResolver

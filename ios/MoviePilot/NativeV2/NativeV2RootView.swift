@@ -582,23 +582,50 @@ struct NativeV2RootView: View {
         }
         .disabled(model.busy)
       }
-      actionSection {
-        if model.form == .initialization {
+      if model.form == .initialization {
+        actionSection {
           let isDisabled =
             model.username.isEmpty || model.password.isEmpty || model.confirmation.isEmpty
             || model.apiKey.isEmpty || model.busy
           primary("创建管理员", id: "native-v2-initialize", disabled: isDisabled) {
             model.initialize()
           }
-        } else {
-          let isDisabled = model.username.isEmpty || model.password.isEmpty || model.busy
-          primary("登录", id: "native-v2-login", disabled: isDisabled) {
-            model.login()
+        }
+      } else {
+        Section {
+          CinematicGlassGroup {
+            let isDisabled = model.username.isEmpty || model.password.isEmpty || model.busy
+            primary(
+              "登录",
+              id: "native-v2-login",
+              disabled: isDisabled,
+              loading: model.busy && !model.passkeyAuthenticating
+            ) {
+              model.login()
+            }
+          }
+          .listRowBackground(Color.clear).listRowSeparator(.hidden)
+          .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+
+          if model.passkeySupported {
+            CinematicGlassGroup {
+              passkeySecondaryButton
+            }
+            .listRowBackground(Color.clear).listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
           }
         }
       }
       if model.resolvedCloudflareTargetAddress != nil || model.cloudflareChallengeDetected {
-        cloudflareAccessSection
+        if model.form == .login
+          && !model.hasActiveCloudflareSession
+          && !model.cloudflareChallengeDetected
+          && !model.cloudflareAuthenticating
+        {
+          cloudflareCompactGatewayRow
+        } else {
+          cloudflareAccessSection
+        }
       }
     }
   }
@@ -644,7 +671,10 @@ struct NativeV2RootView: View {
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(model.busy || model.cloudflareAuthenticating || model.resolvedCloudflareTargetAddress == nil)
+        .disabled(
+          model.busy || model.cloudflareAuthenticating
+            || model.resolvedCloudflareTargetAddress == nil
+        )
         .accessibilityIdentifier("native-v2-cf-access-auth")
       }
       if model.hasActiveCloudflareSession {
@@ -738,9 +768,102 @@ struct NativeV2RootView: View {
     }.buttonStyle(.plain).accessibilityIdentifier(id)
   }
 
+  /// 登录页在未触发网关拦截且未持有网关会话时收敛为轻量化入口，避免在双登录按钮下方堆叠厚重卡片。
+  private var cloudflareCompactGatewayRow: some View {
+    Section {
+      Button {
+        model.authenticateCloudflareAccess()
+      } label: {
+        HStack(spacing: 7) {
+          Image(systemName: "shield.lefthalf.filled")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(appearance.accentColor)
+          Text(L10n.text("通过 Cloudflare Access 认证"))
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.secondary)
+          Image(systemName: "arrow.up.forward.app")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary.opacity(0.8))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background {
+          Capsule()
+            .fill(NativeTheme.chipFill)
+            .overlay {
+              Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 40)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .disabled(
+        model.busy || model.cloudflareAuthenticating || model.resolvedCloudflareTargetAddress == nil
+      )
+      .accessibilityIdentifier("native-v2-cf-access-auth")
+      .listRowBackground(Color.clear)
+      .listRowSeparator(.hidden)
+      .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 8, trailing: 0))
+    }
+  }
+
+  /// 次级玻璃胶囊通行密钥登录按钮：无需填写账号密码即可直接唤起系统通行密钥面板。
+  private var passkeySecondaryButton: some View {
+    let isDisabled = model.busy || model.cloudflareAuthenticating
+    return Button {
+      focused = nil
+      UIApplication.shared.sendAction(
+        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+      model.loginWithPasskey()
+    } label: {
+      HStack(spacing: 9) {
+        if model.passkeyAuthenticating {
+          ProgressView()
+            .tint(appearance.accentColor)
+        } else {
+          Image(systemName: "person.badge.key.fill")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(
+              isDisabled ? Color.primary.opacity(0.42) : appearance.accentColor
+            )
+        }
+        Text(L10n.text("使用通行密钥登录"))
+          .font(.body.weight(.semibold))
+          .foregroundStyle(
+            isDisabled ? Color.primary.opacity(0.45) : Color.primary.opacity(0.92)
+          )
+      }
+      .frame(maxWidth: .infinity, minHeight: 50)
+      .background {
+        Capsule()
+          .fill(
+            appearance.accentColor.opacity(
+              isDisabled
+                ? (colorScheme == .light ? 0.05 : 0.07)
+                : (colorScheme == .light ? 0.10 : 0.15)
+            )
+          )
+          .overlay {
+            Capsule().strokeBorder(
+              appearance.accentColor.opacity(
+                isDisabled
+                  ? (colorScheme == .light ? 0.16 : 0.20)
+                  : (colorScheme == .light ? 0.34 : 0.42)
+              ),
+              lineWidth: 0.85
+            )
+          }
+      }
+    }
+    .buttonStyle(.plain)
+    .disabled(isDisabled)
+    .accessibilityIdentifier("native-passkey-login")
+  }
+
   /// 主题强调色渐变胶囊主操作按钮（禁用态转为低饱和通透玻璃胶囊），同时适配深浅色模式并先收起键盘再提交。
   private func primary(
-    _ key: String, id: String, disabled: Bool, action: @escaping () -> Void
+    _ key: String, id: String, disabled: Bool, loading: Bool = false, action: @escaping () -> Void
   ) -> some View {
     Button {
       focused = nil
@@ -748,38 +871,44 @@ struct NativeV2RootView: View {
         #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
       action()
     } label: {
-      Text(L10n.text(key))
-        .font(.body.weight(.semibold))
-        .foregroundStyle(
-          disabled ? Color.primary.opacity(0.48) : Color.white
-        )
-        .frame(maxWidth: .infinity, minHeight: 52)
-        .background {
-          if disabled {
-            Capsule()
-              .fill(appearance.accentColor.opacity(colorScheme == .light ? 0.14 : 0.16))
-              .overlay {
-                Capsule().strokeBorder(
-                  appearance.accentColor.opacity(colorScheme == .light ? 0.24 : 0.28),
-                  lineWidth: 0.7)
-              }
-          } else {
-            Capsule()
-              .fill(
-                LinearGradient(
-                  colors: [
-                    appearance.accentColor,
-                    appearance.accentColor.opacity(colorScheme == .light ? 0.86 : 0.78),
-                  ],
-                  startPoint: .topLeading,
-                  endPoint: .bottomTrailing
-                )
-              )
-              .overlay {
-                Capsule().strokeBorder(.white.opacity(0.28), lineWidth: 0.7)
-              }
-          }
+      HStack(spacing: 8) {
+        if loading {
+          ProgressView()
+            .tint(disabled ? .secondary : .white)
         }
+        Text(L10n.text(key))
+          .font(.body.weight(.semibold))
+          .foregroundStyle(
+            disabled ? Color.primary.opacity(0.48) : Color.white
+          )
+      }
+      .frame(maxWidth: .infinity, minHeight: 52)
+      .background {
+        if disabled {
+          Capsule()
+            .fill(appearance.accentColor.opacity(colorScheme == .light ? 0.14 : 0.16))
+            .overlay {
+              Capsule().strokeBorder(
+                appearance.accentColor.opacity(colorScheme == .light ? 0.24 : 0.28),
+                lineWidth: 0.7)
+            }
+        } else {
+          Capsule()
+            .fill(
+              LinearGradient(
+                colors: [
+                  appearance.accentColor,
+                  appearance.accentColor.opacity(colorScheme == .light ? 0.86 : 0.78),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              )
+            )
+            .overlay {
+              Capsule().strokeBorder(.white.opacity(0.28), lineWidth: 0.7)
+            }
+        }
+      }
     }
     .buttonStyle(.plain)
     .disabled(disabled)

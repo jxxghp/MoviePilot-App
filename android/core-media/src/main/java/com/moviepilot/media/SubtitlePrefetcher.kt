@@ -155,6 +155,10 @@ class SubtitlePrefetcher(
         } catch (ce: CancellationException) {
             throw ce
         } catch (err: Throwable) {
+            android.util.Log.w(
+                "SubtitlePrefetcher",
+                "Failed to load subtitle key=$key: ${err.message}",
+            )
             Result.failure(err)
         }
     }

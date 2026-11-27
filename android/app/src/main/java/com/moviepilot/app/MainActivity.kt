@@ -148,6 +148,11 @@ class MainActivity : ComponentActivity() {
         AndroidPluginCapsuleManager.onHostAppForegrounded(applicationContext)
     }
 
+    override fun onResume() {
+        super.onResume()
+        com.moviepilot.rustbridge.PasskeyAuthManager.notifyActivityResumed()
+    }
+
     override fun onStop() {
         super.onStop()
         if (!isChangingConfigurations) {
@@ -186,6 +191,10 @@ class MainActivity : ComponentActivity() {
             "moviepilot" -> {
                 if (uri.host?.equals("oauth", ignoreCase = true) == true) {
                     CloudflareAccessOAuthManager.handleCallbackUri(uri.toString())
+                    return
+                }
+                if (uri.host?.equals("passkey", ignoreCase = true) == true) {
+                    com.moviepilot.rustbridge.PasskeyAuthManager.handleCallbackUri(uri.toString())
                     return
                 }
                 pendingDeepLinkOrigin = null

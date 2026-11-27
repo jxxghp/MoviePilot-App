@@ -11,17 +11,23 @@ use mp_core_model::{
     build_oauth_authorize_url as model_build_oauth_authorize_url,
     build_oauth_discovery_urls as model_build_oauth_discovery_urls,
     compute_pkce_s256_challenge as model_compute_pkce_s256_challenge,
+    decode_state_hex_32 as model_decode_state_hex_32,
     detect_cloudflare_access_challenge as model_detect_cloudflare_access_challenge,
     generate_pkce_pair as model_generate_pkce_pair,
+    is_passkey_secure_origin as model_is_passkey_secure_origin,
     merge_cf_access_cookie as model_merge_cf_access_cookie,
     normalize_danmaku_query_title as model_normalize_danmaku_query_title,
     normalize_oauth_resource_url as model_normalize_oauth_resource_url,
     parse_audio_embedded_metadata as model_parse_audio_embedded_metadata,
     parse_oauth_callback_url as model_parse_oauth_callback_url,
     parse_oauth_server_metadata as model_parse_oauth_server_metadata,
+    parse_passkey_provider_enabled as model_parse_passkey_provider_enabled,
     parse_protected_resource_metadata as model_parse_protected_resource_metadata,
     parse_protected_resource_metadata_detail as model_parse_protected_resource_metadata_detail,
     prepare_danmaku_timeline_json as model_prepare_danmaku_timeline_json,
+    prepare_passkey_request as model_prepare_passkey_request,
+    supports_passkey_frontend_marker as model_supports_passkey_frontend_marker,
+    verify_passkey_callback as model_verify_passkey_callback,
 };
 use mp_core_plugin::{
     NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder,
@@ -49,6 +55,13 @@ pub mod bridge {
         ServerAddress::parse(base_url)
             .map(|addr| addr.contains(candidate_url))
             .unwrap_or(false)
+    }
+
+    pub fn rebase_instance_api_url(base_url: &str, raw_url: &str) -> String {
+        ServerAddress::parse(base_url)
+            .ok()
+            .and_then(|addr| addr.rebase_instance_api_url(raw_url))
+            .unwrap_or_default()
     }
 
     pub fn build_v3_endpoint_url(
@@ -393,6 +406,48 @@ pub mod bridge {
         let json_payload: AudioEmbeddedMetadataJson = parsed.into();
         serde_json::to_string(&json_payload).unwrap_or_else(|_| "{}".into())
     }
+
+    pub fn is_passkey_secure_origin(server_url: &str) -> bool {
+        model_is_passkey_secure_origin(server_url)
+    }
+
+    pub fn parse_passkey_provider_enabled(body: &str) -> Result<bool, String> {
+        model_parse_passkey_provider_enabled(body).map_err(|e| e.as_code().to_string())
+    }
+
+    pub fn supports_passkey_frontend_marker(body: &str) -> bool {
+        model_supports_passkey_frontend_marker(body)
+    }
+
+    pub fn prepare_passkey_request_json(
+        start_body: &str,
+        server_url: &str,
+        state_hex: &str,
+    ) -> Result<String, String> {
+        let state_bytes =
+            model_decode_state_hex_32(state_hex).map_err(|e| e.as_code().to_string())?;
+        let prepared = model_prepare_passkey_request(start_body, server_url, &state_bytes)
+            .map_err(|e| e.as_code().to_string())?;
+        serde_json::to_string(&prepared).map_err(|e| e.to_string())
+    }
+
+    pub fn verify_passkey_callback_json(
+        callback_url: &str,
+        server_url: &str,
+        expected_state: &str,
+        expected_challenge: &str,
+        transaction_token: &str,
+    ) -> String {
+        let outcome = model_verify_passkey_callback(
+            callback_url,
+            server_url,
+            expected_state,
+            expected_challenge,
+            transaction_token,
+        );
+        serde_json::to_string(&outcome)
+            .unwrap_or_else(|_| r#"{"ok":false,"errorCode":"invalid"}"#.into())
+    }
 }
 
 #[cfg(target_env = "ohos")]
@@ -692,6 +747,53 @@ mod napi_exports {
     #[napi]
     pub fn parse_audio_embedded_metadata_json(head_base64: String, tail_base64: String) -> String {
         bridge::parse_audio_embedded_metadata_json(&head_base64, &tail_base64)
+    }
+
+    #[napi]
+    pub fn rebase_instance_api_url(base_url: String, raw_url: String) -> String {
+        bridge::rebase_instance_api_url(&base_url, &raw_url)
+    }
+
+    #[napi]
+    pub fn is_passkey_secure_origin(server_url: String) -> bool {
+        bridge::is_passkey_secure_origin(&server_url)
+    }
+
+    #[napi]
+    pub fn parse_passkey_provider_enabled(body: String) -> Result<bool> {
+        bridge::parse_passkey_provider_enabled(&body).map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn supports_passkey_frontend_marker(body: String) -> bool {
+        bridge::supports_passkey_frontend_marker(&body)
+    }
+
+    #[napi]
+    pub fn prepare_passkey_request_json(
+        start_body: String,
+        server_url: String,
+        state_hex: String,
+    ) -> Result<String> {
+        bridge::prepare_passkey_request_json(&start_body, &server_url, &state_hex)
+            .map_err(napi_ohos::Error::from_reason)
+    }
+
+    #[napi]
+    pub fn verify_passkey_callback_json(
+        callback_url: String,
+        server_url: String,
+        expected_state: String,
+        expected_challenge: String,
+        transaction_token: String,
+    ) -> String {
+        bridge::verify_passkey_callback_json(
+            &callback_url,
+            &server_url,
+            &expected_state,
+            &expected_challenge,
+            &transaction_token,
+        )
     }
 }
 

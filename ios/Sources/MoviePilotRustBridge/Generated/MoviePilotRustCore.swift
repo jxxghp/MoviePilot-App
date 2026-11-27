@@ -2126,6 +2126,16 @@ public func generatePkcePairJson(extraEntropy: String) -> String  {
 })
 }
 /**
+ * 判断服务地址是否满足 WebAuthn 通行密钥安全来源要求（`https://` 或本机回环地址）。
+ */
+public func isPasskeySecureOrigin(serverUrl: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_is_passkey_secure_origin(
+        FfiConverterString.lower(serverUrl),$0
+    )
+})
+}
+/**
  * 校验两条 HTTP(S) URL 是否严格同源（用于跨源 302 重定向时剥离直连令牌头）。
  */
 public func isSameHttpOrigin(urlA: String, urlB: String) -> Bool  {
@@ -2257,6 +2267,16 @@ public func parseOauthServerMetadataJson(jsonStr: String)throws  -> String  {
 })
 }
 /**
+ * 解析 `/api/v1/auth/providers` 响应，返回是否启用系统级通行密钥认证。
+ */
+public func parsePasskeyProviderEnabled(body: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_parse_passkey_provider_enabled(
+        FfiConverterString.lower(body),$0
+    )
+})
+}
+/**
  * 解析 RFC 9728 Protected Resource Metadata，完整返回 `resource` 与 `authorizationServers` JSON。
  */
 public func parseProtectedResourceMetadataDetailJson(jsonStr: String)throws  -> String  {
@@ -2332,6 +2352,29 @@ public func prepareDanmakuTimelineJson(rawPayloadJson: String, filterOptionsJson
 })
 }
 /**
+ * 校验通行密钥 `authenticate/start` 响应并生成浏览器公开跳转地址与内存事务 JSON。
+ */
+public func preparePasskeyRequestJson(startBody: String, serverUrl: String, stateHex: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
+    uniffi_moviepilot_core_fn_func_prepare_passkey_request_json(
+        FfiConverterString.lower(startBody),
+        FfiConverterString.lower(serverUrl),
+        FfiConverterString.lower(stateHex),$0
+    )
+})
+}
+/**
+ * 将服务端返回的相对路径或反代协议失配的 `/api/v1/...` URL 安全重绑到当前实例根地址。
+ */
+public func rebaseInstanceApiUrl(baseUrl: String, rawUrl: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_rebase_instance_api_url(
+        FfiConverterString.lower(baseUrl),
+        FfiConverterString.lower(rawUrl),$0
+    )
+})
+}
+/**
  * 根据平台能力、用户内核偏好与媒体特征计算主播放内核及降级备选内核 JSON。
  */
 public func resolvePlaybackEngineJson(inputJson: String)throws  -> String  {
@@ -2363,6 +2406,16 @@ public func serverAddressContains(baseUrl: String, candidateUrl: String) -> Bool
 })
 }
 /**
+ * 校验 `<server>/native-passkey.json` 是否支持 `moviepilot.passkey` v1 协议。
+ */
+public func supportsPasskeyFrontendMarker(body: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_supports_passkey_frontend_marker(
+        FfiConverterString.lower(body),$0
+    )
+})
+}
+/**
  * 校验并规范化插件 Bridge 请求的 `/api/v1/...` 路径，拒绝外部主机与路径穿越。
  */
 public func validatePluginBridgeApiPath(rawPath: String)throws  -> String  {
@@ -2379,6 +2432,20 @@ public func validatePluginShellAsset(virtualPath: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreFfiError_lift) {
     uniffi_moviepilot_core_fn_func_validate_plugin_shell_asset(
         FfiConverterString.lower(virtualPath),$0
+    )
+})
+}
+/**
+ * 校验 `moviepilot://passkey/callback#result=...` 并返回 `PasskeyCallbackOutcome` JSON。
+ */
+public func verifyPasskeyCallbackJson(callbackUrl: String, serverUrl: String, expectedState: String, expectedChallenge: String, transactionToken: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_moviepilot_core_fn_func_verify_passkey_callback_json(
+        FfiConverterString.lower(callbackUrl),
+        FfiConverterString.lower(serverUrl),
+        FfiConverterString.lower(expectedState),
+        FfiConverterString.lower(expectedChallenge),
+        FfiConverterString.lower(transactionToken),$0
     )
 })
 }
@@ -2455,6 +2522,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_generate_pkce_pair_json() != 35640) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_is_passkey_secure_origin() != 32506) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_is_same_http_origin() != 24565) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2491,6 +2561,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_parse_oauth_server_metadata_json() != 61028) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_parse_passkey_provider_enabled() != 41621) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_detail_json() != 40938) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2512,6 +2585,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_prepare_danmaku_timeline_json() != 62879) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_prepare_passkey_request_json() != 52701) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_rebase_instance_api_url() != 28301) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json() != 50581) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2521,10 +2600,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_moviepilot_core_checksum_func_server_address_contains() != 32809) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_moviepilot_core_checksum_func_supports_passkey_frontend_marker() != 43481) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_moviepilot_core_checksum_func_validate_plugin_bridge_api_path() != 29616) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_func_validate_plugin_shell_asset() != 35061) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_moviepilot_core_checksum_func_verify_passkey_callback_json() != 64887) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_moviepilot_core_checksum_method_nativesseparser_finish() != 1038) {

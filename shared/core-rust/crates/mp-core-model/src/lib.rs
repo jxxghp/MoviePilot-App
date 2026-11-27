@@ -7,6 +7,7 @@ pub mod danmaku;
 pub mod deep_link;
 pub mod markdown;
 pub mod medals;
+pub mod passkey;
 pub mod playback_engine;
 pub mod playback_route;
 pub mod playback_sync;
@@ -32,6 +33,11 @@ pub use danmaku::{
 pub use deep_link::{AppDeepLink, PlayableMediaFormat, PlayableMediaKind, StrmStreamSpec};
 pub use markdown::{AgentMarkdownParser, MarkdownBlock, MarkdownBlockKind};
 pub use medals::{CommunityMedalPalette, CommunityMedalsModel};
+pub use passkey::{
+    PasskeyCallbackOutcome, PasskeyErrorCode, PreparedPasskeyRequest, decode_state_hex_32,
+    is_passkey_secure_origin, parse_passkey_provider_enabled, prepare_passkey_request,
+    supports_passkey_frontend_marker, verify_passkey_callback,
+};
 pub use playback_engine::{
     BufferProfile, DecodeMode, EngineResolutionInput, EngineResolutionPlan, PlatformKind,
     PlaybackEngineChoice, PlaybackEngineRouter, ResolvedPlaybackEngine,

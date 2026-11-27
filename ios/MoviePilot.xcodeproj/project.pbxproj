@@ -13,6 +13,7 @@
 		0C84D194ABE2A7346BAF979C /* PluginRemoteDiskCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17BA1AD0A6153767FAE766F9 /* PluginRemoteDiskCache.swift */; };
 		0EE2961899BD600DE410D4E8 /* MediaPlaybackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */; };
 		0F10DAF3C3E45285527B6679 /* NativeAgentFloatingMascot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CC709A18D7FAEDC0527EDD8 /* NativeAgentFloatingMascot.swift */; };
+		0F2E336EB862CF10739E6811 /* PasskeyAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C14F52952629F4DE2A12E6E /* PasskeyAuthenticator.swift */; };
 		0FE557F4111AB0095942BEFF /* NativeDiscoverModulesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE7B8D4C7A31F109890ABCF /* NativeDiscoverModulesSheet.swift */; };
 		1239E3EF7CE49B9F5D5C757C /* WidgetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA1934688E4D109E194DB96 /* WidgetService.swift */; };
 		1643E5D3ACDFDECB97B3BD54 /* NativeSitesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */; };
@@ -158,6 +159,7 @@
 		18137A11C852F3555A73F283 /* NativeV2SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeV2SceneDelegate.swift; sourceTree = "<group>"; };
 		18D77B462A8A2EDE1AD9ABCC /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		1A53F32D403882DC68D3CE17 /* MoviePilotWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MoviePilotWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		1C14F52952629F4DE2A12E6E /* PasskeyAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasskeyAuthenticator.swift; sourceTree = "<group>"; };
 		1CC709A18D7FAEDC0527EDD8 /* NativeAgentFloatingMascot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAgentFloatingMascot.swift; sourceTree = "<group>"; };
 		26F7EF16B0F3F0449AC21549 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		274895617146E30E9DDE5876 /* AccountAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountAppearance.swift; sourceTree = "<group>"; };
@@ -310,6 +312,7 @@
 				D33F2AC19EE7708468CFADFF /* MediaPictureInPictureController.swift */,
 				7AFD1560F224ABDAD40A7D45 /* MediaPlaybackController.swift */,
 				3C5522D23DCCE1A49988D78B /* NotificationService.swift */,
+				1C14F52952629F4DE2A12E6E /* PasskeyAuthenticator.swift */,
 				C0741479EF6479213B9E981B /* PlaybackProgressReporter.swift */,
 				937552AB1FC12F2CB12D3D13 /* PlaybackRouteResolver.swift */,
 				EDC7F876AC1F304D50E70B03 /* SceneDelegate.swift */,
@@ -737,6 +740,7 @@
 				5927F511B04B6D1BA62E7ACD /* NativeWorkflowCanvasPage.swift in Sources */,
 				3CBB675738DCDAD4D0C9ADB9 /* NativeWorkflowsPage.swift in Sources */,
 				AABED68CFA2524E767AD4CE1 /* NotificationService.swift in Sources */,
+				0F2E336EB862CF10739E6811 /* PasskeyAuthenticator.swift in Sources */,
 				E9C33B33D0CBC4956204F315 /* PlaybackEngine.swift in Sources */,
 				9A697B5E5AFFE2064EF6A510 /* PlaybackEngineFactory.swift in Sources */,
 				570ED0CADD7D194D0F7AE95E /* PlaybackProgressReporter.swift in Sources */,
@@ -850,7 +854,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 2.0.8;
+				MARKETING_VERSION = 2.0.9;
 				MOVIEPILOT_APNS_ENVIRONMENT = production;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -991,7 +995,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 2.0.8;
+				MARKETING_VERSION = 2.0.9;
 				MOVIEPILOT_APNS_ENVIRONMENT = production;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;

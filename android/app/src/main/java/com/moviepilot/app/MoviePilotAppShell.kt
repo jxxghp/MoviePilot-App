@@ -1138,6 +1138,7 @@ fun MoviePilotRootShell(
                                         proxyFallbackUrl = manifest.proxyFallbackUrl,
                                         activeRouteKind = manifest.activeRouteKind,
                                         fallbackRoutes = manifest.fallbackRoutes,
+                                        originUrl = manifest.originUrl,
                                         itemId = manifest.itemId,
                                         server = manifest.server.ifBlank { server.orEmpty() },
                                         serverType = manifest.serverType,

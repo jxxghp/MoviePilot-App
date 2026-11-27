@@ -85,6 +85,39 @@ public struct ServerAddress: Codable, Equatable, Sendable {
   /// 精确比较浏览器来源，子域、不同协议或非默认端口均属于另一来源。
   public func contains(_ candidate: URL) -> Bool { WebOrigin(url: candidate) == origin }
 
+  /// 将反代环境下协议或上游主机失配的 `/api/v1/...` 地址安全重绑到当前已验证实例根地址；非 `/api/v1/` 跨源直链原样保留。
+  public func rebasingInstanceAPIURL(_ candidate: URL) -> URL {
+    guard let scheme = candidate.scheme?.lowercased(), ["http", "https"].contains(scheme),
+      candidate.user == nil, candidate.password == nil, candidate.fragment == nil
+    else { return candidate }
+    let basePath =
+      url.path == "/" ? "" : (url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path)
+    if contains(candidate) {
+      if basePath.isEmpty || candidate.path == basePath || candidate.path.hasPrefix("\(basePath)/")
+      {
+        return candidate
+      }
+    }
+    let pathSegments = candidate.path.split(separator: "/", omittingEmptySubsequences: false)
+    guard !pathSegments.contains("..") else { return candidate }
+    let apiSuffix: String
+    if !basePath.isEmpty, candidate.path.hasPrefix("\(basePath)/api/v1/") {
+      apiSuffix = String(candidate.path.dropFirst(basePath.count))
+    } else if candidate.path.hasPrefix("/api/v1/") {
+      apiSuffix = candidate.path
+    } else {
+      return candidate
+    }
+    guard var baseComponents = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      let rawComponents = URLComponents(url: candidate, resolvingAgainstBaseURL: false)
+    else { return candidate }
+    baseComponents.path = basePath + apiSuffix
+    baseComponents.percentEncodedQuery = rawComponents.percentEncodedQuery
+    baseComponents.fragment = nil
+    guard let rebased = baseComponents.url, contains(rebased) else { return candidate }
+    return rebased
+  }
+
   /// 进程恢复只 GET 当前同源文档；Vue 确认的 hash 路由不会改写来源、文档路径或查询串。
   public func recoveryURL(currentDocument: URL?, confirmedRoute: String? = nil) -> URL {
     let document =

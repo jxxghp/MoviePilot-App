@@ -27,6 +27,7 @@ import com.moviepilot.rustcore.evaluatePluginExpression
 import com.moviepilot.rustcore.evaluateUserPermissions
 import com.moviepilot.rustcore.filterAndGroupResources
 import com.moviepilot.rustcore.generatePkcePairJson
+import com.moviepilot.rustcore.isPasskeySecureOrigin as ffiIsPasskeySecureOrigin
 import com.moviepilot.rustcore.isSameHttpOrigin
 import com.moviepilot.rustcore.mergeCfAccessCookie
 import com.moviepilot.rustcore.normalizeDanmakuQueryTitle
@@ -39,6 +40,7 @@ import com.moviepilot.rustcore.parseAudioEmbeddedMetadata as ffiParseAudioEmbedd
 import com.moviepilot.rustcore.parseDeepLinkJson
 import com.moviepilot.rustcore.parseOauthCallbackUrlJson
 import com.moviepilot.rustcore.parseOauthServerMetadataJson
+import com.moviepilot.rustcore.parsePasskeyProviderEnabled as ffiParsePasskeyProviderEnabled
 import com.moviepilot.rustcore.parseProtectedResourceMetadataDetailJson
 import com.moviepilot.rustcore.parseProtectedResourceMetadataJson
 import com.moviepilot.rustcore.parseStrmContent
@@ -46,11 +48,15 @@ import com.moviepilot.rustcore.planPlaybackRoutesJson
 import com.moviepilot.rustcore.planPlaybackSyncStepJson
 import com.moviepilot.rustcore.planPluginFormJson
 import com.moviepilot.rustcore.prepareDanmakuTimelineJson
+import com.moviepilot.rustcore.preparePasskeyRequestJson as ffiPreparePasskeyRequestJson
+import com.moviepilot.rustcore.rebaseInstanceApiUrl as ffiRebaseInstanceApiUrl
 import com.moviepilot.rustcore.resolvePlaybackEngineJson
 import com.moviepilot.rustcore.resolvePluginRemoteUpstreamJson
 import com.moviepilot.rustcore.serverAddressContains
+import com.moviepilot.rustcore.supportsPasskeyFrontendMarker as ffiSupportsPasskeyFrontendMarker
 import com.moviepilot.rustcore.validatePluginBridgeApiPath
 import com.moviepilot.rustcore.validatePluginShellAsset
+import com.moviepilot.rustcore.verifyPasskeyCallbackJson as ffiVerifyPasskeyCallbackJson
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -172,6 +178,23 @@ data class OAuthCallbackResultDto(
     val errorDescription: String? = null,
 )
 
+@Serializable
+data class PreparedPasskeyRequestDto(
+    val authorizationUrl: String = "",
+    val state: String = "",
+    val challenge: String = "",
+    val transactionToken: String = "",
+    val timeoutSecs: Long = 120L,
+)
+
+@Serializable
+data class PasskeyCallbackOutcomeDto(
+    val ok: Boolean = false,
+    val finishBodyJson: String? = null,
+    val errorCode: String? = null,
+    val errorMessageZh: String? = null,
+)
+
 object RustCoreBridge {
 
     /** 返回 Rust 共享内核版本号，用于启动冒烟检查与关于页展示。 */
@@ -180,11 +203,23 @@ object RustCoreBridge {
     /** 规范化 MoviePilot 服务地址，保留部署子路径并拒绝内嵌凭据。 */
     fun normalizeAddress(raw: String): Result<String> = runCatching {
         normalizeServerAddress(raw)
+    }.recoverCatching { err ->
+        if (err is UnsatisfiedLinkError || err is NoClassDefFoundError) {
+            fallbackNormalizeAddress(raw)
+        } else {
+            throw err
+        }
     }
 
     /** 校验目标 URL 是否严格属于当前实例源及部署子路径。 */
     fun containsUrl(baseUrl: String, candidateUrl: String): Boolean =
-        runCatching { serverAddressContains(baseUrl, candidateUrl) }.getOrDefault(false)
+        runCatching { serverAddressContains(baseUrl, candidateUrl) }
+            .getOrElse { fallbackContainsUrl(baseUrl, candidateUrl) }
+
+    /** 将反代环境下协议或主机失配的 `/api/v1/...` 地址安全重绑到当前已验证实例根地址；非 `/api/v1/` 跨源直链返回 `null`。 */
+    fun rebaseInstanceApiUrl(baseUrl: String, rawUrl: String): String? =
+        runCatching { ffiRebaseInstanceApiUrl(baseUrl, rawUrl) }
+            .getOrElse { fallbackRebaseInstanceApiUrl(baseUrl, rawUrl) }
 
     /** 构造安全的 `/api/v1/...` 完整端点 URL。 */
     fun buildEndpointUrl(
@@ -1437,5 +1472,341 @@ object RustCoreBridge {
                 neededTailBytes = res.neededTailBytes?.toLong(),
             )
         }.getOrElse { AudioEmbeddedMetadataDto() }
+    }
+
+    // ==================== 通行密钥（moviepilot.passkey v1）与反代地址重绑 ====================
+
+    /** 判断服务地址是否满足 WebAuthn 安全来源要求（`https://` 或回环地址）。 */
+    fun isPasskeySecureOrigin(serverUrl: String): Boolean =
+        runCatching { ffiIsPasskeySecureOrigin(serverUrl) }
+            .getOrElse { fallbackIsPasskeySecureOrigin(serverUrl) }
+
+    /** 解析 `/api/v1/auth/providers` 响应，仅当存在已启用系统级 `passkey` 时返回 `true`。 */
+    fun parsePasskeyProviderEnabled(body: String): Boolean =
+        runCatching { ffiParsePasskeyProviderEnabled(body) }
+            .getOrElse { err ->
+                if (err is UnsatisfiedLinkError || err is NoClassDefFoundError) {
+                    fallbackParsePasskeyProviderEnabled(body)
+                } else {
+                    false
+                }
+            }
+
+    /** 校验 `<server>/native-passkey.json` 静态协议标记是否精确为 `moviepilot.passkey` v1。 */
+    fun supportsPasskeyFrontendMarker(body: String): Boolean =
+        runCatching { ffiSupportsPasskeyFrontendMarker(body) }
+            .getOrElse { fallbackSupportsPasskeyFrontendMarker(body) }
+
+    /** 校验 `authenticate/start` 响应并构造公开浏览器挑战跳转 URL 与内存事务。 */
+    fun preparePasskeyRequest(
+        startBody: String,
+        serverUrl: String,
+        stateHex: String,
+    ): Result<PreparedPasskeyRequestDto> = runCatching {
+        val raw = ffiPreparePasskeyRequestJson(startBody, serverUrl, stateHex)
+        syncJson.decodeFromString<PreparedPasskeyRequestDto>(raw)
+    }.recoverCatching { err ->
+        if (err is UnsatisfiedLinkError || err is NoClassDefFoundError) {
+            fallbackPreparePasskeyRequest(startBody, serverUrl, stateHex)
+        } else {
+            throw err
+        }
+    }
+
+    /** 校验 `moviepilot://passkey/callback#result=...` 并返回 `PasskeyCallbackOutcomeDto`。 */
+    fun verifyPasskeyCallback(
+        callbackUrl: String,
+        serverUrl: String,
+        expectedState: String,
+        expectedChallenge: String,
+        transactionToken: String,
+    ): PasskeyCallbackOutcomeDto = runCatching {
+        val raw = ffiVerifyPasskeyCallbackJson(
+            callbackUrl,
+            serverUrl,
+            expectedState,
+            expectedChallenge,
+            transactionToken,
+        )
+        syncJson.decodeFromString<PasskeyCallbackOutcomeDto>(raw)
+    }.getOrElse { err ->
+        if (err is UnsatisfiedLinkError || err is NoClassDefFoundError) {
+            fallbackVerifyPasskeyCallback(
+                callbackUrl,
+                serverUrl,
+                expectedState,
+                expectedChallenge,
+                transactionToken,
+            )
+        } else {
+            PasskeyCallbackOutcomeDto(
+                ok = false,
+                errorCode = "invalid",
+                errorMessageZh = "通行密钥验证结果无效，请重新尝试。",
+            )
+        }
+    }
+
+    private fun fallbackNormalizeAddress(raw: String): String {
+        val trimmed = raw.trim()
+        require(trimmed.isNotEmpty()) { "服务地址不能为空" }
+        val candidate = if ("://" in trimmed) trimmed else "http://$trimmed"
+        val uri = java.net.URI(candidate)
+        val scheme = uri.scheme?.lowercase() ?: error("仅支持 http 或 https 协议")
+        require(scheme == "http" || scheme == "https") { "仅支持 http 或 https 协议" }
+        require(uri.rawUserInfo == null) { "服务地址不允许内嵌用户名或密码" }
+        val host = uri.host?.lowercase()?.takeIf { it.isNotBlank() } ?: error("服务地址缺少合法主机名")
+        val defaultPort = if (scheme == "https") 443 else 80
+        val port = if (uri.port > 0 && uri.port != defaultPort) ":${uri.port}" else ""
+        val cleanPath = (uri.rawPath ?: "").trimEnd('/')
+        return "$scheme://$host$port$cleanPath"
+    }
+
+    private fun fallbackOriginKey(normalizedOrCandidate: String): Pair<String, String>? {
+        val uri = runCatching { java.net.URI(normalizedOrCandidate.trim()) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase() ?: return null
+        if (scheme != "http" && scheme != "https") return null
+        if (uri.rawUserInfo != null) return null
+        val host = uri.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+        val defaultPort = if (scheme == "https") 443 else 80
+        val effectivePort = if (uri.port > 0) uri.port else defaultPort
+        val origin = "$scheme://$host:$effectivePort"
+        val path = uri.rawPath ?: ""
+        return origin to path
+    }
+
+    private fun fallbackContainsUrl(baseUrl: String, candidateUrl: String): Boolean {
+        val normBase = runCatching { fallbackNormalizeAddress(baseUrl) }.getOrNull() ?: return false
+        val (baseOrigin, basePathRaw) = fallbackOriginKey(normBase) ?: return false
+        val (candOrigin, candPath) = fallbackOriginKey(candidateUrl) ?: return false
+        if (baseOrigin != candOrigin) return false
+        val basePath = basePathRaw.trimEnd('/')
+        if (basePath.isEmpty()) return true
+        return candPath == basePath || candPath.startsWith("$basePath/")
+    }
+
+    private fun fallbackRebaseInstanceApiUrl(baseUrl: String, rawUrl: String): String? {
+        val normBase = runCatching { fallbackNormalizeAddress(baseUrl) }.getOrNull() ?: return null
+        val trimmed = rawUrl.trim()
+        if (trimmed.isEmpty() || trimmed.any { it.isWhitespace() } || '#' in trimmed) return null
+        val basePath = (runCatching { java.net.URI(normBase).rawPath }.getOrNull() ?: "").trimEnd('/')
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            val uri = runCatching { java.net.URI(trimmed) }.getOrNull() ?: return null
+            if (uri.rawUserInfo != null || uri.rawFragment != null) return null
+            if (fallbackContainsUrl(normBase, trimmed)) return trimmed
+            val path = uri.rawPath ?: return null
+            if (path.split('/').any { it == ".." }) return null
+            val apiSuffix = when {
+                basePath.isNotEmpty() && path.startsWith("$basePath/api/v1/") -> path.substring(basePath.length)
+                path.startsWith("/api/v1/") -> path
+                else -> return null
+            }
+            val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+            val rebased = "$normBase$apiSuffix$query"
+            return rebased.takeIf { fallbackContainsUrl(normBase, it) }
+        }
+        if (trimmed.startsWith("//") || "://" in trimmed) return null
+        val relPath = trimmed.substringBefore('?')
+        val query = if ('?' in trimmed) "?" + trimmed.substringAfter('?') else ""
+        val withSlash = if (relPath.startsWith('/')) relPath else "/$relPath"
+        if (withSlash.split('/').any { it == ".." }) return null
+        val suffix = if (basePath.isNotEmpty() && (withSlash == basePath || withSlash.startsWith("$basePath/"))) {
+            withSlash.substring(basePath.length)
+        } else {
+            withSlash
+        }
+        val rebased = "$normBase$suffix$query"
+        return rebased.takeIf { fallbackContainsUrl(normBase, it) }
+    }
+
+    private fun fallbackIsPasskeySecureOrigin(serverUrl: String): Boolean {
+        val norm = runCatching { fallbackNormalizeAddress(serverUrl) }.getOrNull() ?: return false
+        val uri = runCatching { java.net.URI(norm) }.getOrNull() ?: return false
+        if (uri.scheme == "https") return true
+        val bareHost = uri.host?.trim('[', ']')?.lowercase() ?: return false
+        return bareHost == "localhost" || bareHost == "127.0.0.1" || bareHost == "::1"
+    }
+
+    private fun fallbackParsePasskeyProviderEnabled(body: String): Boolean {
+        if (body.length > 65_536) return false
+        val el = runCatching { syncJson.parseToJsonElement(body) }.getOrNull() ?: return false
+        val arr = when (el) {
+            is kotlinx.serialization.json.JsonArray -> el
+            is kotlinx.serialization.json.JsonObject -> {
+                val ok = (el["success"] as? kotlinx.serialization.json.JsonPrimitive)?.let {
+                    !it.isString && it.content == "true"
+                } ?: false
+                if (!ok) return false
+                el["data"] as? kotlinx.serialization.json.JsonArray ?: return false
+            }
+            else -> return false
+        }
+        if (arr.size > 128) return false
+        return arr.any { item ->
+            val obj = item as? kotlinx.serialization.json.JsonObject ?: return@any false
+            val t = (obj["type"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            val m = (obj["method"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            val en = (obj["enabled"] as? kotlinx.serialization.json.JsonPrimitive)?.let { !it.isString && it.content == "true" } == true
+            t == "system" && m == "passkey" && en
+        }
+    }
+
+    private fun fallbackSupportsPasskeyFrontendMarker(body: String): Boolean {
+        if (body.toByteArray().size > 1024) return false
+        val obj = runCatching {
+            syncJson.parseToJsonElement(body) as? kotlinx.serialization.json.JsonObject
+        }.getOrNull() ?: return false
+        if (obj.size != 2) return false
+        val proto = (obj["protocol"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val ver = (obj["version"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { !it.isString }?.content?.toDoubleOrNull()
+        return proto == "moviepilot.passkey" && ver == 1.0
+    }
+
+    private fun fallbackEncodeBase64Url(bytes: ByteArray): String =
+        java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+
+    private fun fallbackDecodeCanonicalBase64Url(raw: String, min: Int, max: Int): ByteArray? {
+        val maxChars = (max * 4 + 2) / 3
+        if (raw.isEmpty() || raw.length > maxChars) return null
+        if (!raw.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '-' || it == '_' }) return null
+        val decoded = runCatching { java.util.Base64.getUrlDecoder().decode(raw) }.getOrNull() ?: return null
+        if (decoded.size !in min..max) return null
+        return decoded.takeIf { fallbackEncodeBase64Url(it) == raw }
+    }
+
+    private fun fallbackPreparePasskeyRequest(
+        startBody: String,
+        serverUrl: String,
+        stateHex: String,
+    ): PreparedPasskeyRequestDto {
+        val norm = runCatching { fallbackNormalizeAddress(serverUrl) }.getOrElse { error("unsupported") }
+        if (!fallbackIsPasskeySecureOrigin(norm) || stateHex.trim().length != 64) error("unsupported")
+        val stateBytes = ByteArray(32) { i ->
+            stateHex.trim().substring(i * 2, i * 2 + 2).toIntOrNull(16)?.toByte() ?: error("invalid")
+        }
+        val root = (syncJson.parseToJsonElement(startBody) as? kotlinx.serialization.json.JsonObject) ?: error("invalid")
+        val ok = (root["success"] as? kotlinx.serialization.json.JsonPrimitive)?.let { !it.isString && it.content == "true" } == true
+        if (!ok) error("failed")
+        val data = root["data"] as? kotlinx.serialization.json.JsonObject ?: error("failed")
+        val token = (data["transaction_token"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content ?: error("failed")
+        if (token.isEmpty() || token.toByteArray().size > 8192 || token.any { it.isISOControl() }) error("failed")
+        val optionsObj = when (val optEl = data["options"]) {
+            is kotlinx.serialization.json.JsonObject -> optEl
+            is kotlinx.serialization.json.JsonPrimitive -> {
+                if (!optEl.isString) error("invalid")
+                (syncJson.parseToJsonElement(optEl.content) as? kotlinx.serialization.json.JsonObject) ?: error("invalid")
+            }
+            else -> error("invalid")
+        }
+        val allowedKeys = setOf("challenge", "rpId", "timeout", "allowCredentials", "userVerification")
+        if (!optionsObj.keys.all { it in allowedKeys }) error("invalid")
+        val challenge = (optionsObj["challenge"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content ?: error("invalid")
+        fallbackDecodeCanonicalBase64Url(challenge, 16, 1024) ?: error("invalid")
+        val host = java.net.URI(norm).host.trim('[', ']').lowercase()
+        (optionsObj["rpId"] as? kotlinx.serialization.json.JsonPrimitive)?.let { rpPrim ->
+            if (!rpPrim.isString) error("invalid")
+            val rp = rpPrim.content
+            val matches = rp.isNotEmpty() && rp == rp.lowercase() &&
+                (rp == host || ('.' in rp && ':' !in rp && host.endsWith(".$rp")))
+            if (!matches) error("invalid")
+        }
+        var timeoutSecs = 120.0
+        (optionsObj["timeout"] as? kotlinx.serialization.json.JsonPrimitive)?.let { tPrim ->
+            if (tPrim.isString) error("invalid")
+            val ms = tPrim.content.toDoubleOrNull() ?: error("invalid")
+            if (!ms.isFinite() || ms < 1.0) error("invalid")
+            timeoutSecs = minOf(ms / 1000.0, timeoutSecs)
+        }
+        val state = fallbackEncodeBase64Url(stateBytes)
+        val reqJson = kotlinx.serialization.json.buildJsonObject {
+            put("version", kotlinx.serialization.json.JsonPrimitive(1))
+            put("state", kotlinx.serialization.json.JsonPrimitive(state))
+            put("options", optionsObj)
+        }.toString()
+        val encodedReq = fallbackEncodeBase64Url(reqJson.toByteArray(Charsets.UTF_8))
+        return PreparedPasskeyRequestDto(
+            authorizationUrl = "$norm/native-passkey.html#request=$encodedReq",
+            state = state,
+            challenge = challenge,
+            transactionToken = token,
+            timeoutSecs = kotlin.math.ceil(timeoutSecs).toLong().coerceIn(1L, 120L),
+        )
+    }
+
+    private fun fallbackVerifyPasskeyCallback(
+        callbackUrl: String,
+        serverUrl: String,
+        expectedState: String,
+        expectedChallenge: String,
+        transactionToken: String,
+    ): PasskeyCallbackOutcomeDto {
+        fun fail(code: String, msg: String?): PasskeyCallbackOutcomeDto =
+            PasskeyCallbackOutcomeDto(ok = false, errorCode = code, errorMessageZh = msg)
+        if (transactionToken.isEmpty()) return fail("expired", "通行密钥验证已过期，请重新尝试。")
+        val norm = runCatching { fallbackNormalizeAddress(serverUrl) }.getOrNull()
+            ?: return fail("expired", "通行密钥验证已过期，请重新尝试。")
+        val (baseOrigin, _) = fallbackOriginKey(norm) ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        if (!callbackUrl.startsWith("moviepilot://passkey/callback#result=")) {
+            return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        }
+        val encoded = callbackUrl.removePrefix("moviepilot://passkey/callback#result=")
+        val bytes = fallbackDecodeCanonicalBase64Url(encoded, 1, 24_576)
+            ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        val resultObj = runCatching {
+            syncJson.parseToJsonElement(String(bytes, Charsets.UTF_8)) as? kotlinx.serialization.json.JsonObject
+        }.getOrNull() ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        val ver = (resultObj["version"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { !it.isString }?.content?.toDoubleOrNull()
+        val st = (resultObj["state"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        if (ver != 1.0 || st != expectedState || resultObj.size != 3) {
+            return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        }
+        (resultObj["error"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.let { errCode ->
+            return when (errCode) {
+                "canceled" -> fail("canceled", null)
+                "expired" -> fail("expired", "通行密钥验证已过期，请重新尝试。")
+                "unsupported" -> fail("unsupported", "当前连接或系统不支持通行密钥，请使用 HTTPS 地址和支持的系统。")
+                "invalid" -> fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+                "failed" -> fail("failed", "未能完成通行密钥验证，请重新尝试。")
+                else -> fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+            }
+        }
+        val cred = resultObj["credential"] as? kotlinx.serialization.json.JsonObject
+            ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        val id = (cred["id"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val rawId = (cred["rawId"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val cType = (cred["type"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val resp = cred["response"] as? kotlinx.serialization.json.JsonObject
+        if (cred.size != 4 || cType != "public-key" || id == null || id != rawId || resp == null || resp.size != 4) {
+            return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        }
+        fallbackDecodeCanonicalBase64Url(id, 1, 1024) ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        val authData = (resp["authenticatorData"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        val clientB64 = (resp["clientDataJSON"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        val sig = (resp["signature"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+            ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        fallbackDecodeCanonicalBase64Url(authData, 37, 2048) ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        fallbackDecodeCanonicalBase64Url(sig, 1, 2048) ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        val clientBytes = fallbackDecodeCanonicalBase64Url(clientB64, 1, 4096)
+            ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        val clientObj = runCatching {
+            syncJson.parseToJsonElement(String(clientBytes, Charsets.UTF_8)) as? kotlinx.serialization.json.JsonObject
+        }.getOrNull() ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        val wType = (clientObj["type"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val wChal = (clientObj["challenge"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val wOrigin = (clientObj["origin"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        val cross = clientObj["crossOrigin"]
+        val crossOk = cross == null || (cross is kotlinx.serialization.json.JsonPrimitive && !cross.isString && cross.content == "false")
+        val (candOrigin, candPath) = wOrigin?.takeIf { !it.endsWith('/') }?.let { fallbackOriginKey(it) }
+            ?: return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        if (wType != "webauthn.get" || wChal != expectedChallenge || !crossOk || candOrigin != baseOrigin || candPath.isNotEmpty()) {
+            return fail("invalid", "通行密钥验证结果无效，请重新尝试。")
+        }
+        val finishJson = kotlinx.serialization.json.buildJsonObject {
+            put("credential", cred)
+            put("transaction_token", kotlinx.serialization.json.JsonPrimitive(transactionToken))
+        }.toString()
+        return PasskeyCallbackOutcomeDto(ok = true, finishBodyJson = finishJson)
     }
 }

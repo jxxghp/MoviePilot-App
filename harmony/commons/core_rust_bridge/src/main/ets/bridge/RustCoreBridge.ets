@@ -57,6 +57,33 @@ export interface NativeCoreModule {
   parseOauthCallbackUrlJson?(callbackUrl: string, expectedState: string): string;
   mergeCfAccessCookie?(existingCookieHeader: string, cfToken: string): string;
   parseAudioEmbeddedMetadataJson?(headBase64: string, tailBase64: string): string;
+  rebaseInstanceApiUrl?(baseUrl: string, rawUrl: string): string;
+  isPasskeySecureOrigin?(serverUrl: string): boolean;
+  parsePasskeyProviderEnabled?(body: string): boolean;
+  supportsPasskeyFrontendMarker?(body: string): boolean;
+  preparePasskeyRequestJson?(startBody: string, serverUrl: string, stateHex: string): string;
+  verifyPasskeyCallbackJson?(
+    callbackUrl: string,
+    serverUrl: string,
+    expectedState: string,
+    expectedChallenge: string,
+    transactionToken: string
+  ): string;
+}
+
+export interface PreparedPasskeyRequest {
+  authorizationUrl: string;
+  state: string;
+  challenge: string;
+  transactionToken: string;
+  timeoutSecs: number;
+}
+
+export interface PasskeyCallbackOutcome {
+  ok: boolean;
+  finishBodyJson?: string;
+  errorCode?: string;
+  errorMessageZh?: string;
 }
 
 export interface AudioEmbeddedMetadataResult {
@@ -1860,5 +1887,174 @@ export class RustCoreBridge {
       // ignore native parse failure
     }
     return {};
+  }
+
+  /** 将反代环境下协议或上游主机失配的 `/api/v1/...` 地址安全重绑到当前已验证实例根地址。 */
+  static rebaseInstanceApiUrl(baseUrl: string, rawUrl: string): string {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.rebaseInstanceApiUrl) {
+        return RustCoreBridge.nativeLib.rebaseInstanceApiUrl(baseUrl, rawUrl);
+      }
+    } catch {
+      // fallback below
+    }
+    const cleanBase = (baseUrl ?? '').trim().replace(/\/+$/, '');
+    const trimmed = (rawUrl ?? '').trim();
+    if (!cleanBase || !trimmed || trimmed.includes('#') || /\s/.test(trimmed)) {
+      return '';
+    }
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      if (RustCoreBridge.serverAddressContains(cleanBase, trimmed)) {
+        return trimmed;
+      }
+      const m = /^https?:\/\/([^\/\?#]+)(\/[^\?#]*)(\?[^#]*)?$/i.exec(trimmed);
+      if (!m || !m[1] || !m[2] || m[1].includes('@') || m[2].split('/').includes('..')) {
+        return '';
+      }
+      const baseMatch = /^https?:\/\/[^\/\?#]+(\/[^\?#]*)?$/i.exec(cleanBase);
+      const basePath = (baseMatch && baseMatch[1]) ? baseMatch[1].replace(/\/+$/, '') : '';
+      const path = m[2];
+      const query = m[3] ?? '';
+      let apiSuffix = '';
+      if (basePath.length > 0 && path.startsWith(`${basePath}/api/v1/`)) {
+        apiSuffix = path.substring(basePath.length);
+      } else if (path.startsWith('/api/v1/')) {
+        apiSuffix = path;
+      } else {
+        return '';
+      }
+      const rebased = `${cleanBase}${apiSuffix}${query}`;
+      return RustCoreBridge.serverAddressContains(cleanBase, rebased) ? rebased : '';
+    }
+    if (trimmed.startsWith('//') || trimmed.includes('://')) {
+      return '';
+    }
+    const withSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+    if (withSlash.split('?')[0].split('/').includes('..')) {
+      return '';
+    }
+    const candidate = `${cleanBase}${withSlash}`;
+    return RustCoreBridge.serverAddressContains(cleanBase, candidate) ? candidate : '';
+  }
+
+  /** 判断当前服务地址是否满足 WebAuthn 安全来源要求（`https://` 或回环地址）。 */
+  static isPasskeySecureOrigin(serverUrl: string): boolean {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.isPasskeySecureOrigin) {
+        return RustCoreBridge.nativeLib.isPasskeySecureOrigin(serverUrl);
+      }
+    } catch {
+      // fallback
+    }
+    const clean = (serverUrl ?? '').trim().toLowerCase();
+    if (clean.startsWith('https://')) {
+      return true;
+    }
+    const m = /^http:\/\/([^\/:\?#]+)/.exec(clean);
+    if (!m || !m[1]) {
+      return false;
+    }
+    const host = m[1].replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  }
+
+  /** 解析 `/api/v1/auth/providers` 响应，判断服务端是否明确启用系统通行密钥。 */
+  static parsePasskeyProviderEnabled(body: string): boolean {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.parsePasskeyProviderEnabled) {
+        return RustCoreBridge.nativeLib.parsePasskeyProviderEnabled(body);
+      }
+    } catch {
+      return false;
+    }
+    try {
+      const parsed = JSON.parse(body) as Object;
+      let list: Object[] = [];
+      if (Array.isArray(parsed)) {
+        list = parsed as Object[];
+      } else if (parsed && typeof parsed === 'object') {
+        const rec = parsed as Record<string, Object>;
+        if (rec['success'] !== true || !Array.isArray(rec['data'])) {
+          return false;
+        }
+        list = rec['data'] as Object[];
+      } else {
+        return false;
+      }
+      for (let i = 0; i < list.length; i++) {
+        const item = list[i] as Record<string, Object>;
+        if (
+          item &&
+          item['type'] === 'system' &&
+          item['method'] === 'passkey' &&
+          item['enabled'] === true
+        ) {
+          return true;
+        }
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  /** 校验 `<server>/native-passkey.json` 静态协议标记是否为 `moviepilot.passkey` v1。 */
+  static supportsPasskeyFrontendMarker(body: string): boolean {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.supportsPasskeyFrontendMarker) {
+        return RustCoreBridge.nativeLib.supportsPasskeyFrontendMarker(body);
+      }
+    } catch {
+      // fallback
+    }
+    try {
+      const rec = JSON.parse(body) as Record<string, Object>;
+      return Boolean(
+        rec &&
+        Object.keys(rec).length === 2 &&
+        rec['protocol'] === 'moviepilot.passkey' &&
+        rec['version'] === 1
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /** 校验通行密钥 `authenticate/start` 响应并构造公开认证页 URL 与内存事务。 */
+  static preparePasskeyRequest(startBody: string, serverUrl: string, stateHex: string): PreparedPasskeyRequest {
+    if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.preparePasskeyRequestJson) {
+      const raw = RustCoreBridge.nativeLib.preparePasskeyRequestJson(startBody, serverUrl, stateHex);
+      return JSON.parse(raw) as PreparedPasskeyRequest;
+    }
+    throw new Error('invalid');
+  }
+
+  /** 校验 `moviepilot://passkey/callback#result=...` 回调并生成 `finish` 请求体。 */
+  static verifyPasskeyCallback(
+    callbackUrl: string,
+    serverUrl: string,
+    expectedState: string,
+    expectedChallenge: string,
+    transactionToken: string
+  ): PasskeyCallbackOutcome {
+    try {
+      if (RustCoreBridge.nativeLib && RustCoreBridge.nativeLib.verifyPasskeyCallbackJson) {
+        const raw = RustCoreBridge.nativeLib.verifyPasskeyCallbackJson(
+          callbackUrl,
+          serverUrl,
+          expectedState,
+          expectedChallenge,
+          transactionToken
+        );
+        return JSON.parse(raw) as PasskeyCallbackOutcome;
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      ok: false,
+      errorCode: 'invalid',
+      errorMessageZh: '通行密钥验证结果无效，请重新尝试。'
+    };
   }
 }

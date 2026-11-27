@@ -23,6 +23,8 @@ final class NativeAppModel: ObservableObject {
   @Published private(set) var cloudflareChallengeDetected = false
   @Published private(set) var cloudflareAuthenticating = false
   @Published private(set) var cloudflareSessionRevision = 0
+  @Published private(set) var passkeySupported = false
+  @Published private(set) var passkeyAuthenticating = false
   @Published var address = ""
   @Published var username = ""
   @Published var password = ""
@@ -36,6 +38,7 @@ final class NativeAppModel: ObservableObject {
   private let credentials = LoginCredentialStore()
   private var previousAuthenticatedInstance: SavedInstance?
   private var task: Task<Void, Never>?
+  private var passkeyProbeTask: Task<Void, Never>?
   private var usageReportTask: Task<Void, Never>?
   private var reportedUsageScope: NativeSessionScope?
   private var lastUsageLookupAt: Date = .distantPast
@@ -160,6 +163,7 @@ final class NativeAppModel: ObservableObject {
       address = instance.address.url.absoluteString
       form = .login
       cloudflareChallengeDetected = false
+      refreshPasskeySupport(for: selected)
       execute { [self] id in
         await CloudflareAccessAuthManager.shared.refreshIfNeeded(for: instance.address)
         do {
@@ -180,11 +184,13 @@ final class NativeAppModel: ObservableObject {
         switch manager.state {
         case .initializationRequired(_, let configured):
           form = .initialization
+          passkeySupported = false
           username = configured ?? ""
           fixedUsername = configured != nil
           regenerateKey()
         case .loginRequired:
           loadCredentials(instance)
+          refreshPasskeySupport(for: selected)
           // 没有可恢复的令牌：同样只代替用户点一次，失败后停在登录页由用户处理。
           if submitsSavedLogin, canSubmitSavedLogin { try await submitLogin(id) }
         default: break
@@ -198,6 +204,10 @@ final class NativeAppModel: ObservableObject {
     operationID = UUID()
     task?.cancel()
     task = nil
+    passkeyProbeTask?.cancel()
+    passkeyProbeTask = nil
+    passkeySupported = false
+    passkeyAuthenticating = false
     busy = false
     if previousAuthenticatedInstance == nil {
       previousAuthenticatedInstance =
@@ -251,6 +261,10 @@ final class NativeAppModel: ObservableObject {
     operationID = UUID()
     task?.cancel()
     task = nil
+    passkeyProbeTask?.cancel()
+    passkeyProbeTask = nil
+    passkeySupported = false
+    passkeyAuthenticating = false
     usageReportTask?.cancel()
     usageReportTask = nil
     reportedUsageScope = nil
@@ -280,6 +294,54 @@ final class NativeAppModel: ObservableObject {
   func login() {
     guard selected != nil else { return }
     execute { [self] id in try await submitLogin(id) }
+  }
+
+  /// 使用系统通行密钥（`ASWebAuthenticationSession` + `moviepilot.passkey` v1）完成无密码或指定账号登录。
+  func loginWithPasskey() {
+    guard let selected, !busy, !passkeyAuthenticating else { return }
+    var stateBytes = [UInt8](repeating: 0, count: 32)
+    guard SecRandomCopyBytes(kSecRandomDefault, stateBytes.count, &stateBytes) == errSecSuccess
+    else {
+      messageKey = "无法生成安全密钥，请重试。"
+      return
+    }
+    let stateData = Data(stateBytes)
+    let trimmedUser = username.trimmingCharacters(in: .whitespacesAndNewlines)
+    let keepSession = rememberSession
+    execute { [self] id in
+      passkeyAuthenticating = true
+      defer { passkeyAuthenticating = false }
+      let authenticator = PasskeyAuthenticator()
+      _ = try await manager.loginWithPasskey(
+        to: selected.nativeInstance,
+        username: trimmedUser.isEmpty ? nil : trimmedUser,
+        state: stateData,
+        remember: keepSession
+      ) { authorizationURL in
+        try await authenticator.authenticate(url: authorizationURL)
+      }
+      try check(id)
+      instances.setKeepsSession(keepSession, for: selected.id)
+      clearSecrets()
+    }
+  }
+
+  /// 探测当前登录页对应实例是否开启系统通行密钥提供方，仅在匹配当前选中实例时刷新按钮显隐。
+  private func refreshPasskeySupport(for instance: SavedInstance?) {
+    passkeyProbeTask?.cancel()
+    passkeyProbeTask = nil
+    guard let instance else {
+      passkeySupported = false
+      return
+    }
+    let targetID = instance.id
+    let nativeTarget = instance.nativeInstance
+    passkeyProbeTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      let enabled = await self.manager.probePasskeyEnabled(for: nativeTarget)
+      guard !Task.isCancelled, self.selected?.id == targetID, self.form == .login else { return }
+      self.passkeySupported = enabled
+    }
   }
 
   /// 以当前表单提交登录；手动点击与冷启动自动登录共用，同一操作内只提交一次。
@@ -323,6 +385,7 @@ final class NativeAppModel: ObservableObject {
       clearSecrets()
       form = .login
       fixedUsername = false
+      refreshPasskeySupport(for: selected)
       messageKey = result == .created ? "管理员已创建，请登录。" : "服务已初始化，请登录。"
     }
   }
@@ -371,6 +434,7 @@ final class NativeAppModel: ObservableObject {
       clearSecrets()
       form = .login
       loadCredentials(selected)
+      refreshPasskeySupport(for: selected)
     } catch { messageKey = Self.errorKey(error) }
   }
 
@@ -415,6 +479,7 @@ final class NativeAppModel: ObservableObject {
       clearSecrets()
       form = .login
       if let target { loadCredentials(target) }
+      refreshPasskeySupport(for: target)
       messageKey = "登录已过期，请重新登录。"
     }
     if case .verificationRequired(_, let methods) = state {
@@ -608,9 +673,9 @@ final class NativeAppModel: ObservableObject {
     apiKey = bytes.map { String(format: "%02x", $0) }.joined()
   }
 
-  /// 后台取消未完成的认证，保留活跃会话；密码、确认值、OTP 与 API Key 全部清空。
+  /// 后台取消未完成的密码认证，保留活跃会话及正在拉起外部认证器的系统会话；密码、确认值、OTP 与 API Key 全部清空。
   func enteredBackground() {
-    if busy {
+    if busy && !passkeyAuthenticating && !cloudflareAuthenticating {
       operationID = UUID()
       task?.cancel()
       task = nil
@@ -651,10 +716,14 @@ final class NativeAppModel: ObservableObject {
       guard let self else { return }
       do { try await operation(id) } catch {
         guard operationID == id, !Task.isCancelled else { return }
-        if case APIError.cloudflareAccessRequired = error {
-          cloudflareChallengeDetected = true
+        if let failure = error as? PasskeyFailure, failure == .canceled {
+          messageKey = nil
+        } else {
+          if case APIError.cloudflareAccessRequired = error {
+            cloudflareChallengeDetected = true
+          }
+          messageKey = Self.errorKey(error)
         }
-        messageKey = Self.errorKey(error)
       }
       guard operationID == id else { return }
       busy = false
@@ -672,6 +741,8 @@ final class NativeAppModel: ObservableObject {
   private static func errorKey(_ error: any Error) -> String {
     let key: String
     switch error {
+    case let passkey as PasskeyFailure:
+      key = passkey.errorDescription ?? "未能完成通行密钥验证，请重新尝试。"
     case NativeAuthenticationError.credentials: key = "用户名、密码或验证码不正确。"
     case NativeAuthenticationError.verificationRequired: key = "请输入身份验证器验证码。"
     case NativeAuthenticationError.invalidInput: key = "请检查用户名、密码和 API Key。"

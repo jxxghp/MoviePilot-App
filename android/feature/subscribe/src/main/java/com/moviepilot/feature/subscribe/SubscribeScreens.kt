@@ -2425,9 +2425,18 @@ private fun LibraryFileEntryCard(
                                             isAudio = manifest.mediaType == "audio",
                                             lyricsLrc = lrc,
                                             headers = manifest.headers,
+                                            sameOriginHeaders = manifest.sameOriginHeaders,
+                                            streamHeaders = manifest.streamHeaders,
+                                            proxyFallbackUrl = manifest.proxyFallbackUrl,
+                                            activeRouteKind = manifest.activeRouteKind,
+                                            fallbackRoutes = manifest.fallbackRoutes,
+                                            originUrl = manifest.originUrl,
                                             itemId = manifest.itemId,
                                             server = manifest.server,
+                                            serverType = manifest.serverType,
                                             mediaSourceId = manifest.mediaSourceId.orEmpty(),
+                                            playSessionId = manifest.playSessionId,
+                                            progressSyncMode = manifest.progressSyncMode,
                                             resumePositionMs = manifest.resumePositionMs,
                                             subtitles = manifest.subtitles.map {
                                                 SubtitleTrackItem(it.subtitleId, it.title, it.language, it.url)

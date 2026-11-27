@@ -11,17 +11,23 @@ use mp_core_model::{
     build_oauth_authorize_url as model_build_oauth_authorize_url,
     build_oauth_discovery_urls as model_build_oauth_discovery_urls,
     compute_pkce_s256_challenge as model_compute_pkce_s256_challenge,
+    decode_state_hex_32 as model_decode_state_hex_32,
     detect_cloudflare_access_challenge as model_detect_cloudflare_access_challenge,
     generate_pkce_pair as model_generate_pkce_pair,
+    is_passkey_secure_origin as model_is_passkey_secure_origin,
     merge_cf_access_cookie as model_merge_cf_access_cookie,
     normalize_danmaku_query_title as model_normalize_danmaku_query_title,
     normalize_oauth_resource_url as model_normalize_oauth_resource_url,
     parse_audio_embedded_metadata as model_parse_audio_embedded_metadata,
     parse_oauth_callback_url as model_parse_oauth_callback_url,
     parse_oauth_server_metadata as model_parse_oauth_server_metadata,
+    parse_passkey_provider_enabled as model_parse_passkey_provider_enabled,
     parse_protected_resource_metadata as model_parse_protected_resource_metadata,
     parse_protected_resource_metadata_detail as model_parse_protected_resource_metadata_detail,
     prepare_danmaku_timeline_json as model_prepare_danmaku_timeline_json,
+    prepare_passkey_request as model_prepare_passkey_request,
+    supports_passkey_frontend_marker as model_supports_passkey_frontend_marker,
+    verify_passkey_callback as model_verify_passkey_callback,
 };
 use mp_core_plugin::{
     NativeCron, NativeFormExpression, PluginFormDraft, PluginUiDecoder,
@@ -130,6 +136,14 @@ pub fn normalize_server_address(raw: String) -> Result<String, CoreFfiError> {
 #[uniffi::export]
 pub fn server_address_contains(base_url: String, candidate_url: String) -> bool {
     ServerAddress::parse(&base_url).is_ok_and(|addr| addr.contains(&candidate_url))
+}
+
+/// 将服务端返回的相对路径或反代协议失配的 `/api/v1/...` URL 安全重绑到当前实例根地址。
+#[uniffi::export]
+pub fn rebase_instance_api_url(base_url: String, raw_url: String) -> Option<String> {
+    ServerAddress::parse(&base_url)
+        .ok()
+        .and_then(|addr| addr.rebase_instance_api_url(&raw_url))
 }
 
 /// 基于实例根地址构造安全的 `/api/v1/...` 完整请求 URL。
@@ -684,6 +698,66 @@ pub fn parse_oauth_callback_url_json(callback_url: String, expected_state: Strin
 #[uniffi::export]
 pub fn merge_cf_access_cookie(existing_cookie_header: String, cf_token: String) -> String {
     model_merge_cf_access_cookie(&existing_cookie_header, &cf_token)
+}
+
+/// 判断服务地址是否满足 WebAuthn 通行密钥安全来源要求（`https://` 或本机回环地址）。
+#[uniffi::export]
+pub fn is_passkey_secure_origin(server_url: String) -> bool {
+    model_is_passkey_secure_origin(&server_url)
+}
+
+/// 解析 `/api/v1/auth/providers` 响应，返回是否启用系统级通行密钥认证。
+#[uniffi::export]
+pub fn parse_passkey_provider_enabled(body: String) -> Result<bool, CoreFfiError> {
+    model_parse_passkey_provider_enabled(&body).map_err(|e| CoreFfiError::InvalidJson {
+        msg: e.as_code().to_string(),
+    })
+}
+
+/// 校验 `<server>/native-passkey.json` 是否支持 `moviepilot.passkey` v1 协议。
+#[uniffi::export]
+pub fn supports_passkey_frontend_marker(body: String) -> bool {
+    model_supports_passkey_frontend_marker(&body)
+}
+
+/// 校验通行密钥 `authenticate/start` 响应并生成浏览器公开跳转地址与内存事务 JSON。
+#[uniffi::export]
+pub fn prepare_passkey_request_json(
+    start_body: String,
+    server_url: String,
+    state_hex: String,
+) -> Result<String, CoreFfiError> {
+    let state_bytes =
+        model_decode_state_hex_32(&state_hex).map_err(|e| CoreFfiError::InvalidJson {
+            msg: e.as_code().to_string(),
+        })?;
+    let prepared =
+        model_prepare_passkey_request(&start_body, &server_url, &state_bytes).map_err(|e| {
+            CoreFfiError::InvalidJson {
+                msg: e.as_code().to_string(),
+            }
+        })?;
+    serde_json::to_string(&prepared).map_err(|e| CoreFfiError::InvalidJson { msg: e.to_string() })
+}
+
+/// 校验 `moviepilot://passkey/callback#result=...` 并返回 `PasskeyCallbackOutcome` JSON。
+#[uniffi::export]
+pub fn verify_passkey_callback_json(
+    callback_url: String,
+    server_url: String,
+    expected_state: String,
+    expected_challenge: String,
+    transaction_token: String,
+) -> String {
+    let outcome = model_verify_passkey_callback(
+        &callback_url,
+        &server_url,
+        &expected_state,
+        &expected_challenge,
+        &transaction_token,
+    );
+    serde_json::to_string(&outcome)
+        .unwrap_or_else(|_| r#"{"ok":false,"errorCode":"invalid"}"#.into())
 }
 
 /// 音频内嵌元数据解析结果（FLAC / ID3v2 / MP4·M4A / Ogg Vorbis·Opus）。

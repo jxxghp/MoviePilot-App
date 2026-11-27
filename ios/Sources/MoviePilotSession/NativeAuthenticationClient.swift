@@ -40,8 +40,29 @@ public protocol NativeAuthenticating: Sendable {
   /// 通过服务器 current 验证原令牌并取得最新身份；不隐式换发另一个 credential。
   func restore(accessToken: String) async throws -> SessionIdentity
 
+  /// 匿名读取当前实例是否明确开启系统通行密钥登录。
+  func passkeyEnabled() async -> Bool
+
+  /// 校验安全上下文与前端静态协议后发起一次通行密钥挑战。
+  func beginPasskey(username: String?, state: Data) async throws -> PasskeyTransaction
+
+  /// 提交经校验的一次性通行密钥断言并换取已验证身份。
+  func finishPasskey(body: Data) async throws -> SessionIdentity
+
   /// 使本次认证网络失效，不能影响其它实例的客户端。
   func cancel()
+}
+
+extension NativeAuthenticating {
+  public func passkeyEnabled() async -> Bool { false }
+
+  public func beginPasskey(username: String?, state: Data) async throws -> PasskeyTransaction {
+    throw PasskeyFailure.unsupported
+  }
+
+  public func finishPasskey(body: Data) async throws -> SessionIdentity {
+    throw PasskeyFailure.unsupported
+  }
 }
 
 /// 只访问固定认证端点的临时会话，不探测前端文件，也不创建或注入任何网页状态。
@@ -147,6 +168,111 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
     return result
   }
 
+  /// 探测实例认证提供方清单；旧实例缺少接口或网络不可达时静默隐藏入口。
+  public func passkeyEnabled() async -> Bool {
+    guard let (data, response) = try? await request(.authProviders),
+      response.statusCode == 200
+    else { return false }
+    return (try? PasskeyTransaction.providerEnabled(data)) == true
+  }
+
+  /// 校验安全来源与前端 `native-passkey.json` 静态协议标记后申请一次性 WebAuthn 挑战。
+  public func beginPasskey(username: String?, state: Data) async throws -> PasskeyTransaction {
+    guard PasskeyTransaction.isSecure(address), state.count == 32 else {
+      throw PasskeyFailure.unsupported
+    }
+    try await verifyPasskeyFrontendMarker()
+    let trimmed = username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard trimmed.utf8.count <= 512 else { throw PasskeyFailure.invalid }
+    let body: Data
+    if trimmed.isEmpty {
+      body = Data("{}".utf8)
+    } else {
+      body = try JSONEncoder().encode(["username": trimmed])
+    }
+    do {
+      let (data, _) = try await request(.passkeyStart, body: body)
+      try Task.checkCancellation()
+      return try PasskeyTransaction(startData: data, address: address, state: state)
+    } catch let error as PasskeyFailure {
+      throw error
+    } catch let error as APIError {
+      switch error {
+      case .cloudflareAccessRequired, .timedOut, .unavailable, .redirectRefused, .rateLimited:
+        throw error
+      default:
+        throw PasskeyFailure.failed
+      }
+    }
+  }
+
+  /// 向既有 `authenticate/finish` 提交一次性断言并取得会话身份。
+  public func finishPasskey(body: Data) async throws -> SessionIdentity {
+    do {
+      let (data, _) = try await request(.passkeyFinish, body: body)
+      let result = try Self.decode(LoginPayload.self, data: data).identity(address: address)
+      try Task.checkCancellation()
+      return result
+    } catch let error as PasskeyFailure {
+      throw error
+    } catch let error as APIError {
+      switch error {
+      case .cloudflareAccessRequired, .timedOut, .unavailable, .redirectRefused, .rateLimited:
+        throw error
+      default:
+        throw PasskeyFailure.failed
+      }
+    }
+  }
+
+  /// 独立检查同源前端静态协议文件，区分旧版前端资源与网关拦截。
+  private func verifyPasskeyFrontendMarker() async throws {
+    try Task.checkCancellation()
+    let url = address.url.appendingPathComponent("native-passkey.json")
+    var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
+    req.timeoutInterval = 15
+    req.httpMethod = "GET"
+    req.httpShouldHandleCookies = false
+    req.setValue("application/json", forHTTPHeaderField: "Accept")
+    req.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+    CloudflareAccessCredentialRegistry.shared.applyHeaders(to: &req, for: address)
+    do {
+      let (bytes, raw) = try await session.bytes(for: req)
+      defer { bytes.task.cancel() }
+      guard let response = raw as? HTTPURLResponse, response.url == url else {
+        throw PasskeyFailure.frontendOutdated
+      }
+      if CloudflareAccessProtocol.detectChallenge(response: response, requestURL: url).isChallenge {
+        throw APIError.cloudflareAccessRequired
+      }
+      var data = Data()
+      for try await byte in bytes {
+        try Task.checkCancellation()
+        if data.count >= 4_096 { break }
+        data.append(byte)
+      }
+      if CloudflareAccessProtocol.detectChallenge(
+        response: response, bodyData: data, requestURL: url
+      ).isChallenge {
+        throw APIError.cloudflareAccessRequired
+      }
+      guard response.statusCode == 200, PasskeyTransaction.supportsFrontend(data) else {
+        throw PasskeyFailure.frontendOutdated
+      }
+    } catch let error as PasskeyFailure {
+      throw error
+    } catch let error as APIError {
+      throw error
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch let error as URLError {
+      if error.code == .cancelled { throw CancellationError() }
+      throw error.code == .timedOut ? APIError.timedOut : APIError.unavailable
+    } catch {
+      throw APIError.unavailable
+    }
+  }
+
   /// 认证原始响应与历史包装响应仅在封闭的认证端点兼容，不影响插件 payload 规则。
   private static func decode<Value: Decodable>(_ type: Value.Type, data: Data) throws -> Value {
     do {
@@ -178,7 +304,7 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
     request.setValue(language.rawValue, forHTTPHeaderField: "X-MoviePilot-Locale")
     if body != nil {
       request.setValue(
-        endpoint == .initialize
+        endpoint.usesJSONBody
           ? "application/json; charset=utf-8"
           : "application/x-www-form-urlencoded; charset=utf-8",
         forHTTPHeaderField: "Content-Type")
@@ -225,7 +351,8 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
         throw APIError.forbidden
       case let status where endpoint == .initialize && [400, 422].contains(status):
         throw NativeAuthenticationError.invalidInput
-      case 404 where endpoint == .initialization: return (Data(), response)
+      case 404 where endpoint == .initialization || endpoint == .authProviders:
+        return (Data(), response)
       case 429:
         throw APIError.rateLimited(
           retryAfter: APIClient.retryAfter(response.value(forHTTPHeaderField: "Retry-After")))
@@ -286,7 +413,7 @@ public final class NativeAuthenticationClient: NativeAuthenticating {
 
 /// 认证白名单不包含前端探测、任意插件接口或 URL 重写。
 private enum NativeAuthEndpoint {
-  case initialization, initialize, login, current
+  case initialization, initialize, login, current, authProviders, passkeyStart, passkeyFinish
 
   /// 所有路径均相对实例 api/v1，代理子路径由 APIEndpoint 保留。
   var path: [String] {
@@ -294,6 +421,16 @@ private enum NativeAuthEndpoint {
     case .initialization, .initialize: ["login", "initialization"]
     case .login: ["login", "access-token"]
     case .current: ["user", "current"]
+    case .authProviders: ["auth", "providers"]
+    case .passkeyStart: ["mfa", "passkey", "authenticate", "start"]
+    case .passkeyFinish: ["mfa", "passkey", "authenticate", "finish"]
+    }
+  }
+
+  var usesJSONBody: Bool {
+    switch self {
+    case .initialize, .passkeyStart, .passkeyFinish: true
+    default: false
     }
   }
 }

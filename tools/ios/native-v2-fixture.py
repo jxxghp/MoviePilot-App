@@ -570,6 +570,7 @@ class NativeHandler(BaseHTTPRequestHandler):
             ("POST", "api/v1/login/initialization"),
             ("POST", "api/v1/login/access-token"),
             ("GET", "api/v1/user/current"),
+            ("GET", "api/v1/auth/providers"),
         }
         if name not in self.server.profiles or (self.command, endpoint) not in allowed:
             with self.server.lock:
@@ -588,6 +589,22 @@ class NativeHandler(BaseHTTPRequestHandler):
             self.initialization(name, mode, body)
         elif endpoint.endswith("access-token"):
             self.login(name, mode, body)
+        elif endpoint == "api/v1/auth/providers":
+            self.reply(
+                200,
+                {
+                    "success": True,
+                    "message": "",
+                    "data": [
+                        {
+                            "id": "system:passkey",
+                            "type": "system",
+                            "method": "passkey",
+                            "enabled": True,
+                        }
+                    ],
+                },
+            )
         else:
             self.current(name, mode)
 

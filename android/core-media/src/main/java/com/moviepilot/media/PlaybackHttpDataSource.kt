@@ -23,6 +23,7 @@ object PlaybackHttpDataSource {
     private val SENSITIVE_HEADER_NAMES = setOf(
         "authorization",
         "cookie",
+        "cf-access-token",
         "x-emby-token",
         "x-emby-authorization",
         "x-mediabrowser-token",
@@ -91,6 +92,7 @@ object PlaybackHttpDataSource {
                 // 先清理所有敏感凭据头，再按当前跳的严格同源关系重新注入，杜绝跨源 302 泄露直连令牌
                 reqBuilder.removeHeader("Authorization")
                 reqBuilder.removeHeader("Cookie")
+                reqBuilder.removeHeader("cf-access-token")
                 reqBuilder.removeHeader("X-Emby-Token")
                 reqBuilder.removeHeader("X-Emby-Authorization")
                 reqBuilder.removeHeader("X-MediaBrowser-Token")

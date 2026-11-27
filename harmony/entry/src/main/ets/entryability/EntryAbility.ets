@@ -1,7 +1,12 @@
 import { UIAbility, Want, AbilityConstant, Configuration, ConfigurationConstant, common } from '@kit.AbilityKit';
 import { display, window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { HarmonyAdaptiveLayout, HarmonyAppearanceStore, PlaybackPreferencesStore } from '@moviepilot/design_system';
-import { RustCoreBridge, NativeHuksStore, CloudflareAccessOAuthManager } from '@moviepilot/core_rust_bridge';
+import {
+  RustCoreBridge,
+  NativeHuksStore,
+  CloudflareAccessOAuthManager,
+  PasskeyAuthManager
+} from '@moviepilot/core_rust_bridge';
 import { HarmonyWidgetSyncService } from '../widget/HarmonyWidgetSyncService';
 
 /**
@@ -60,6 +65,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
+    PasskeyAuthManager.shared().notifyAppForegrounded();
     HarmonyWidgetSyncService.shared().syncAll(this.context).catch(() => {});
   }
 
@@ -261,6 +267,10 @@ export default class EntryAbility extends UIAbility {
     if (!rawTarget) { return; }
     if (rawTarget.toLowerCase().startsWith('moviepilot://oauth/')) {
       CloudflareAccessOAuthManager.shared().handleCallbackUrl(rawTarget);
+      return;
+    }
+    if (rawTarget.toLowerCase().startsWith('moviepilot://passkey/')) {
+      PasskeyAuthManager.shared().handleCallbackUrl(rawTarget);
       return;
     }
     if (rawTarget.startsWith('moviepilot-app://notification')) {

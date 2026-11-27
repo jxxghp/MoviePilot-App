@@ -806,6 +806,18 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -859,6 +871,8 @@ fun uniffi_moviepilot_core_checksum_func_filter_and_group_resources(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_generate_pkce_pair_json(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_is_passkey_secure_origin(
+): Short
 fun uniffi_moviepilot_core_checksum_func_is_same_http_origin(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_merge_cf_access_cookie(
@@ -883,6 +897,8 @@ fun uniffi_moviepilot_core_checksum_func_parse_oauth_callback_url_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_oauth_server_metadata_json(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_parse_passkey_provider_enabled(
+): Short
 fun uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_detail_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_json(
@@ -897,15 +913,23 @@ fun uniffi_moviepilot_core_checksum_func_plan_plugin_form_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_prepare_danmaku_timeline_json(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_prepare_passkey_request_json(
+): Short
+fun uniffi_moviepilot_core_checksum_func_rebase_instance_api_url(
+): Short
 fun uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_resolve_plugin_remote_upstream_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_server_address_contains(
 ): Short
+fun uniffi_moviepilot_core_checksum_func_supports_passkey_frontend_marker(
+): Short
 fun uniffi_moviepilot_core_checksum_func_validate_plugin_bridge_api_path(
 ): Short
 fun uniffi_moviepilot_core_checksum_func_validate_plugin_shell_asset(
+): Short
+fun uniffi_moviepilot_core_checksum_func_verify_passkey_callback_json(
 ): Short
 fun uniffi_moviepilot_core_checksum_method_nativesseparser_finish(
 ): Short
@@ -1010,6 +1034,8 @@ fun uniffi_moviepilot_core_fn_func_filter_and_group_resources(`resourcesJson`: R
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_generate_pkce_pair_json(`extraEntropy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_is_passkey_secure_origin(`serverUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 fun uniffi_moviepilot_core_fn_func_is_same_http_origin(`urlA`: RustBuffer.ByValue,`urlB`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 fun uniffi_moviepilot_core_fn_func_merge_cf_access_cookie(`existingCookieHeader`: RustBuffer.ByValue,`cfToken`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1034,6 +1060,8 @@ fun uniffi_moviepilot_core_fn_func_parse_oauth_callback_url_json(`callbackUrl`: 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_parse_oauth_server_metadata_json(`jsonStr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_parse_passkey_provider_enabled(`body`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 fun uniffi_moviepilot_core_fn_func_parse_protected_resource_metadata_detail_json(`jsonStr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_parse_protected_resource_metadata_json(`jsonStr`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1048,15 +1076,23 @@ fun uniffi_moviepilot_core_fn_func_plan_plugin_form_json(`documentJson`: RustBuf
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_prepare_danmaku_timeline_json(`rawPayloadJson`: RustBuffer.ByValue,`filterOptionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_prepare_passkey_request_json(`startBody`: RustBuffer.ByValue,`serverUrl`: RustBuffer.ByValue,`stateHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_rebase_instance_api_url(`baseUrl`: RustBuffer.ByValue,`rawUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_resolve_playback_engine_json(`inputJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_resolve_plugin_remote_upstream_json(`virtualPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_server_address_contains(`baseUrl`: RustBuffer.ByValue,`candidateUrl`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+fun uniffi_moviepilot_core_fn_func_supports_passkey_frontend_marker(`body`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 fun uniffi_moviepilot_core_fn_func_validate_plugin_bridge_api_path(`rawPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_moviepilot_core_fn_func_validate_plugin_shell_asset(`virtualPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_moviepilot_core_fn_func_verify_passkey_callback_json(`callbackUrl`: RustBuffer.ByValue,`serverUrl`: RustBuffer.ByValue,`expectedState`: RustBuffer.ByValue,`expectedChallenge`: RustBuffer.ByValue,`transactionToken`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun ffi_moviepilot_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1241,6 +1277,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_generate_pkce_pair_json() != 35640.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_is_passkey_secure_origin() != 32506.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_is_same_http_origin() != 24565.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1277,6 +1316,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_parse_oauth_server_metadata_json() != 61028.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_parse_passkey_provider_enabled() != 41621.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_parse_protected_resource_metadata_detail_json() != 40938.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1298,6 +1340,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_prepare_danmaku_timeline_json() != 62879.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_prepare_passkey_request_json() != 52701.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_rebase_instance_api_url() != 28301.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_resolve_playback_engine_json() != 50581.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1307,10 +1355,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_moviepilot_core_checksum_func_server_address_contains() != 32809.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_moviepilot_core_checksum_func_supports_passkey_frontend_marker() != 43481.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_moviepilot_core_checksum_func_validate_plugin_bridge_api_path() != 29616.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_func_validate_plugin_shell_asset() != 35061.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_moviepilot_core_checksum_func_verify_passkey_callback_json() != 64887.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_moviepilot_core_checksum_method_nativesseparser_finish() != 1038.toShort()) {
@@ -2983,6 +3037,18 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 判断服务地址是否满足 WebAuthn 通行密钥安全来源要求（`https://` 或本机回环地址）。
+         */ fun `isPasskeySecureOrigin`(`serverUrl`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_is_passkey_secure_origin(
+        FfiConverterString.lower(`serverUrl`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 校验两条 HTTP(S) URL 是否严格同源（用于跨源 302 重定向时剥离直连令牌头）。
          */ fun `isSameHttpOrigin`(`urlA`: kotlin.String, `urlB`: kotlin.String): kotlin.Boolean {
             return FfiConverterBoolean.lift(
@@ -3131,6 +3197,19 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 解析 `/api/v1/auth/providers` 响应，返回是否启用系统级通行密钥认证。
+         */
+    @Throws(CoreFfiException::class) fun `parsePasskeyProviderEnabled`(`body`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_parse_passkey_provider_enabled(
+        FfiConverterString.lower(`body`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 解析 RFC 9728 Protected Resource Metadata，完整返回 `resource` 与 `authorizationServers` JSON。
          */
     @Throws(CoreFfiException::class) fun `parseProtectedResourceMetadataDetailJson`(`jsonStr`: kotlin.String): kotlin.String {
@@ -3222,6 +3301,31 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 校验通行密钥 `authenticate/start` 响应并生成浏览器公开跳转地址与内存事务 JSON。
+         */
+    @Throws(CoreFfiException::class) fun `preparePasskeyRequestJson`(`startBody`: kotlin.String, `serverUrl`: kotlin.String, `stateHex`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(CoreFfiException) { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_prepare_passkey_request_json(
+        FfiConverterString.lower(`startBody`),FfiConverterString.lower(`serverUrl`),FfiConverterString.lower(`stateHex`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 将服务端返回的相对路径或反代协议失配的 `/api/v1/...` URL 安全重绑到当前实例根地址。
+         */ fun `rebaseInstanceApiUrl`(`baseUrl`: kotlin.String, `rawUrl`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_rebase_instance_api_url(
+        FfiConverterString.lower(`baseUrl`),FfiConverterString.lower(`rawUrl`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 根据平台能力、用户内核偏好与媒体特征计算主播放内核及降级备选内核 JSON。
          */
     @Throws(CoreFfiException::class) fun `resolvePlaybackEngineJson`(`inputJson`: kotlin.String): kotlin.String {
@@ -3260,6 +3364,18 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     
 
         /**
+         * 校验 `<server>/native-passkey.json` 是否支持 `moviepilot.passkey` v1 协议。
+         */ fun `supportsPasskeyFrontendMarker`(`body`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_supports_passkey_frontend_marker(
+        FfiConverterString.lower(`body`),_status)
+}
+    )
+    }
+    
+
+        /**
          * 校验并规范化插件 Bridge 请求的 `/api/v1/...` 路径，拒绝外部主机与路径穿越。
          */
     @Throws(CoreFfiException::class) fun `validatePluginBridgeApiPath`(`rawPath`: kotlin.String): kotlin.String {
@@ -3280,6 +3396,18 @@ public object FfiConverterSequenceTypeSseEventFfi: FfiConverterRustBuffer<List<S
     uniffiRustCallWithError(CoreFfiException) { _status ->
     UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_validate_plugin_shell_asset(
         FfiConverterString.lower(`virtualPath`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * 校验 `moviepilot://passkey/callback#result=...` 并返回 `PasskeyCallbackOutcome` JSON。
+         */ fun `verifyPasskeyCallbackJson`(`callbackUrl`: kotlin.String, `serverUrl`: kotlin.String, `expectedState`: kotlin.String, `expectedChallenge`: kotlin.String, `transactionToken`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_moviepilot_core_fn_func_verify_passkey_callback_json(
+        FfiConverterString.lower(`callbackUrl`),FfiConverterString.lower(`serverUrl`),FfiConverterString.lower(`expectedState`),FfiConverterString.lower(`expectedChallenge`),FfiConverterString.lower(`transactionToken`),_status)
 }
     )
     }

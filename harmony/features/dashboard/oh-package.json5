@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/dashboard",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "description": "MoviePilot HarmonyOS NEXT dashboard HAR",
   "main": "Index.ets",
   "dependencies": {
