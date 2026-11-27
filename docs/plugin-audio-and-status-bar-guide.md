@@ -131,7 +131,7 @@ if (props.hostSdk?.supports('native.audio.nowPlaying')) {
 await audio?.clearNowPlaying()
 ```
 
-`title` 必填；`lyrics` 可提供无时间轴的歌词，`lyricLines` 为 `{ timeMs, text }[]`。切歌时重新提交完整曲目元数据；需要上一首、下一首和拖动入口时设置 `canPrevious`、`canNext`、`canSeek`。`liked` 只同步展示状态，收藏持久化仍由插件完成。
+`title` 必填；可选传入 `capsuleTitle` / `capsuleArtist` 供最小化胶囊展示精简短标题，而系统通知栏与锁屏继续展示完整的 `title` / `artist`。`lyrics` 可提供无时间轴的歌词，`lyricLines` 为 `{ timeMs, text }[]`。切歌时重新提交完整曲目元数据；需要上一首、下一首和拖动入口时设置 `canPrevious`、`canNext`、`canSeek`。`liked` 只同步展示状态，收藏持久化仍由插件完成。
 
 三端对扩展字段的实际处理：
 

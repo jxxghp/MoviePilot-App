@@ -1585,12 +1585,27 @@ final class NativeV2EntryTests: XCTestCase {
 
     let mascotBtn = app.buttons["native-agent-floating-mascot"]
     XCTAssertTrue(mascotBtn.waitForExistence(timeout: 8))
-    // 登录转场期间可访问性节点先出现，等浮动入口真正可点击后再打开对话。
-    let mascotReady = XCTNSPredicateExpectation(
-      predicate: NSPredicate(format: "hittable == true"), object: mascotBtn)
-    XCTAssertEqual(XCTWaiter.wait(for: [mascotReady], timeout: 15), .completed)
+    // 冷启动模拟器首次登录后，系统密码保存远端视图服务可能延迟数秒弹出并遮挡浮动助手按钮；轮询期间即时关闭该系统提示。
+    let mascotDeadline = Date().addingTimeInterval(20)
+    while Date() < mascotDeadline {
+      _ = dismissSystemPasswordSavePromptIfPresent(app)
+      if mascotBtn.exists && mascotBtn.isHittable {
+        break
+      }
+      try await Task.sleep(nanoseconds: 400_000_000)
+    }
+    _ = dismissSystemPasswordSavePromptIfPresent(app)
+    XCTAssertTrue(mascotBtn.isHittable, "浮动智能助手按钮被遮挡或不可点击")
     mascotBtn.tap()
-    XCTAssertTrue(app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 10))
+    if !app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 5) {
+      if dismissSystemPasswordSavePromptIfPresent(app), mascotBtn.waitForExistence(timeout: 5) {
+        mascotBtn.tap()
+      }
+    }
+    guard app.scrollViews["native-agent-scroll"].waitForExistence(timeout: 10) else {
+      XCTFail("智能助手对话面板未能在点击浮动入口后弹出")
+      return
+    }
 
     let input = app.textFields["native-agent-input"]
     XCTAssertTrue(input.waitForExistence(timeout: 10))
@@ -3538,20 +3553,46 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
   }
 
-  /// 新版系统会在登录转场后弹出密码保存 sheet；只拒绝该系统提示，避免遮挡业务控件或保存夹具凭据。
-  private func dismissSystemPasswordSavePrompt(_ app: XCUIApplication) {
-    let titles = ["Save Password?", "存储密码？", "存储密码?", "保存密码？", "儲存密碼？"]
-    let prompt = app.sheets.matching(NSPredicate(format: "label IN %@", titles)).firstMatch
-    guard prompt.waitForExistence(timeout: 3) else { return }
+  /// 新版系统会在登录转场后弹出密码保存 sheet（冷启动远端服务可能延迟数秒出现）；只拒绝该系统提示，避免遮挡业务控件或保存夹具凭据。
+  private func dismissSystemPasswordSavePrompt(
+    _ app: XCUIApplication, timeout: TimeInterval = 5
+  ) {
+    let prompt = systemPasswordSavePromptSheet(app)
+    guard prompt.waitForExistence(timeout: timeout) else { return }
+    dismissMatchedPasswordPrompt(prompt)
+  }
+
+  /// 零等待检查并关闭晚到的系统密码保存弹窗，供后续滚动揭示与点击流程兜底调用。
+  @discardableResult
+  private func dismissSystemPasswordSavePromptIfPresent(_ app: XCUIApplication) -> Bool {
+    let prompt = systemPasswordSavePromptSheet(app)
+    guard prompt.exists else { return false }
+    return dismissMatchedPasswordPrompt(prompt)
+  }
+
+  private func systemPasswordSavePromptSheet(_ app: XCUIApplication) -> XCUIElement {
+    app.sheets.matching(
+      NSPredicate(
+        format: "label CONTAINS[c] 'Password' OR label CONTAINS '密码' OR label CONTAINS '密碼'"
+      )
+    ).firstMatch
+  }
+
+  @discardableResult
+  private func dismissMatchedPasswordPrompt(_ prompt: XCUIElement) -> Bool {
     let decline = prompt.buttons.matching(
-      NSPredicate(format: "label IN %@", ["Not Now", "以后", "暂不", "稍后", "稍後", "現在不要"])
+      NSPredicate(
+        format: "label IN %@",
+        ["Not Now", "以后", "暂不", "稍后", "稍後", "現在不要", "不存储", "不儲存"]
+      )
     )
     .firstMatch
-    XCTAssertTrue(decline.waitForExistence(timeout: 5))
+    guard decline.waitForExistence(timeout: 5) else { return false }
     decline.tap()
     let dismissed = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: "exists == false"), object: prompt)
-    XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+    _ = XCTWaiter.wait(for: [dismissed], timeout: 5)
+    return true
   }
 
   /// 大字/横屏通过滚动查找可触控控件，不使用坐标绕过被遮挡的按钮。
@@ -3562,6 +3603,7 @@ final class NativeV2EntryTests: XCTestCase {
 
   /// Form 延迟创建行且部分 SwiftUI 后代会误报 hittable，必须检查点击中心在可见区域内。
   private func reveal(_ element: XCUIElement, app: XCUIApplication) {
+    _ = dismissSystemPasswordSavePromptIfPresent(app)
     _ = element.waitForExistence(timeout: 2)
     // 键盘候选栏也是 CollectionView；正文继续取首个 Form，只有已打开选择弹层才取其末个 Form。
     let forms = app.collectionViews.allElementsBoundByIndex
@@ -3619,6 +3661,7 @@ final class NativeV2EntryTests: XCTestCase {
                       ?? app)
     for direction in [true, false] {
       for _ in 0..<12 {
+        _ = dismissSystemPasswordSavePromptIfPresent(app)
         if visible(element, app: app, scroll: scroll) { return }
         let upward =
           element.exists

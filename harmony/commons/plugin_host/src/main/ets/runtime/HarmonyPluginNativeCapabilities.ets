@@ -1379,6 +1379,8 @@ export class HarmonyPluginNativeCapabilities {
     }
     const artist = typeof payload['artist'] === 'string' ? (payload['artist'] as string).trim() : '';
     const album = typeof payload['album'] === 'string' ? (payload['album'] as string).trim() : '';
+    const capsuleTitle = typeof payload['capsuleTitle'] === 'string' ? (payload['capsuleTitle'] as string).trim() : '';
+    const capsuleArtist = typeof payload['capsuleArtist'] === 'string' ? (payload['capsuleArtist'] as string).trim() : '';
     const artworkUrl = typeof payload['artworkUrl'] === 'string' ? (payload['artworkUrl'] as string).trim() : '';
     const durationMs = typeof payload['durationMs'] === 'number' ? Math.max(0, Math.floor(payload['durationMs'] as number)) : this.playbackDurationMs;
     const positionMs = typeof payload['positionMs'] === 'number' ? Math.max(0, Math.floor(payload['positionMs'] as number)) : this.playbackPositionMs;
@@ -1412,7 +1414,18 @@ export class HarmonyPluginNativeCapabilities {
       this.nowPlayingLiked = payload['liked'] as boolean;
     }
 
-    await this.applyNowPlayingSession(title, artist, album, artworkUrl, durationMs, positionMs, isPlaying, rate);
+    await this.applyNowPlayingSession(
+      title,
+      artist,
+      album,
+      artworkUrl,
+      durationMs,
+      positionMs,
+      isPlaying,
+      rate,
+      capsuleTitle,
+      capsuleArtist
+    );
     this.sendOk(requestId, '{"registered":true}');
   }
 
@@ -1424,7 +1437,9 @@ export class HarmonyPluginNativeCapabilities {
     durationMs: number,
     positionMs: number,
     isPlaying: boolean,
-    rate: number
+    rate: number,
+    capsuleTitle: string = '',
+    capsuleArtist: string = ''
   ): Promise<void> {
     const ctx = this.getContext();
     if (!ctx) {
@@ -1549,7 +1564,9 @@ export class HarmonyPluginNativeCapabilities {
       isPlaying,
       title,
       artist,
-      artworkUrl
+      artworkUrl,
+      capsuleTitle,
+      capsuleArtist
     );
     await this.syncNowPlayingWidgetStore(true, isPlaying, positionMs);
   }

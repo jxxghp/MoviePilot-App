@@ -860,34 +860,36 @@ struct NativePluginFloatingCapsuleOverlay: View {
   private func capsulePill(session: MinimizedPluginSession, snap: PluginCapsuleSnapshot)
     -> some View
   {
-    HStack(spacing: 5) {
+    HStack(spacing: 2) {
       Button {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         onOpenFullWindow(session)
       } label: {
-        HStack(spacing: 8) {
-          capsuleIcon(session: session, size: 29)
+        HStack(spacing: 6) {
+          capsuleIcon(session: session, size: 26)
 
           VStack(alignment: .leading, spacing: 1) {
-            Text(snap.title)
-              .font(.footnote.weight(.semibold))
+            Text(snap.displayTitle)
+              .font(.system(size: 12, weight: .semibold))
               .foregroundStyle(.primary)
               .lineLimit(1)
-            let secondary = snap.subtitle.isEmpty ? snap.statusText : snap.subtitle
+              .truncationMode(.tail)
+            let secondary = snap.displaySubtitle
             if !secondary.isEmpty {
               Text(secondary)
-                .font(.caption2)
+                .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .truncationMode(.tail)
             }
           }
-          .frame(maxWidth: 152, alignment: .leading)
+          .frame(width: 64, alignment: .leading)
         }
-        .padding(.trailing, 3)
+        .padding(.trailing, 2)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
-      .accessibilityLabel("恢复打开 \(snap.title)")
+      .accessibilityLabel("恢复打开 \(snap.displayTitle)")
 
       ForEach(Array(snap.actions.prefix(3))) { action in
         inlineActionButton(action: action, isPlaying: snap.isPlaying)
@@ -898,16 +900,16 @@ struct NativePluginFloatingCapsuleOverlay: View {
         manager.closeAndRelease()
       } label: {
         Image(systemName: "xmark")
-          .font(.caption2.weight(.bold))
+          .font(.system(size: 11, weight: .bold))
           .foregroundStyle(.secondary)
-          .frame(width: 25, height: 25)
+          .frame(width: 23, height: 25)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("关闭插件胶囊")
     }
-    .padding(.leading, 7)
-    .padding(.trailing, 7)
-    .padding(.vertical, 5.5)
+    .padding(.leading, 6)
+    .padding(.trailing, 4)
+    .padding(.vertical, 5)
     .background(.ultraThinMaterial, in: Capsule())
     .overlay(
       Capsule()
@@ -963,9 +965,9 @@ struct NativePluginFloatingCapsuleOverlay: View {
       manager.dispatchAction(action.id)
     } label: {
       Image(systemName: symbolName)
-        .font(.system(size: 13.5, weight: .semibold))
+        .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(foreground)
-        .frame(width: 27, height: 27)
+        .frame(width: 25, height: 25)
         .contentShape(Circle())
     }
     .buttonStyle(.plain)

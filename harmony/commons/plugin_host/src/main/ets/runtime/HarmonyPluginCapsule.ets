@@ -30,6 +30,8 @@ export interface HarmonyPluginCapsuleState {
   isMinimized: boolean;
   title: string;
   subtitle: string;
+  capsuleTitle?: string;
+  capsuleArtist?: string;
   statusText: string;
   iconUrl: string;
   mode: string; // 'jump' | 'mini'
@@ -233,6 +235,12 @@ export class HarmonyPluginCapsuleManager {
       isMinimized: true,
       title: resolvedTitle,
       subtitle: typeof payload['subtitle'] === 'string' ? (payload['subtitle'] as string) : (cur ? cur.subtitle : ''),
+      capsuleTitle: (typeof payload['capsuleTitle'] === 'string' && (payload['capsuleTitle'] as string).trim().length > 0)
+        ? (payload['capsuleTitle'] as string).trim()
+        : undefined,
+      capsuleArtist: (typeof payload['capsuleArtist'] === 'string' && (payload['capsuleArtist'] as string).trim().length > 0)
+        ? (payload['capsuleArtist'] as string).trim()
+        : undefined,
       statusText: typeof payload['statusText'] === 'string' ? (payload['statusText'] as string) : (cur ? cur.statusText : ''),
       iconUrl: (typeof payload['iconUrl'] === 'string' && (payload['iconUrl'] as string).trim().length > 0)
         ? (payload['iconUrl'] as string).trim()
@@ -257,6 +265,14 @@ export class HarmonyPluginCapsuleManager {
     }
     if (typeof payload['subtitle'] === 'string') {
       cur.subtitle = payload['subtitle'] as string;
+    }
+    if (typeof payload['capsuleTitle'] === 'string') {
+      const ct = (payload['capsuleTitle'] as string).trim();
+      cur.capsuleTitle = ct.length > 0 ? ct : undefined;
+    }
+    if (typeof payload['capsuleArtist'] === 'string') {
+      const ca = (payload['capsuleArtist'] as string).trim();
+      cur.capsuleArtist = ca.length > 0 ? ca : undefined;
     }
     if (typeof payload['statusText'] === 'string') {
       cur.statusText = payload['statusText'] as string;
@@ -293,13 +309,15 @@ export class HarmonyPluginCapsuleManager {
     this.saveState(cur);
   }
 
-  /** 原生音频播放状态变化或调用 `setNowPlaying` 时，实时同步胶囊播放图标与曲目信息。 */
+  /** 原生音频播放状态变化或调用 `setNowPlaying` 时，实时同步胶囊播放图标与曲目信息，并保留专用短标题。 */
   syncAudioPlaybackState(
     pluginId: string,
     isPlaying: boolean,
     title: string = '',
     subtitle: string = '',
-    iconUrl: string = ''
+    iconUrl: string = '',
+    capsuleTitle: string = '',
+    capsuleArtist: string = ''
   ): void {
     const cur = this.currentState();
     if (!cur) {
@@ -308,11 +326,23 @@ export class HarmonyPluginCapsuleManager {
     if (pluginId.length > 0 && cur.pluginId.toLowerCase() !== pluginId.toLowerCase()) {
       return;
     }
-    if (title.trim().length > 0) {
-      cur.title = title.trim();
+    const cleanTitle = title.trim();
+    const trackChanged = cleanTitle.length > 0 && cleanTitle !== cur.title;
+    if (cleanTitle.length > 0) {
+      cur.title = cleanTitle;
     }
     if (subtitle.trim().length > 0) {
       cur.subtitle = subtitle.trim();
+    }
+    if (capsuleTitle.trim().length > 0) {
+      cur.capsuleTitle = capsuleTitle.trim();
+    } else if (trackChanged) {
+      cur.capsuleTitle = undefined;
+    }
+    if (capsuleArtist.trim().length > 0) {
+      cur.capsuleArtist = capsuleArtist.trim();
+    } else if (trackChanged) {
+      cur.capsuleArtist = undefined;
     }
     if (iconUrl.trim().length > 0) {
       cur.iconUrl = iconUrl.trim();
@@ -487,8 +517,8 @@ export struct HarmonyPluginFloatingCapsule {
   @State private isDragging: boolean = false;
   @State private liveDragX: number = 0;
   @State private liveDragY: number = 0;
-  @State private pillWidthVp: number = 230;
-  @State private pillHeightVp: number = 40;
+  @State private pillWidthVp: number = 206;
+  @State private pillHeightVp: number = 38;
   private dragBaseX: number = 0;
   private dragBaseY: number = 0;
 
@@ -716,46 +746,49 @@ export struct HarmonyPluginFloatingCapsule {
             })
         )
       } else {
-        Row({ space: 4 }) {
-          Row({ space: 8 }) {
+        Row({ space: 2 }) {
+          Row({ space: 6 }) {
             if (this.resolveCoverUrl(this.minimizedState()!).length > 0) {
               MpRemoteImage({
                 src: this.resolveCoverUrl(this.minimizedState()!),
-                imgWidth: 28,
-                imgHeight: 28,
-                imgRadius: 14
+                imgWidth: 26,
+                imgHeight: 26,
+                imgRadius: 13
               })
             } else {
               Stack({ alignContent: Alignment.Center }) {
                 Column()
-                  .width(28)
-                  .height(28)
-                  .borderRadius(14)
+                  .width(26)
+                  .height(26)
+                  .borderRadius(13)
                   .backgroundColor(HarmonyAppearanceStore.withAlpha(this.accentHex, '28'))
                 SymbolGlyph($r('sys.symbol.puzzle'))
-                  .fontSize(14)
+                  .fontSize(13)
                   .fontColor([this.accentHex])
               }
             }
 
             Column({ space: 1 }) {
-              Text(this.minimizedState()!.title)
-                .fontSize(12.5)
+              Text(this.minimizedState()!.capsuleTitle || this.minimizedState()!.title)
+                .fontSize(12)
                 .fontWeight(FontWeight.Medium)
                 .fontColor(mpPrimaryText(this.isDark))
                 .maxLines(1)
-                .constraintSize({ maxWidth: 148 })
-              if ((this.minimizedState()!.subtitle || this.minimizedState()!.statusText).length > 0) {
-                Text(this.minimizedState()!.subtitle || this.minimizedState()!.statusText)
-                  .fontSize(10.5)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width(64)
+              if ((this.minimizedState()!.capsuleArtist || this.minimizedState()!.subtitle || this.minimizedState()!.statusText).length > 0) {
+                Text(this.minimizedState()!.capsuleArtist || this.minimizedState()!.subtitle || this.minimizedState()!.statusText)
+                  .fontSize(10)
                   .fontColor(mpSecondaryText(this.isDark))
                   .maxLines(1)
-                  .constraintSize({ maxWidth: 148 })
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .width(64)
               }
             }
+            .width(64)
             .alignItems(HorizontalAlign.Start)
           }
-          .padding({ right: 4 })
+          .padding({ right: 2 })
           .onClick(() => {
             this.tapHaptic();
             HarmonyPluginCapsuleManager.shared().restoreFullWindow();
@@ -767,8 +800,8 @@ export struct HarmonyPluginFloatingCapsule {
               Button({ type: ButtonType.Circle }) {
                 this.renderInlineActionIcon(act, this.minimizedState()!.isPlaying)
               }
-              .width(27)
-              .height(27)
+              .width(25)
+              .height(25)
               .backgroundColor(Color.Transparent)
               .accessibilityText(act.label)
               .onClick(() => {
@@ -781,10 +814,10 @@ export struct HarmonyPluginFloatingCapsule {
 
           Button({ type: ButtonType.Circle }) {
             SymbolGlyph($r('sys.symbol.xmark'))
-              .fontSize(12)
+              .fontSize(11.5)
               .fontColor([mpSecondaryText(this.isDark)])
           }
-          .width(25)
+          .width(23)
           .height(25)
           .backgroundColor(Color.Transparent)
           .accessibilityText('关闭插件胶囊')
@@ -793,7 +826,7 @@ export struct HarmonyPluginFloatingCapsule {
             HarmonyPluginCapsuleManager.shared().closeAndDestroy();
           })
         }
-        .padding({ left: 7, right: 6, top: 5.5, bottom: 5.5 })
+        .padding({ left: 6, right: 4, top: 5, bottom: 5 })
         .borderRadius(999)
         .backgroundColor(HarmonyThemeColors.card(this.isDark, this.paletteId))
         .border({ width: 1, color: HarmonyAppearanceStore.withAlpha(this.accentHex, '55') })

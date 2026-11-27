@@ -1722,6 +1722,10 @@ final class PluginNativeCapabilitiesService: NSObject {
     let artist = (payload["artist"] as? String ?? "").trimmingCharacters(
       in: .whitespacesAndNewlines)
     let album = (payload["album"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let capsuleTitle = (payload["capsuleTitle"] as? String)?.trimmingCharacters(
+      in: .whitespacesAndNewlines)
+    let capsuleArtist = (payload["capsuleArtist"] as? String)?.trimmingCharacters(
+      in: .whitespacesAndNewlines)
     let artworkUrl = (payload["artworkUrl"] as? String ?? "").trimmingCharacters(
       in: .whitespacesAndNewlines)
     let durationMs = (payload["durationMs"] as? NSNumber)?.intValue
@@ -1761,6 +1765,8 @@ final class PluginNativeCapabilitiesService: NSObject {
       title: title,
       artist: artist,
       album: album,
+      capsuleTitle: capsuleTitle,
+      capsuleArtist: capsuleArtist,
       artworkUrl: artworkUrl,
       durationMs: durationMs,
       positionMs: positionMs,
@@ -1791,6 +1797,8 @@ final class PluginNativeCapabilitiesService: NSObject {
     title: String,
     artist: String,
     album: String,
+    capsuleTitle: String? = nil,
+    capsuleArtist: String? = nil,
     artworkUrl: String,
     durationMs: Int?,
     positionMs: Int?,
@@ -1874,6 +1882,8 @@ final class PluginNativeCapabilitiesService: NSObject {
       isPlaying: isPlaying,
       title: title,
       subtitle: artist,
+      capsuleTitle: capsuleTitle,
+      capsuleArtist: capsuleArtist,
       iconURL: artworkUrl
     )
     syncNowPlayingToWidgetStorage(active: true, isPlaying: isPlaying, reloadTimeline: true)

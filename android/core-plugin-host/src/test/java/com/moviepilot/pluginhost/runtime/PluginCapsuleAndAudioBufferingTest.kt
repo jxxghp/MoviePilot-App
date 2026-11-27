@@ -126,6 +126,40 @@ class PluginCapsuleAndAudioBufferingTest {
     }
 
     @Test
+    fun capsuleShortFieldsTakePrecedenceAndRemainStableAcrossSameTrackNowPlayingUpdates() {
+        val snap = PluginCapsuleSnapshot.fromMinimizePayload(
+            pluginId = "MusicPlayer",
+            fallbackName = "音乐播放器",
+            payload = buildJsonObject {
+                put("title", JsonPrimitive("超级长的现场版歌曲名称 (Live)"))
+                put("subtitle", JsonPrimitive("周杰伦 / 合唱嘉宾"))
+                put("capsuleTitle", JsonPrimitive("超级长的现"))
+                put("capsuleArtist", JsonPrimitive("周杰伦"))
+            },
+        )
+        assertEquals("超级长的现", snap.displayTitle)
+        assertEquals("周杰伦", snap.displaySubtitle)
+
+        // 同一首歌推进歌词或播放状态时，setNowPlaying 的完整 title/artist 不会覆盖专用短字段
+        val syncedSameTrack = snap.applyAudioSync(
+            isPlaying = true,
+            title = "超级长的现场版歌曲名称 (Live)",
+            subtitle = "周杰伦 / 合唱嘉宾",
+        )
+        assertEquals("超级长的现", syncedSameTrack.displayTitle)
+        assertEquals("周杰伦", syncedSameTrack.displaySubtitle)
+
+        // 切换到下一首歌且未传短字段时，自动清理旧曲目的短字段并展示新曲目信息
+        val nextTrack = syncedSameTrack.applyAudioSync(
+            isPlaying = true,
+            title = "七里香",
+            subtitle = "周杰伦",
+        )
+        assertEquals("七里香", nextTrack.displayTitle)
+        assertEquals("周杰伦", nextTrack.displaySubtitle)
+    }
+
+    @Test
     fun mediaSessionFreezesSpeedDuringBufferingAndAdvancesOnlyWhenPlaying() {
         // 原生播放处于 buffering 时，即使插件切歌乐观传入 requestedIsPlaying=true，也必须钉住 STATE_BUFFERING + 0f 倍速
         val (bufState, bufSpeed) = buildResolvedMediaSessionStateParams(

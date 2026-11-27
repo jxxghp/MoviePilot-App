@@ -295,8 +295,9 @@ sdk.shell.updateCapsule({ statusText: '已暂停', isPlaying: false })
 onBeforeUnmount(() => offCapsule())
 ```
 
-胶囊字段包括 `mode`、`title`、`subtitle`、`statusText`、`iconUrl`（支持 `/api/v1/...` 同实例受鉴权相对路径，由原生侧自动附带鉴权头加载）、`isPlaying`、`keepOutsideApp`、`edgeSnapThresholdDp`（可选，默认 `24`，范围 `0..72`）和 `actions`；动作包含 `id`、`label`（兼容 `title`）、`icon`、`active`、`destructive`。更新时传补丁即可，传 `actions: []` 清空快捷操作。入口组件也可 `emit('minimize', options)`，需要确认结果时使用 SDK Promise。
+胶囊字段包括 `mode`、`title`、`subtitle`、`capsuleTitle`（可选，胶囊专用短标题）、`capsuleArtist`（可选，胶囊专用短副标题/歌手）、`statusText`、`iconUrl`（支持 `/api/v1/...` 同实例受鉴权相对路径，由原生侧自动附带鉴权头加载）、`isPlaying`、`keepOutsideApp`、`edgeSnapThresholdDp`（可选，默认 `24`，范围 `0..72`）和 `actions`；动作包含 `id`、`label`（兼容 `title`）、`icon`、`active`、`destructive`。更新时传补丁即可，传 `actions: []` 清空快捷操作。入口组件也可 `emit('minimize', options)`，需要确认结果时使用 SDK Promise。
 
+- 固定紧凑宽度与短标题防抖：单行胶囊文字区固定为 `64dp` 紧凑宽度（约 5 个汉字宽，超出自动省略截断），总宽在同组按钮下恒定在 `~206dp`，切歌、刷新歌词或切换播放状态均不会引起胶囊忽长忽短；插件也可通过 `capsuleTitle` / `capsuleArtist`（同时支持在 `minimize`、`updateCapsule` 与 `audio.setNowPlaying` 中传入）为胶囊单独指定短文案，而系统通知栏与锁屏继续展示完整的 `title` / `artist`。
 - 拖动与贴边「超级最小化」：三端应用内悬浮胶囊与 Android `TYPE_APPLICATION_OVERLAY` 系统悬浮窗均会将胶囊严格限制在屏幕安全区内（避开状态栏、手势条与刘海/灵动岛），并持久化安全坐标；当拖至距左/右安全边缘小于 `edgeSnapThresholdDp` 松手时自动吸附并收缩为贴边半圆胶囊，点击半圆立即恢复完整单行胶囊。
 
 - 点击胶囊标题与信息区域直接恢复完整插件窗口，无需先展开二级小窗；内联快捷按钮直接派发 `onCapsuleAction({ actionId })`，并且播放类按钮会根据 `isPlaying`（含原生 `audio.play` / `setNowPlaying` 状态变化）实时同步切换播放 / 暂停图标。

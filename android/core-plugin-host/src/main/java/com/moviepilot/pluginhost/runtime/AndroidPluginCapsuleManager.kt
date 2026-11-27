@@ -43,7 +43,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -324,6 +324,8 @@ data class PluginCapsuleSnapshot(
     val pluginName: String,
     val title: String,
     val subtitle: String = "",
+    val capsuleTitle: String? = null,
+    val capsuleArtist: String? = null,
     val statusText: String = "",
     val iconUrl: String? = null,
     val mode: String = "jump", // "jump" | "mini"
@@ -335,6 +337,14 @@ data class PluginCapsuleSnapshot(
     val isMiniWindowMode: Boolean
         get() = mode.equals("mini", ignoreCase = true) || actions.isNotEmpty()
 
+    /** 胶囊主标题：优先展示插件显式提供的短标题 `capsuleTitle`，否则回退完整 `title`。 */
+    val displayTitle: String
+        get() = capsuleTitle?.takeIf { it.isNotBlank() } ?: title
+
+    /** 胶囊副标题：优先展示插件显式提供的短歌手/副标题 `capsuleArtist`，否则回退 `subtitle` 或 `statusText`。 */
+    val displaySubtitle: String
+        get() = capsuleArtist?.takeIf { it.isNotBlank() } ?: subtitle.ifBlank { statusText }
+
     /** 合并插件增量更新补丁并保持播放按钮状态联动。 */
     fun mergePatch(payload: JsonObject): PluginCapsuleSnapshot {
         fun JsonElement?.str(): String? = when (this) {
@@ -344,6 +354,16 @@ data class PluginCapsuleSnapshot(
         }
         val nextTitle = payload["title"].str()?.takeIf { it.isNotBlank() } ?: title
         val nextSubtitle = payload["subtitle"].str() ?: subtitle
+        val nextCapsuleTitle = if (payload.containsKey("capsuleTitle")) {
+            payload["capsuleTitle"].str()?.trim()?.takeIf { it.isNotEmpty() }
+        } else {
+            capsuleTitle
+        }
+        val nextCapsuleArtist = if (payload.containsKey("capsuleArtist")) {
+            payload["capsuleArtist"].str()?.trim()?.takeIf { it.isNotEmpty() }
+        } else {
+            capsuleArtist
+        }
         val nextStatus = payload["statusText"].str() ?: statusText
         val nextIcon = payload["iconUrl"].str()?.takeIf { it.isNotBlank() } ?: iconUrl
         val nextMode = payload["mode"].str()?.lowercase()?.takeIf { it == "jump" || it == "mini" } ?: mode
@@ -371,6 +391,8 @@ data class PluginCapsuleSnapshot(
         return copy(
             title = nextTitle,
             subtitle = nextSubtitle,
+            capsuleTitle = nextCapsuleTitle,
+            capsuleArtist = nextCapsuleArtist,
             statusText = nextStatus,
             iconUrl = nextIcon,
             mode = nextMode,
@@ -378,6 +400,36 @@ data class PluginCapsuleSnapshot(
             keepOutsideApp = nextKeepOutside,
             edgeSnapThresholdDp = nextSnapDp,
             actions = syncPlayActionActive(parsedActions, nextPlaying),
+        )
+    }
+
+    /** 由原生音频状态或 `audio.setNowPlaying` 同步胶囊字段，保留当前曲目的专用短标题 `capsuleTitle` / `capsuleArtist`。 */
+    internal fun applyAudioSync(
+        isPlaying: Boolean,
+        title: String? = null,
+        subtitle: String? = null,
+        capsuleTitle: String? = null,
+        capsuleArtist: String? = null,
+        iconUrl: String? = null,
+    ): PluginCapsuleSnapshot {
+        val cleanTitle = title?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanSubtitle = subtitle?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanCapTitle = capsuleTitle?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanCapArtist = capsuleArtist?.trim()?.takeIf { it.isNotEmpty() }
+        val trackChanged = cleanTitle != null && cleanTitle != this.title
+        val nextTitle = cleanTitle ?: this.title
+        val nextSubtitle = cleanSubtitle ?: this.subtitle
+        val nextCapTitle = cleanCapTitle ?: if (trackChanged) null else this.capsuleTitle
+        val nextCapArtist = cleanCapArtist ?: if (trackChanged) null else this.capsuleArtist
+        val nextIcon = iconUrl?.trim()?.takeIf { it.isNotEmpty() } ?: this.iconUrl
+        return copy(
+            title = nextTitle,
+            subtitle = nextSubtitle,
+            capsuleTitle = nextCapTitle,
+            capsuleArtist = nextCapArtist,
+            iconUrl = nextIcon,
+            isPlaying = isPlaying,
+            actions = syncPlayActionActive(actions, isPlaying),
         )
     }
 
@@ -413,6 +465,8 @@ data class PluginCapsuleSnapshot(
                 pluginName = resolvedName,
                 title = resolvedTitle,
                 subtitle = payload["subtitle"].str().orEmpty(),
+                capsuleTitle = payload["capsuleTitle"].str()?.trim()?.takeIf { it.isNotEmpty() },
+                capsuleArtist = payload["capsuleArtist"].str()?.trim()?.takeIf { it.isNotEmpty() },
                 statusText = payload["statusText"].str().orEmpty(),
                 iconUrl = payload["iconUrl"].str()?.takeIf { it.isNotBlank() },
                 mode = resolvedMode,
@@ -741,6 +795,8 @@ object AndroidPluginCapsuleManager {
         isPlaying: Boolean,
         title: String? = null,
         subtitle: String? = null,
+        capsuleTitle: String? = null,
+        capsuleArtist: String? = null,
         iconUrl: String? = null,
     ) {
         mainHandler.post {
@@ -749,16 +805,13 @@ object AndroidPluginCapsuleManager {
                 return@post
             }
             val snap = cur.snapshot
-            val nextTitle = title?.trim()?.takeIf { it.isNotEmpty() } ?: snap.title
-            val nextSubtitle = subtitle?.trim()?.takeIf { it.isNotEmpty() } ?: snap.subtitle
-            val nextIcon = iconUrl?.trim()?.takeIf { it.isNotEmpty() } ?: snap.iconUrl
-            val nextActions = syncPlayActionActive(snap.actions, isPlaying)
-            val updatedSnap = snap.copy(
-                title = nextTitle,
-                subtitle = nextSubtitle,
-                iconUrl = nextIcon,
+            val updatedSnap = snap.applyAudioSync(
                 isPlaying = isPlaying,
-                actions = nextActions,
+                title = title,
+                subtitle = subtitle,
+                capsuleTitle = capsuleTitle,
+                capsuleArtist = capsuleArtist,
+                iconUrl = iconUrl,
             )
             if (updatedSnap != snap) {
                 val updatedSession = cur.copy(snapshot = updatedSnap)
@@ -952,8 +1005,8 @@ object AndroidPluginCapsuleManager {
         root.removeAllViews()
 
         fun currentMeasuredSize(): Pair<Int, Int> {
-            val w = root.width.takeIf { it > 0 } ?: root.measuredWidth.takeIf { it > 0 } ?: if (isSuperMini) dp(42) else dp(240)
-            val h = root.height.takeIf { it > 0 } ?: root.measuredHeight.takeIf { it > 0 } ?: dp(40)
+            val w = root.width.takeIf { it > 0 } ?: root.measuredWidth.takeIf { it > 0 } ?: if (isSuperMini) dp(42) else dp(206)
+            val h = root.height.takeIf { it > 0 } ?: root.measuredHeight.takeIf { it > 0 } ?: dp(38)
             return w to h
         }
 
@@ -1019,15 +1072,15 @@ object AndroidPluginCapsuleManager {
             when (dockedEdge) {
                 CapsuleDockedEdge.LEFT -> setPadding(dp(6), dp(5), dp(8), dp(5))
                 CapsuleDockedEdge.RIGHT -> setPadding(dp(8), dp(5), dp(6), dp(5))
-                CapsuleDockedEdge.NONE -> setPadding(dp(8), dp(6), dp(6), dp(6))
+                CapsuleDockedEdge.NONE -> setPadding(dp(6), dp(5), dp(4), dp(5))
             }
         }
 
-        val coverSize = dp(28)
+        val coverSize = if (isSuperMini) dp(28) else dp(26)
         val cachedBmp = getCachedIconBitmap(session.serverUrl, snap.iconUrl)
         val coverView = ImageView(appContext).apply {
             layoutParams = LinearLayout.LayoutParams(coverSize, coverSize).apply {
-                marginEnd = if (isSuperMini) 0 else dp(8)
+                marginEnd = if (isSuperMini) 0 else dp(6)
             }
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = GradientDrawable().apply {
@@ -1069,10 +1122,10 @@ object AndroidPluginCapsuleManager {
             val textCol = LinearLayout(appContext).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    dp(64),
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 ).apply {
-                    marginEnd = dp(6)
+                    marginEnd = dp(2)
                 }
                 setOnClickListener {
                     performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -1081,25 +1134,23 @@ object AndroidPluginCapsuleManager {
             }
             textCol.addView(
                 TextView(appContext).apply {
-                    text = snap.title
+                    text = snap.displayTitle
                     setTextColor(AndroidColor.WHITE)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     paint.isFakeBoldText = true
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
-                    maxWidth = dp(148)
                 },
             )
-            val secondary = snap.subtitle.ifBlank { snap.statusText }
+            val secondary = snap.displaySubtitle
             if (secondary.isNotBlank()) {
                 textCol.addView(
                     TextView(appContext).apply {
                         text = secondary
                         setTextColor(AndroidColor.parseColor("#B5FFFFFF"))
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                         maxLines = 1
                         ellipsize = TextUtils.TruncateAt.END
-                        maxWidth = dp(148)
                     },
                 )
             }
@@ -1107,13 +1158,13 @@ object AndroidPluginCapsuleManager {
 
             snap.actions.take(3).forEach { act ->
                 val iconRes = resolveOverlayActionDrawableRes(act, snap.isPlaying)
-                val btnSize = dp(28)
+                val btnSize = dp(25)
                 val actionView: View = if (iconRes != null) {
                     ImageView(appContext).apply {
                         layoutParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
-                            marginEnd = dp(2)
+                            marginEnd = dp(1)
                         }
-                        val pad = dp(5)
+                        val pad = dp(4)
                         setPadding(pad, pad, pad, pad)
                         setImageResource(iconRes)
                         val kind = classifyCapsuleAction(act)
@@ -1133,12 +1184,12 @@ object AndroidPluginCapsuleManager {
                 } else {
                     TextView(appContext).apply {
                         layoutParams = LinearLayout.LayoutParams(btnSize, btnSize).apply {
-                            marginEnd = dp(2)
+                            marginEnd = dp(1)
                         }
                         gravity = Gravity.CENTER
                         text = act.label.take(1)
                         setTextColor(if (act.destructive) AndroidColor.parseColor("#FF7B7B") else AndroidColor.WHITE)
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
                         paint.isFakeBoldText = true
                         contentDescription = act.label
                         setOnClickListener {
@@ -1151,11 +1202,11 @@ object AndroidPluginCapsuleManager {
             }
 
             val closeView = TextView(appContext).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(26), dp(26))
+                layoutParams = LinearLayout.LayoutParams(dp(23), dp(25))
                 gravity = Gravity.CENTER
                 text = "✕"
                 setTextColor(AndroidColor.parseColor("#B0FFFFFF"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
                 contentDescription = "关闭悬浮胶囊"
                 setOnClickListener {
                     performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -1246,8 +1297,8 @@ fun PluginFloatingCapsuleOverlay(
         val hMarginPx = with(density) { 12.dp.roundToPx() }
         val vMarginPx = with(density) { 8.dp.roundToPx() }
         val snapThresholdPx = with(density) { snap.edgeSnapThresholdDp.dp.roundToPx() }
-        val fallbackWidthPx = with(density) { (if (isSuperMini) 42.dp else 236.dp).roundToPx() }
-        val fallbackHeightPx = with(density) { 40.dp.roundToPx() }
+        val fallbackWidthPx = with(density) { (if (isSuperMini) 42.dp else 206.dp).roundToPx() }
+        val fallbackHeightPx = with(density) { 38.dp.roundToPx() }
         val itemWidthPx = measuredSize.width.takeIf { it > 0 } ?: fallbackWidthPx
         val itemHeightPx = measuredSize.height.takeIf { it > 0 } ?: fallbackHeightPx
 
@@ -1377,12 +1428,12 @@ fun PluginFloatingCapsuleOverlay(
             } else {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(start = 8.dp, end = 5.dp, top = 5.dp, bottom = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                    modifier = Modifier.padding(start = 6.dp, end = 4.dp, top = 4.5.dp, bottom = 4.5.dp),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
                             .clickable {
@@ -1390,29 +1441,29 @@ fun PluginFloatingCapsuleOverlay(
                                 if (isExpanded) onToggleExpanded(false)
                                 onOpenPluginWindow()
                             }
-                            .padding(end = 4.dp, top = 1.dp, bottom = 1.dp),
+                            .padding(end = 2.dp, top = 1.dp, bottom = 1.dp),
                     ) {
                         CapsulePluginIcon(
                             serverUrl = session.serverUrl,
                             iconUrl = snap.iconUrl,
                             accent = colors.accent,
-                            sizeDp = 29,
+                            sizeDp = 26,
                         )
-                        Column(modifier = Modifier.widthIn(max = 152.dp)) {
+                        Column(modifier = Modifier.width(64.dp)) {
                             Text(
-                                text = snap.title,
+                                text = snap.displayTitle,
                                 color = colors.textPrimary,
-                                fontSize = 12.5.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            val secondary = snap.subtitle.ifBlank { snap.statusText }
+                            val secondary = snap.displaySubtitle
                             if (secondary.isNotBlank()) {
                                 Text(
                                     text = secondary,
                                     color = colors.textSecondary,
-                                    fontSize = 10.5.sp,
+                                    fontSize = 10.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -1436,13 +1487,13 @@ fun PluginFloatingCapsuleOverlay(
                             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                             onCloseCapsule()
                         },
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(23.dp),
                     ) {
                         Icon(
                             Icons.Rounded.Close,
                             contentDescription = "关闭最小化插件",
                             tint = colors.textMuted,
-                            modifier = Modifier.size(15.dp),
+                            modifier = Modifier.size(14.dp),
                         )
                     }
                 }
@@ -1469,7 +1520,7 @@ private fun CapsuleInlineActionButton(
 
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(28.dp),
+        modifier = Modifier.size(25.dp),
     ) {
         val vectorIcon: ImageVector? = when (kind) {
             CapsuleInlineActionKind.PREVIOUS -> Icons.Rounded.SkipPrevious
@@ -1491,19 +1542,19 @@ private fun CapsuleInlineActionButton(
                 imageVector = vectorIcon,
                 contentDescription = action.label,
                 tint = tint,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(17.dp),
             )
             drawableRes != null -> Icon(
                 painter = painterResource(drawableRes),
                 contentDescription = action.label,
                 tint = tint,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(15.dp),
             )
             else -> Icon(
                 imageVector = Icons.Rounded.Star,
                 contentDescription = action.label,
                 tint = tint,
-                modifier = Modifier.size(15.dp),
+                modifier = Modifier.size(14.dp),
             )
         }
     }

@@ -413,6 +413,8 @@ struct PluginCapsuleSnapshot: Equatable {
   var pluginName: String
   var title: String
   var subtitle: String
+  var capsuleTitle: String?
+  var capsuleArtist: String?
   var statusText: String
   var iconURL: String?
   var mode: String  // "jump" | "mini"
@@ -422,6 +424,16 @@ struct PluginCapsuleSnapshot: Equatable {
 
   var isMiniWindowMode: Bool {
     mode.lowercased() == "mini" || !actions.isEmpty
+  }
+
+  /// 胶囊主标题：优先展示插件显式提供的短标题 `capsuleTitle`，否则回退完整 `title`。
+  var displayTitle: String {
+    capsuleTitle?.nonEmptyOrNil ?? title
+  }
+
+  /// 胶囊副标题：优先展示插件显式提供的短副标题 `capsuleArtist`，否则回退 `subtitle` 或 `statusText`。
+  var displaySubtitle: String {
+    capsuleArtist?.nonEmptyOrNil ?? (subtitle.isEmpty ? statusText : subtitle)
   }
 
   private static func normalizeSnapThreshold(_ raw: Any?) -> Int? {
@@ -469,6 +481,12 @@ struct PluginCapsuleSnapshot: Equatable {
       pluginName: resolvedName,
       title: resolvedTitle,
       subtitle: (payload["subtitle"] as? String) ?? "",
+      capsuleTitle: (payload["capsuleTitle"] as? String)?.trimmingCharacters(
+        in: .whitespacesAndNewlines
+      ).nonEmptyOrNil,
+      capsuleArtist: (payload["capsuleArtist"] as? String)?.trimmingCharacters(
+        in: .whitespacesAndNewlines
+      ).nonEmptyOrNil,
       statusText: (payload["statusText"] as? String) ?? "",
       iconURL: (payload["iconUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         .nonEmptyOrNil,
@@ -487,6 +505,18 @@ struct PluginCapsuleSnapshot: Equatable {
     }
     if let nextSub = payload["subtitle"] as? String {
       subtitle = nextSub
+    }
+    if payload.index(forKey: "capsuleTitle") != nil {
+      capsuleTitle =
+        (payload["capsuleTitle"] as? String)?.trimmingCharacters(
+          in: .whitespacesAndNewlines
+        ).nonEmptyOrNil
+    }
+    if payload.index(forKey: "capsuleArtist") != nil {
+      capsuleArtist =
+        (payload["capsuleArtist"] as? String)?.trimmingCharacters(
+          in: .whitespacesAndNewlines
+        ).nonEmptyOrNil
     }
     if let nextStatus = payload["statusText"] as? String {
       statusText = nextStatus
@@ -725,12 +755,14 @@ final class PluginCapsuleManager: ObservableObject {
     objectWillChange.send()
   }
 
-  /// 当原生音频播放状态变化或调用 `setNowPlaying` 时，实时联动活跃胶囊的播放状态与曲目封面。
+  /// 当原生音频播放状态变化或调用 `setNowPlaying` 时，实时联动活跃胶囊的播放状态与曲目封面，并保留专用短标题。
   func syncAudioPlaybackState(
     pluginID: String,
     isPlaying: Bool,
     title: String? = nil,
     subtitle: String? = nil,
+    capsuleTitle: String? = nil,
+    capsuleArtist: String? = nil,
     iconURL: String? = nil
   ) {
     guard let currentSession else { return }
@@ -740,11 +772,27 @@ final class PluginCapsuleManager: ObservableObject {
       return
     }
     var next = currentSession.snapshot
-    if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
-      next.title = title
+    let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil
+    let cleanSub = subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil
+    let cleanCapTitle = capsuleTitle?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmptyOrNil
+    let cleanCapArtist = capsuleArtist?.trimmingCharacters(in: .whitespacesAndNewlines)
+      .nonEmptyOrNil
+    let trackChanged = cleanTitle != nil && cleanTitle != next.title
+    if let cleanTitle {
+      next.title = cleanTitle
     }
-    if let subtitle = subtitle?.trimmingCharacters(in: .whitespacesAndNewlines), !subtitle.isEmpty {
-      next.subtitle = subtitle
+    if let cleanSub {
+      next.subtitle = cleanSub
+    }
+    if let cleanCapTitle {
+      next.capsuleTitle = cleanCapTitle
+    } else if trackChanged {
+      next.capsuleTitle = nil
+    }
+    if let cleanCapArtist {
+      next.capsuleArtist = cleanCapArtist
+    } else if trackChanged {
+      next.capsuleArtist = nil
     }
     if let iconURL = iconURL?.trimmingCharacters(in: .whitespacesAndNewlines), !iconURL.isEmpty {
       next.iconURL = iconURL

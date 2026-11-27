@@ -1826,6 +1826,8 @@ class AndroidPluginNativeCapabilities(
         }
         val artist = payload["artist"]?.strOrNull()?.trim().orEmpty()
         val album = payload["album"]?.strOrNull()?.trim().orEmpty()
+        val capsuleTitle = payload["capsuleTitle"]?.strOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+        val capsuleArtist = payload["capsuleArtist"]?.strOrNull()?.trim()?.takeIf { it.isNotEmpty() }
         val artworkUrl = payload["artworkUrl"]?.strOrNull()?.trim().orEmpty()
         val durationMs = (payload["durationMs"] as? JsonPrimitive)?.doubleOrNull?.toLong()
         val positionMs = (payload["positionMs"] as? JsonPrimitive)?.doubleOrNull?.toLong()
@@ -1864,6 +1866,8 @@ class AndroidPluginNativeCapabilities(
             title = title,
             artist = artist,
             album = album,
+            capsuleTitle = capsuleTitle,
+            capsuleArtist = capsuleArtist,
             artworkUrl = artworkUrl,
             durationMs = durationMs,
             positionMs = positionMs,
@@ -2160,6 +2164,8 @@ class AndroidPluginNativeCapabilities(
         title: String,
         artist: String,
         album: String,
+        capsuleTitle: String? = null,
+        capsuleArtist: String? = null,
         artworkUrl: String,
         durationMs: Long?,
         positionMs: Long?,
@@ -2218,6 +2224,8 @@ class AndroidPluginNativeCapabilities(
             isPlaying = isPlaying,
             title = title,
             subtitle = artist,
+            capsuleTitle = capsuleTitle,
+            capsuleArtist = capsuleArtist,
             iconUrl = artworkUrl,
         )
         syncNowPlayingWidgetPrefs(active = true, isPlaying = isPlaying)
