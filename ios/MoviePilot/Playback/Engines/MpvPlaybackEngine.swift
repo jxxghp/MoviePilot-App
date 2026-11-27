@@ -1,6 +1,7 @@
 import Foundation
 import Libmpv
 import MoviePilotCore
+import MoviePilotSession
 import QuartzCore
 import UIKit
 import os
@@ -100,6 +101,7 @@ private final class MpvSession: @unchecked Sendable {
   private var isStopped = false
   private var drainScheduled = false
   private var wakeupContextPtr: UnsafeMutableRawPointer?
+  private var loopbackProxy: LoopbackAuthProxy?
 
   init(
     hostView: MpvMetalHostView,
@@ -171,18 +173,33 @@ private final class MpvSession: @unchecked Sendable {
           mpv, "start", String(format: "%.3f", Double(options.startPositionMs) / 1000.0))
       }
 
-      var mergedHeaders = source.headers
-      if source.isSameOriginInstance, let cookie = source.sameOriginCookie,
-        mergedHeaders["Cookie"] == nil
-      {
-        mergedHeaders["Cookie"] = "\(cookie.name)=\(cookie.value)"
-      }
-      if !mergedHeaders.isEmpty && !source.url.isFileURL {
-        Self.applyHeaderFields(mergedHeaders, to: mpv)
+      // 远端流统一经本机环回代理由 `URLSession` 出网：`libmpv` 自带的 GnuTLS 在 iOS 上读不到系统根证书，
+      // 直连 HTTPS 必然校验失败；同时避免把实例凭据交给 `libmpv` 后在跨源 302 中外泄。
+      let targetString: String
+      if source.url.isFileURL {
+        targetString = source.url.path
+      } else {
+        var mergedHeaders = source.headers
+        if source.isSameOriginInstance, let cookie = source.sameOriginCookie,
+          mergedHeaders["Cookie"] == nil
+        {
+          mergedHeaders["Cookie"] = "\(cookie.name)=\(cookie.value)"
+        }
+        guard let proxy = try? LoopbackAuthProxy(target: source.url, headers: mergedHeaders),
+          let localURL = try? proxy.start()
+        else {
+          mpv_terminate_destroy(mpv)
+          self.activeFlag.withLock { $0 = false }
+          self.onEvent(.failed(.network))
+          return
+        }
+        self.loopbackProxy = proxy
+        targetString = localURL.absoluteString
       }
 
       guard mpv_initialize(mpv) >= 0 else {
         mpv_terminate_destroy(mpv)
+        self.closeLoopbackProxy()
         self.activeFlag.withLock { $0 = false }
         self.onEvent(.failed(.unknown))
         return
@@ -190,6 +207,7 @@ private final class MpvSession: @unchecked Sendable {
 
       if self.isStopped {
         mpv_terminate_destroy(mpv)
+        self.closeLoopbackProxy()
         return
       }
 
@@ -214,7 +232,6 @@ private final class MpvSession: @unchecked Sendable {
         rawCtx
       )
 
-      let targetString = source.url.isFileURL ? source.url.path : source.url.absoluteString
       Self.sendCommand(mpv, ["loadfile", targetString, "replace"])
       self.drainEventsOnSerialQueue()
     }
@@ -370,6 +387,7 @@ private final class MpvSession: @unchecked Sendable {
           self.wakeupContextPtr = nil
           Unmanaged<WeakMpvSessionBox>.fromOpaque(cbCtx).release()
         }
+        self.closeLoopbackProxy()
       }
       DispatchQueue.main.async {
         _ = retainedView
@@ -378,6 +396,12 @@ private final class MpvSession: @unchecked Sendable {
         notifyQueue.async(execute: completion)
       }
     }
+  }
+
+  /// 关闭并释放本会话的环回代理；仅在 `serialQueue` 内调用。
+  private func closeLoopbackProxy() {
+    loopbackProxy?.close()
+    loopbackProxy = nil
   }
 
   private static func sendCommand(_ mpv: OpaquePointer, _ args: [String]) {
@@ -392,37 +416,6 @@ private final class MpvSession: @unchecked Sendable {
       let constPtr = UnsafeMutableRawPointer(buf.baseAddress)?
         .assumingMemoryBound(to: UnsafePointer<CChar>?.self)
       _ = mpv_command_async(mpv, 0, constPtr)
-    }
-  }
-
-  private static func applyHeaderFields(_ headers: [String: String], to mpv: OpaquePointer) {
-    let lines =
-      headers
-      .filter { !$0.key.isEmpty && !$0.value.isEmpty }
-      .map { "\($0.key): \($0.value)" }
-    guard !lines.isEmpty else { return }
-    let cStrings = lines.map { strdup($0) }
-    defer {
-      for ptr in cStrings where ptr != nil {
-        free(ptr)
-      }
-    }
-    var nodes: [mpv_node] = cStrings.map { ptr in
-      var node = mpv_node()
-      node.format = MPV_FORMAT_STRING
-      node.u.string = ptr
-      return node
-    }
-    nodes.withUnsafeMutableBufferPointer { buf in
-      var list = mpv_node_list()
-      list.num = Int32(buf.count)
-      list.values = buf.baseAddress
-      withUnsafeMutablePointer(to: &list) { listPtr in
-        var root = mpv_node()
-        root.format = MPV_FORMAT_NODE_ARRAY
-        root.u.list = listPtr
-        _ = mpv_set_option(mpv, "http-header-fields", MPV_FORMAT_NODE, &root)
-      }
     }
   }
 }
