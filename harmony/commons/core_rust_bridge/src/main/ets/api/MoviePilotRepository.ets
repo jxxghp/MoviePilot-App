@@ -324,6 +324,11 @@ export interface MpPluginItem {
   iconUrl: string;
   renderMode: string;
   repoUrl?: string;
+  hasUpdate?: boolean;
+  installCount?: number;
+  addTime?: number;
+  averageRating?: number;
+  pluginLabel?: string;
 }
 
 export interface MpUserItem {
@@ -1300,10 +1305,143 @@ export class MoviePilotRepository {
   }
 
   private siteIconCache: Map<number, string> = new Map<number, string>();
+  globalImageCache: boolean = false;
+  tmdbImageDomain: string = 'image.tmdb.org';
+  bangumiProxyEnable: boolean = false;
+  bangumiImageDomain: string = '';
+  private imageContextReadyOrigin: string = '';
+  private imageContextInflight: Promise<void> | null = null;
+
+  private imageConfigStorageKey(origin: string): string {
+    return `mp_global_img_cfg_v1_${encodeURIComponent(origin)}`;
+  }
+
+  private resetImageConfigState(nextOrigin: string): void {
+    this.globalImageCache = false;
+    this.tmdbImageDomain = 'image.tmdb.org';
+    this.bangumiProxyEnable = false;
+    this.bangumiImageDomain = '';
+    this.imageContextReadyOrigin = '';
+    this.imageContextInflight = null;
+    if (nextOrigin.length > 0) {
+      this.restoreCachedImageConfig(nextOrigin).catch(() => {});
+    }
+  }
+
+  private async restoreCachedImageConfig(origin: string): Promise<void> {
+    if (!origin || origin !== this.baseUrl) { return; }
+    try {
+      const raw = await NativeHuksStore.shared().loadString(this.imageConfigStorageKey(origin));
+      if (!raw || origin !== this.baseUrl) { return; }
+      const rec = asRec(parseJsonSafe(raw));
+      if (!rec) { return; }
+      this.applyGlobalImageRecord(rec, false);
+    } catch {
+      // ignore cache load errors
+    }
+  }
+
+  private applyGlobalImageRecord(rec: Record<string, Object>, persist: boolean): void {
+    if (rec['GLOBAL_IMAGE_CACHE'] !== undefined && rec['GLOBAL_IMAGE_CACHE'] !== null) {
+      this.globalImageCache = boolVal(rec, 'GLOBAL_IMAGE_CACHE', false);
+    }
+    const tmdbDom = strVal(rec, 'TMDB_IMAGE_DOMAIN').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    if (tmdbDom.length > 0) {
+      this.tmdbImageDomain = tmdbDom;
+    } else if (rec['TMDB_IMAGE_DOMAIN'] !== undefined) {
+      this.tmdbImageDomain = 'image.tmdb.org';
+    }
+    if (rec['BANGUMI_PROXY_ENABLE'] !== undefined && rec['BANGUMI_PROXY_ENABLE'] !== null) {
+      this.bangumiProxyEnable = boolVal(rec, 'BANGUMI_PROXY_ENABLE', false);
+    }
+    if (rec['BANGUMI_IMAGE_DOMAIN'] !== undefined) {
+      this.bangumiImageDomain = strVal(rec, 'BANGUMI_IMAGE_DOMAIN').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    }
+    if (persist && this.baseUrl.length > 0) {
+      const snap: Record<string, Object> = {};
+      snap['GLOBAL_IMAGE_CACHE'] = this.globalImageCache;
+      snap['TMDB_IMAGE_DOMAIN'] = this.tmdbImageDomain;
+      snap['BANGUMI_PROXY_ENABLE'] = this.bangumiProxyEnable;
+      snap['BANGUMI_IMAGE_DOMAIN'] = this.bangumiImageDomain;
+      NativeHuksStore.shared().saveString(this.imageConfigStorageKey(this.baseUrl), JSON.stringify(snap)).catch(() => {});
+    }
+  }
+
+  /** 拉取后端全局图片缓存与自定义图片域名配置（对齐 Web 端 `/api/v1/system/global?token=moviepilot`）。 */
+  async refreshGlobalImageSettings(): Promise<void> {
+    const origin = this.baseUrl;
+    if (!origin) { return; }
+    try {
+      const url = RustCoreBridge.buildV3EndpointUrl(origin, ['system', 'global'], { 'token': 'moviepilot' });
+      const resp = await this.transport.execute(url, 'GET', '');
+      if (origin !== this.baseUrl) { return; }
+      if (resp.status === 200) {
+        const root = unwrapObject(parseJsonSafe(resp.body));
+        if (root) {
+          this.applyGlobalImageRecord(root, true);
+          return;
+        }
+      }
+    } catch {
+      // fallback below
+    }
+    if (origin === this.baseUrl && this.token.length > 0 && this.isSuperuser) {
+      try {
+        const envResp = await this.get(['system', 'env']);
+        if (origin === this.baseUrl && envResp.status === 200) {
+          const envObj = unwrapObject(parseJsonSafe(envResp.body));
+          if (envObj) {
+            this.applyGlobalImageRecord(envObj, true);
+          }
+        }
+      } catch {
+        // ignore fallback errors
+      }
+    }
+  }
+
+  /** 确保当前实例已同步全局图片缓存开关并持有同源 `MoviePilot` 资源 Cookie（并发去重）。 */
+  async ensureImageContextReady(): Promise<void> {
+    const origin = this.baseUrl;
+    if (!origin) { return; }
+    if (this.imageContextReadyOrigin === origin && (this.token.length === 0 || this.transport.hasCookie('MoviePilot'))) {
+      return;
+    }
+    if (this.imageContextInflight) {
+      await this.imageContextInflight;
+      return;
+    }
+    const task = this.runImageContextBootstrap(origin);
+    this.imageContextInflight = task;
+    try {
+      await task;
+    } finally {
+      if (this.imageContextInflight === task) {
+        this.imageContextInflight = null;
+      }
+    }
+  }
+
+  private async runImageContextBootstrap(origin: string): Promise<void> {
+    await this.restoreCachedImageConfig(origin);
+    const jobs: Promise<void>[] = [this.refreshGlobalImageSettings()];
+    if (this.token.length > 0 && !this.transport.hasCookie('MoviePilot')) {
+      jobs.push(this.get(['media', 'source']).then(() => {}).catch(() => {}));
+    }
+    await Promise.all(jobs);
+    if (origin === this.baseUrl) {
+      this.imageContextReadyOrigin = origin;
+    }
+  }
 
   configure(baseUrl: string, token: string, userName: string, isSuperuser: boolean, avatar: string = ''): void {
-    this.baseUrl = RustCoreBridge.normalizeServerAddress(baseUrl);
+    const normalizedBase = RustCoreBridge.normalizeServerAddress(baseUrl);
+    const originChanged = normalizedBase !== this.baseUrl;
+    this.baseUrl = normalizedBase;
     this.transport.setBaseUrl(this.baseUrl);
+    if (originChanged) {
+      this.resetImageConfigState(this.baseUrl);
+    }
     CloudflareAccessOAuthManager.shared().hydrateOrigin(this.baseUrl).catch(() => {});
     this.token = token;
     this.userName = userName;
@@ -1315,9 +1453,14 @@ export class MoviePilotRepository {
 
   /** 配置当前实例地址与自签名 HTTPS 证书策略。 */
   configureServer(baseUrl: string, allowSelfSigned: boolean = false): void {
-    this.baseUrl = RustCoreBridge.normalizeServerAddress(baseUrl);
+    const normalizedBase = RustCoreBridge.normalizeServerAddress(baseUrl);
+    const originChanged = normalizedBase !== this.baseUrl;
+    this.baseUrl = normalizedBase;
     this.transport.setBaseUrl(this.baseUrl);
     this.transport.setAllowSelfSigned(allowSelfSigned);
+    if (originChanged) {
+      this.resetImageConfigState(this.baseUrl);
+    }
     CloudflareAccessOAuthManager.shared().hydrateOrigin(this.baseUrl).catch(() => {});
   }
 
@@ -1338,32 +1481,139 @@ export class MoviePilotRepository {
     this.cachedSubscriptions = null;
     this.siteIconCache.clear();
     this.danmakuCommentsCache.clear();
+    this.imageContextReadyOrigin = '';
+    this.imageContextInflight = null;
     this.transport.clearCookies();
   }
 
-  /** 将 TMDB/豆瓣/Bangumi/媒体服务器/本地相对路径解析为可靠可加载图片 URL（自动走 MoviePilot 图片代理）。 */
+  private normalizeExternalImageUrl(rawUrl: string): string {
+    const tmdbHost = (this.tmdbImageDomain || 'image.tmdb.org').trim() || 'image.tmdb.org';
+    let out = rawUrl
+      .replace('https://image.tmdb.org/t/p/original/', `https://${tmdbHost}/t/p/w780/`)
+      .replace('http://image.tmdb.org/t/p/original/', `https://${tmdbHost}/t/p/w780/`)
+      .replace('https://image.tmdb.org/', `https://${tmdbHost}/`)
+      .replace('http://image.tmdb.org/', `https://${tmdbHost}/`)
+      .replace('/t/p/original/', '/t/p/w780/');
+    if (this.bangumiImageDomain.length > 0 && out.includes('lain.bgm.tv')) {
+      out = out
+        .replace('https://lain.bgm.tv/', `https://${this.bangumiImageDomain}/`)
+        .replace('http://lain.bgm.tv/', `https://${this.bangumiImageDomain}/`);
+    }
+    return out;
+  }
+
+  private static isDoubanImageUrl(url: string): boolean {
+    return url.toLowerCase().includes('doubanio.com');
+  }
+
+  private static isBangumiDefaultImageUrl(url: string): boolean {
+    return url.toLowerCase().includes('lain.bgm.tv');
+  }
+
+  private static isMediaServerOrPlainHttpImage(url: string): boolean {
+    const lower = url.toLowerCase();
+    if (lower.startsWith('http://')) {
+      return !lower.includes('://127.0.0.1') && !lower.includes('://localhost');
+    }
+    return (lower.includes('/items/') && lower.includes('/images/')) || lower.includes('/photo/:/transcode');
+  }
+
+  /**
+   * 将 TMDB/豆瓣/Bangumi/媒体服务器/本地相对路径解析为与 Web 端一致的图片 URL：
+   * - 开启 `GLOBAL_IMAGE_CACHE` 时统一走 `/api/v1/system/cache/image?url=...` 复用后端代理与全局文件缓存；
+   * - 关闭 `GLOBAL_IMAGE_CACHE` 时，豆瓣/媒体服务器/HTTP 走 `/system/img/0`，Bangumi 代理走 `/system/img/1`，其余公网 HTTPS 直连并在失败时由加载器自动回退 `/system/img/1`。
+   */
   resolveImageUrl(rawPath: string, useCookies: boolean = false): string {
-    const clean = rawPath.trim();
+    const clean = (rawPath ?? '').trim();
     if (!clean || clean.toLowerCase() === 'null' || clean.toLowerCase() === 'none') { return ''; }
     if (clean.startsWith('data:image/')) { return clean; }
     if (!this.baseUrl) { return clean; }
-    if (clean.startsWith(this.baseUrl)) { return clean; }
+    if (this.transport.isSameOriginUrl(clean)) { return clean; }
     if (clean.startsWith('/api/')) {
       return `${this.baseUrl}${clean}`;
     }
-    const normalized = clean.replace('image.tmdb.org/t/p/original/', 'image.tmdb.org/t/p/w780/');
-    const cookieQuery = useCookies ? '&use_cookies=true' : '';
+    const tmdbHost = (this.tmdbImageDomain || 'image.tmdb.org').trim() || 'image.tmdb.org';
+    let normalized = clean;
     if (normalized.startsWith('/')) {
-      const tmdbFull = `https://image.tmdb.org/t/p/w500${normalized}`;
-      return `${this.baseUrl}/api/v1/system/img/0?imgurl=${encodeURIComponent(tmdbFull)}&cache=true${cookieQuery}`;
+      normalized = `https://${tmdbHost}/t/p/w500${normalized}`;
+    } else if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+      normalized = this.normalizeExternalImageUrl(normalized);
+    } else {
+      return `${this.baseUrl}/${normalized}`;
     }
-    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-      if (normalized.includes('127.0.0.1') || normalized.includes('localhost')) {
-        return normalized;
+
+    if (normalized.includes('://127.0.0.1') || normalized.includes('://localhost')) {
+      return normalized;
+    }
+    if (useCookies) {
+      const cacheFlag = this.globalImageCache ? 'true' : 'false';
+      return `${this.baseUrl}/api/v1/system/img/1?imgurl=${encodeURIComponent(normalized)}&cache=${cacheFlag}&use_cookies=true`;
+    }
+    if (this.globalImageCache) {
+      return `${this.baseUrl}/api/v1/system/cache/image?url=${encodeURIComponent(normalized)}`;
+    }
+    if (MoviePilotRepository.isDoubanImageUrl(normalized) || MoviePilotRepository.isMediaServerOrPlainHttpImage(normalized)) {
+      return `${this.baseUrl}/api/v1/system/img/0?imgurl=${encodeURIComponent(normalized)}&cache=false`;
+    }
+    if (this.bangumiProxyEnable && this.bangumiImageDomain.length === 0 && MoviePilotRepository.isBangumiDefaultImageUrl(normalized)) {
+      return `${this.baseUrl}/api/v1/system/img/1?imgurl=${encodeURIComponent(normalized)}&cache=false`;
+    }
+    return normalized;
+  }
+
+  /** 在 `ensureImageContextReady` 完成后按最新 `GLOBAL_IMAGE_CACHE` / 域名配置修正待请求图片 URL。 */
+  upgradeImageUrlForCurrentConfig(url: string): string {
+    const clean = (url ?? '').trim();
+    if (!clean || !this.baseUrl || clean.startsWith('data:image/')) { return clean; }
+    if (this.transport.isSameOriginUrl(clean)) {
+      if (this.globalImageCache && clean.includes('/api/v1/system/img/') && !clean.includes('use_cookies=true')) {
+        const qIdx = clean.indexOf('?');
+        if (qIdx > 0) {
+          const pairs = clean.substring(qIdx + 1).split('&');
+          for (let i = 0; i < pairs.length; i++) {
+            if (pairs[i].startsWith('imgurl=')) {
+              try {
+                const rawTarget = decodeURIComponent(pairs[i].substring('imgurl='.length));
+                if (rawTarget.startsWith('http://') || rawTarget.startsWith('https://')) {
+                  return `${this.baseUrl}/api/v1/system/cache/image?url=${encodeURIComponent(this.normalizeExternalImageUrl(rawTarget))}`;
+                }
+              } catch {
+                return clean;
+              }
+            }
+          }
+        }
       }
-      return `${this.baseUrl}/api/v1/system/img/0?imgurl=${encodeURIComponent(normalized)}&cache=true${cookieQuery}`;
+      return clean;
     }
-    return `${this.baseUrl}/${normalized}`;
+    if (clean.startsWith('http://') || clean.startsWith('https://')) {
+      return this.resolveImageUrl(clean, false);
+    }
+    return clean;
+  }
+
+  /** 当客户端直连外部图片失败（如无本地代理环境）时，回退至后端带代理图片接口 `/api/v1/system/img/1`。 */
+  buildBackendProxyFallbackUrl(directUrl: string): string {
+    const clean = (directUrl ?? '').trim();
+    if (!clean || !this.baseUrl || this.transport.isSameOriginUrl(clean)) { return ''; }
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) { return ''; }
+    const cacheFlag = this.globalImageCache ? 'true' : 'false';
+    return `${this.baseUrl}/api/v1/system/img/1?imgurl=${encodeURIComponent(clean)}&cache=${cacheFlag}`;
+  }
+
+  /** 为锁屏播控中心生成始终同源的图片代理/缓存地址。 */
+  private resolveSameOriginArtworkUrl(rawPath: string): string {
+    const resolved = this.resolveImageUrl(rawPath, false);
+    if (!resolved || !this.baseUrl) { return ''; }
+    if (this.transport.isSameOriginUrl(resolved)) { return resolved; }
+    if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
+      if (this.globalImageCache) {
+        return `${this.baseUrl}/api/v1/system/cache/image?url=${encodeURIComponent(resolved)}`;
+      }
+      const routeSeg = MoviePilotRepository.isDoubanImageUrl(resolved) ? '0' : '1';
+      return `${this.baseUrl}/api/v1/system/img/${routeSeg}?imgurl=${encodeURIComponent(resolved)}&cache=false`;
+    }
+    return '';
   }
 
   /** 解析插件图标 URL：兼容绝对地址、`data:image/` 与官方插件仓库相对文件名。 */
@@ -1555,7 +1805,13 @@ export class MoviePilotRepository {
       // ignore
     }
     try {
-      await this.get(['media', 'source']);
+      await Promise.all([
+        this.get(['media', 'source']).then(() => {}).catch(() => {}),
+        this.refreshGlobalImageSettings()
+      ]);
+      if (this.baseUrl.length > 0) {
+        this.imageContextReadyOrigin = this.baseUrl;
+      }
     } catch {
       // ignore
     }
@@ -3184,9 +3440,52 @@ export class MoviePilotRepository {
         })
         .catch(() => new Set<string>())
       : Promise.resolve(new Set<string>());
-    const pair = await Promise.all([this.get(['plugin'], q, true), remotesPromise]);
-    const resp = pair[0];
-    const remoteVueIds = pair[1];
+    const statsPromise: Promise<Map<string, number>> = state === 'market'
+      ? this.get(['plugin', 'statistic'])
+        .then((stResp) => {
+          const counts = new Map<string, number>();
+          if (stResp.status === 200) {
+            const stObj = unwrapObject(parseJsonSafe(stResp.body));
+            if (stObj) {
+              const keys = Object.keys(stObj);
+              for (let j = 0; j < keys.length; j++) {
+                const k = keys[j];
+                const cnt = numVal(stObj, k, 0);
+                if (cnt > 0) { counts.set(k.toLowerCase(), Math.round(cnt)); }
+              }
+            }
+          }
+          return counts;
+        })
+        .catch(() => new Map<string, number>())
+      : Promise.resolve(new Map<string, number>());
+    const ratingsPromise: Promise<Map<string, number>> = state === 'market'
+      ? this.get(['plugin', 'rating'])
+        .then((rtResp) => {
+          const avgMap = new Map<string, number>();
+          if (rtResp.status === 200) {
+            const rtObj = unwrapObject(parseJsonSafe(rtResp.body));
+            if (rtObj) {
+              const keys = Object.keys(rtObj);
+              for (let j = 0; j < keys.length; j++) {
+                const k = keys[j];
+                const entry = asRec(rtObj[k]);
+                if (entry) {
+                  const avg = numVal(entry, 'average_rating', 0);
+                  if (avg > 0) { avgMap.set(k.toLowerCase(), avg); }
+                }
+              }
+            }
+          }
+          return avgMap;
+        })
+        .catch(() => new Map<string, number>())
+      : Promise.resolve(new Map<string, number>());
+
+    const resp = await this.get(['plugin'], q, true);
+    const remoteVueIds = await remotesPromise;
+    const statsMap = await statsPromise;
+    const ratingsMap = await ratingsPromise;
     if (resp.status !== 200) { return []; }
     const arr = unwrapArray(parseJsonSafe(resp.body));
     const out: MpPluginItem[] = [];
@@ -3194,13 +3493,19 @@ export class MoviePilotRepository {
       const r = asRec(arr[i]);
       if (!r) { continue; }
       const pid = strVal(r, 'id');
+      if (!pid) { continue; }
+      const lowerId = pid.toLowerCase();
       const srcId = strVal(r, 'source_plugin_id').toLowerCase();
       const rawMode = strVal(r, 'render_mode', 'vuetify');
       const resolvedMode = (rawMode.toLowerCase() === 'vue'
-        || remoteVueIds.has(pid.toLowerCase())
+        || remoteVueIds.has(lowerId)
         || (srcId.length > 0 && remoteVueIds.has(srcId)))
         ? 'vue'
         : rawMode;
+      const rawInstalls = Math.round(numVal(r, 'install_count', 0));
+      const statInstalls = Math.max(statsMap.get(lowerId) ?? 0, srcId.length > 0 ? (statsMap.get(srcId) ?? 0) : 0);
+      const rawRating = numVal(r, 'average_rating', 0);
+      const mergedRating = rawRating > 0 ? rawRating : (ratingsMap.get(lowerId) ?? (srcId.length > 0 ? (ratingsMap.get(srcId) ?? 0) : 0));
       out.push({
         id: pid,
         pluginName: strVal(r, 'plugin_name') || pid,
@@ -3212,17 +3517,22 @@ export class MoviePilotRepository {
         hasPage: boolVal(r, 'has_page', false),
         iconUrl: this.resolvePluginIconUrl(strVal(r, 'plugin_icon')),
         renderMode: resolvedMode,
-        repoUrl: strVal(r, 'repo_url')
+        repoUrl: strVal(r, 'repo_url'),
+        hasUpdate: boolVal(r, 'has_update', false),
+        installCount: Math.max(rawInstalls, statInstalls),
+        addTime: Math.round(numVal(r, 'add_time', 0)),
+        averageRating: mergedRating,
+        pluginLabel: strVal(r, 'plugin_label')
       });
     }
     return out;
   }
 
-  /** 从插件市场安装插件（`GET /api/v1/plugin/install/{pluginId}`）。 */
-  async installPlugin(pluginId: string, repoUrl: string = ''): Promise<boolean> {
+  /** 从插件市场安装或更新/重装插件（`GET /api/v1/plugin/install/{pluginId}`）。 */
+  async installPlugin(pluginId: string, repoUrl: string = '', force: boolean = false): Promise<boolean> {
     const q: Record<string, string> = {};
     if (repoUrl.length > 0) { q['repo_url'] = repoUrl; }
-    q['force'] = 'false';
+    q['force'] = force ? 'true' : 'false';
     const resp = await this.get(['plugin', 'install', pluginId], q);
     return resp.status >= 200 && resp.status < 300;
   }
@@ -4676,19 +4986,20 @@ export class MoviePilotRepository {
   }
 
   /**
-   * 通过当前实例受信任图片代理（`/api/v1/system/img/0?imgurl=...&cache=true`）拉取并降采样解码 `<= 512px` 封面 `PixelMap`，供 `AVSession` 锁屏播控中心展示。
+   * 通过当前实例受信任图片代理/全局缓存接口拉取并降采样解码 `<= 512px` 封面 `PixelMap`，供 `AVSession` 锁屏播控中心展示。
    */
   async fetchArtworkPixelMap(artworkUrl: string): Promise<image.PixelMap | null> {
     const raw = (artworkUrl ?? '').trim();
     if (!raw || !this.baseUrl) {
       return null;
     }
-    const proxied = this.resolveImageUrl(raw);
+    await this.ensureImageContextReady();
+    const proxied = this.resolveSameOriginArtworkUrl(raw);
     const trusted = this.resolveTrustedSameOriginUrl(proxied);
     if (!trusted) {
       return null;
     }
-    const bytes = await this.transport.fetchBytesBounded(trusted, this.token, 8 * 1024 * 1024);
+    const bytes = await this.transport.fetchBinary(trusted, this.token);
     if (!bytes || bytes.byteLength === 0) {
       return null;
     }
@@ -6003,7 +6314,18 @@ export class MoviePilotRepository {
   /** 保存单值系统设置（自动序列化字符串或布尔值）。 */
   async saveSystemSettingScalar(key: string, rawJsonLiteral: string): Promise<boolean> {
     const resp = await this.postJson(['system', 'setting', key], rawJsonLiteral);
-    return resp.status >= 200 && resp.status < 300;
+    const ok = resp.status >= 200 && resp.status < 300;
+    if (
+      ok && (
+        key === 'GLOBAL_IMAGE_CACHE' ||
+        key === 'TMDB_IMAGE_DOMAIN' ||
+        key === 'BANGUMI_PROXY_ENABLE' ||
+        key === 'BANGUMI_IMAGE_DOMAIN'
+      )
+    ) {
+      await this.refreshGlobalImageSettings();
+    }
+    return ok;
   }
 
   /** 新增或编辑通知渠道配置（无损维护 `Notifications` 系统数组）。 */

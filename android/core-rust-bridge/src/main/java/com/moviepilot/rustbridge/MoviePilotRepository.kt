@@ -86,6 +86,9 @@ class MoviePilotRepository(context: Context) {
     private val resourceRawCache = ConcurrentHashMap<String, JsonObject>()
     @Volatile
     private var resourceCookiePrimed = false
+    @Volatile
+    var globalImageConfig: GlobalImageConfigSnapshot = GlobalImageConfigSnapshot()
+        private set
 
     /** 发现页、探索页、订阅页、工作台与仪表盘的内存会话缓存（切 Tab 与详情返回时零重拉、保留滚动位置）。 */
     @Volatile
@@ -162,6 +165,7 @@ class MoviePilotRepository(context: Context) {
     /** 启动时尝试恢复上次已连接的实例与有效会话；若 JWT 已过期则安全退回登录页。 */
     private fun restoreSessionIfPossible() {
         val activeUrl = secretStore.activeServerUrl() ?: return
+        globalImageConfig = secretStore.loadGlobalImageConfig(activeUrl) ?: GlobalImageConfigSnapshot()
         val token = secretStore.loadToken(activeUrl)
         if (!token.isNullOrBlank() && secretStore.keepLogin) {
             val claims = RustCoreBridge.decodeJwt(token)
@@ -185,9 +189,10 @@ class MoviePilotRepository(context: Context) {
         setSession(SessionState.NeedsLogin(activeUrl))
     }
 
-    /** 恢复会话后异步刷新 `/user/current`（拿真实头像与权限）并预热短效资源 Cookie（保证图片代理首屏即命中）。 */
+    /** 恢复会话后异步刷新 `/user/current`（拿真实头像与权限）、同步全局图片配置并预热短效资源 Cookie。 */
     suspend fun hydrateAuthenticatedSession() {
         val auth = _session.value as? SessionState.Authenticated ?: return
+        refreshGlobalImageSettings(auth.serverUrl)
         primeResourceCookie()
         val meResp = authedRequest(listOf("user", "current")).getOrNull() ?: return
         if (meResp.status in 200..299) {
@@ -246,6 +251,7 @@ class MoviePilotRepository(context: Context) {
     /** 切换到指定历史实例。 */
     fun selectSavedServer(entry: SavedServerEntry) {
         secretStore.setActiveServerUrl(entry.url)
+        globalImageConfig = secretStore.loadGlobalImageConfig(entry.url) ?: GlobalImageConfigSnapshot()
         resourceCookiePrimed = false
         clearSessionCaches()
         val existingToken = secretStore.loadToken(entry.url)
@@ -385,6 +391,8 @@ class MoviePilotRepository(context: Context) {
         )
         _savedServers.value = secretStore.loadServers()
         resourceCookiePrimed = false
+        globalImageConfig = secretStore.loadGlobalImageConfig(serverUrl) ?: GlobalImageConfigSnapshot()
+        refreshGlobalImageSettings(serverUrl)
         setSession(SessionState.Authenticated(serverUrl, token, identity, permissions))
         primeResourceCookie()
         return LoginOutcome.Success(identity)
@@ -459,10 +467,48 @@ class MoviePilotRepository(context: Context) {
     }
 
     /**
-     * 解析图片绝对地址并统一经 MoviePilot V3 服务端图片代理转发：
-     * - `data:image/...` 原样返回（由 Coil Base64DataUriFetcher 解码）；
-     * - TMDB / 豆瓣 / Bangumi / Emby 等外链经 `${serverUrl}/api/v1/system/img/0?imgurl=...&cache=true` 秒开；
-     * - 相对 `/api/...` 自动拼接当前服务器前缀。
+     * 从 `/api/v1/system/global?token=moviepilot` 同步当前实例的全局图片缓存开关与自定义图源域名。
+     * 该接口使用固定查询令牌，不携带主登录态，避免旧版后端或网关异常误触发会话注销。
+     */
+    suspend fun refreshGlobalImageSettings(targetServerUrl: String? = null): GlobalImageConfigSnapshot {
+        val urlBase = targetServerUrl
+            ?: (_session.value as? SessionState.Authenticated)?.serverUrl
+            ?: (_session.value as? SessionState.NeedsLogin)?.serverUrl
+            ?: return globalImageConfig
+        val endpoint = runCatching {
+            RustCoreBridge.buildEndpointUrl(
+                urlBase,
+                listOf("system", "global"),
+                listOf("token" to "moviepilot"),
+            )
+        }.getOrNull() ?: return globalImageConfig
+        val resp = runCatching {
+            transport.execute(url = endpoint, method = "GET", token = null)
+        }.getOrNull() ?: return globalImageConfig
+        if (resp.status !in 200..299) return globalImageConfig
+        val data = extractObject(resp.body) ?: return globalImageConfig
+        val prev = globalImageConfig
+        val updated = GlobalImageConfigSnapshot(
+            globalImageCache = data.bool("GLOBAL_IMAGE_CACHE") ?: prev.globalImageCache,
+            tmdbImageDomain = normalizeTmdbDomain(data.str("TMDB_IMAGE_DOMAIN") ?: prev.tmdbImageDomain),
+            bangumiProxyEnable = data.bool("BANGUMI_PROXY_ENABLE") ?: prev.bangumiProxyEnable,
+            bangumiImageDomain = (data.str("BANGUMI_IMAGE_DOMAIN") ?: prev.bangumiImageDomain).trim(),
+        )
+        globalImageConfig = updated
+        secretStore.saveGlobalImageConfig(urlBase, updated)
+        if (updated != prev) {
+            cachedDiscover = null
+            cachedExplore.clear()
+            siteIconCache.clear()
+            mediaLogoCache.clear()
+        }
+        return updated
+    }
+
+    /**
+     * 解析图片展示地址，严格对齐 Web `imageUtils.ts`（`getDisplayImageUrl` / `getProxyImageUrl`）：
+     * - `GLOBAL_IMAGE_CACHE == true`：所有外部图片统一走服务端 `/api/v1/system/cache/image`（或带参数的 `/system/img/{1|0}`），复用服务端代理与磁盘缓存；
+     * - `GLOBAL_IMAGE_CACHE == false`：豆瓣、媒体服务器、内网及启用代理的 Bangumi 走对应 `/system/img/{0|1}?cache=false`，其余公开 HTTPS 图源优先客户端直连，失败时由 `NativeHttpTransport.buildImageClient` 自动回退服务端 `/system/img/1?cache=false`。
      */
     fun resolveImageUrl(raw: String?, maxWidth: Int? = null, useCookies: Boolean = false): String? {
         if (raw.isNullOrBlank()) return null
@@ -473,19 +519,155 @@ class MoviePilotRepository(context: Context) {
         if (trimmed.startsWith("/api/")) {
             return if (auth != null) "${auth.serverUrl.trimEnd('/')}$trimmed" else trimmed
         }
-        val normalized = trimmed.replace("image.tmdb.org/t/p/original/", "image.tmdb.org/t/p/w780/")
-        val absolute = when {
-            normalized.startsWith("http://") || normalized.startsWith("https://") -> normalized
-            normalized.startsWith("/") -> "https://image.tmdb.org/t/p/w500$normalized"
+        val cfg = globalImageConfig
+        val tmdbDomain = normalizeTmdbDomain(cfg.tmdbImageDomain)
+        val sizeBucket = when {
+            maxWidth != null && maxWidth <= 500 -> "w500"
+            maxWidth != null && maxWidth <= 800 -> "w780"
+            maxWidth != null -> "w1280"
+            else -> "w500"
+        }
+        val candidate = when {
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> rewriteTmdbUrl(trimmed, tmdbDomain, sizeBucket)
+            trimmed.startsWith("/") && !trimmed.contains("..") -> "https://$tmdbDomain/t/p/$sizeBucket$trimmed"
             else -> return null
         }
-        if (auth == null) return absolute
+        if (auth == null) return candidate
         val base = auth.serverUrl.trimEnd('/')
-        if (absolute.startsWith("$base/api/")) return absolute
-        val encoded = URLEncoder.encode(absolute, "UTF-8")
-        val widthQuery = if (maxWidth != null) "&maxWidth=$maxWidth" else ""
-        val cookieQuery = if (useCookies) "&use_cookies=true" else ""
-        return "$base/api/v1/system/img/0?imgurl=$encoded&cache=true$widthQuery$cookieQuery"
+        if (candidate.startsWith("$base/api/")) return candidate
+
+        val isBangumi = isBangumiImageUrl(candidate)
+        if (isBangumi && cfg.bangumiProxyEnable) {
+            val proxiedBangumi = buildBangumiImageProxyUrl(candidate, cfg.bangumiImageDomain)
+            val encoded = URLEncoder.encode(proxiedBangumi, "UTF-8")
+            val cacheParam = if (cfg.globalImageCache) "&cache=true" else "&cache=false"
+            return "$base/api/v1/system/img/1?imgurl=$encoded$cacheParam"
+        }
+
+        val serverHost = runCatching { java.net.URI(base).host }.getOrNull()
+        val isMediaServer = isMediaServerImageUrl(candidate)
+        val isDouban = isDoubanImageUrl(candidate)
+        val isInternal = isInternalOrSameHostUrl(candidate, serverHost)
+        val isPlainHttp = candidate.startsWith("http://", ignoreCase = true)
+
+        if (useCookies || isMediaServer || isDouban || isInternal || isPlainHttp) {
+            if (cfg.globalImageCache && !useCookies && !isMediaServer && maxWidth == null) {
+                val encoded = URLEncoder.encode(candidate, "UTF-8")
+                return "$base/api/v1/system/cache/image?url=$encoded"
+            }
+            val encoded = URLEncoder.encode(candidate, "UTF-8")
+            val cacheValue = if (cfg.globalImageCache) "true" else "false"
+            val widthQuery = if (maxWidth != null) "&maxWidth=$maxWidth" else ""
+            val cookieQuery = if (useCookies) "&use_cookies=true" else ""
+            return "$base/api/v1/system/img/0?imgurl=$encoded&cache=$cacheValue$widthQuery$cookieQuery"
+        }
+
+        if (cfg.globalImageCache) {
+            val encoded = URLEncoder.encode(candidate, "UTF-8")
+            return "$base/api/v1/system/cache/image?url=$encoded"
+        }
+
+        return candidate
+    }
+
+    /** 为公开外链构造服务端代理回退地址（保持当前全局缓存开关，外部图源启用 `proxy=1`）。 */
+    fun buildExternalImageFallbackUrl(externalUrl: String): String? {
+        val auth = _session.value as? SessionState.Authenticated ?: return null
+        val base = auth.serverUrl.trimEnd('/')
+        val cfg = globalImageConfig
+        if (cfg.globalImageCache) {
+            return "$base/api/v1/system/cache/image?url=${URLEncoder.encode(externalUrl, "UTF-8")}"
+        }
+        val serverHost = runCatching { java.net.URI(base).host }.getOrNull()
+        val proxyFlag = if (isDoubanImageUrl(externalUrl) || isInternalOrSameHostUrl(externalUrl, serverHost)) 0 else 1
+        return "$base/api/v1/system/img/$proxyFlag?imgurl=${URLEncoder.encode(externalUrl, "UTF-8")}&cache=false"
+    }
+
+    private fun normalizeTmdbDomain(raw: String?): String {
+        var s = raw?.trim().orEmpty()
+        if (s.startsWith("https://", ignoreCase = true)) s = s.substring(8)
+        else if (s.startsWith("http://", ignoreCase = true)) s = s.substring(7)
+        s = s.trimEnd('/')
+        val slash = s.indexOf('/')
+        if (slash >= 0) s = s.substring(0, slash)
+        return s.ifEmpty { "image.tmdb.org" }
+    }
+
+    private fun rewriteTmdbUrl(url: String, tmdbDomain: String, sizeBucket: String): String {
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return url
+        val host = uri.host?.lowercase() ?: return url
+        if (host != "image.tmdb.org" && host != tmdbDomain.substringBefore(':').lowercase()) {
+            return url
+        }
+        val rawPath = uri.rawPath.orEmpty()
+        val nextPath = if (rawPath.startsWith("/t/p/original/")) {
+            "/t/p/$sizeBucket/" + rawPath.removePrefix("/t/p/original/")
+        } else {
+            rawPath
+        }
+        val scheme = uri.scheme ?: "https"
+        val queryPart = uri.rawQuery?.takeIf { it.isNotEmpty() }?.let { "?$it" }.orEmpty()
+        return "$scheme://$tmdbDomain$nextPath$queryPart"
+    }
+
+    private fun isBangumiImageUrl(url: String): Boolean {
+        val host = runCatching { java.net.URI(url).host?.lowercase()?.trimEnd('.') }.getOrNull() ?: return false
+        if (host == "bgm.tv" || host == "bangumi.tv" || host == "bangumi.lol") return true
+        return host.endsWith(".bgm.tv") || host.endsWith(".bangumi.tv") || host.endsWith(".bangumi.lol")
+    }
+
+    private fun isDoubanImageUrl(url: String): Boolean {
+        val host = runCatching { java.net.URI(url).host?.lowercase()?.trimEnd('.') }.getOrNull() ?: return false
+        return host == "doubanio.com" || host.endsWith(".doubanio.com")
+    }
+
+    private fun isMediaServerImageUrl(url: String): Boolean {
+        val path = runCatching { java.net.URI(url).rawPath }.getOrNull() ?: return false
+        if (Regex("/Items/[^/]+/Images/(?:Primary|Backdrop|Thumb)(?:/\\d+)?$", RegexOption.IGNORE_CASE).containsMatchIn(path)) {
+            return true
+        }
+        val lower = path.lowercase()
+        return lower.contains("/library/metadata/") || lower.contains("/photo/:/transcode")
+    }
+
+    private fun isInternalOrSameHostUrl(url: String, serverHost: String?): Boolean {
+        val host = runCatching { java.net.URI(url).host?.lowercase()?.trim('[', ']') }.getOrNull() ?: return false
+        if (!serverHost.isNullOrBlank() && host == serverHost.lowercase().trim('[', ']')) return true
+        if (host == "localhost" || host == "::1" || host.endsWith(".local") || host.endsWith(".lan")) return true
+        val parts = host.split('.')
+        if (parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 }) {
+            val a = parts[0].toInt()
+            val b = parts[1].toInt()
+            if (a == 10 || a == 127) return true
+            if (a == 192 && b == 168) return true
+            if (a == 172 && b in 16..31) return true
+            if (a == 169 && b == 254) return true
+        }
+        return false
+    }
+
+    private fun buildBangumiImageProxyUrl(imageUrl: String, baseUrl: String): String {
+        if (!isBangumiImageUrl(imageUrl)) return imageUrl
+        val rawBase = baseUrl.trim()
+        if (rawBase.isEmpty()) return imageUrl
+        val candidate = if ("://" in rawBase) rawBase else "https://$rawBase"
+        val proxyUri = runCatching { java.net.URI(candidate) }.getOrNull() ?: return imageUrl
+        val scheme = proxyUri.scheme?.lowercase() ?: return imageUrl
+        if ((scheme != "http" && scheme != "https") || proxyUri.host.isNullOrBlank() || proxyUri.rawFragment != null) {
+            return imageUrl
+        }
+        if (!proxyUri.rawQuery.isNullOrEmpty()) {
+            val encoded = URLEncoder.encode(imageUrl, "UTF-8").replace("+", "%20")
+            return "$candidate$encoded"
+        }
+        val normalizedBase = candidate.trimEnd('/')
+        if (rawBase.endsWith("/")) {
+            val sourceUri = runCatching { java.net.URI(imageUrl) }.getOrNull() ?: return imageUrl
+            if (sourceUri.host.equals(proxyUri.host, ignoreCase = true)) return imageUrl
+            val queryPart = sourceUri.rawQuery?.takeIf { it.isNotEmpty() }?.let { "?$it" }.orEmpty()
+            return "$normalizedBase${sourceUri.rawPath.orEmpty()}$queryPart"
+        }
+        return "$normalizedBase/$imageUrl"
     }
 
     // ==================== 发现 / 探索 / 搜索 / 详情 / 音乐 ====================
@@ -2960,7 +3142,11 @@ class MoviePilotRepository(context: Context) {
             method = "POST",
             body = rawValueJson,
         ).getOrNull()
-        return resp != null && resp.status in 200..299
+        val ok = resp != null && resp.status in 200..299
+        if (ok && key in setOf("GLOBAL_IMAGE_CACHE", "TMDB_IMAGE_DOMAIN", "BANGUMI_PROXY_ENABLE", "BANGUMI_IMAGE_DOMAIN")) {
+            refreshGlobalImageSettings()
+        }
+        return ok
     }
 
     suspend fun fetchDownloaders(): List<ServiceConfigDto> {
@@ -3372,7 +3558,7 @@ class MoviePilotRepository(context: Context) {
 
     suspend fun fetchPlugins(installedOnly: Boolean): List<PluginItemDto> {
         val state = if (installedOnly) "installed" else "market"
-        val (resp, remotesResp) = coroutineScope {
+        val (resp, remotesResp, statsAndRatings) = coroutineScope {
             val listDeferred = async {
                 authedRequest(
                     segments = listOf("plugin"),
@@ -3392,8 +3578,28 @@ class MoviePilotRepository(context: Context) {
                     null
                 }
             }
-            listDeferred.await() to remotesDeferred.await()
+            val statsDeferred = async {
+                if (!installedOnly) {
+                    runCatching {
+                        authedRequest(segments = listOf("plugin", "statistic")).getOrNull()
+                    }.getOrNull()
+                } else {
+                    null
+                }
+            }
+            val ratingsDeferred = async {
+                if (!installedOnly) {
+                    runCatching {
+                        authedRequest(segments = listOf("plugin", "rating")).getOrNull()
+                    }.getOrNull()
+                } else {
+                    null
+                }
+            }
+            Triple(listDeferred.await(), remotesDeferred.await(), statsDeferred.await() to ratingsDeferred.await())
         }
+        val statsResp = statsAndRatings.first
+        val ratingsResp = statsAndRatings.second
         val remoteVueIds = if (remotesResp != null) {
             extractArray(remotesResp.body).flatMap { rem ->
                 val remObj = rem.asObj() ?: return@flatMap emptyList()
@@ -3404,6 +3610,22 @@ class MoviePilotRepository(context: Context) {
             }.toSet()
         } else {
             emptySet()
+        }
+        val statsMap: Map<String, Int> = if (statsResp != null && statsResp.status in 200..299) {
+            extractObject(statsResp.body)?.entries?.mapNotNull { (k, v) ->
+                val cnt = v.asPrim()?.intOrNull ?: return@mapNotNull null
+                k.lowercase() to cnt
+            }?.toMap().orEmpty()
+        } else {
+            emptyMap()
+        }
+        val ratingsMap: Map<String, Double> = if (ratingsResp != null && ratingsResp.status in 200..299) {
+            extractObject(ratingsResp.body)?.entries?.mapNotNull { (k, v) ->
+                val avg = v.asObj()?.dbl("average_rating") ?: return@mapNotNull null
+                k.lowercase() to avg
+            }?.toMap().orEmpty()
+        } else {
+            emptyMap()
         }
         return extractArray(resp?.body).mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
@@ -3421,6 +3643,12 @@ class MoviePilotRepository(context: Context) {
             }
             val labelRaw = obj.str("plugin_label").orEmpty()
             val labels = labelRaw.split(",", "，", " ").map { it.trim() }.filter { it.isNotBlank() }
+            val rawDownloads = obj.int("install_count") ?: 0
+            val mergedDownloads = maxOf(
+                rawDownloads,
+                statsMap[id.lowercase()] ?: 0,
+                sourceId?.let { statsMap[it] } ?: 0,
+            )
             PluginItemDto(
                 id = id,
                 name = obj.str("plugin_name") ?: id,
@@ -3435,6 +3663,12 @@ class MoviePilotRepository(context: Context) {
                 hasUpdate = obj.bool("has_update") ?: false,
                 renderMode = resolvedRenderMode,
                 repoUrl = obj.str("repo_url").orEmpty(),
+                installCount = mergedDownloads,
+                addTime = obj.int("add_time") ?: 0,
+                averageRating = obj.dbl("average_rating")
+                    ?: ratingsMap[id.lowercase()]
+                    ?: sourceId?.let { ratingsMap[it] }
+                    ?: 0.0,
             )
         }.distinctBy { it.id }
     }

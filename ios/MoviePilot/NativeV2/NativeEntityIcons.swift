@@ -649,16 +649,6 @@ private struct NativeSiteIconPayload: Decodable, Sendable {
 
 /// 统一实体图标加载工具：支持 data URI Base64 解码、后端同源图片代理与无凭据公开图标源回退。
 enum NativeEntityIconLoader {
-  private static let publicIconHosts: Set<String> = [
-    "raw.githubusercontent.com",
-    "github.com",
-    "avatars.githubusercontent.com",
-    "cdn.jsdelivr.net",
-    "fastly.jsdelivr.net",
-    "assets.fanart.tv",
-    "image.tmdb.org",
-  ]
-
   /// 按引用格式加载真实图标位图（`data:image/...`、HTTP(S) 代理/公开图源或同源相对路径）。
   @MainActor
   static func loadImage(
@@ -676,16 +666,12 @@ enum NativeEntityIconLoader {
     if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
       scheme == "http" || scheme == "https", url.host?.isEmpty == false
     {
-      if let proxied = try? await session.requestImage(url, maximumWidth: maximumPixelSize),
-        let decoded = decodeThumbnail(proxied.data, maximumPixelSize: maximumPixelSize)
+      _ = await NativeGlobalImageSettingsStore.shared.ensureLoaded(using: session)
+      if let response = try? await session.requestDisplayImage(
+        url, maximumWidth: maximumPixelSize),
+        let decoded = decodeThumbnail(response.data, maximumPixelSize: maximumPixelSize)
       {
         return decoded
-      }
-      if let host = url.host?.lowercased(),
-        scheme == "https",
-        publicIconHosts.contains(host) || host == session.instance.address.url.host?.lowercased()
-      {
-        return await fetchEphemeralImage(url: url, maximumPixelSize: maximumPixelSize)
       }
       if let host = url.host?.lowercased(),
         host == session.instance.address.url.host?.lowercased()

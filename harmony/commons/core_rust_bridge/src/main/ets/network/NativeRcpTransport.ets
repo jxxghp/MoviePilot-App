@@ -54,6 +54,14 @@ export class NativeRcpTransport {
     this.cookieJar.clear();
   }
 
+  hasCookie(name: string): boolean {
+    return this.cookieJar.has(name);
+  }
+
+  private static isResourceCookieImageEndpoint(url: string): boolean {
+    return url.includes('/api/v1/system/img/') || url.includes('/api/v1/system/cache/image');
+  }
+
   getCookieHeader(): string {
     const parts: string[] = [];
     this.cookieJar.forEach((value: string, key: string) => {
@@ -249,13 +257,18 @@ export class NativeRcpTransport {
     }
   }
 
-  /** 拉取二进制图片资源（仅在同源时携带 Bearer Token 与 Cookie，防止跨源泄露凭据）。 */
+  /** 拉取二进制图片资源（仅在同源时携带凭据，支持 `MoviePilot` 资源 Cookie 过期自动刷新重试，防止跨源泄露凭据）。 */
   async fetchBinary(url: string, token: string = ''): Promise<ArrayBuffer | null> {
+    return this.fetchBinaryInternal(url, token, true);
+  }
+
+  private async fetchBinaryInternal(url: string, token: string, allowCookieRefresh: boolean): Promise<ArrayBuffer | null> {
     const client = http.createHttp();
     const header: Record<string, string> = {};
-    header['Accept'] = 'image/*, */*';
+    header['Accept'] = 'image/avif, image/webp, image/apng, image/jpeg, image/png, image/*;q=0.8';
     const sameOrigin = this.isSameOriginUrl(url);
-    if (sameOrigin && token.length > 0) {
+    const isResourceCookieImg = sameOrigin && NativeRcpTransport.isResourceCookieImageEndpoint(url);
+    if (sameOrigin && token.length > 0 && !isResourceCookieImg) {
       header['Authorization'] = `Bearer ${token}`;
     }
     if (sameOrigin) {
@@ -271,25 +284,40 @@ export class NativeRcpTransport {
       expectDataType: http.HttpDataType.ARRAY_BUFFER,
       connectTimeout: 12000,
       readTimeout: 25000,
-      usingCache: true
+      usingCache: !sameOrigin
     };
     if (this.allowSelfSigned) {
       reqOpts.remoteValidation = 'skip';
     }
+    let needCookieRefresh = false;
     try {
       const resp = await client.request(url, reqOpts);
       if (resp.responseCode === 401 && sameOrigin && token.length > 0) {
-        this.notifyAuthIfExpired(url, token, 401, '');
-      }
-      if (resp.responseCode >= 200 && resp.responseCode < 300 && resp.result instanceof ArrayBuffer && resp.result.byteLength > 0) {
+        if (isResourceCookieImg && allowCookieRefresh && this.baseUrl.length > 0) {
+          needCookieRefresh = true;
+        } else if (!isResourceCookieImg) {
+          this.notifyAuthIfExpired(url, token, 401, '');
+        }
+      } else if (resp.responseCode >= 200 && resp.responseCode < 300 && resp.result instanceof ArrayBuffer && resp.result.byteLength > 0) {
         return resp.result as ArrayBuffer;
       }
-      return null;
     } catch {
       return null;
     } finally {
       client.destroy();
     }
+    if (needCookieRefresh) {
+      try {
+        const refreshUrl = RustCoreBridge.buildV3EndpointUrl(this.baseUrl, ['media', 'source'], {});
+        const refreshResp = await this.execute(refreshUrl, 'GET', token);
+        if (refreshResp.status >= 200 && refreshResp.status < 300 && this.cookieJar.has('MoviePilot')) {
+          return await this.fetchBinaryInternal(url, token, false);
+        }
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
 
   /**

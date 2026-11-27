@@ -1019,16 +1019,30 @@ final class MediaPlaybackClient {
       && (server == nil || queryItems.first(where: { $0.name == "server" })?.value == server)
   }
 
-  /// 封面只能经当前实例图片代理；源站访问和 DNS 安全校验由后端负责。
+  /// 封面只能经当前实例图片代理或全局图片缓存端点；源站访问和 DNS 安全校验由后端负责。
   private func isTrustedArtworkURL(_ url: URL) -> Bool {
     guard address.contains(url), url.user == nil, url.password == nil, url.fragment == nil,
-      url.path == endpoint(["api", "v1", "system", "img", "0"]).path,
       let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+      Set(queryItems.map(\.name)).count == queryItems.count
+    else { return false }
+    if url.path == endpoint(["api", "v1", "system", "cache", "image"]).path {
+      guard queryItems.count == 1,
+        let sourceValue = queryItems.first(where: { $0.name == "url" })?.value,
+        let source = URL(string: sourceValue),
+        ["http", "https"].contains(source.scheme?.lowercased() ?? ""),
+        source.host != nil, source.user == nil, source.password == nil, source.fragment == nil
+      else { return false }
+      return true
+    }
+    let allowedProxyPaths: Set<String> = [
+      endpoint(["api", "v1", "system", "img", "0"]).path,
+      endpoint(["api", "v1", "system", "img", "1"]).path,
+    ]
+    guard allowedProxyPaths.contains(url.path),
       (1...5).contains(queryItems.count),
       queryItems.allSatisfy({
         ["imgurl", "cache", "use_cookies", "maxWidth", "quality"].contains($0.name)
       }),
-      Set(queryItems.map(\.name)).count == queryItems.count,
       let sourceValue = queryItems.first(where: { $0.name == "imgurl" })?.value,
       let source = URL(string: sourceValue),
       ["http", "https"].contains(source.scheme?.lowercased() ?? ""),
@@ -2260,7 +2274,7 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
       fixedSquareControl(
         skipForwardButton, diameter: 50, storingSizeConstraintsIn: &audioSkipSizeConstraints))
 
-    // 底部三联实用按钮：歌词视图切换、AirPlay 输出、队列/倍速
+    // 底部实用按钮：歌词视图切换、AirPlay 输出与多曲播放队列（播放倍速统一收纳于右上角菜单）
     configureMusicUtilityButton(
       lyricsToggleButton, symbol: "quote.bubble", accessibility: L10n.text("切换全屏歌词"))
     lyricsToggleButton.accessibilityIdentifier = "music-playback-lyrics-toggle"
@@ -2272,26 +2286,27 @@ final class MediaPlaybackViewController: UIViewController, UIGestureRecognizerDe
     routePicker.tintColor = UIColor.white.withAlphaComponent(0.78)
     routePicker.accessibilityIdentifier = "music-playback-output"
 
-    configureMusicUtilityButton(
-      musicQueueButton,
-      symbol: queue.count > 1 ? "list.bullet" : "speedometer",
-      accessibility: queue.count > 1 ? L10n.text("播放队列") : L10n.text("播放速度"))
-    musicQueueButton.addAction(
-      UIAction { [weak self] _ in
-        guard let self else { return }
-        if self.queue.count > 1 { self.showQueueMenu() } else { self.showSpeedMenu() }
-      }, for: .touchUpInside)
-
-    let utilityBar = UIStackView(arrangedSubviews: [
+    var utilityViews: [UIView] = [
       fixedSquareControl(
         lyricsToggleButton, diameter: 42, storingSizeConstraintsIn: &audioUtilitySizeConstraints),
       UIView(),
       fixedSquareControl(
         routePicker, diameter: 42, storingSizeConstraintsIn: &audioUtilitySizeConstraints),
-      UIView(),
-      fixedSquareControl(
-        musicQueueButton, diameter: 42, storingSizeConstraintsIn: &audioUtilitySizeConstraints),
-    ])
+    ]
+    if queue.count > 1 {
+      configureMusicUtilityButton(
+        musicQueueButton,
+        symbol: "list.bullet",
+        accessibility: L10n.text("播放队列"))
+      musicQueueButton.addAction(
+        UIAction { [weak self] _ in self?.showQueueMenu() }, for: .touchUpInside)
+      utilityViews.append(UIView())
+      utilityViews.append(
+        fixedSquareControl(
+          musicQueueButton, diameter: 42, storingSizeConstraintsIn: &audioUtilitySizeConstraints))
+    }
+
+    let utilityBar = UIStackView(arrangedSubviews: utilityViews)
     utilityBar.axis = .horizontal
     utilityBar.alignment = .center
 

@@ -72,7 +72,15 @@ export class MpImageLoader {
   private static async fetchAndDecode(url: string, cacheKey: string, maxSidePx: number): Promise<image.PixelMap | null> {
     try {
       const repo = MoviePilotRepository.shared();
-      const bytes = await repo.transport.fetchBinary(url, repo.token);
+      await repo.ensureImageContextReady();
+      const effectiveUrl = repo.upgradeImageUrlForCurrentConfig(url);
+      let bytes = await repo.transport.fetchBinary(effectiveUrl, repo.token);
+      if ((!bytes || bytes.byteLength === 0) && !repo.transport.isSameOriginUrl(effectiveUrl)) {
+        const fallbackUrl = repo.buildBackendProxyFallbackUrl(effectiveUrl);
+        if (fallbackUrl.length > 0) {
+          bytes = await repo.transport.fetchBinary(fallbackUrl, repo.token);
+        }
+      }
       if (!bytes || bytes.byteLength === 0) {
         return null;
       }

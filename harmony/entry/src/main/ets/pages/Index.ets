@@ -175,6 +175,7 @@ struct Index {
         repo.configureServer(activeSess.serverUrl, activeSess.allowSelfSigned);
         repo.setAuthToken(activeSess.token);
         repo.userLevel = this.userLevel;
+        repo.hydrateSession().catch(() => {});
         this.authStage = 'main';
         this.triggerUsageReportIfAdmin();
         this.consumePendingIntents();

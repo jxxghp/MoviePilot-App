@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import Foundation
 import ImageIO
+import MoviePilotAPI
 import MoviePilotCore
 import MoviePilotSession
 import UIKit
@@ -72,19 +73,38 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
     return filePath.hasPrefix(prefix)
   }
 
-  /// 将封面原始地址转换为当前实例受信任的图片代理地址，供原生播放器加载封面与锁屏海报。
+  /// 将封面原始地址转换为当前实例受信任的图片代理或缓存地址，供原生播放器加载封面与锁屏海报。
   static func proxiedArtworkURL(session: NativeSession, raw: String?) -> URL? {
     guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty,
       let source = URL(string: trimmed),
       let scheme = source.scheme?.lowercased(), ["http", "https"].contains(scheme),
       source.host != nil
     else { return nil }
+    let settings = NativeGlobalImageSettingsStore.shared.currentSettings(for: session)
+    let rewritten = APIImageSettings.rewriteImageSourceURL(
+      source, settings: settings, maximumWidth: 720)
+    let isBangumiProxied =
+      settings.bangumiProxyEnable && APIImageSettings.isBangumiImageURL(source)
+    if settings.globalImageCache && !isBangumiProxied
+      && !APIImageSettings.isMediaServerImageURL(rewritten)
+    {
+      var components = URLComponents(
+        url: session.instance.address.url.appending(path: "api/v1/system/cache/image"),
+        resolvingAgainstBaseURL: false)
+      components?.queryItems = [URLQueryItem(name: "url", value: rewritten.absoluteString)]
+      return components?.url
+    }
+    let useProxy =
+      !APIImageSettings.isDoubanImageURL(rewritten)
+      && !APIImageSettings.isInternalOrSameHost(
+        rewritten, serverHost: session.instance.address.url.host)
     var components = URLComponents(
-      url: session.instance.address.url.appending(path: "api/v1/system/img/0"),
+      url: session.instance.address.url.appending(
+        path: useProxy ? "api/v1/system/img/1" : "api/v1/system/img/0"),
       resolvingAgainstBaseURL: false)
     components?.queryItems = [
-      URLQueryItem(name: "imgurl", value: trimmed),
-      URLQueryItem(name: "cache", value: "true"),
+      URLQueryItem(name: "imgurl", value: rewritten.absoluteString),
+      URLQueryItem(name: "cache", value: settings.globalImageCache ? "true" : "false"),
     ]
     return components?.url
   }
@@ -102,7 +122,8 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
   ) async -> String? {
     do {
       let auth = try session.playbackAuthorization()
-      let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken, accountID: session.user.id)
+      let client = MediaPlaybackClient(
+        address: auth.address, accessToken: auth.accessToken, accountID: session.user.id)
       let manifest = try await client.loadManifest(
         itemId: itemID, server: server, mediaSourceId: trackSelection?.mediaSourceID)
       return present(
@@ -129,7 +150,8 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
   ) async -> String? {
     do {
       let auth = try session.playbackAuthorization()
-      let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken, accountID: session.user.id)
+      let client = MediaPlaybackClient(
+        address: auth.address, accessToken: auth.accessToken, accountID: session.user.id)
       let manifest = try await client.loadMusicManifest(
         title: title, artist: artist, album: album)
       return present(
@@ -154,7 +176,8 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
   ) async -> String? {
     do {
       let auth = try session.playbackAuthorization()
-      let client = MediaPlaybackClient(address: auth.address, accessToken: auth.accessToken, accountID: session.user.id)
+      let client = MediaPlaybackClient(
+        address: auth.address, accessToken: auth.accessToken, accountID: session.user.id)
       let isAudio = Self.isAudioExtension((fileName as NSString).pathExtension)
       let manifest = try await client.loadStorageFileManifest(
         storage: storage, path: path, fileName: fileName, isAudio: isAudio)

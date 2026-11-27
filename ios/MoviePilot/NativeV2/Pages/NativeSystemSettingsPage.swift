@@ -531,6 +531,12 @@ struct NativeSystemSettingsPage: View {
       try Task.checkCancellation()
       loaded = draft
       NativePageDataCache.shared.set(draft, for: "systemSettings|env", session: session)
+      NativeGlobalImageSettingsStore.shared.applySystemEnvUpdate(
+        globalImageCache: draft.globalImageCache,
+        tmdbImageDomain: draft.tmdbImageDomain,
+        bangumiProxyEnable: draft.bangumiProxyEnable,
+        for: session
+      )
       feedback = NativeSettingsFeedback(isError: false, message: "系统设置已保存。")
     } catch is CancellationError {
       return

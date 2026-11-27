@@ -1117,28 +1117,57 @@ fun PluginsCenterScreen(
     var isLoadingMarket by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var sortMode by remember { mutableStateOf("default") } // default, latest, installs, rating, name
+    var showSortMenu by remember { mutableStateOf(false) }
     val installingIds = remember { mutableStateMapOf<String, Boolean>() }
     var actionSheetPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
+    var marketInstallSheetPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
     var logSheetPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
     var pendingResetPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
     var pendingUninstallPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
 
+    fun mergeMarketUpdates(installed: List<PluginItemDto>, market: List<PluginItemDto>): List<PluginItemDto> {
+        if (installed.isEmpty() || market.isEmpty()) return installed
+        val updatableById = market.filter { it.hasUpdate }.associateBy { it.id.lowercase() }
+        if (updatableById.isEmpty()) return installed
+        return installed.map { item ->
+            val match = updatableById[item.id.lowercase()]
+            if (match != null) {
+                item.copy(
+                    hasUpdate = true,
+                    repoUrl = item.repoUrl.ifBlank { match.repoUrl },
+                )
+            } else {
+                item
+            }
+        }
+    }
+
     suspend fun loadTab(installedOnly: Boolean) {
         if (installedOnly) {
-            installedPlugins = repository.fetchPlugins(true)
+            val loadedInstalled = repository.fetchPlugins(true)
+            installedPlugins = mergeMarketUpdates(loadedInstalled, marketPlugins)
             isLoadingInstalled = false
         } else {
-            marketPlugins = repository.fetchPlugins(false)
+            val loadedMarket = repository.fetchPlugins(false)
+            marketPlugins = loadedMarket
+            installedPlugins = mergeMarketUpdates(installedPlugins, loadedMarket)
             isLoadingMarket = false
         }
         isRefreshing = false
     }
 
     suspend fun reloadBoth() {
-        coroutineScope {
-            launch { loadTab(true) }
-            launch { loadTab(false) }
+        val (loadedInstalled, loadedMarket) = coroutineScope {
+            val instDef = async { repository.fetchPlugins(true) }
+            val mktDef = async { repository.fetchPlugins(false) }
+            instDef.await() to mktDef.await()
         }
+        marketPlugins = loadedMarket
+        installedPlugins = mergeMarketUpdates(loadedInstalled, loadedMarket)
+        isLoadingInstalled = false
+        isLoadingMarket = false
+        isRefreshing = false
     }
 
     LaunchedEffect(Unit) {
@@ -1148,9 +1177,47 @@ fun PluginsCenterScreen(
     val installedTabTitle = if (isLoadingInstalled && installedPlugins.isEmpty()) "已安装" else "已安装 (${installedPlugins.size})"
     val marketTabTitle = if (isLoadingMarket && marketPlugins.isEmpty()) "插件市场" else "插件市场 (${marketPlugins.size})"
 
+    val sortOptions = remember {
+        listOf(
+            "default" to "默认顺序",
+            "latest" to "最新发布",
+            "installs" to "安装量最高",
+            "rating" to "评分最高",
+            "name" to "名称排序",
+        )
+    }
+
     ExpressiveTintedScaffold(
         title = "插件中心",
         onBack = onBack,
+        actions = {
+            Box {
+                ExpressiveHeaderActionButton(
+                    icon = Icons.Rounded.Tune,
+                    contentDescription = "插件排序",
+                    onClick = { showSortMenu = true },
+                )
+                DropdownMenu(
+                    expanded = showSortMenu,
+                    onDismissRequest = { showSortMenu = false },
+                ) {
+                    sortOptions.forEach { (key, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label, fontWeight = if (sortMode == key) FontWeight.Bold else FontWeight.Normal) },
+                            trailingIcon = if (sortMode == key) {
+                                { Icon(Icons.Rounded.Check, contentDescription = null, tint = colors.accent) }
+                            } else {
+                                null
+                            },
+                            onClick = {
+                                sortMode = key
+                                showSortMenu = false
+                            },
+                        )
+                    }
+                }
+            }
+        },
         headerExtra = {
             ExpressivePillTabRow(
                 tabs = listOf(installedTabTitle, marketTabTitle),
@@ -1189,13 +1256,27 @@ fun PluginsCenterScreen(
 
             HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { pageIdx ->
                 val raw = if (pageIdx == 0) installedPlugins else marketPlugins
-                val filtered = remember(raw, searchQuery) {
+                val filtered = remember(raw, searchQuery, sortMode) {
                     val q = searchQuery.trim().lowercase()
-                    if (q.isEmpty()) raw else raw.filter { p ->
+                    val searched = if (q.isEmpty()) raw else raw.filter { p ->
                         p.name.lowercase().contains(q) ||
                             p.desc.lowercase().contains(q) ||
                             p.author.lowercase().contains(q) ||
                             p.labels.any { it.lowercase().contains(q) }
+                    }
+                    when (sortMode) {
+                        "latest" -> searched.sortedWith { a, b ->
+                            when {
+                                a.addTime > 0 && b.addTime > 0 && a.addTime != b.addTime -> a.addTime.compareTo(b.addTime)
+                                a.addTime > 0 && b.addTime <= 0 -> -1
+                                a.addTime <= 0 && b.addTime > 0 -> 1
+                                else -> a.name.compareTo(b.name, ignoreCase = true)
+                            }
+                        }
+                        "installs" -> searched.sortedByDescending { it.installCount }
+                        "rating" -> searched.sortedByDescending { it.averageRating }
+                        "name" -> searched.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+                        else -> searched
                     }
                 }
                 PullToRefreshBox(
@@ -1252,7 +1333,17 @@ fun PluginsCenterScreen(
                             CinematicPanel(
                                 padding = 16.dp,
                                 modifier = Modifier.combinedClickable(
-                                    onClick = { onOpenPluginDetail(plugin, false) },
+                                    onClick = {
+                                        if (pageIdx == 1) {
+                                            val installedMatch = installedPlugins.find { it.id.equals(plugin.id, ignoreCase = true) }
+                                            marketInstallSheetPlugin = plugin.copy(
+                                                installed = plugin.installed || installedMatch != null,
+                                                hasUpdate = plugin.hasUpdate || installedMatch?.hasUpdate == true,
+                                            )
+                                        } else {
+                                            onOpenPluginDetail(plugin, false)
+                                        }
+                                    },
                                     onLongClick = {
                                         if (plugin.installed) {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1304,30 +1395,48 @@ fun PluginsCenterScreen(
                                                     tint = if (plugin.state) colors.success else colors.textMuted,
                                                 )
                                             } else {
-                                                NativeAdaptivePill(
-                                                    title = when {
-                                                        isInstalling -> "处理中…"
-                                                        plugin.hasUpdate -> "更新"
-                                                        else -> "安装"
-                                                    },
-                                                    selected = true,
-                                                    icon = if (plugin.hasUpdate) Icons.Rounded.Refresh else Icons.Rounded.Download,
+                                                val ctaBg = if (plugin.hasUpdate) colors.warning else colors.accent
+                                                Button(
+                                                    enabled = !isInstalling,
                                                     onClick = {
-                                                        if (!isInstalling) {
-                                                            scope.launch {
-                                                                installingIds[plugin.id] = true
-                                                                val (ok, msg) = repository.installPlugin(
-                                                                    pluginId = plugin.id,
-                                                                    repoUrl = plugin.repoUrl,
-                                                                    force = plugin.hasUpdate,
-                                                                )
-                                                                if (ok) reloadBoth()
-                                                                installingIds.remove(plugin.id)
-                                                                snackbar?.showSnackbar(msg)
-                                                            }
+                                                        scope.launch {
+                                                            installingIds[plugin.id] = true
+                                                            val (ok, msg) = repository.installPlugin(
+                                                                pluginId = plugin.id,
+                                                                repoUrl = plugin.repoUrl,
+                                                                force = plugin.hasUpdate || plugin.installed,
+                                                            )
+                                                            if (ok) reloadBoth()
+                                                            installingIds.remove(plugin.id)
+                                                            snackbar?.showSnackbar(msg)
                                                         }
                                                     },
-                                                )
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = ctaBg,
+                                                        contentColor = Color.White,
+                                                        disabledContainerColor = ctaBg.copy(alpha = 0.55f),
+                                                        disabledContentColor = Color.White.copy(alpha = 0.85f),
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                                    shape = CircleShape,
+                                                    modifier = Modifier.height(32.dp),
+                                                ) {
+                                                    Icon(
+                                                        if (plugin.hasUpdate) Icons.Rounded.Refresh else Icons.Rounded.Download,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(15.dp),
+                                                    )
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text(
+                                                        when {
+                                                            isInstalling -> "处理中…"
+                                                            plugin.hasUpdate -> "更新"
+                                                            else -> "安装"
+                                                        },
+                                                        fontSize = 12.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                    )
+                                                }
                                             }
                                             if (plugin.installed) {
                                                 IconButton(
@@ -1501,6 +1610,128 @@ fun PluginsCenterScreen(
                     }
                 }
                 Spacer(Modifier.height(14.dp))
+            }
+        }
+    }
+
+    marketInstallSheetPlugin?.let { target ->
+        val isInstalling = installingIds[target.id] == true
+        val validHomeUrl = target.repoUrl.trim().takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        val ctaBg = if (target.hasUpdate) colors.warning else colors.accent
+        NativeGlassSheet(onDismissRequest = { marketInstallSheetPlugin = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    NativeNetworkEntityLogo(
+                        imageUrl = target.icon,
+                        kind = "plugin",
+                        value = target.name,
+                        size = 52.dp,
+                        cornerRadius = 14.dp,
+                    )
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(target.name, color = colors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "v${target.version} · 作者 ${target.author.ifBlank { "MoviePilot" }}",
+                            color = colors.textSecondary,
+                            fontSize = 12.5.sp,
+                        )
+                    }
+                }
+                if (target.desc.isNotBlank()) {
+                    Text(target.desc, color = colors.textSecondary, fontSize = 13.5.sp)
+                }
+                if (target.labels.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        target.labels.forEach { lbl -> NativeAdaptiveBadge(lbl) }
+                    }
+                }
+                Button(
+                    enabled = !isInstalling,
+                    onClick = {
+                        scope.launch {
+                            installingIds[target.id] = true
+                            val (ok, msg) = repository.installPlugin(
+                                pluginId = target.id,
+                                repoUrl = target.repoUrl,
+                                force = true,
+                            )
+                            if (ok) reloadBoth()
+                            installingIds.remove(target.id)
+                            marketInstallSheetPlugin = null
+                            snackbar?.showSnackbar(msg)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ctaBg,
+                        contentColor = Color.White,
+                        disabledContainerColor = ctaBg.copy(alpha = 0.55f),
+                        disabledContentColor = Color.White.copy(alpha = 0.85f),
+                    ),
+                    shape = CircleShape,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    if (isInstalling) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    } else {
+                        Icon(
+                            if (target.installed) Icons.Rounded.Refresh else Icons.Rounded.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        when {
+                            isInstalling -> "正在处理…"
+                            target.hasUpdate -> "更新插件"
+                            target.installed -> "重新安装"
+                            else -> "安装插件"
+                        },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                    )
+                }
+                if (target.installed) {
+                    TextButton(
+                        onClick = {
+                            val current = installedPlugins.find { it.id.equals(target.id, ignoreCase = true) } ?: target
+                            marketInstallSheetPlugin = null
+                            onOpenPluginDetail(current, false)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (target.hasPage) "打开插件数据页 / 配置" else "打开插件配置", color = colors.accent, fontWeight = FontWeight.SemiBold)
+                    }
+                } else if (validHomeUrl != null) {
+                    TextButton(
+                        onClick = {
+                            marketInstallSheetPlugin = null
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(validHomeUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("查看项目主页", color = colors.textSecondary)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
@@ -1873,7 +2104,9 @@ fun PluginDetailScreen(
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = colors.accent,
-                                    contentColor = colors.primaryButtonFg,
+                                    contentColor = Color.White,
+                                    disabledContainerColor = colors.accent.copy(alpha = 0.55f),
+                                    disabledContentColor = Color.White.copy(alpha = 0.85f),
                                 ),
                                 shape = CircleShape,
                                 modifier = Modifier.fillMaxWidth().height(48.dp),

@@ -1792,18 +1792,6 @@ struct NativeHeroPosterTitleView: View {
 /// 主视觉与详情页共用透明标题 Logo 视图：仅当 Logo 语言适配当前用户的媒体语言设置时展示图片，否则回退为海报级大字标题。
 @MainActor
 struct NativeDiscoverLogoBanner: View {
-  nonisolated private static let publicLogoHosts: Set<String> = [
-    "assets.fanart.tv", "image.tmdb.org",
-  ]
-  nonisolated private static let publicLogoSession: URLSession = {
-    let config = URLSessionConfiguration.ephemeral
-    config.httpShouldSetCookies = false
-    config.httpCookieStorage = nil
-    config.urlCredentialStorage = nil
-    config.timeoutIntervalForRequest = 12
-    config.timeoutIntervalForResource = 15
-    return URLSession(configuration: config)
-  }()
   nonisolated private static let languageVerdictCache = OSAllocatedUnfairLock<[String: Bool]>(
     initialState: [:])
 
@@ -1893,10 +1881,12 @@ struct NativeDiscoverLogoBanner: View {
         {
           candidate = disk
         } else {
+          let settings = await NativeGlobalImageSettingsStore.shared.ensureLoaded(using: session)
           let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
           let normalized: String
           if trimmed.hasPrefix("/") {
-            normalized = "https://image.tmdb.org/t/p/w500" + trimmed
+            let domain = APIImageSettings.normalizeTMDBDomain(settings.tmdbImageDomain)
+            normalized = "https://\(domain)/t/p/w500" + trimmed
           } else {
             normalized = trimmed
           }
@@ -1904,22 +1894,9 @@ struct NativeDiscoverLogoBanner: View {
           candidate = await NativeMediaArtworkCache.shared.fetchAndCache(
             key: key, scopeDir: scopeDir, limit: 640
           ) {
-            if let response = try? await session.requestImage(url, maximumWidth: 640),
-              !response.data.isEmpty
-            {
-              return response.data
-            }
-            guard url.scheme?.lowercased() == "https",
-              let host = url.host?.lowercased(),
-              Self.publicLogoHosts.contains(host)
-            else { throw URLError(.badURL) }
-            var req = URLRequest(url: url)
-            req.httpShouldHandleCookies = false
-            let (data, response) = try await Self.publicLogoSession.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              !data.isEmpty, data.count <= 4 * 1024 * 1024
-            else { throw URLError(.badServerResponse) }
-            return data
+            let response = try await session.requestDisplayImage(url, maximumWidth: 640)
+            guard !response.data.isEmpty else { throw URLError(.badServerResponse) }
+            return response.data
           }
         }
       }

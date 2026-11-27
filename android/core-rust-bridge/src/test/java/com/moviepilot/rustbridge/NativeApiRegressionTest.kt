@@ -278,6 +278,37 @@ class NativeApiRegressionTest {
         }
     }
 
+    /** 全局图片缓存开启时对齐 Web 走 `/system/cache/image`；关闭时分流豆瓣/Bangumi 并在外部直连失败时回退后端代理。 */
+    @Test fun globalImageCacheAndProxyRoutingAlignWithWeb() = runBlocking {
+        ApiFixture().use { api ->
+            var cacheEnabled = true
+            api.systemGlobal = { exchange ->
+                assertTrue(exchange.requestHeaders.keys.none { it.equals("Authorization", true) })
+                assertEquals("token=moviepilot", exchange.requestURI.rawQuery)
+                exchange.reply(
+                    200,
+                    """{"success":true,"data":{"GLOBAL_IMAGE_CACHE":$cacheEnabled,"TMDB_IMAGE_DOMAIN":"tmdb-mirror.example.test","BANGUMI_PROXY_ENABLE":true,"BANGUMI_IMAGE_DOMAIN":""}}""",
+                )
+            }
+            val repo = repository()
+            api.login(repo, "a")
+            repo.refreshGlobalImageSettings("${api.base}/a")
+
+            val cachedTmdb = repo.resolveImageUrl("/abc.jpg")
+            assertEquals(
+                "${api.base}/a/api/v1/system/cache/image?url=https%3A%2F%2Ftmdb-mirror.example.test%2Ft%2Fp%2Fw500%2Fabc.jpg",
+                cachedTmdb,
+            )
+
+            cacheEnabled = false
+            repo.refreshGlobalImageSettings("${api.base}/a")
+            assertEquals("https://tmdb-mirror.example.test/t/p/w500/abc.jpg", repo.resolveImageUrl("/abc.jpg"))
+            assertTrue(repo.resolveImageUrl("https://img9.doubanio.com/view/photo/s/p1.jpg")!!.contains("/api/v1/system/img/0?"))
+            assertTrue(repo.resolveImageUrl("https://lain.bgm.tv/pic/cover/l/01.jpg")!!.contains("/api/v1/system/img/1?"))
+            assertTrue(repo.resolveImageUrl("https://site.example.test/cover.jpg", useCookies = true)!!.contains("use_cookies=true"))
+        }
+    }
+
     /** 独立内存存储，关闭凭据持久化以避免调用宿主机不存在的 Android Keystore。 */
     private fun repository(): MoviePilotRepository = MoviePilotRepository(MemoryContext.create()).also {
         it.secretStore.keepLogin = false
@@ -291,6 +322,7 @@ private class ApiFixture : AutoCloseable {
     val base: String get() = "http://127.0.0.1:${server.port}"
     private val handlerErrors = CopyOnWriteArrayList<Throwable>()
     var currentUser: ((TestExchange) -> Unit)? = null
+    var systemGlobal: ((TestExchange) -> Unit)? = null
     var account = 7
     var route: (TestExchange) -> Unit = { it.reply(404, "{}") }
 
@@ -310,6 +342,11 @@ private class ApiFixture : AutoCloseable {
                         """{"id":$account,"name":"member-$account","is_superuser":true,"permissions":{}}""")
                 }
                 exchange.requestURI.path.endsWith("/media/source") -> exchange.reply(200, "{}")
+                exchange.requestURI.path.endsWith("/system/global") -> {
+                    val handler = systemGlobal
+                    if (handler != null) handler(exchange) else exchange.reply(200,
+                        """{"success":true,"data":{"GLOBAL_IMAGE_CACHE":false,"TMDB_IMAGE_DOMAIN":"image.tmdb.org","BANGUMI_PROXY_ENABLE":false,"BANGUMI_IMAGE_DOMAIN":""}}""")
+                }
                 else -> route(exchange)
             }
             return exchange.response

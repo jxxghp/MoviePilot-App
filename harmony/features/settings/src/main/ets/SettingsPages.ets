@@ -160,9 +160,22 @@ struct HarmonyPluginCardIcon {
   }
 }
 
+interface MpPluginMarketSortOption {
+  id: string;
+  label: string;
+}
+
+const PLUGIN_MARKET_SORT_OPTIONS: MpPluginMarketSortOption[] = [
+  { id: 'default', label: '默认顺序' },
+  { id: 'latest', label: '最新发布' },
+  { id: 'installs', label: '安装量最高' },
+  { id: 'rating', label: '评分最高' },
+  { id: 'name', label: '名称排序' }
+];
+
 /**
  * 鸿蒙「插件中心」独立页面：
- * - 支持「已安装 / 插件市场」切换、市场一键安装（`/api/v1/plugin/install/{id}`）、已安装重置与卸载确认；
+ * - 支持「已安装 / 插件市场」切换、最新发布/安装量/评分/名称排序、已安装更新提示与一键更新；
  * - 未配置远程图标时统一回退品牌图标 `logo_plugin.png`，并联动系统返回手势关闭详情。
  */
 @Component
@@ -180,6 +193,7 @@ export struct HarmonyPluginsPage {
   @Prop isSuperuser: boolean = true;
   @State private activeTabIdx: number = 0; // 0: 已安装, 1: 插件市场
   @State private searchQuery: string = '';
+  @State private marketSortMode: string = 'default';
   @State private installedPlugins: MpPluginItem[] = [];
   @State private marketPlugins: MpPluginItem[] = [];
   @State private marketLoadedOnce: boolean = false;
@@ -203,12 +217,15 @@ export struct HarmonyPluginsPage {
   @State private logTargetPlugin: MpPluginItem | null = null;
   @State private pluginLogLines: string[] = [];
   @State private loadingPluginLogs: boolean = false;
+  @State private showMarketDetailSheet: boolean = false;
+  @State private marketDetailTarget: MpPluginItem | null = null;
   private vueChromeController: HarmonyVueChromeController = new HarmonyVueChromeController();
   onBack: () => void = () => {};
 
   aboutToAppear(): void {
     this.syncDetailBackFlag(false);
     this.loadInstalled();
+    this.loadMarketForUpdatesSilently();
   }
 
   aboutToDisappear(): void {
@@ -225,10 +242,87 @@ export struct HarmonyPluginsPage {
     }
   }
 
+  private mergeMarketUpdatesOntoInstalled(installed: MpPluginItem[], market: MpPluginItem[]): MpPluginItem[] {
+    if (installed.length === 0 || market.length === 0) {
+      return installed;
+    }
+    const updateById = new Map<string, MpPluginItem>();
+    for (let i = 0; i < market.length; i++) {
+      const mp = market[i];
+      if (mp.hasUpdate) {
+        updateById.set(mp.id.toLowerCase(), mp);
+      }
+    }
+    const merged: MpPluginItem[] = [];
+    for (let i = 0; i < installed.length; i++) {
+      const cur = installed[i];
+      const marketMatch = updateById.get(cur.id.toLowerCase());
+      if (marketMatch) {
+        merged.push({
+          id: cur.id,
+          pluginName: cur.pluginName,
+          pluginDesc: cur.pluginDesc,
+          pluginVersion: cur.pluginVersion,
+          pluginAuthor: cur.pluginAuthor,
+          installed: cur.installed,
+          state: cur.state,
+          hasPage: cur.hasPage,
+          iconUrl: cur.iconUrl,
+          renderMode: cur.renderMode,
+          repoUrl: (cur.repoUrl && cur.repoUrl.length > 0) ? cur.repoUrl : marketMatch.repoUrl,
+          hasUpdate: true,
+          installCount: cur.installCount,
+          addTime: cur.addTime,
+          averageRating: cur.averageRating,
+          pluginLabel: cur.pluginLabel
+        });
+      } else if (cur.hasUpdate) {
+        merged.push({
+          id: cur.id,
+          pluginName: cur.pluginName,
+          pluginDesc: cur.pluginDesc,
+          pluginVersion: cur.pluginVersion,
+          pluginAuthor: cur.pluginAuthor,
+          installed: cur.installed,
+          state: cur.state,
+          hasPage: cur.hasPage,
+          iconUrl: cur.iconUrl,
+          renderMode: cur.renderMode,
+          repoUrl: cur.repoUrl,
+          hasUpdate: false,
+          installCount: cur.installCount,
+          addTime: cur.addTime,
+          averageRating: cur.averageRating,
+          pluginLabel: cur.pluginLabel
+        });
+      } else {
+        merged.push(cur);
+      }
+    }
+    return merged;
+  }
+
+  private async loadMarketForUpdatesSilently(): Promise<void> {
+    if (this.marketLoadedOnce) { return; }
+    try {
+      const market = await MoviePilotRepository.shared().fetchPlugins('market');
+      this.marketPlugins = market;
+      this.marketLoadedOnce = true;
+      if (this.installedPlugins.length > 0) {
+        this.installedPlugins = this.mergeMarketUpdatesOntoInstalled(this.installedPlugins, market);
+      }
+    } catch {
+      // silent background check
+    }
+  }
+
   private async loadInstalled(): Promise<void> {
     this.loading = true;
     try {
-      this.installedPlugins = await MoviePilotRepository.shared().fetchPlugins('installed');
+      const loaded = await MoviePilotRepository.shared().fetchPlugins('installed');
+      this.installedPlugins = this.marketPlugins.length > 0
+        ? this.mergeMarketUpdatesOntoInstalled(loaded, this.marketPlugins)
+        : loaded;
     } catch {
       this.installedPlugins = [];
     }
@@ -261,6 +355,9 @@ export struct HarmonyPluginsPage {
     try {
       this.marketPlugins = await MoviePilotRepository.shared().fetchPlugins('market');
       this.marketLoadedOnce = true;
+      if (this.installedPlugins.length > 0) {
+        this.installedPlugins = this.mergeMarketUpdatesOntoInstalled(this.installedPlugins, this.marketPlugins);
+      }
     } catch {
       this.marketPlugins = [];
       this.marketLoadedOnce = true;
@@ -272,24 +369,56 @@ export struct HarmonyPluginsPage {
     return this.installedPlugins.some((p: MpPluginItem) => p.id === pluginId);
   }
 
+  private static compareLatestPublished(a: MpPluginItem, b: MpPluginItem): number {
+    const aTime = a.addTime ?? 0;
+    const bTime = b.addTime ?? 0;
+    if (aTime > 0 && bTime > 0 && aTime !== bTime) {
+      return aTime - bTime;
+    }
+    if (aTime > 0 && bTime <= 0) { return -1; }
+    if (aTime <= 0 && bTime > 0) { return 1; }
+    return a.pluginName.localeCompare(b.pluginName);
+  }
+
   private filteredPlugins(): MpPluginItem[] {
     const src = this.activeTabIdx === 0 ? this.installedPlugins : this.marketPlugins;
     const q = this.searchQuery.trim().toLowerCase();
-    if (!q) { return src.slice(0, 80); }
-    return src.filter((p: MpPluginItem) =>
-      `${p.pluginName} ${p.pluginDesc} ${p.pluginAuthor} ${p.id}`.toLowerCase().includes(q)
-    ).slice(0, 80);
+    const matched: MpPluginItem[] = !q
+      ? src.slice()
+      : src.filter((p: MpPluginItem) =>
+        `${p.pluginName} ${p.pluginDesc} ${p.pluginAuthor} ${p.pluginLabel ?? ''} ${p.id}`.toLowerCase().includes(q)
+      );
+    if (this.activeTabIdx !== 1 || this.marketSortMode === 'default') {
+      return matched;
+    }
+    if (this.marketSortMode === 'latest') {
+      return matched.sort((a: MpPluginItem, b: MpPluginItem) => HarmonyPluginsPage.compareLatestPublished(a, b));
+    }
+    if (this.marketSortMode === 'installs') {
+      return matched.sort((a: MpPluginItem, b: MpPluginItem) => (b.installCount ?? 0) - (a.installCount ?? 0));
+    }
+    if (this.marketSortMode === 'rating') {
+      return matched.sort((a: MpPluginItem, b: MpPluginItem) => (b.averageRating ?? 0) - (a.averageRating ?? 0));
+    }
+    if (this.marketSortMode === 'name') {
+      return matched.sort((a: MpPluginItem, b: MpPluginItem) => a.pluginName.localeCompare(b.pluginName));
+    }
+    return matched;
   }
 
-  private async handleInstallPlugin(pl: MpPluginItem): Promise<void> {
+  private async handleInstallPlugin(pl: MpPluginItem, force: boolean = false): Promise<void> {
     if (this.installingId.length > 0) { return; }
+    const isUpdate = Boolean(pl.hasUpdate);
     this.installingId = pl.id;
     this.listNotice = '';
-    const ok = await MoviePilotRepository.shared().installPlugin(pl.id, pl.repoUrl ?? '');
+    const ok = await MoviePilotRepository.shared().installPlugin(pl.id, pl.repoUrl ?? '', force);
     this.installingId = '';
-    this.listNotice = ok ? `已安装插件「${pl.pluginName}」` : `安装插件「${pl.pluginName}」失败`;
+    const verb = isUpdate ? '更新' : (force ? '重新安装' : '安装');
+    this.listNotice = ok ? `已${verb}插件「${pl.pluginName}」` : `${verb}插件「${pl.pluginName}」失败`;
     if (ok) {
-      await Promise.all([this.loadInstalled(), this.loadMarketIfNeeded(true)]);
+      this.showMarketDetailSheet = false;
+      this.marketDetailTarget = null;
+      await Promise.all([this.loadMarketIfNeeded(true), this.loadInstalled()]);
     }
   }
 
@@ -510,6 +639,21 @@ export struct HarmonyPluginsPage {
 
         CinematicPanel({ panelPadding: 6, cornerRadius: 18 }) {
           Column() {
+            if (this.actionTargetPlugin.hasUpdate) {
+              Row({ space: 10 }) {
+                SymbolGlyph($r('sys.symbol.arrow_up_circle')).fontSize(17).fontColor(['#F29B38'])
+                Text('更新至最新版本').fontSize(15).fontWeight(FontWeight.Bold).fontColor('#F29B38').layoutWeight(1)
+              }
+              .width('100%')
+              .padding({ left: 12, right: 12, top: 13, bottom: 13 })
+              .onClick(() => {
+                const target = this.actionTargetPlugin;
+                this.showPluginActionSheet = false;
+                if (target) { this.handleInstallPlugin(target, true); }
+              })
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+            }
+
             if (this.actionTargetPlugin.hasPage) {
               Row({ space: 10 }) {
                 SymbolGlyph($r('sys.symbol.doc_plaintext')).fontSize(17).fontColor([this.accentHex])
@@ -657,6 +801,103 @@ export struct HarmonyPluginsPage {
     .padding({ left: 20, right: 20, top: 14, bottom: 24 })
     .width('100%')
     .height('100%')
+  }
+
+  @Builder
+  private marketDetailSheetBuilder() {
+    Column({ space: 14 }) {
+      if (this.marketDetailTarget) {
+        HarmonySheetHeader({
+          title: '插件详情',
+          cancelText: '关闭',
+          onCancel: () => { this.showMarketDetailSheet = false; }
+        })
+
+        Row({ space: 12 }) {
+          HarmonyPluginCardIcon({
+            iconUrl: this.marketDetailTarget.iconUrl,
+            pluginName: this.marketDetailTarget.pluginName
+          })
+          Column({ space: 4 }) {
+            Row({ space: 6 }) {
+              Text(this.marketDetailTarget.pluginName)
+                .fontSize(16.5)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(mpPrimaryText(this.isDark))
+                .maxLines(1)
+                .layoutWeight(1)
+              if (this.marketDetailTarget.pluginVersion.length > 0) {
+                NativeAdaptiveBadge({ text: `v${this.marketDetailTarget.pluginVersion}`, tintHex: this.accentHex })
+              }
+            }.width('100%')
+            Text(`作者：${this.marketDetailTarget.pluginAuthor || 'MoviePilot'}`)
+              .fontSize(12.5)
+              .fontColor(mpSecondaryText(this.isDark))
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+        }
+        .width('100%')
+
+        if (this.marketDetailTarget.pluginDesc.length > 0) {
+          CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+            Text(this.marketDetailTarget.pluginDesc)
+              .fontSize(13.5)
+              .lineHeight(20)
+              .fontColor(mpPrimaryText(this.isDark))
+              .width('100%')
+          }
+        }
+
+        Column({ space: 10 }) {
+          Button(
+            this.installingId === this.marketDetailTarget.id
+              ? (this.marketDetailTarget.hasUpdate ? '正在更新…' : '正在安装…')
+              : (this.marketDetailTarget.hasUpdate
+                ? '更新插件'
+                : ((this.marketDetailTarget.installed || this.isInstalledInList(this.marketDetailTarget.id)) ? '重新安装' : '安装插件'))
+          )
+            .width('100%')
+            .height(46)
+            .borderRadius(23)
+            .fontSize(15)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Color.White)
+            .backgroundColor(this.marketDetailTarget.hasUpdate ? '#F29B38' : this.accentHex)
+            .enabled(this.installingId.length === 0)
+            .onClick(() => {
+              const target = this.marketDetailTarget;
+              if (target) {
+                const needForce = Boolean(target.hasUpdate || target.installed || this.isInstalledInList(target.id));
+                this.handleInstallPlugin(target, needForce);
+              }
+            })
+
+          if (this.isInstalledInList(this.marketDetailTarget.id)) {
+            Button('打开插件配置')
+              .width('100%')
+              .height(42)
+              .borderRadius(21)
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(mpPrimaryText(this.isDark))
+              .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+              .onClick(() => {
+                const target = this.marketDetailTarget;
+                this.showMarketDetailSheet = false;
+                if (target) {
+                  const installed = this.installedPlugins.find((x: MpPluginItem) => x.id === target.id);
+                  if (installed) { this.openPluginDetail(installed); }
+                }
+              })
+          }
+        }
+        .width('100%')
+        .padding({ top: 4 })
+      }
+    }
+    .padding({ left: 20, right: 20, top: 14, bottom: 28 })
+    .width('100%')
   }
 
   build() {
@@ -821,6 +1062,24 @@ export struct HarmonyPluginsPage {
             .onChange((v: string) => { this.searchQuery = v; })
         }.padding({ left: 16, right: 16 })
 
+        if (this.activeTabIdx === 1) {
+          Scroll() {
+            Row({ space: 8 }) {
+              ForEach(PLUGIN_MARKET_SORT_OPTIONS, (opt: MpPluginMarketSortOption) => {
+                NativeAdaptivePill({
+                  title: opt.label,
+                  selected: this.marketSortMode === opt.id,
+                  onTap: () => { this.marketSortMode = opt.id; }
+                })
+              }, (opt: MpPluginMarketSortOption) => opt.id)
+            }
+            .padding({ left: 16, right: 16 })
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .width('100%')
+        }
+
         if (this.listNotice.length > 0) {
           Text(this.listNotice)
             .fontSize(12)
@@ -875,10 +1134,19 @@ export struct HarmonyPluginsPage {
 
                       if (this.activeTabIdx === 0) {
                         Row({ space: 6 }) {
-                          NativeAdaptiveBadge({
-                            text: pl.state ? '已启用' : '配置',
-                            tintHex: pl.state ? '#34C759' : this.accentHex
-                          })
+                          if (pl.hasUpdate) {
+                            Button(this.installingId === pl.id ? '更新中…' : '更新')
+                              .height(28).padding({ left: 10, right: 10 }).borderRadius(14)
+                              .fontSize(12).fontWeight(FontWeight.Bold)
+                              .backgroundColor('#F29B38').fontColor(Color.White)
+                              .enabled(this.installingId.length === 0)
+                              .onClick(() => { this.handleInstallPlugin(pl, true); })
+                          } else {
+                            NativeAdaptiveBadge({
+                              text: pl.state ? '已启用' : '配置',
+                              tintHex: pl.state ? '#34C759' : this.accentHex
+                            })
+                          }
                           Button({ type: ButtonType.Circle }) {
                             SymbolGlyph($r('sys.symbol.dot_grid_1x2'))
                               .fontSize(16)
@@ -890,6 +1158,13 @@ export struct HarmonyPluginsPage {
                           .accessibilityText(`更多操作 ${pl.pluginName}`)
                           .onClick(() => { this.openActionSheetForPlugin(pl); })
                         }
+                      } else if (pl.hasUpdate) {
+                        Button(this.installingId === pl.id ? '更新中…' : '更新')
+                          .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
+                          .fontSize(12).fontWeight(FontWeight.Bold)
+                          .backgroundColor('#F29B38').fontColor(Color.White)
+                          .enabled(this.installingId.length === 0)
+                          .onClick(() => { this.handleInstallPlugin(pl, true); })
                       } else if (pl.installed || this.isInstalledInList(pl.id)) {
                         NativeAdaptiveBadge({ text: '已安装', tintHex: '#34C759' })
                       } else {
@@ -898,7 +1173,7 @@ export struct HarmonyPluginsPage {
                           .fontSize(12).fontWeight(FontWeight.Bold)
                           .backgroundColor(this.accentHex).fontColor(Color.White)
                           .enabled(this.installingId.length === 0)
-                          .onClick(() => { this.handleInstallPlugin(pl); })
+                          .onClick(() => { this.handleInstallPlugin(pl, false); })
                       }
                     }.width('100%')
                   }
@@ -918,13 +1193,13 @@ export struct HarmonyPluginsPage {
                 .onClick(() => {
                   if (this.activeTabIdx === 0) {
                     this.openPluginDetail(pl);
-                  } else if (this.isInstalledInList(pl.id)) {
-                    const installed = this.installedPlugins.find((x: MpPluginItem) => x.id === pl.id);
-                    if (installed) { this.openPluginDetail(installed); }
+                  } else {
+                    this.marketDetailTarget = pl;
+                    this.showMarketDetailSheet = true;
                   }
                 })
               }
-            }, (pl: MpPluginItem) => `${this.activeTabIdx}_${pl.id}_${this.isInstalledInList(pl.id)}`)
+            }, (pl: MpPluginItem) => `${this.activeTabIdx}_${pl.id}_${this.isInstalledInList(pl.id)}_${Boolean(pl.hasUpdate)}_${this.installingId === pl.id}`)
           }
           .columnsTemplate(HarmonyAdaptiveLayout.cardGridTemplate(this.windowWidthVp))
           .columnsGap(10)
@@ -945,6 +1220,15 @@ export struct HarmonyPluginsPage {
 
         Blank().width(0).height(0).bindSheet($$this.showPluginLogSheet, this.pluginLogSheetBuilder(), {
           detents: [SheetSize.LARGE],
+          preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
+          blurStyle: BlurStyle.COMPONENT_THIN,
+          dragBar: true,
+          showClose: false,
+          backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+        })
+
+        Blank().width(0).height(0).bindSheet($$this.showMarketDetailSheet, this.marketDetailSheetBuilder(), {
+          detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
           preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
           blurStyle: BlurStyle.COMPONENT_THIN,
           dragBar: true,

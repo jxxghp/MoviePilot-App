@@ -179,10 +179,15 @@ class NativeHttpTransport(
         }
     }
 
-    /** 构造专供 Coil 复用的同源鉴权高并发图片加载 OkHttpClient（绝不向第三方域名泄漏 Bearer 令牌）。 */
+    /**
+     * 构造专供 Coil 复用的同源鉴权高并发图片加载 OkHttpClient（绝不向第三方域名泄漏 Bearer 令牌）：
+     * - 同源图片端点收到 401（短效资源 Cookie 未预热或已过期）时自动请求一次 `/api/v1/media/source` 续签并重试；
+     * - 未开启全局图片缓存时的公开外链直连若因手机网络受限失败，自动回退一次服务端代理（`/api/v1/system/img/1?cache=false`）。
+     */
     fun buildImageClient(
         serverUrlProvider: () -> String?,
         tokenProvider: () -> String?,
+        externalFallbackUrlProvider: ((externalUrl: String) -> String?)? = null,
     ): OkHttpClient {
         val imageDispatcher = Dispatcher().apply {
             maxRequests = 48
@@ -194,6 +199,77 @@ class NativeHttpTransport(
             .readTimeout(25, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val reqUrl = original.url.toString()
+                val server = serverUrlProvider()
+                val token = tokenProvider()
+                val isSameOrigin = !server.isNullOrBlank() && RustCoreBridge.containsUrl(server, reqUrl)
+                if (isSameOrigin) {
+                    val firstResp = chain.proceed(original)
+                    val isImageEndpoint = reqUrl.contains("/api/v1/system/img/") || reqUrl.contains("/api/v1/system/cache/image")
+                    if (firstResp.code == 401 && isImageEndpoint && !server.isNullOrBlank() && !token.isNullOrBlank()) {
+                        firstResp.close()
+                        runCatching {
+                            val primeUrl = "${server.trimEnd('/')}/api/v1/media/source"
+                            val primeBuilder = Request.Builder()
+                                .url(primeUrl)
+                                .header("Authorization", "Bearer $token")
+                                .header("Accept", "application/json")
+                            applyCloudflareAccessHeaders(primeBuilder, primeUrl)
+                            client().newCall(primeBuilder.build()).execute().close()
+                        }
+                        return@addInterceptor chain.proceed(original)
+                    }
+                    return@addInterceptor firstResp
+                }
+
+                try {
+                    val directResp = chain.proceed(original)
+                    if (directResp.isSuccessful || server.isNullOrBlank() || token.isNullOrBlank()) {
+                        return@addInterceptor directResp
+                    }
+                    val fallbackUrl = externalFallbackUrlProvider?.invoke(reqUrl)
+                        ?: "${server.trimEnd('/')}/api/v1/system/img/1?imgurl=${java.net.URLEncoder.encode(reqUrl, "UTF-8")}&cache=false"
+                    directResp.close()
+                    val fallbackReq = original.newBuilder().url(fallbackUrl).build()
+                    val retryResp = chain.proceed(fallbackReq)
+                    if (retryResp.code == 401) {
+                        retryResp.close()
+                        runCatching {
+                            val primeUrl = "${server.trimEnd('/')}/api/v1/media/source"
+                            val primeBuilder = Request.Builder()
+                                .url(primeUrl)
+                                .header("Authorization", "Bearer $token")
+                                .header("Accept", "application/json")
+                            applyCloudflareAccessHeaders(primeBuilder, primeUrl)
+                            client().newCall(primeBuilder.build()).execute().close()
+                        }
+                        return@addInterceptor chain.proceed(fallbackReq)
+                    }
+                    retryResp
+                } catch (ioe: java.io.IOException) {
+                    if (server.isNullOrBlank() || token.isNullOrBlank()) throw ioe
+                    val fallbackUrl = externalFallbackUrlProvider?.invoke(reqUrl)
+                        ?: "${server.trimEnd('/')}/api/v1/system/img/1?imgurl=${java.net.URLEncoder.encode(reqUrl, "UTF-8")}&cache=false"
+                    val fallbackReq = original.newBuilder().url(fallbackUrl).build()
+                    val retryResp = chain.proceed(fallbackReq)
+                    if (retryResp.code == 401) {
+                        retryResp.close()
+                        runCatching {
+                            val primeUrl = "${server.trimEnd('/')}/api/v1/media/source"
+                            val primeBuilder = Request.Builder()
+                                .url(primeUrl)
+                                .header("Authorization", "Bearer $token")
+                                .header("Accept", "application/json")
+                            applyCloudflareAccessHeaders(primeBuilder, primeUrl)
+                            client().newCall(primeBuilder.build()).execute().close()
+                        }
+                        return@addInterceptor chain.proceed(fallbackReq)
+                    }
+                    retryResp
+                }
+            }
             // 网络拦截器每一跳执行；应用拦截器只执行首跳，无法隔离重定向凭据。
             .addNetworkInterceptor { chain ->
                 val original = chain.request()

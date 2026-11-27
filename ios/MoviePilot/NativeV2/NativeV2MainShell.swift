@@ -2087,7 +2087,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     discoverModules = resolvedModules
     let enabledSet = Set(resolvedModules.filter(\.enabled).map(\.id))
 
-    let enabledPluginSources: [(NativeDiscoverModuleID, RecommendSource)] = loadedExtraSources
+    let enabledPluginSources: [(NativeDiscoverModuleID, RecommendSource)] =
+      loadedExtraSources
       .compactMap { src in
         let modID = NativeDiscoverModuleID.pluginRecommend(src.apiPath)
         return enabledSet.contains(modID) ? (modID, src) : nil
@@ -3003,6 +3004,136 @@ private struct NativeUserConfigValue<Value: Decodable & Sendable>: Decodable, Se
   let value: Value?
 }
 
+/// 按实例同步并持久化后端 `/api/v1/system/global?token=moviepilot` 中的全局图片缓存开关与自定义图源域名。
+@MainActor
+final class NativeGlobalImageSettingsStore {
+  static let shared = NativeGlobalImageSettingsStore()
+
+  private var loadedGenerations: Set<UUID> = []
+  private var inFlightTasks: [UUID: Task<APIImageSettings, Never>] = [:]
+  private var cachedByInstance: [UUID: APIImageSettings] = [:]
+
+  private init() {}
+
+  private func defaultsKey(for instanceID: UUID) -> String {
+    "mp.native.globalImageSettings.\(instanceID.uuidString)"
+  }
+
+  /// 读取当前实例已知的图片配置（优先内存，其次本地持久化快照）。
+  func currentSettings(for session: NativeSession) -> APIImageSettings {
+    let instanceID = session.scope.instanceID
+    if let cached = cachedByInstance[instanceID] {
+      if session.imageSettings != cached {
+        session.updateImageSettings(cached)
+      }
+      return cached
+    }
+    if let data = UserDefaults.standard.data(forKey: defaultsKey(for: instanceID)),
+      let decoded = try? JSONDecoder().decode(APIImageSettings.self, from: data)
+    {
+      cachedByInstance[instanceID] = decoded
+      session.updateImageSettings(decoded)
+      return decoded
+    }
+    return session.imageSettings
+  }
+
+  private func persist(_ settings: APIImageSettings, for session: NativeSession) {
+    let instanceID = session.scope.instanceID
+    cachedByInstance[instanceID] = settings
+    session.updateImageSettings(settings)
+    if let data = try? JSONEncoder().encode(settings) {
+      UserDefaults.standard.set(data, forKey: defaultsKey(for: instanceID))
+    }
+  }
+
+  /// 确保当前会话代次至少向后端同步一次全局图片配置；并发图片请求自动合并等待同一次查询。
+  @discardableResult
+  func ensureLoaded(using session: NativeSession, force: Bool = false) async -> APIImageSettings {
+    let baseline = currentSettings(for: session)
+    let generation = session.scope.generation
+    if !force && loadedGenerations.contains(generation) {
+      return baseline
+    }
+    if !force, let running = inFlightTasks[generation] {
+      return await running.value
+    }
+    let task = Task<APIImageSettings, Never> { @MainActor in
+      defer { self.inFlightTasks.removeValue(forKey: generation) }
+      guard
+        let endpoint = try? APIEndpoint(
+          path: ["system", "global"],
+          query: [URLQueryItem(name: "token", value: "moviepilot")]
+        )
+      else {
+        return baseline
+      }
+      struct GlobalPayload: Decodable, Sendable {
+        let globalImageCache: Bool?
+        let tmdbImageDomain: String?
+        let bangumiProxyEnable: Bool?
+        let bangumiImageDomain: String?
+
+        private enum CodingKeys: String, CodingKey {
+          case globalImageCache = "GLOBAL_IMAGE_CACHE"
+          case tmdbImageDomain = "TMDB_IMAGE_DOMAIN"
+          case bangumiProxyEnable = "BANGUMI_PROXY_ENABLE"
+          case bangumiImageDomain = "BANGUMI_IMAGE_DOMAIN"
+        }
+      }
+      do {
+        let payload = try await session.request(endpoint, as: GlobalPayload.self).value
+        let updated = APIImageSettings(
+          globalImageCache: payload.globalImageCache ?? baseline.globalImageCache,
+          tmdbImageDomain: payload.tmdbImageDomain ?? baseline.tmdbImageDomain,
+          bangumiProxyEnable: payload.bangumiProxyEnable ?? baseline.bangumiProxyEnable,
+          bangumiImageDomain: payload.bangumiImageDomain ?? baseline.bangumiImageDomain
+        )
+        self.loadedGenerations.insert(generation)
+        self.persist(updated, for: session)
+        return updated
+      } catch {
+        // 旧版后端或管理员实例可回退读取 `/system/env`
+        if session.user.isSuperuser,
+          let envEndpoint = try? APIEndpoint(path: ["system", "env"]),
+          let payload = try? await session.request(envEndpoint, as: GlobalPayload.self).value
+        {
+          let updated = APIImageSettings(
+            globalImageCache: payload.globalImageCache ?? baseline.globalImageCache,
+            tmdbImageDomain: payload.tmdbImageDomain ?? baseline.tmdbImageDomain,
+            bangumiProxyEnable: payload.bangumiProxyEnable ?? baseline.bangumiProxyEnable,
+            bangumiImageDomain: payload.bangumiImageDomain ?? baseline.bangumiImageDomain
+          )
+          self.loadedGenerations.insert(generation)
+          self.persist(updated, for: session)
+          return updated
+        }
+        self.loadedGenerations.insert(generation)
+        return baseline
+      }
+    }
+    inFlightTasks[generation] = task
+    return await task.value
+  }
+
+  /// 在系统设置页保存成功后立即同步最新全局图片缓存开关与图源域名，并后台刷新一次 `/system/global`。
+  func applySystemEnvUpdate(
+    globalImageCache: Bool,
+    tmdbImageDomain: String,
+    bangumiProxyEnable: Bool,
+    for session: NativeSession
+  ) {
+    var next = currentSettings(for: session)
+    next.globalImageCache = globalImageCache
+    next.tmdbImageDomain = APIImageSettings.normalizeTMDBDomain(tmdbImageDomain)
+    next.bangumiProxyEnable = bangumiProxyEnable
+    persist(next, for: session)
+    Task { @MainActor in
+      _ = await self.ensureLoaded(using: session, force: true)
+    }
+  }
+}
+
 /// 搜索结果和发现海报显示后端提供的 HTTPS 图片，优先命中同步内存缓存与本地磁盘缓存，无闪烁回显。
 @MainActor
 struct NativeMediaArtwork: View {
@@ -3010,6 +3141,7 @@ struct NativeMediaArtwork: View {
   let reference: String?
   let role: NativeDiscoverArtworkRole
   let maximumWidth: Int
+  var useCookies: Bool = false
   @Environment(\.colorScheme) private var colorScheme
   @State private var image: UIImage?
   @State private var loadedKey: String?
@@ -3039,9 +3171,16 @@ struct NativeMediaArtwork: View {
   }
 
   /// 规范化图片地址并构造持久化缓存键（按服务器实例、用户与尺寸隔离）。
-  private var normalizedURL: URL? {
-    guard let reference, reference.utf8.count <= 16_384,
-      var components = URLComponents(string: reference),
+  private func normalizedURL(using settings: APIImageSettings) -> URL? {
+    guard let raw = reference?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !raw.isEmpty, raw.utf8.count <= 16_384
+    else { return nil }
+    if raw.hasPrefix("/"), !raw.hasPrefix("/api/"), !raw.contains(".."), !raw.contains(" ") {
+      let bucket = maximumWidth <= 500 ? "w500" : (maximumWidth <= 800 ? "w780" : "w1280")
+      let domain = APIImageSettings.normalizeTMDBDomain(settings.tmdbImageDomain)
+      return URL(string: "https://\(domain)/t/p/\(bucket)\(raw)")
+    }
+    guard var components = URLComponents(string: raw),
       let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
       components.host?.isEmpty == false,
       components.user == nil, components.password == nil
@@ -3055,7 +3194,7 @@ struct NativeMediaArtwork: View {
     return components.url
   }
 
-  /// 二级缓存加载：L1 内存命中直出 → L2 本地磁盘后台解码 → 合并同 URL 并发请求拉取并落盘。
+  /// 二级缓存加载：L1 内存命中直出 → L2 本地磁盘后台解码 → 按全局图片缓存策略拉取并落盘。
   private func load(for key: String) async {
     guard (try? session.checkActive()) != nil else { return }
     if let cached = NativeMediaArtworkCache.shared.memoryImage(for: key) {
@@ -3066,7 +3205,6 @@ struct NativeMediaArtwork: View {
     if loadedKey != key {
       image = nil
     }
-    guard let url = normalizedURL else { return }
     let scopeDir = NativeMediaArtworkCache.scopeDirectoryName(for: session)
     let limit = maximumWidth
     if let diskImage = await NativeMediaArtworkCache.shared.diskImage(
@@ -3077,10 +3215,14 @@ struct NativeMediaArtwork: View {
       loadedKey = key
       return
     }
+    let settings = await NativeGlobalImageSettingsStore.shared.ensureLoaded(using: session)
+    guard !Task.isCancelled, let url = normalizedURL(using: settings) else { return }
+    let cookiesFlag = useCookies
     let decoded = await NativeMediaArtworkCache.shared.fetchAndCache(
       key: key, scopeDir: scopeDir, limit: limit
     ) {
-      let response = try await session.requestImage(url, maximumWidth: limit)
+      let response = try await session.requestDisplayImage(
+        url, maximumWidth: limit, useCookies: cookiesFlag)
       return response.data
     }
     guard !Task.isCancelled, let decoded else { return }
@@ -3090,11 +3232,12 @@ struct NativeMediaArtwork: View {
 
   /// 缓存键覆盖服务器实例、用户 ID、尺寸与规范化 URL，跨冷启动复用本地磁盘缓存，登出时按作用域清理。
   private var cacheKey: String {
-    [
+    let settings = NativeGlobalImageSettingsStore.shared.currentSettings(for: session)
+    return [
       session.scope.instanceID.uuidString,
       String(session.scope.userID),
       String(maximumWidth),
-      normalizedURL?.absoluteString ?? reference ?? "",
+      normalizedURL(using: settings)?.absoluteString ?? reference ?? "",
     ].joined(separator: "|")
   }
 

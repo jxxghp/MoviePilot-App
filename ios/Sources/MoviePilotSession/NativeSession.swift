@@ -56,6 +56,16 @@ public final class NativeSession {
     api.updateLanguage(value)
   }
 
+  /// 当前会话生效的全局图片缓存与图源域名配置。
+  public var imageSettings: APIImageSettings {
+    api.imageSettings
+  }
+
+  /// 同步更新当前实例的全局图片缓存开关与自定义图源域名，使后续图片请求立即生效。
+  public func updateImageSettings(_ value: APIImageSettings) {
+    api.updateImageSettings(value)
+  }
+
   /// 本地检查 JWT 访问令牌是否已超过 `exp` 声明时间；非标准 JWT（如测试占位符）不误判。
   public func isTokenExpired(now: Date = Date()) -> Bool {
     let parts = accessToken.split(separator: ".", omittingEmptySubsequences: false)
@@ -111,10 +121,34 @@ public final class NativeSession {
   }
 
   /// 图片权限失败只影响图片；JSON 业务请求或账号刷新仍负责确认登录过期。
-  public func requestImage(_ sourceURL: URL, maximumWidth: Int? = nil) async throws -> APIImage {
+  public func requestImage(
+    _ sourceURL: URL,
+    maximumWidth: Int? = nil,
+    useCookies: Bool = false,
+    proxy: Bool? = nil
+  ) async throws -> APIImage {
     try checkActive()
     do {
-      let image = try await api.requestImage(sourceURL, maximumWidth: maximumWidth)
+      let image = try await api.requestImage(
+        sourceURL, maximumWidth: maximumWidth, useCookies: useCookies, proxy: proxy)
+      try checkActive()
+      return image
+    } catch {
+      try checkActive()
+      throw error
+    }
+  }
+
+  /// 按后端全局图片缓存与图源代理策略获取展示图片；图片失败不触发主登录会话退出。
+  public func requestDisplayImage(
+    _ sourceURL: URL,
+    maximumWidth: Int? = nil,
+    useCookies: Bool = false
+  ) async throws -> APIImage {
+    try checkActive()
+    do {
+      let image = try await api.requestDisplayImage(
+        sourceURL, maximumWidth: maximumWidth, useCookies: useCookies)
       try checkActive()
       return image
     } catch {

@@ -454,6 +454,9 @@ class NativeHandler(BaseHTTPRequestHandler):
             if endpoint == "api/v1/system/logging":
                 self.logging_endpoint(name)
                 return
+            if endpoint == "api/v1/system/global":
+                self.system_global_endpoint(name)
+                return
             if endpoint in {
                 "api/v1/system/nettest/targets", "api/v1/system/nettest",
                 "api/v1/system/modulelist", "api/v1/system/ruletest",
@@ -463,8 +466,8 @@ class NativeHandler(BaseHTTPRequestHandler):
             } or re.fullmatch(r"api/v1/system/(?:setting|moduletest)/[A-Za-z0-9_]+", endpoint):
                 self.system_setting_read_endpoint(name, endpoint)
                 return
-            if endpoint == "api/v1/system/img/0":
-                self.image_endpoint(name)
+            if endpoint in {"api/v1/system/img/0", "api/v1/system/img/1", "api/v1/system/cache/image"}:
+                self.image_endpoint(name, endpoint)
                 return
         if name in self.server.profiles and self.command == "POST":
             if endpoint == "api/v1/media/status":
@@ -2337,14 +2340,41 @@ export async function get(moduleName) {
         """模拟当前后端在带主令牌请求上签发短效同源 HttpOnly Cookie。"""
         return {"Set-Cookie": f"MoviePilot={self.resource_token(name)}; Path=/; HttpOnly; SameSite=Lax"}
 
-    def image_endpoint(self, name):
+    def system_global_endpoint(self, name):
+        """返回客户端启动时查询的非敏感全局图片与域名开关（对齐 /api/v1/system/global?token=moviepilot）。"""
+        query = parse_qs(urlsplit(self.path).query)
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/system/global"] += 1
+            mode = profile["mode"]
+            env = dict(profile["env"])
+        if mode == "unavailable":
+            self.reply(503, {"success": False})
+            return
+        if query.get("token", [""])[0] != "moviepilot":
+            self.reply(403, {"success": False})
+            return
+        self.reply(200, {
+            "success": True,
+            "message": "",
+            "data": {
+                "GLOBAL_IMAGE_CACHE": bool(env.get("GLOBAL_IMAGE_CACHE", False)),
+                "TMDB_IMAGE_DOMAIN": env.get("TMDB_IMAGE_DOMAIN", "image.tmdb.org"),
+                "BANGUMI_PROXY_ENABLE": bool(env.get("BANGUMI_PROXY_ENABLE", False)),
+                "BANGUMI_IMAGE_DOMAIN": env.get("BANGUMI_IMAGE_DOMAIN", ""),
+            },
+        })
+
+    def image_endpoint(self, name, endpoint="api/v1/system/img/0"):
         """仅接受同一实例的资源 Cookie，并确认客户端没有转发主令牌。"""
         with self.server.lock:
             profile = self.server.profiles[name]
-            profile["counts"]["GET api/v1/system/img/0"] += 1
+            profile["counts"][f"GET {endpoint}"] += 1
+            if endpoint != "api/v1/system/img/0":
+                profile["counts"]["GET api/v1/system/img/0"] += 1
             mode = profile["mode"]
         query = parse_qs(urlsplit(self.path).query)
-        reference = query.get("imgurl", [""])[0]
+        reference = (query.get("imgurl") or query.get("url") or [""])[0]
         if (
             mode == "expired" or self.headers.get("Authorization") is not None
             or self.headers.get("Cookie") != f"MoviePilot={self.resource_token(name)}"

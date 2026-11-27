@@ -83,6 +83,7 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
@@ -2683,44 +2684,61 @@ private fun NativeAudioPlayerStage(
     val effectiveShuffle = if (onUpdateAudioShuffle != null) audioShuffleEnabled else ui.localShuffle
     val effectiveRepeatMode = if (onUpdateAudioRepeatMode != null) audioRepeatMode else ui.localRepeatMode
     val defaultAudioSpeedIdx = controller.speeds.indexOf(1.0f).coerceAtLeast(0)
-    val audioDockActions = listOf(
-        ExpressiveDockAction(
-            icon = Icons.Rounded.Shuffle,
-            contentDescription = "随机播放",
-            active = effectiveShuffle,
-            onClick = {
-                val nextVal = !effectiveShuffle
-                if (onUpdateAudioShuffle != null) onUpdateAudioShuffle(nextVal) else ui.localShuffle = nextVal
-                controller.exoPlayer?.shuffleModeEnabled = nextVal
-                ui.hudMessage = if (nextVal) "已开启随机播放" else "已关闭随机播放"
-            },
-        ),
-        ExpressiveDockAction(
-            icon = if (effectiveRepeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-            contentDescription = "循环模式",
-            active = effectiveRepeatMode != Player.REPEAT_MODE_OFF,
-            onClick = {
-                val nextMode = when (effectiveRepeatMode) {
-                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                    else -> Player.REPEAT_MODE_OFF
-                }
-                if (onUpdateAudioRepeatMode != null) onUpdateAudioRepeatMode(nextMode) else ui.localRepeatMode = nextMode
-                controller.exoPlayer?.repeatMode = if (nextMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                ui.hudMessage = when (nextMode) {
-                    Player.REPEAT_MODE_ALL -> "列表循环"
-                    Player.REPEAT_MODE_ONE -> "单曲循环"
-                    else -> "顺序播放"
-                }
-            },
-        ),
-        ExpressiveDockAction(
-            icon = Icons.Rounded.Speed,
-            contentDescription = "播放倍速",
-            active = controller.speedIndex != defaultAudioSpeedIdx,
-            onClick = { ui.showSpeedSheet = true },
-        ),
-    )
+    val currentAudioSpeedLabel = "${controller.speeds.getOrElse(controller.speedIndex) { 1.0f }}x"
+    val audioDockActions = buildList {
+        add(
+            ExpressiveDockAction(
+                icon = Icons.Rounded.Lyrics,
+                contentDescription = "同步歌词",
+                active = ui.showLyricsView,
+                onClick = { ui.showLyricsView = !ui.showLyricsView },
+            ),
+        )
+        add(
+            ExpressiveDockAction(
+                icon = Icons.Rounded.Shuffle,
+                contentDescription = "随机播放",
+                active = effectiveShuffle,
+                onClick = {
+                    val nextVal = !effectiveShuffle
+                    if (onUpdateAudioShuffle != null) onUpdateAudioShuffle(nextVal) else ui.localShuffle = nextVal
+                    controller.exoPlayer?.shuffleModeEnabled = nextVal
+                    ui.hudMessage = if (nextVal) "已开启随机播放" else "已关闭随机播放"
+                },
+            ),
+        )
+        add(
+            ExpressiveDockAction(
+                icon = if (effectiveRepeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                contentDescription = "循环模式",
+                active = effectiveRepeatMode != Player.REPEAT_MODE_OFF,
+                onClick = {
+                    val nextMode = when (effectiveRepeatMode) {
+                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                        else -> Player.REPEAT_MODE_OFF
+                    }
+                    if (onUpdateAudioRepeatMode != null) onUpdateAudioRepeatMode(nextMode) else ui.localRepeatMode = nextMode
+                    controller.exoPlayer?.repeatMode = if (nextMode == Player.REPEAT_MODE_ONE) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                    ui.hudMessage = when (nextMode) {
+                        Player.REPEAT_MODE_ALL -> "列表循环"
+                        Player.REPEAT_MODE_ONE -> "单曲循环"
+                        else -> "顺序播放"
+                    }
+                },
+            ),
+        )
+        if (request.queue.size > 1) {
+            add(
+                ExpressiveDockAction(
+                    icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                    contentDescription = "播放队列",
+                    active = ui.showQueueSheet,
+                    onClick = { ui.showQueueSheet = true },
+                ),
+            )
+        }
+    }
 
     val onPreviousTrack = {
         if (controller.activeCurrentPositionMs() > 3_000L) {
@@ -2769,7 +2787,10 @@ private fun NativeAudioPlayerStage(
                 lrcListState = lrcListState,
                 activeLrcIdx = activeLrcIdx,
                 audioDockActions = audioDockActions,
+                currentSpeedLabel = currentAudioSpeedLabel,
+                speedActive = controller.speedIndex != defaultAudioSpeedIdx,
                 onBackOrMinimize = onBackOrMinimize,
+                onStopAndClose = onClose,
                 onPreviousTrack = onPreviousTrack,
                 onNextTrack = onNextTrack,
             )
@@ -2785,7 +2806,10 @@ private fun NativeAudioPlayerStage(
                 lrcListState = lrcListState,
                 activeLrcIdx = activeLrcIdx,
                 audioDockActions = audioDockActions,
+                currentSpeedLabel = currentAudioSpeedLabel,
+                speedActive = controller.speedIndex != defaultAudioSpeedIdx,
                 onBackOrMinimize = onBackOrMinimize,
+                onStopAndClose = onClose,
                 onPreviousTrack = onPreviousTrack,
                 onNextTrack = onNextTrack,
             )
@@ -2851,12 +2875,19 @@ private fun AudioTopBar(
     compact: Boolean,
     canMinimizeAudio: Boolean,
     showLyricsView: Boolean,
-    showQueueSheet: Boolean,
+    hasQueue: Boolean,
+    currentSpeedLabel: String,
+    speedActive: Boolean,
     playerPalette: PlayerExpressivePalette,
     onBackOrMinimize: () -> Unit,
     onToggleLyrics: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenSpeed: () -> Unit,
+    onStopAndClose: () -> Unit,
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    val btnSz = if (compact) 38.dp else 44.dp
+    val iconSz = if (compact) 22.dp else 24.dp
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -2866,14 +2897,14 @@ private fun AudioTopBar(
             onClick = onBackOrMinimize,
             shape = CircleShape,
             color = playerPalette.dock,
-            modifier = Modifier.size(if (compact) 38.dp else 44.dp),
+            modifier = Modifier.size(btnSz),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = if (canMinimizeAudio) Icons.Rounded.KeyboardArrowDown else Icons.AutoMirrored.Rounded.ArrowBack,
                     contentDescription = if (canMinimizeAudio) "收起至迷你播放条" else "关闭播放器",
                     tint = Color.White,
-                    modifier = Modifier.size(if (compact) 22.dp else 24.dp),
+                    modifier = Modifier.size(iconSz),
                 )
             }
         }
@@ -2885,20 +2916,63 @@ private fun AudioTopBar(
             fontWeight = FontWeight.Medium,
         )
 
-        ExpressiveSplitIconPair(
-            firstIcon = Icons.Rounded.Lyrics,
-            firstDesc = "同步歌词",
-            firstActive = showLyricsView,
-            onFirstClick = onToggleLyrics,
-            secondIcon = Icons.AutoMirrored.Rounded.QueueMusic,
-            secondDesc = "播放队列",
-            secondActive = showQueueSheet,
-            onSecondClick = onOpenQueue,
-            containerColor = playerPalette.dock,
-            activeContainerColor = playerPalette.accent,
-            contentColor = Color.White.copy(alpha = 0.90f),
-            activeContentColor = playerPalette.onAccent,
-        )
+        Box {
+            Surface(
+                onClick = { showMenu = true },
+                shape = CircleShape,
+                color = if (speedActive) playerPalette.accent else playerPalette.dock,
+                modifier = Modifier.size(btnSz),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreHoriz,
+                        contentDescription = "更多选项",
+                        tint = if (speedActive) playerPalette.onAccent else Color.White,
+                        modifier = Modifier.size(iconSz),
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text(if (showLyricsView) "返回封面视图" else "全屏歌词视图") },
+                    leadingIcon = { Icon(Icons.Rounded.Lyrics, contentDescription = null) },
+                    onClick = {
+                        showMenu = false
+                        onToggleLyrics()
+                    },
+                )
+                if (hasQueue) {
+                    DropdownMenuItem(
+                        text = { Text("播放队列") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null) },
+                        onClick = {
+                            showMenu = false
+                            onOpenQueue()
+                        },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("播放速度 ($currentSpeedLabel)") },
+                    leadingIcon = { Icon(Icons.Rounded.Speed, contentDescription = null) },
+                    onClick = {
+                        showMenu = false
+                        onOpenSpeed()
+                    },
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("停止并关闭") },
+                    leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null) },
+                    onClick = {
+                        showMenu = false
+                        onStopAndClose()
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -2979,7 +3053,10 @@ private fun AudioLandscapeBody(
     lrcListState: LazyListState,
     activeLrcIdx: Int,
     audioDockActions: List<ExpressiveDockAction>,
+    currentSpeedLabel: String,
+    speedActive: Boolean,
     onBackOrMinimize: () -> Unit,
+    onStopAndClose: () -> Unit,
     onPreviousTrack: () -> Unit,
     onNextTrack: () -> Unit,
 ) {
@@ -3045,11 +3122,15 @@ private fun AudioLandscapeBody(
                 compact = compactHeight,
                 canMinimizeAudio = canMinimizeAudio,
                 showLyricsView = ui.showLyricsView,
-                showQueueSheet = ui.showQueueSheet,
+                hasQueue = controller.request.queue.size > 1,
+                currentSpeedLabel = currentSpeedLabel,
+                speedActive = speedActive,
                 playerPalette = playerPalette,
                 onBackOrMinimize = onBackOrMinimize,
                 onToggleLyrics = { ui.showLyricsView = !ui.showLyricsView },
                 onOpenQueue = { ui.showQueueSheet = true },
+                onOpenSpeed = { ui.showSpeedSheet = true },
+                onStopAndClose = onStopAndClose,
             )
 
             AnimatedContent(
@@ -3190,7 +3271,10 @@ private fun AudioPortraitBody(
     lrcListState: LazyListState,
     activeLrcIdx: Int,
     audioDockActions: List<ExpressiveDockAction>,
+    currentSpeedLabel: String,
+    speedActive: Boolean,
     onBackOrMinimize: () -> Unit,
+    onStopAndClose: () -> Unit,
     onPreviousTrack: () -> Unit,
     onNextTrack: () -> Unit,
 ) {
@@ -3215,11 +3299,15 @@ private fun AudioPortraitBody(
             compact = false,
             canMinimizeAudio = canMinimizeAudio,
             showLyricsView = ui.showLyricsView,
-            showQueueSheet = ui.showQueueSheet,
+            hasQueue = controller.request.queue.size > 1,
+            currentSpeedLabel = currentSpeedLabel,
+            speedActive = speedActive,
             playerPalette = playerPalette,
             onBackOrMinimize = onBackOrMinimize,
             onToggleLyrics = { ui.showLyricsView = !ui.showLyricsView },
             onOpenQueue = { ui.showQueueSheet = true },
+            onOpenSpeed = { ui.showSpeedSheet = true },
+            onStopAndClose = onStopAndClose,
         )
 
         Spacer(Modifier.height(22.dp))

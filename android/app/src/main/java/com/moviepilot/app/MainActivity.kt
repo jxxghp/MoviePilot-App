@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
                     repository.transport.buildImageClient(
                         serverUrlProvider = { (repository.session.value as? SessionState.Authenticated)?.serverUrl },
                         tokenProvider = { (repository.session.value as? SessionState.Authenticated)?.token },
+                        externalFallbackUrlProvider = { externalUrl -> repository.buildExternalImageFallbackUrl(externalUrl) },
                     )
                 }
                 .components {

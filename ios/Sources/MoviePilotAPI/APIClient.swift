@@ -35,6 +35,208 @@ public struct APIExportedResourceCookie: Sendable, Equatable {
   }
 }
 
+/// 后端全局图片缓存与自定义图源域名快照（对齐 `/api/v1/system/global?token=moviepilot` 与 Web `imageUtils.ts`）。
+public struct APIImageSettings: Sendable, Equatable, Codable {
+  public var globalImageCache: Bool
+  public var tmdbImageDomain: String
+  public var bangumiProxyEnable: Bool
+  public var bangumiImageDomain: String
+
+  public init(
+    globalImageCache: Bool = false,
+    tmdbImageDomain: String = "image.tmdb.org",
+    bangumiProxyEnable: Bool = false,
+    bangumiImageDomain: String = ""
+  ) {
+    self.globalImageCache = globalImageCache
+    self.tmdbImageDomain = Self.normalizeTMDBDomain(tmdbImageDomain)
+    self.bangumiProxyEnable = bangumiProxyEnable
+    self.bangumiImageDomain = bangumiImageDomain.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// 归一化 TMDB 图片域名，剥离误填协议头与末尾斜杠，留空时回退官方默认域名。
+  public static func normalizeTMDBDomain(_ raw: String?) -> String {
+    var trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.lowercased().hasPrefix("https://") {
+      trimmed = String(trimmed.dropFirst("https://".count))
+    } else if trimmed.lowercased().hasPrefix("http://") {
+      trimmed = String(trimmed.dropFirst("http://".count))
+    }
+    while trimmed.hasSuffix("/") {
+      trimmed.removeLast()
+    }
+    if let slashIndex = trimmed.firstIndex(of: "/") {
+      trimmed = String(trimmed[..<slashIndex])
+    }
+    return trimmed.isEmpty ? "image.tmdb.org" : trimmed
+  }
+
+  private static let bangumiHosts: Set<String> = ["bgm.tv", "bangumi.tv", "bangumi.lol"]
+  private static let bangumiHostSuffixes: [String] = [".bgm.tv", ".bangumi.tv", ".bangumi.lol"]
+
+  /// 判断是否为 Bangumi 图片源地址（与 Web `isBangumiImageUrl` 一致）。
+  public static func isBangumiImageURL(_ url: URL) -> Bool {
+    guard var host = url.host?.lowercased(), !host.isEmpty else { return false }
+    while host.hasSuffix(".") { host.removeLast() }
+    if bangumiHosts.contains(host) { return true }
+    return bangumiHostSuffixes.contains { host.hasSuffix($0) }
+  }
+
+  /// 判断是否为豆瓣图片源地址（需后端补充 Referer 且不走外部代理）。
+  public static func isDoubanImageURL(_ url: URL) -> Bool {
+    guard var host = url.host?.lowercased(), !host.isEmpty else { return false }
+    while host.hasSuffix(".") { host.removeLast() }
+    return host == "doubanio.com" || host.hasSuffix(".doubanio.com")
+  }
+
+  /// 判断是否为 Emby / Jellyfin / Plex 等媒体服务器图片路径。
+  public static func isMediaServerImageURL(_ url: URL) -> Bool {
+    let path = url.path
+    if path.range(
+      of: #"/Items/[^/]+/Images/(?:Primary|Backdrop|Thumb)(?:/\d+)?$"#,
+      options: [.regularExpression, .caseInsensitive]
+    ) != nil {
+      return true
+    }
+    let lowered = path.lowercased()
+    return lowered.contains("/library/metadata/") || lowered.contains("/photo/:/transcode")
+  }
+
+  /// 判断是否为内网、回环或与当前 MoviePilot 实例同主机的地址（避免误走后端外部代理）。
+  public static func isInternalOrSameHost(_ url: URL, serverHost: String?) -> Bool {
+    guard let rawHost = url.host?.lowercased(), !rawHost.isEmpty else { return false }
+    if let serverHost = serverHost?.lowercased(), rawHost == serverHost {
+      return true
+    }
+    if rawHost == "localhost" || rawHost == "::1" || rawHost == "[::1]"
+      || rawHost.hasSuffix(".local") || rawHost.hasSuffix(".lan")
+    {
+      return true
+    }
+    let octets = rawHost.split(separator: ".").compactMap { Int($0) }
+    if octets.count == 4, octets.allSatisfy({ (0...255).contains($0) }) {
+      if octets[0] == 10 || octets[0] == 127 { return true }
+      if octets[0] == 192 && octets[1] == 168 { return true }
+      if octets[0] == 172 && (16...31).contains(octets[1]) { return true }
+      if octets[0] == 169 && octets[1] == 254 { return true }
+    }
+    return false
+  }
+
+  /// 按 Web `buildBangumiImageProxyUrl` 的 query / host / path 三种模式改写 Bangumi 图片代理地址。
+  public static func buildBangumiImageProxyURL(_ imageURL: URL, baseURL: String) -> URL {
+    guard isBangumiImageURL(imageURL) else { return imageURL }
+    let rawBase = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !rawBase.isEmpty else { return imageURL }
+    let candidate = rawBase.contains("://") ? rawBase : "https://\(rawBase)"
+    guard let parsed = URLComponents(string: candidate),
+      let scheme = parsed.scheme?.lowercased(), ["http", "https"].contains(scheme),
+      let proxyHost = parsed.host, !proxyHost.isEmpty,
+      parsed.fragment == nil
+    else { return imageURL }
+
+    if let query = parsed.percentEncodedQuery, !query.isEmpty {
+      var allowed = CharacterSet.alphanumerics
+      allowed.insert(charactersIn: "-_.!~*'()")
+      let encoded =
+        imageURL.absoluteString.addingPercentEncoding(withAllowedCharacters: allowed)
+        ?? imageURL.absoluteString
+      return URL(string: "\(candidate)\(encoded)") ?? imageURL
+    }
+
+    var normalizedBase = candidate
+    while normalizedBase.hasSuffix("/") { normalizedBase.removeLast() }
+    if rawBase.hasSuffix("/") {
+      if imageURL.host?.lowercased() == proxyHost.lowercased() {
+        return imageURL
+      }
+      guard let sourceComp = URLComponents(url: imageURL, resolvingAgainstBaseURL: false) else {
+        return imageURL
+      }
+      let queryPart =
+        sourceComp.percentEncodedQuery.map { $0.isEmpty ? "" : "?\($0)" } ?? ""
+      return URL(string: "\(normalizedBase)\(sourceComp.percentEncodedPath)\(queryPart)")
+        ?? imageURL
+    }
+    return URL(string: "\(normalizedBase)/\(imageURL.absoluteString)") ?? imageURL
+  }
+
+  /// 应用 TMDB 自定义图片域名、原图尺寸降档以及 Bangumi 图片代理改写。
+  public static func rewriteImageSourceURL(
+    _ sourceURL: URL,
+    settings: APIImageSettings,
+    maximumWidth: Int? = nil
+  ) -> URL {
+    guard var components = URLComponents(url: sourceURL, resolvingAgainstBaseURL: false) else {
+      return sourceURL
+    }
+    components.fragment = nil
+    let configuredDomain = normalizeTMDBDomain(settings.tmdbImageDomain)
+    if let host = components.host?.lowercased(),
+      host == "image.tmdb.org" || host == configuredDomain.lowercased()
+    {
+      if configuredDomain.contains(":") {
+        let parts = configuredDomain.split(separator: ":", maxSplits: 1)
+        components.host = String(parts[0])
+        components.port = Int(parts[1])
+      } else {
+        components.host = configuredDomain
+        components.port = nil
+      }
+      if components.path.hasPrefix("/t/p/original/") {
+        let limit = maximumWidth ?? 780
+        let bucket = limit <= 500 ? "w500" : (limit <= 800 ? "w780" : "w1280")
+        components.path =
+          "/t/p/\(bucket)/" + components.path.dropFirst("/t/p/original/".count)
+      }
+    }
+    let intermediate = components.url ?? sourceURL
+    if settings.bangumiProxyEnable && isBangumiImageURL(intermediate) {
+      return buildBangumiImageProxyURL(intermediate, baseURL: settings.bangumiImageDomain)
+    }
+    return intermediate
+  }
+
+  /// 判断图片是否应直接由 MoviePilot 后端获取（对齐 Web `getDisplayImageUrl` 及媒体服务器代理策略）。
+  public static func shouldLoadViaBackendFirst(
+    _ sourceURL: URL,
+    settings: APIImageSettings,
+    useCookies: Bool = false,
+    serverHost: String? = nil
+  ) -> Bool {
+    if settings.globalImageCache || useCookies { return true }
+    if sourceURL.scheme?.lowercased() != "https" { return true }
+    if isDoubanImageURL(sourceURL) { return true }
+    if isBangumiImageURL(sourceURL) && settings.bangumiProxyEnable { return true }
+    if isMediaServerImageURL(sourceURL) || isInternalOrSameHost(sourceURL, serverHost: serverHost) {
+      return true
+    }
+    return false
+  }
+}
+
+/// 线程安全图片配置持有盒，支持会话连接后或保存系统设置后即时更新图片缓存与代理策略。
+private final class APIImageSettingsBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: APIImageSettings
+
+  init(_ initial: APIImageSettings) {
+    self.value = initial
+  }
+
+  func get() -> APIImageSettings {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
+
+  func set(_ next: APIImageSettings) {
+    lock.lock()
+    value = next
+    lock.unlock()
+  }
+}
+
 /// 线程安全语言持有盒，允许运行时切换界面语言时立刻更新同一活跃会话后续请求的 `X-MoviePilot-Locale`。
 private final class APILanguageBox: @unchecked Sendable {
   private let lock = NSLock()
@@ -62,28 +264,41 @@ public final class APIClient: Sendable {
   private let address: ServerAddress
   private let token: String?
   private let languageBox: APILanguageBox
+  private let imageSettingsBox: APIImageSettingsBox
   private let session: URLSession
   private let imageSession: URLSession
+  private let directExternalImageSession: URLSession
   private let resourceCookies = APIResourceCookieStore()
 
   private var currentLanguage: AppLanguage { languageBox.get() }
+
+  /// 当前生效的全局图片缓存与图源域名配置。
+  public var imageSettings: APIImageSettings { imageSettingsBox.get() }
 
   /// 运行时切换界面语言，后续 API 与 SSE 请求立刻携带最新 `X-MoviePilot-Locale`。
   public func updateLanguage(_ value: AppLanguage) {
     languageBox.set(value)
   }
 
+  /// 同步更新当前实例的全局图片缓存开关与自定义图源域名，后续图片请求立即生效。
+  public func updateImageSettings(_ value: APIImageSettings) {
+    imageSettingsBox.set(value)
+  }
+
   /// 生产使用独立临时会话；未登录端点可省略令牌，不从全局 Cookie 或 Keychain 猜测身份。
   public convenience init(
-    address: ServerAddress, token: String? = nil, language: AppLanguage = .simplifiedChinese
+    address: ServerAddress, token: String? = nil, language: AppLanguage = .simplifiedChinese,
+    imageSettings: APIImageSettings = APIImageSettings()
   ) throws {
     try self.init(
-      address: address, token: token, language: language, configuration: .ephemeral)
+      address: address, token: token, language: language, imageSettings: imageSettings,
+      configuration: .ephemeral)
   }
 
   /// 测试仅注入 URLProtocol，仍执行真实请求构造和流式边界；清理配置中的共享身份。
   init(
     address: ServerAddress, token: String?, language: AppLanguage = .simplifiedChinese,
+    imageSettings: APIImageSettings = APIImageSettings(),
     configuration: URLSessionConfiguration
   ) throws {
     if let token {
@@ -94,6 +309,7 @@ public final class APIClient: Sendable {
     self.address = address
     self.token = token
     self.languageBox = APILanguageBox(language)
+    self.imageSettingsBox = APIImageSettingsBox(imageSettings)
     configuration.httpShouldSetCookies = false
     configuration.httpCookieStorage = nil
     configuration.urlCredentialStorage = nil
@@ -109,6 +325,14 @@ public final class APIClient: Sendable {
     imageConfiguration.httpMaximumConnectionsPerHost = 8
     imageSession = URLSession(
       configuration: imageConfiguration, delegate: APIRedirectGuard(), delegateQueue: nil)
+    let directConfiguration = (configuration.copy() as? URLSessionConfiguration) ?? .ephemeral
+    directConfiguration.httpShouldSetCookies = false
+    directConfiguration.httpCookieStorage = nil
+    directConfiguration.urlCredentialStorage = nil
+    directConfiguration.httpMaximumConnectionsPerHost = 8
+    directConfiguration.timeoutIntervalForRequest = 10
+    directConfiguration.timeoutIntervalForResource = 20
+    directExternalImageSession = URLSession(configuration: directConfiguration)
   }
 
   /// 释放当前客户端拥有的任务，不影响其它实例、Widget 或插件容器的网络。
@@ -116,6 +340,7 @@ public final class APIClient: Sendable {
     resourceCookies.cancel()
     session.invalidateAndCancel()
     imageSession.invalidateAndCancel()
+    directExternalImageSession.invalidateAndCancel()
   }
 
   /// 结束会话时取消所有未完成任务；后续登录必须创建新客户端。
@@ -123,6 +348,7 @@ public final class APIClient: Sendable {
     resourceCookies.cancel()
     session.invalidateAndCancel()
     imageSession.invalidateAndCancel()
+    directExternalImageSession.invalidateAndCancel()
   }
 
   /// 真流式消费同源 SSE 事件流（如智能助手对话），逐帧即时推送给调用方，支持自定义交互头与控制头回传。
@@ -344,20 +570,60 @@ public final class APIClient: Sendable {
   }
 
   /// 图片代理只读取短效资源 Cookie；主令牌只用于先前的同源 JSON 请求或固定的续签读取。
-  public func requestImage(_ sourceURL: URL, maximumWidth: Int? = nil) async throws -> APIImage {
+  /// 当开启后端 `GLOBAL_IMAGE_CACHE` 时，公开外部图片直接路由至 `/api/v1/system/cache/image`（自动复用后端代理与磁盘缓存）。
+  public func requestImage(
+    _ sourceURL: URL,
+    maximumWidth: Int? = nil,
+    useCookies: Bool = false,
+    proxy: Bool? = nil
+  ) async throws -> APIImage {
     guard token != nil, Self.isValidImageSource(sourceURL),
       maximumWidth.map({ (1...2048).contains($0) }) ?? true
     else { throw token == nil ? APIError.invalidCredential : APIError.invalidEndpoint }
-    var query = [
-      URLQueryItem(name: "imgurl", value: sourceURL.absoluteString),
-      URLQueryItem(name: "cache", value: "false"),
-    ]
-    if let maximumWidth {
-      query.append(URLQueryItem(name: "maxWidth", value: String(maximumWidth)))
+    let settings = imageSettings
+    let rewrittenURL = APIImageSettings.rewriteImageSourceURL(
+      sourceURL, settings: settings, maximumWidth: maximumWidth)
+    guard Self.isValidImageSource(rewrittenURL) else { throw APIError.invalidEndpoint }
+    let isBangumiProxied =
+      settings.bangumiProxyEnable && APIImageSettings.isBangumiImageURL(sourceURL)
+    let endpoint: APIEndpoint
+    if settings.globalImageCache && !useCookies && proxy == nil && !isBangumiProxied
+      && !APIImageSettings.isMediaServerImageURL(rewrittenURL)
+    {
+      endpoint = try APIEndpoint(
+        path: ["system", "cache", "image"],
+        query: [URLQueryItem(name: "url", value: rewrittenURL.absoluteString)],
+        responseContract: .payload,
+        maximumResponseBytes: APIImage.maximumBytes)
+    } else {
+      let useProxy: Bool
+      if let proxy {
+        useProxy = proxy
+      } else if useCookies || APIImageSettings.isDoubanImageURL(rewrittenURL)
+        || APIImageSettings.isInternalOrSameHost(rewrittenURL, serverHost: address.url.host)
+      {
+        useProxy = false
+      } else if isBangumiProxied {
+        useProxy = true
+      } else {
+        useProxy = settings.globalImageCache
+      }
+      var query = [
+        URLQueryItem(name: "imgurl", value: rewrittenURL.absoluteString),
+        URLQueryItem(name: "cache", value: settings.globalImageCache ? "true" : "false"),
+      ]
+      if useCookies {
+        query.append(URLQueryItem(name: "use_cookies", value: "true"))
+      }
+      if let maximumWidth {
+        query.append(URLQueryItem(name: "maxWidth", value: String(maximumWidth)))
+      }
+      endpoint = try APIEndpoint(
+        path: ["system", "img", useProxy ? "1" : "0"],
+        query: query,
+        responseContract: .payload,
+        maximumResponseBytes: APIImage.maximumBytes)
     }
-    let endpoint = try APIEndpoint(
-      path: ["system", "img", "0"], query: query, responseContract: .payload,
-      maximumResponseBytes: APIImage.maximumBytes)
     let target = try endpoint.url(for: address)
     try Task.checkCancellation()
     let refresh = try await resourceCookies.resolve(for: target) {
@@ -369,6 +635,40 @@ public final class APIClient: Sendable {
     } catch APIError.unauthorized {
       resourceCookies.remove(refresh)
       throw APIError.unauthorized
+    }
+  }
+
+  /// 按 Web `getDisplayImageUrl` 策略展示远程图片：
+  /// - 开启 `GLOBAL_IMAGE_CACHE`（或豆瓣 / Bangumi 代理 / 媒体服务器 / 内网源）时直接从后端拉取；
+  /// - 未开启 `GLOBAL_IMAGE_CACHE` 时，公开 HTTPS 图源优先由无凭据客户端直连加载，直连失败时回退至后端代理（`proxy=1, cache=false`）。
+  public func requestDisplayImage(
+    _ sourceURL: URL,
+    maximumWidth: Int? = nil,
+    useCookies: Bool = false
+  ) async throws -> APIImage {
+    guard token != nil, Self.isValidImageSource(sourceURL),
+      maximumWidth.map({ (1...2048).contains($0) }) ?? true
+    else { throw token == nil ? APIError.invalidCredential : APIError.invalidEndpoint }
+    let settings = imageSettings
+    if APIImageSettings.shouldLoadViaBackendFirst(
+      sourceURL, settings: settings, useCookies: useCookies, serverHost: address.url.host)
+    {
+      return try await requestImage(
+        sourceURL, maximumWidth: maximumWidth, useCookies: useCookies)
+    }
+    let rewrittenURL = APIImageSettings.rewriteImageSourceURL(
+      sourceURL, settings: settings, maximumWidth: maximumWidth)
+    guard Self.isValidImageSource(rewrittenURL) else { throw APIError.invalidEndpoint }
+    do {
+      return try await receiveDirectExternalImage(rewrittenURL)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      let fallbackProxy =
+        !APIImageSettings.isDoubanImageURL(rewrittenURL)
+        && !APIImageSettings.isInternalOrSameHost(rewrittenURL, serverHost: address.url.host)
+      return try await requestImage(
+        sourceURL, maximumWidth: maximumWidth, useCookies: false, proxy: fallbackProxy)
     }
   }
 
@@ -486,7 +786,8 @@ public final class APIClient: Sendable {
           case .eventStream: mime == "text/event-stream"
           case .plainText: mime == "text/plain"
           case .envelope, .payload:
-            mime == "application/json" || (mime.hasPrefix("application/") && mime.hasSuffix("+json"))
+            mime == "application/json"
+              || (mime.hasPrefix("application/") && mime.hasSuffix("+json"))
           }
         if !mimeMatches {
           if mime == "text/html" {
@@ -617,6 +918,51 @@ public final class APIClient: Sendable {
       for try await byte in bytes {
         try Task.checkCancellation()
         guard data.count < endpoint.maximumResponseBytes else { throw APIError.responseTooLarge }
+        data.append(byte)
+      }
+      try Task.checkCancellation()
+      return try APIImage(data: data, mimeType: mimeType)
+    } catch let error as APIError {
+      throw error
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch let error as URLError {
+      if error.code == .cancelled { throw CancellationError() }
+      throw error.code == .timedOut ? APIError.timedOut : APIError.unavailable
+    } catch {
+      throw APIError.unavailable
+    }
+  }
+
+  /// 使用无 Cookie、无身份头的隔离临时会话直连获取公开 HTTPS 图源，仍严格校验图片 MIME 与 8 MiB 上限。
+  private func receiveDirectExternalImage(_ url: URL) async throws -> APIImage {
+    try Task.checkCancellation()
+    guard url.scheme?.lowercased() == "https" else { throw APIError.invalidEndpoint }
+    var request = URLRequest(
+      url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+    request.httpMethod = APIMethod.get.rawValue
+    request.httpShouldHandleCookies = false
+    request.setValue(
+      "image/avif, image/webp, image/apng, image/jpeg, image/png, image/*;q=0.8",
+      forHTTPHeaderField: "Accept")
+    do {
+      let (bytes, raw) = try await directExternalImageSession.bytes(for: request)
+      defer { bytes.task.cancel() }
+      guard let http = raw as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        throw APIError.invalidResponse
+      }
+      let rawContentType = http.value(forHTTPHeaderField: "Content-Type") ?? http.mimeType ?? ""
+      guard APIImage.isSupportedMIMEType(rawContentType) else {
+        throw APIError.invalidResponse
+      }
+      let mimeType = APIImage.normalizedMIMEType(rawContentType)
+      guard http.expectedContentLength <= APIImage.maximumBytes else {
+        throw APIError.responseTooLarge
+      }
+      var data = Data()
+      for try await byte in bytes {
+        try Task.checkCancellation()
+        guard data.count < APIImage.maximumBytes else { throw APIError.responseTooLarge }
         data.append(byte)
       }
       try Task.checkCancellation()

@@ -119,7 +119,9 @@ struct APIClientTests {
       #expect(!image.data.isEmpty)
     }
 
-    for rejectedType in ["image/svg+xml", "image/svg+xml; charset=utf-8", "text/html", "application/json"] {
+    for rejectedType in [
+      "image/svg+xml", "image/svg+xml; charset=utf-8", "text/html", "application/json",
+    ] {
       APIURLProtocol.state.prepare(
         body: Data("<svg></svg>".utf8),
         headers: ["Content-Type": rejectedType],
@@ -297,6 +299,59 @@ struct APIClientTests {
     task.cancel()
     await #expect(throws: CancellationError.self) { try await task.value }
     #expect(APIURLProtocol.state.requests().count == 1)
+  }
+
+  /// 全局图片缓存开启时统一走 `/system/cache/image?url=...` 并应用自定义 TMDB 域名；关闭时按豆瓣/Bangumi 代理分流。
+  @Test func routesGlobalImageCacheAndCustomDomainsCorrectly() async throws {
+    let client = try await Self.clientWithResourceCookie()
+    client.updateImageSettings(
+      APIImageSettings(
+        globalImageCache: true,
+        tmdbImageDomain: "tmdb-mirror.example.test",
+        bangumiProxyEnable: true,
+        bangumiImageDomain: ""
+      )
+    )
+    let tmdbSource = try #require(URL(string: "https://image.tmdb.org/t/p/w500/poster_a.jpg"))
+    APIURLProtocol.state.prepare(
+      body: Data([0x89, 0x50]), headers: ["Content-Type": "image/png"])
+    _ = try await client.requestDisplayImage(tmdbSource, maximumWidth: 500)
+    let cachedReq = try #require(APIURLProtocol.state.requests().last?.request)
+    #expect(cachedReq.url?.path == "/moviepilot/api/v1/system/cache/image")
+    let cachedURL = try #require(cachedReq.url)
+    let cachedQuery = try #require(
+      URLComponents(url: cachedURL, resolvingAgainstBaseURL: false)?.queryItems)
+    #expect(
+      cachedQuery.first(where: { $0.name == "url" })?.value
+        == "https://tmdb-mirror.example.test/t/p/w500/poster_a.jpg")
+    #expect(cachedReq.value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(cachedReq.value(forHTTPHeaderField: "Cookie") != nil)
+
+    client.updateImageSettings(
+      APIImageSettings(
+        globalImageCache: false,
+        tmdbImageDomain: "image.tmdb.org",
+        bangumiProxyEnable: true,
+        bangumiImageDomain: ""
+      )
+    )
+    let bgmSource = try #require(URL(string: "https://lain.bgm.tv/pic/cover/l/01.jpg"))
+    APIURLProtocol.state.prepare(
+      body: Data([0x89, 0x50]), headers: ["Content-Type": "image/png"])
+    _ = try await client.requestDisplayImage(bgmSource)
+    let bgmReq = try #require(APIURLProtocol.state.requests().last?.request)
+    #expect(bgmReq.url?.path == "/moviepilot/api/v1/system/img/1")
+    let bgmURL = try #require(bgmReq.url)
+    let bgmQuery = try #require(
+      URLComponents(url: bgmURL, resolvingAgainstBaseURL: false)?.queryItems)
+    #expect(bgmQuery.first(where: { $0.name == "cache" })?.value == "false")
+
+    let doubanSource = try #require(URL(string: "https://img9.doubanio.com/view/photo/s/p1.jpg"))
+    APIURLProtocol.state.prepare(
+      body: Data([0x89, 0x50]), headers: ["Content-Type": "image/png"])
+    _ = try await client.requestDisplayImage(doubanSource)
+    let doubanReq = try #require(APIURLProtocol.state.requests().last?.request)
+    #expect(doubanReq.url?.path == "/moviepilot/api/v1/system/img/0")
   }
 
   /// 合成 JWT 只模拟后端 Cookie 的传输形状，不含真实签名或身份。

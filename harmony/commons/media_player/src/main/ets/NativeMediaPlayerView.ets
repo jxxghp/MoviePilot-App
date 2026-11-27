@@ -2288,28 +2288,42 @@ export struct NativeMediaPlayerView {
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Center)
 
-          Stack() {
-            SymbolGlyph($r('sys.symbol.lyrics_square'))
-              .fontSize(20)
-              .fontColor([this.showLyricsStage ? '#317AF7' : Color.White])
-          }
-          .width(38)
-          .height(38)
-          .borderRadius(19)
-          .backgroundColor(this.showLyricsStage ? '#33317AF7' : '#33FFFFFF')
-          .accessibilityText(this.showLyricsStage ? '切换至专辑封面视图' : '切换至同步歌词视图')
-          .onClick(() => {
-            this.showLyricsStage = !this.showLyricsStage;
-            if (this.showLyricsStage && this.activeLyricIdx >= 0) {
-              setTimeout(() => {
-                try {
-                  this.lyricsScroller.scrollToIndex(Math.max(0, this.activeLyricIdx - 2), false);
-                } catch {
-                  // ignore
-                }
-              }, 60);
+          Row({ space: 8 }) {
+            Stack() {
+              SymbolGlyph($r('sys.symbol.lyrics_square'))
+                .fontSize(20)
+                .fontColor([this.showLyricsStage ? '#317AF7' : Color.White])
             }
-          })
+            .width(38)
+            .height(38)
+            .borderRadius(19)
+            .backgroundColor(this.showLyricsStage ? '#33317AF7' : '#33FFFFFF')
+            .accessibilityText(this.showLyricsStage ? '切换至专辑封面视图' : '切换至同步歌词视图')
+            .onClick(() => {
+              this.showLyricsStage = !this.showLyricsStage;
+              if (this.showLyricsStage && this.activeLyricIdx >= 0) {
+                setTimeout(() => {
+                  try {
+                    this.lyricsScroller.scrollToIndex(Math.max(0, this.activeLyricIdx - 2), false);
+                  } catch {
+                    // ignore
+                  }
+                }, 60);
+              }
+            })
+
+            Stack() {
+              SymbolGlyph($r('sys.symbol.dot_grid_1x2'))
+                .fontSize(20)
+                .fontColor([Color.White])
+            }
+            .width(38)
+            .height(38)
+            .borderRadius(19)
+            .backgroundColor('#33FFFFFF')
+            .accessibilityText('更多音乐选项')
+            .bindMenu(this.musicOptionsMenuBuilder())
+          }
         }
         .width('100%')
         .padding({
@@ -2492,30 +2506,23 @@ export struct NativeMediaPlayerView {
 
             Blank()
 
-            // 播放队列或倍速入口
-            Row({ space: 6 }) {
-              Text(HARMONY_SPEED_LABELS[this.speedIndex])
-                .fontSize(12)
-                .fontWeight(FontWeight.Bold)
-                .fontColor(this.speedIndex !== DEFAULT_AUDIO_SPEED_INDEX ? '#317AF7' : '#CCFFFFFF')
-                .padding({ left: 8, right: 8, top: 6, bottom: 6 })
-                .borderRadius(12)
-                .backgroundColor('#22FFFFFF')
-                .onClick(() => this.openSheet('speed'))
-
-              if (this.audioQueue.length > 0) {
-                Stack() {
-                  SymbolGlyph($r('sys.symbol.music_note_list'))
-                    .fontSize(20)
-                    .fontColor([Color.White])
-                }
-                .width(38)
-                .height(38)
-                .borderRadius(19)
-                .backgroundColor('#22FFFFFF')
-                .accessibilityText('播放列表')
-                .onClick(() => this.openSheet('queue'))
+            // 播放队列入口（播放速度统一收口至右上角菜单）
+            if (this.audioQueue.length > 0) {
+              Stack() {
+                SymbolGlyph($r('sys.symbol.music_note_list'))
+                  .fontSize(20)
+                  .fontColor([Color.White])
               }
+              .width(42)
+              .height(42)
+              .borderRadius(21)
+              .backgroundColor('#22FFFFFF')
+              .accessibilityText('播放列表')
+              .onClick(() => this.openSheet('queue'))
+            } else {
+              Row()
+                .width(42)
+                .height(42)
             }
           }
           .width('100%')
@@ -2533,6 +2540,35 @@ export struct NativeMediaPlayerView {
     }
     .width('100%')
     .height('100%')
+  }
+
+  @Builder
+  private musicOptionsMenuBuilder() {
+    Menu() {
+      MenuItem({ content: `播放速度 (${HARMONY_SPEED_LABELS[this.speedIndex]})` })
+        .onClick(() => { this.openSheet('speed'); })
+      MenuItem({ content: this.showLyricsStage ? '返回专辑封面' : '同步歌词视图' })
+        .onClick(() => {
+          this.showLyricsStage = !this.showLyricsStage;
+          if (this.showLyricsStage && this.activeLyricIdx >= 0) {
+            setTimeout(() => {
+              try {
+                this.lyricsScroller.scrollToIndex(Math.max(0, this.activeLyricIdx - 2), false);
+              } catch {
+                // ignore
+              }
+            }, 60);
+          }
+        })
+      if (this.audioQueue.length > 0) {
+        MenuItem({ content: `播放列表 (${this.audioQueue.length})` })
+          .onClick(() => { this.openSheet('queue'); })
+      }
+      MenuItem({ content: '停止并关闭' })
+        .onClick(() => {
+          this.onClose();
+        })
+    }
   }
 
   @Builder

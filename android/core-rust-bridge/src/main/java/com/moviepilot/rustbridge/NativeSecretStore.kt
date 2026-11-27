@@ -23,6 +23,15 @@ data class SavedServerEntry(
     val lastUsedEpochMs: Long = System.currentTimeMillis(),
 )
 
+/** 按实例缓存的非敏感全局图片策略快照（对应 `/api/v1/system/global?token=moviepilot`）。 */
+@Serializable
+data class GlobalImageConfigSnapshot(
+    val globalImageCache: Boolean = false,
+    val tmdbImageDomain: String = "image.tmdb.org",
+    val bangumiProxyEnable: Boolean = false,
+    val bangumiImageDomain: String = "",
+)
+
 /**
  * ADR-02 Android 原生安全凭据存储：基于 Android Keystore AES-256-GCM 加密保护令牌与账号凭据，
  * 不在源码、日志或明文偏好中落盘真实密钥。
@@ -134,12 +143,24 @@ class NativeSecretStore(context: Context) {
         prefs.edit()
             .remove("usr_${serverUrl.hashCode()}")
             .remove("pwd_${serverUrl.hashCode()}")
+            .remove("img_cfg_${serverUrl.hashCode()}")
             .apply()
         val remaining = loadServers().filterNot { it.url == serverUrl }
         saveServers(remaining)
         if (activeServerUrl() == serverUrl) {
             setActiveServerUrl(remaining.firstOrNull()?.url)
         }
+    }
+
+    /** 按实例保存全局图片缓存与图源域名配置快照。 */
+    fun saveGlobalImageConfig(serverUrl: String, config: GlobalImageConfigSnapshot) {
+        prefs.edit().putString("img_cfg_${serverUrl.hashCode()}", json.encodeToString(config)).apply()
+    }
+
+    /** 读取指定实例上次同步的全局图片配置快照。 */
+    fun loadGlobalImageConfig(serverUrl: String): GlobalImageConfigSnapshot? {
+        val raw = prefs.getString("img_cfg_${serverUrl.hashCode()}", null) ?: return null
+        return runCatching { json.decodeFromString<GlobalImageConfigSnapshot>(raw) }.getOrNull()
     }
 
     /** 读取已保存服务列表（按最近使用倒序）。 */

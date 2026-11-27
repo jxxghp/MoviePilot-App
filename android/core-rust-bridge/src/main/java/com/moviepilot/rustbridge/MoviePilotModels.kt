@@ -344,6 +344,9 @@ data class PluginItemDto(
     @SerialName("has_update") val hasUpdate: Boolean = false,
     @SerialName("render_mode") val renderMode: String = "vuetify",
     @SerialName("repo_url") val repoUrl: String = "",
+    @SerialName("install_count") val installCount: Int = 0,
+    @SerialName("add_time") val addTime: Int = 0,
+    @SerialName("average_rating") val averageRating: Double = 0.0,
 )
 
 /** 消息中心通知条目。 */
