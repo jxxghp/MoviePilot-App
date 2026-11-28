@@ -361,6 +361,218 @@ class NativeApiRegressionTest {
         }
     }
 
+    /** 插件图标解析须对齐 Web `/plugin_icon/` 静态约定，兼容绝对地址与 `/api/` 并拒绝路径穿越，且已安装与市场列表规则一致。 */
+    @Test fun pluginIconResolutionAlignsWithWebStaticDirAndRejectsUnsafePaths() = runBlocking {
+        ApiFixture().use { api ->
+            var cacheEnabled = false
+            api.systemGlobal = { exchange ->
+                exchange.reply(
+                    200,
+                    """{"success":true,"data":{"GLOBAL_IMAGE_CACHE":$cacheEnabled,"TMDB_IMAGE_DOMAIN":"image.tmdb.org","BANGUMI_PROXY_ENABLE":false,"BANGUMI_IMAGE_DOMAIN":""}}""",
+                )
+            }
+            val pluginPayload = """
+                [
+                  {"id":"MediaDownloadFolder","plugin_name":"目录下载","plugin_icon":"Moviepilot_A.png","installed":true,"state":true},
+                  {"id":"TrackerEditor","plugin_name":"Tracker 编辑","plugin_icon":"./plugin_icon/trackereditor_A.png","installed":true,"state":true},
+                  {"id":"RemoteIcon","plugin_name":"远程图标","plugin_icon":"https://raw.githubusercontent.com/example/repo/main/icons/demo.png","installed":true,"state":true},
+                  {"id":"ApiIcon","plugin_name":"接口图标","plugin_icon":"/api/v1/plugin/file/demo/icon.png","installed":true,"state":true},
+                  {"id":"BadIcon","plugin_name":"非法路径","plugin_icon":"../secret.png","installed":true,"state":false}
+                ]
+            """.trimIndent()
+            api.route = { exchange ->
+                when {
+                    exchange.requestURI.path.endsWith("/plugin/") -> exchange.reply(200, pluginPayload)
+                    exchange.requestURI.path.endsWith("/plugin/remotes") -> exchange.reply(200, "[]")
+                    exchange.requestURI.path.endsWith("/plugin/statistic") -> exchange.reply(200, "{}")
+                    exchange.requestURI.path.endsWith("/plugin/rating") -> exchange.reply(200, "{}")
+                    else -> exchange.reply(404, "{}")
+                }
+            }
+
+            val repo = repository()
+            // 未登录时裸文件名无法确定同源基址，应安全返回 null。
+            assertNull(repo.resolvePluginIconUrl("Moviepilot_A.png"))
+
+            api.login(repo, "a")
+            repo.refreshGlobalImageSettings("${api.base}/a")
+
+            // 裸文件名与常见相对前缀解析为同源 /plugin_icon/<encoded>（避免被通用媒体解析器误判为 TMDB 路径或丢弃）。
+            assertEquals("${api.base}/a/plugin_icon/clean.png", repo.resolvePluginIconUrl("clean.png"))
+            assertEquals("${api.base}/a/plugin_icon/Moviepilot_A.png", repo.resolvePluginIconUrl("  Moviepilot_A.png  "))
+            assertEquals("${api.base}/a/plugin_icon/Paramount%2B_A.png", repo.resolvePluginIconUrl("Paramount+_A.png"))
+            assertEquals("${api.base}/a/plugin_icon/agentresourceofficer.svg", repo.resolvePluginIconUrl("agentresourceofficer.svg"))
+            assertEquals("${api.base}/a/plugin_icon/Moviepilot_A.png", repo.resolvePluginIconUrl("./plugin_icon/Moviepilot_A.png"))
+            assertEquals("${api.base}/a/plugin_icon/Moviepilot_A.png", repo.resolvePluginIconUrl("/plugin_icon/Moviepilot_A.png"))
+            assertEquals("${api.base}/a/plugin_icon/Moviepilot_A.png", repo.resolvePluginIconUrl("plugin_icon/Moviepilot_A.png"))
+
+            // 绝对 URL、/api/... 与 data:image/ 保持原有 resolveImageUrl 行为。
+            val remoteUrl = "https://raw.githubusercontent.com/example/repo/main/icons/demo.png"
+            assertEquals(remoteUrl, repo.resolvePluginIconUrl(remoteUrl))
+            assertEquals("${api.base}/a/api/v1/plugin/file/demo/icon.png", repo.resolvePluginIconUrl("/api/v1/plugin/file/demo/icon.png"))
+            val dataUri = "data:image/png;base64,iVBORw0KGgo="
+            assertEquals(dataUri, repo.resolvePluginIconUrl(dataUri))
+
+            cacheEnabled = true
+            repo.refreshGlobalImageSettings("${api.base}/a")
+            assertEquals(
+                "${api.base}/a/api/v1/system/cache/image?url=https%3A%2F%2Fraw.githubusercontent.com%2Fexample%2Frepo%2Fmain%2Ficons%2Fdemo.png",
+                repo.resolvePluginIconUrl(remoteUrl),
+            )
+            // 同源静态图标不走外部缓存代理。
+            assertEquals("${api.base}/a/plugin_icon/Moviepilot_A.png", repo.resolvePluginIconUrl("Moviepilot_A.png"))
+
+            // 空值、无扩展名、非法扩展名、路径分隔符与 .. 均被拒绝。
+            for (invalid in listOf(
+                null,
+                "",
+                "   ",
+                "null",
+                "none",
+                "clean",
+                "clean.txt",
+                ".png",
+                ".hidden.png",
+                "../secret.png",
+                "plugin_icon/../secret.png",
+                "sub/clean.png",
+                "sub\\clean.png",
+                "/other/clean.png",
+                "./clean.png",
+                "clean.png?foo=1",
+                "clean.png#frag",
+            )) {
+                assertNull("Expected null for invalid plugin_icon: $invalid", repo.resolvePluginIconUrl(invalid))
+            }
+
+            // 已安装与市场插件列表使用完全一致的解析规则。
+            cacheEnabled = false
+            repo.refreshGlobalImageSettings("${api.base}/a")
+            val installedById = repo.fetchPlugins(installedOnly = true, forceRefresh = true).associateBy { it.id }
+            val marketById = repo.fetchPlugins(installedOnly = false, forceRefresh = true).associateBy { it.id }
+            for (listById in listOf(installedById, marketById)) {
+                assertEquals("${api.base}/a/plugin_icon/Moviepilot_A.png", listById["MediaDownloadFolder"]?.icon)
+                assertEquals("${api.base}/a/plugin_icon/trackereditor_A.png", listById["TrackerEditor"]?.icon)
+                assertEquals(remoteUrl, listById["RemoteIcon"]?.icon)
+                assertEquals("${api.base}/a/api/v1/plugin/file/demo/icon.png", listById["ApiIcon"]?.icon)
+                assertNull(listById["BadIcon"]?.icon)
+            }
+        }
+    }
+
+    /** 同源 `/plugin_icon/` 命中时直接返回；404 或 SPA HTML 回退时再回退官方图标仓库且剥离凭据，直连受限时走后端代理。 */
+    @Test fun pluginIconImageClientFallsBackToOfficialRepoOnlyWhenSameOriginMissing() {
+        ApiFixture().use { official ->
+            ApiFixture().use { origin ->
+                val officialHits = CopyOnWriteArrayList<Pair<String, Map<String, List<String>>>>()
+                val proxyHits = CopyOnWriteArrayList<String>()
+                var officialMode = "ok"
+
+                official.route = { exchange ->
+                    officialHits += exchange.requestURI.path to exchange.requestHeaders.toMap()
+                    when (officialMode) {
+                        "ok" -> {
+                            exchange.responseHeaders.add("Content-Type", "image/png")
+                            exchange.reply(200, "official-png")
+                        }
+                        "not_found" -> exchange.reply(404, "missing")
+                        else -> exchange.reply(502, "blocked")
+                    }
+                }
+                origin.route = { exchange ->
+                    val path = exchange.requestURI.path
+                    when {
+                        path == "/a/plugin_icon/local.png" -> {
+                            exchange.responseHeaders.add("Content-Type", "image/png")
+                            exchange.reply(200, "local-png")
+                        }
+                        path == "/a/plugin_icon/spa.webp" -> {
+                            exchange.responseHeaders.add("Content-Type", "text/html; charset=utf-8")
+                            exchange.reply(200, "<!doctype html><html></html>")
+                        }
+                        path == "/a/plugin_icon/auth.png" -> exchange.reply(401, "unauthorized")
+                        path.endsWith("/api/v1/system/img/1") -> {
+                            proxyHits += exchange.requestURI.rawQuery.orEmpty()
+                            exchange.responseHeaders.add("Content-Type", "image/png")
+                            exchange.reply(200, "proxied-official-png")
+                        }
+                        else -> exchange.reply(404, "not-found")
+                    }
+                }
+
+                val transport = NativeHttpTransport(cfAccessTokenProvider = { "synthetic-cf" })
+                val client = transport.buildImageClient(
+                    serverUrlProvider = { "${origin.base}/a" },
+                    tokenProvider = { "synthetic-bearer" },
+                    externalFallbackUrlProvider = { externalUrl ->
+                        "${origin.base}/a/api/v1/system/img/1?imgurl=${java.net.URLEncoder.encode(externalUrl, "UTF-8")}&cache=false"
+                    },
+                    pluginIconFallbackUrlProvider = { encodedName -> "${official.base}/icons/$encodedName" },
+                )
+
+                // 1. 同源命中时不触发任何外部回退请求。
+                client.newCall(okhttp3.Request.Builder().url("${origin.base}/a/plugin_icon/local.png").build())
+                    .execute().use {
+                        assertEquals(200, it.code)
+                        assertEquals("local-png", it.body?.string())
+                    }
+                assertTrue(officialHits.isEmpty())
+
+                // 2. 同源 404（直连后端端口）时回退官方仓库并剥离所有实例凭据。
+                client.newCall(
+                    okhttp3.Request.Builder()
+                        .url("${origin.base}/a/plugin_icon/Moviepilot_A.png")
+                        .header("Cookie", "resource_token=synthetic; CF_Authorization=synthetic-cf")
+                        .header("CF-Access-Client-Id", "synthetic-id")
+                        .header("CF-Access-Client-Secret", "synthetic-secret")
+                        .build(),
+                ).execute().use {
+                    assertEquals(200, it.code)
+                    assertEquals("official-png", it.body?.string())
+                }
+                assertEquals(1, officialHits.size)
+                assertEquals("/icons/Moviepilot_A.png", officialHits.last().first)
+                for (header in listOf("Authorization", "Cookie", "cf-access-token", "CF-Access-Client-Id", "CF-Access-Client-Secret")) {
+                    assertTrue("Official fallback received $header", officialHits.last().second.keys.none { it.equals(header, true) })
+                }
+
+                // 3. 同源返回 SPA HTML（非图片）时同样回退官方仓库。
+                client.newCall(okhttp3.Request.Builder().url("${origin.base}/a/plugin_icon/spa.webp").build())
+                    .execute().use {
+                        assertEquals(200, it.code)
+                        assertEquals("official-png", it.body?.string())
+                    }
+                assertEquals("/icons/spa.webp", officialHits.last().first)
+
+                // 4. 官方仓库直连非 404 异常时继续通过后端代理回退。
+                officialMode = "blocked"
+                client.newCall(okhttp3.Request.Builder().url("${origin.base}/a/plugin_icon/trackereditor_A.png").build())
+                    .execute().use {
+                        assertEquals(200, it.code)
+                        assertEquals("proxied-official-png", it.body?.string())
+                    }
+                assertEquals(1, proxyHits.size)
+                assertTrue(proxyHits.single().contains("trackereditor_A.png"))
+
+                // 5. 官方仓库明确返回 404（第三方缺失图标）时立即结束，不再额外消耗后端代理。
+                officialMode = "not_found"
+                client.newCall(okhttp3.Request.Builder().url("${origin.base}/a/plugin_icon/mediadirwatcher.png").build())
+                    .execute().use {
+                        assertEquals(404, it.code)
+                    }
+                assertEquals(1, proxyHits.size)
+
+                // 6. 同源 401 不触发外部回退。
+                val hitsBeforeAuth = officialHits.size
+                client.newCall(okhttp3.Request.Builder().url("${origin.base}/a/plugin_icon/auth.png").build())
+                    .execute().use {
+                        assertEquals(401, it.code)
+                    }
+                assertEquals(hitsBeforeAuth, officialHits.size)
+            }
+        }
+    }
+
     /** 独立内存存储，关闭凭据持久化以避免调用宿主机不存在的 Android Keystore。 */
     private fun repository(): MoviePilotRepository = MoviePilotRepository(MemoryContext.create()).also {
         it.secretStore.keepLogin = false

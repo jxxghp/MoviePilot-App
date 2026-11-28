@@ -783,6 +783,31 @@ class MoviePilotRepository(context: Context) {
         return candidate
     }
 
+    /**
+     * 解析插件图标地址（对齐 Web `PluginCard.vue` / `PluginAppCard.vue` 与 iOS `NativePluginIconView`）：
+     * - `data:image/`、`http://`、`https://` 与 `/api/...` 沿用通用图片代理与缓存策略；
+     * - 合法裸文件名及可选 `plugin_icon/` 相对路径解析为同源 `{serverUrl}/plugin_icon/{encoded}`，
+     *   若直连后端端口或前端静态目录缺失，则由 `NativeHttpTransport.buildImageClient` 自动回退官方插件仓库图标；
+     * - 空值、无扩展名、路径分隔符及 `..` 一律返回 `null` 回退默认插件图标。
+     */
+    fun resolvePluginIconUrl(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val trimmed = raw.trim()
+        if (trimmed.equals("null", ignoreCase = true) || trimmed.equals("none", ignoreCase = true)) return null
+        if (
+            trimmed.startsWith("data:image/") ||
+            trimmed.startsWith("http://") ||
+            trimmed.startsWith("https://") ||
+            trimmed.startsWith("/api/")
+        ) {
+            return resolveImageUrl(trimmed)
+        }
+        val fileName = extractSafePluginIconFileName(trimmed) ?: return null
+        val auth = _session.value as? SessionState.Authenticated ?: return null
+        val encoded = URLEncoder.encode(fileName, "UTF-8").replace("+", "%20")
+        return "${auth.serverUrl.trimEnd('/')}/plugin_icon/$encoded"
+    }
+
     /** 为公开外链构造服务端代理回退地址（保持当前全局缓存开关，外部图源启用 `proxy=1`）。 */
     fun buildExternalImageFallbackUrl(externalUrl: String): String? {
         val auth = _session.value as? SessionState.Authenticated ?: return null
@@ -4065,7 +4090,7 @@ class MoviePilotRepository(context: Context) {
                 desc = obj.str("plugin_desc") ?: "",
                 version = obj.str("plugin_version") ?: "1.0.0",
                 author = obj.str("plugin_author") ?: "",
-                icon = resolveImageUrl(obj.str("plugin_icon")),
+                icon = resolvePluginIconUrl(obj.str("plugin_icon")),
                 labels = labels,
                 installed = obj.bool("installed") ?: installedOnly,
                 state = obj.bool("state") ?: false,
@@ -6182,6 +6207,29 @@ class MoviePilotRepository(context: Context) {
                 else -> return raw
             }
             return aliases[trimmed.lowercase()] ?: raw
+        }
+
+        internal val PLUGIN_ICON_FILENAME_REGEX = Regex(
+            "^[A-Za-z0-9_][A-Za-z0-9._+\\-]*\\.(?:png|jpe?g|webp|svg|gif|ico)$",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** 提取并校验插件相对图标的合法裸文件名（兼容 `./plugin_icon/`、`/plugin_icon/`、`plugin_icon/` 前缀），拒绝路径穿越或非法扩展名。 */
+        internal fun extractSafePluginIconFileName(raw: String?): String? {
+            val trimmed = raw?.trim().orEmpty()
+            if (trimmed.isEmpty()) return null
+            if (trimmed.equals("null", ignoreCase = true) || trimmed.equals("none", ignoreCase = true)) return null
+            if (trimmed.contains("..") || trimmed.contains('\\')) return null
+            val candidate = when {
+                trimmed.startsWith("./plugin_icon/") -> trimmed.removePrefix("./plugin_icon/")
+                trimmed.startsWith("/plugin_icon/") -> trimmed.removePrefix("/plugin_icon/")
+                trimmed.startsWith("plugin_icon/") -> trimmed.removePrefix("plugin_icon/")
+                else -> trimmed
+            }
+            if (candidate.isEmpty() || candidate.contains('/') || candidate.contains('\\') || candidate.contains("..")) {
+                return null
+            }
+            return candidate.takeIf { PLUGIN_ICON_FILENAME_REGEX.matches(it) }
         }
     }
 }

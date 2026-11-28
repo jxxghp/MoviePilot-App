@@ -182,12 +182,16 @@ class NativeHttpTransport(
     /**
      * 构造专供 Coil 复用的同源鉴权高并发图片加载 OkHttpClient（绝不向第三方域名泄漏 Bearer 令牌）：
      * - 同源图片端点收到 401（短效资源 Cookie 未预热或已过期）时自动请求一次 `/api/v1/media/source` 续签并重试；
+     * - 同源 `/plugin_icon/<file>` 在直连后端端口或前端静态目录缺失（404 / SPA HTML 回退）时，对齐 iOS 回退官方插件仓库图标，并在直连受限时继续复用后端代理；
      * - 未开启全局图片缓存时的公开外链直连若因手机网络受限失败，自动回退一次服务端代理（`/api/v1/system/img/1?cache=false`）。
      */
     fun buildImageClient(
         serverUrlProvider: () -> String?,
         tokenProvider: () -> String?,
         externalFallbackUrlProvider: ((externalUrl: String) -> String?)? = null,
+        pluginIconFallbackUrlProvider: ((encodedFileName: String) -> String?)? = { encodedFileName ->
+            "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/$encodedFileName"
+        },
     ): OkHttpClient {
         val imageDispatcher = Dispatcher().apply {
             maxRequests = 48
@@ -210,65 +214,40 @@ class NativeHttpTransport(
                     val isImageEndpoint = reqUrl.contains("/api/v1/system/img/") || reqUrl.contains("/api/v1/system/cache/image")
                     if (firstResp.code == 401 && isImageEndpoint && !server.isNullOrBlank() && !token.isNullOrBlank()) {
                         firstResp.close()
-                        runCatching {
-                            val primeUrl = "${server.trimEnd('/')}/api/v1/media/source"
-                            val primeBuilder = Request.Builder()
-                                .url(primeUrl)
-                                .header("Authorization", "Bearer $token")
-                                .header("Accept", "application/json")
-                            applyCloudflareAccessHeaders(primeBuilder, primeUrl)
-                            client().newCall(primeBuilder.build()).execute().close()
-                        }
+                        primeMediaSourceCookie(server, token)
                         return@addInterceptor chain.proceed(original)
+                    }
+                    val isHtmlSpaFallback = firstResp.isSuccessful &&
+                        firstResp.header("Content-Type")?.lowercase()?.contains("text/html") == true
+                    if (firstResp.code == 404 || isHtmlSpaFallback) {
+                        val encodedIconName = extractSameOriginPluginIconEncodedName(server!!, original.url)
+                        val fallbackExternalUrl = encodedIconName?.let { pluginIconFallbackUrlProvider?.invoke(it) }
+                        if (!fallbackExternalUrl.isNullOrBlank()) {
+                            firstResp.close()
+                            val externalReq = original.newBuilder().url(fallbackExternalUrl).build()
+                            return@addInterceptor executeExternalWithProxyFallback(
+                                chain = chain,
+                                request = externalReq,
+                                reqUrl = fallbackExternalUrl,
+                                server = server,
+                                token = token,
+                                externalFallbackUrlProvider = externalFallbackUrlProvider,
+                                skipProxyOnNotFound = true,
+                            )
+                        }
                     }
                     return@addInterceptor firstResp
                 }
 
-                try {
-                    val directResp = chain.proceed(original)
-                    if (directResp.isSuccessful || server.isNullOrBlank() || token.isNullOrBlank()) {
-                        return@addInterceptor directResp
-                    }
-                    val fallbackUrl = externalFallbackUrlProvider?.invoke(reqUrl)
-                        ?: "${server.trimEnd('/')}/api/v1/system/img/1?imgurl=${java.net.URLEncoder.encode(reqUrl, "UTF-8")}&cache=false"
-                    directResp.close()
-                    val fallbackReq = original.newBuilder().url(fallbackUrl).build()
-                    val retryResp = chain.proceed(fallbackReq)
-                    if (retryResp.code == 401) {
-                        retryResp.close()
-                        runCatching {
-                            val primeUrl = "${server.trimEnd('/')}/api/v1/media/source"
-                            val primeBuilder = Request.Builder()
-                                .url(primeUrl)
-                                .header("Authorization", "Bearer $token")
-                                .header("Accept", "application/json")
-                            applyCloudflareAccessHeaders(primeBuilder, primeUrl)
-                            client().newCall(primeBuilder.build()).execute().close()
-                        }
-                        return@addInterceptor chain.proceed(fallbackReq)
-                    }
-                    retryResp
-                } catch (ioe: java.io.IOException) {
-                    if (server.isNullOrBlank() || token.isNullOrBlank()) throw ioe
-                    val fallbackUrl = externalFallbackUrlProvider?.invoke(reqUrl)
-                        ?: "${server.trimEnd('/')}/api/v1/system/img/1?imgurl=${java.net.URLEncoder.encode(reqUrl, "UTF-8")}&cache=false"
-                    val fallbackReq = original.newBuilder().url(fallbackUrl).build()
-                    val retryResp = chain.proceed(fallbackReq)
-                    if (retryResp.code == 401) {
-                        retryResp.close()
-                        runCatching {
-                            val primeUrl = "${server.trimEnd('/')}/api/v1/media/source"
-                            val primeBuilder = Request.Builder()
-                                .url(primeUrl)
-                                .header("Authorization", "Bearer $token")
-                                .header("Accept", "application/json")
-                            applyCloudflareAccessHeaders(primeBuilder, primeUrl)
-                            client().newCall(primeBuilder.build()).execute().close()
-                        }
-                        return@addInterceptor chain.proceed(fallbackReq)
-                    }
-                    retryResp
-                }
+                executeExternalWithProxyFallback(
+                    chain = chain,
+                    request = original,
+                    reqUrl = reqUrl,
+                    server = server,
+                    token = token,
+                    externalFallbackUrlProvider = externalFallbackUrlProvider,
+                    skipProxyOnNotFound = false,
+                )
             }
             // 网络拦截器每一跳执行；应用拦截器只执行首跳，无法隔离重定向凭据。
             .addNetworkInterceptor { chain ->
@@ -296,6 +275,86 @@ class NativeHttpTransport(
                 chain.proceed(nextReq)
             }
             .build()
+    }
+
+    /** 预热或续签同源短效媒体资源 Cookie（供 `/api/v1/system/img/` 与 `/system/cache/image` 401 自动重试使用）。 */
+    private fun primeMediaSourceCookie(server: String, token: String) {
+        runCatching {
+            val primeUrl = "${server.trimEnd('/')}/api/v1/media/source"
+            val primeBuilder = Request.Builder()
+                .url(primeUrl)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/json")
+            applyCloudflareAccessHeaders(primeBuilder, primeUrl)
+            client().newCall(primeBuilder.build()).execute().close()
+        }
+    }
+
+    /** 执行外部图片直连，失败时按配置回退至当前实例的服务端图片代理接口。 */
+    private fun executeExternalWithProxyFallback(
+        chain: okhttp3.Interceptor.Chain,
+        request: Request,
+        reqUrl: String,
+        server: String?,
+        token: String?,
+        externalFallbackUrlProvider: ((externalUrl: String) -> String?)?,
+        skipProxyOnNotFound: Boolean,
+    ): okhttp3.Response {
+        fun retryViaProxy(): okhttp3.Response {
+            val fallbackUrl = externalFallbackUrlProvider?.invoke(reqUrl)
+                ?: "${server!!.trimEnd('/')}/api/v1/system/img/1?imgurl=${java.net.URLEncoder.encode(reqUrl, "UTF-8")}&cache=false"
+            val fallbackReq = request.newBuilder().url(fallbackUrl).build()
+            val retryResp = chain.proceed(fallbackReq)
+            if (retryResp.code == 401 && !server.isNullOrBlank() && !token.isNullOrBlank()) {
+                retryResp.close()
+                primeMediaSourceCookie(server, token)
+                return chain.proceed(fallbackReq)
+            }
+            return retryResp
+        }
+        return try {
+            val directResp = chain.proceed(request)
+            if (
+                directResp.isSuccessful ||
+                (skipProxyOnNotFound && directResp.code == 404) ||
+                server.isNullOrBlank() ||
+                token.isNullOrBlank()
+            ) {
+                directResp
+            } else {
+                directResp.close()
+                retryViaProxy()
+            }
+        } catch (ioe: java.io.IOException) {
+            if (server.isNullOrBlank() || token.isNullOrBlank()) throw ioe
+            retryViaProxy()
+        }
+    }
+
+    /** 从同源 `/plugin_icon/<file>` 请求中提取合法单段编码文件名，供前端静态目录缺失时安全回退官方插件图标仓库。 */
+    private fun extractSameOriginPluginIconEncodedName(server: String, url: HttpUrl): String? {
+        if (url.encodedQuery != null || url.encodedFragment != null) return null
+        val serverUrl = server.trimEnd('/').toHttpUrlOrNull() ?: return null
+        if (
+            !url.scheme.equals(serverUrl.scheme, ignoreCase = true) ||
+            !url.host.equals(serverUrl.host, ignoreCase = true) ||
+            url.port != serverUrl.port
+        ) {
+            return null
+        }
+        val baseSegments = serverUrl.encodedPathSegments.filter { it.isNotEmpty() }
+        val reqSegments = url.encodedPathSegments.filter { it.isNotEmpty() }
+        if (reqSegments.size != baseSegments.size + 2) return null
+        for (i in baseSegments.indices) {
+            if (reqSegments[i] != baseSegments[i]) return null
+        }
+        if (reqSegments[baseSegments.size] != "plugin_icon") return null
+        val encodedName = reqSegments[baseSegments.size + 1]
+        val decodedName = runCatching {
+            java.net.URLDecoder.decode(encodedName.replace("+", "%2B"), "UTF-8")
+        }.getOrNull() ?: return null
+        if (MoviePilotRepository.extractSafePluginIconFileName(decodedName) == null) return null
+        return encodedName
     }
 
     private fun buildClient(trustAll: Boolean): OkHttpClient {
