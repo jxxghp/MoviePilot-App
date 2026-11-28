@@ -2056,14 +2056,12 @@ final class NativeV2EntryTests: XCTestCase {
 
     openSettingsHub(app: app)
     XCTAssertFalse(app.buttons["native-settings-mediaservers"].exists)
-    XCTAssertFalse(app.buttons["native-settings-mediaserver-bindings"].exists)
-    let playbackEntry = app.buttons["native-settings-playback"]
-    XCTAssertTrue(playbackEntry.waitForExistence(timeout: 8))
-    tap(playbackEntry, app: app)
+    let bindEntry = app.buttons["native-settings-mediaserver-bindings"]
+    XCTAssertTrue(bindEntry.waitForExistence(timeout: 8))
+    tap(bindEntry, app: app)
+    XCTAssertTrue(
+      app.scrollViews["native-mediaserver-bindings-scroll"].waitForExistence(timeout: 8))
     let bindBtn = app.buttons["native-mediaserver-bind-Emby"]
-    for _ in 0..<4 where !bindBtn.exists {
-      app.swipeUp()
-    }
     XCTAssertTrue(bindBtn.waitForExistence(timeout: 8))
     tap(bindBtn, app: app)
     let pwdField = app.secureTextFields["native-mediaserver-bind-password"]

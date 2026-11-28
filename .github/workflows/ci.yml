@@ -37,9 +37,9 @@ jobs:
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
 
-  ios-build:
+  ios:
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 38
     steps:
       - uses: actions/checkout@v7
       - name: Toolchain
@@ -74,57 +74,17 @@ jobs:
             ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES
           test -d DerivedData/Build/Products/Debug-iphonesimulator/MoviePilot.app/PlugIns/MoviePilotWidgets.appex
-      - name: Pack simulator test products
-        run: |
-          tar -C DerivedData/Build -cf "${{ runner.temp }}/ios-sim-products.tar" Products
-          ls -lh "${{ runner.temp }}/ios-sim-products.tar"
-      - name: Upload simulator test products
-        uses: actions/upload-artifact@v7
-        with:
-          name: ios-sim-products
-          path: ${{ runner.temp }}/ios-sim-products.tar
-          retention-days: 1
-          compression-level: 1
-
-  ios-smoke:
-    needs: ios-build
-    runs-on: macos-26
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - shard: 1
-            tests: --only-test testPluginLogSnapshotLoadsRefreshesAndRetries
-          - shard: 2
-            tests: --only-test testNativeDiagnosticsAndShortcutsTools --only-test testOTPAndSessionNotRemembered
-          - shard: 3
-            tests: --only-test testNativeBusinessHidesUnpermittedEntries --only-test testNativeAgentChatStreamAndSessionHistory
-          - shard: 4
-            tests: --only-test testUserEditorPreservesUneditedFields
-    steps:
-      - uses: actions/checkout@v7
-      - name: Download simulator test products
-        uses: actions/download-artifact@v7
-        with:
-          name: ios-sim-products
-          path: ${{ runner.temp }}
-      - name: Extract simulator test products
-        run: |
-          mkdir -p DerivedData/Build
-          tar -C DerivedData/Build -xf "${{ runner.temp }}/ios-sim-products.tar"
-      - name: Run API-only simulator smoke tests (shard ${{ matrix.shard }})
-        timeout-minutes: 20
+      - name: Run API-only simulator smoke tests
+        timeout-minutes: 28
         run: >-
           python3 tools/ios/test-api-smoke.py
           --derived-data DerivedData
           --output-dir "${{ runner.temp }}/api-smoke-results"
-          ${{ matrix.tests }}
       - name: Upload API smoke failure evidence
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: ios-api-smoke-results-shard-${{ matrix.shard }}
+          name: ios-api-smoke-results
           path: ${{ runner.temp }}/api-smoke-results
 
   android:

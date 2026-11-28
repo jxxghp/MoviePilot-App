@@ -31,7 +31,6 @@ def main():
     parent.mkdir(parents=True, exist_ok=True)
     scratch = Path(tempfile.mkdtemp(prefix="api-smoke-", dir=parent))
     simulator = None
-    created_simulator = False
     fixture = None
     fixture_log = None
     try:
@@ -45,17 +44,9 @@ def main():
         available = [r for r in runtimes if r.get("isAvailable") and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-")
                      and any(d["identifier"] == "com.apple.CoreSimulator.SimDeviceType.iPhone-17" for d in r.get("supportedDeviceTypes", []))]
         runtime = max(available, key=lambda r: tuple(int(n) for n in r["version"].split(".")))
-        if os.environ.get("CI"):
-            devices = json.loads(run("xcrun", "simctl", "list", "devices", "available", "--json", capture_output=True).stdout).get("devices", {})
-            for dev in devices.get(runtime["identifier"], []):
-                if dev.get("isAvailable") and dev.get("deviceTypeIdentifier") == "com.apple.CoreSimulator.SimDeviceType.iPhone-17":
-                    simulator = dev["udid"]
-                    break
-        if not simulator:
-            simulator = run("xcrun", "simctl", "create", f"MoviePilot-API-Smoke-{os.getpid()}",
-                            "com.apple.CoreSimulator.SimDeviceType.iPhone-17", runtime["identifier"], capture_output=True).stdout.strip()
-            created_simulator = True
-        subprocess.run(["xcrun", "simctl", "boot", simulator], check=False)
+        simulator = run("xcrun", "simctl", "create", f"MoviePilot-API-Smoke-{os.getpid()}",
+                        "com.apple.CoreSimulator.SimDeviceType.iPhone-17", runtime["identifier"], capture_output=True).stdout.strip()
+        run("xcrun", "simctl", "boot", simulator)
         run("xcrun", "simctl", "bootstatus", simulator, "-b")
         run("xcrun", "simctl", "spawn", simulator, "defaults", "write", "com.apple.Accessibility", "ReduceMotionEnabled", "-bool", "YES")
         # 端口被占用时直接失败，不能接入或停止其他任务的服务。
@@ -113,8 +104,7 @@ def main():
             fixture_log.close()
         if simulator:
             subprocess.run(["xcrun", "simctl", "shutdown", simulator], check=False)
-            if created_simulator:
-                subprocess.run(["xcrun", "simctl", "delete", simulator], check=False)
+            subprocess.run(["xcrun", "simctl", "delete", simulator], check=False)
         shutil.rmtree(scratch)
 
 
