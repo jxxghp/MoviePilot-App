@@ -104,8 +104,6 @@ jobs:
     needs: prepare
     runs-on: macos-26
     timeout-minutes: 30
-    env:
-      CLONED_SOURCE_PACKAGES_DIR: ${{ runner.temp }}/SourcePackages
     steps:
       - uses: actions/checkout@v7
         with:
@@ -127,6 +125,8 @@ jobs:
       - name: Run Swift core tests
         run: zsh tools/ios/test-core.sh
       - name: Build and verify unsigned iOS IPA
+        env:
+          CLONED_SOURCE_PACKAGES_DIR: ${{ runner.temp }}/SourcePackages
         run: bash tools/ios/build-ipa.sh "${{ needs.prepare.outputs.version }}" artifacts
       - uses: actions/upload-artifact@v7
         with:
