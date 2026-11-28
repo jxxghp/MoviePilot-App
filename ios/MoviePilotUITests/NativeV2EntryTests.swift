@@ -2056,12 +2056,14 @@ final class NativeV2EntryTests: XCTestCase {
 
     openSettingsHub(app: app)
     XCTAssertFalse(app.buttons["native-settings-mediaservers"].exists)
-    let bindEntry = app.buttons["native-settings-mediaserver-bindings"]
-    XCTAssertTrue(bindEntry.waitForExistence(timeout: 8))
-    tap(bindEntry, app: app)
-    XCTAssertTrue(
-      app.scrollViews["native-mediaserver-bindings-scroll"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["native-settings-mediaserver-bindings"].exists)
+    let playbackEntry = app.buttons["native-settings-playback"]
+    XCTAssertTrue(playbackEntry.waitForExistence(timeout: 8))
+    tap(playbackEntry, app: app)
     let bindBtn = app.buttons["native-mediaserver-bind-Emby"]
+    for _ in 0..<4 where !bindBtn.exists {
+      app.swipeUp()
+    }
     XCTAssertTrue(bindBtn.waitForExistence(timeout: 8))
     tap(bindBtn, app: app)
     let pwdField = app.secureTextFields["native-mediaserver-bind-password"]
@@ -4257,6 +4259,11 @@ final class NativeV2EntryTests: XCTestCase {
 
   /// 画面只保留合成实例，明确作为运行验收而非尚未实现业务页的设计图。
   private func capture(_ name: String) {
+    if ProcessInfo.processInfo.environment["MOVIEPILOT_CI"] == "1",
+      !name.contains("unreachable")
+    {
+      return
+    }
     let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     attachment.name = name
     attachment.lifetime = .keepAlways

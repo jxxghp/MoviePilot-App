@@ -95,11 +95,13 @@ jobs:
       matrix:
         include:
           - shard: 1
-            tests: --only-test testPluginLogSnapshotLoadsRefreshesAndRetries --only-test testUserEditorPreservesUneditedFields
+            tests: --only-test testPluginLogSnapshotLoadsRefreshesAndRetries
           - shard: 2
             tests: --only-test testNativeDiagnosticsAndShortcutsTools --only-test testOTPAndSessionNotRemembered
           - shard: 3
             tests: --only-test testNativeBusinessHidesUnpermittedEntries --only-test testNativeAgentChatStreamAndSessionHistory
+          - shard: 4
+            tests: --only-test testUserEditorPreservesUneditedFields
     steps:
       - uses: actions/checkout@v7
       - name: Download simulator test products

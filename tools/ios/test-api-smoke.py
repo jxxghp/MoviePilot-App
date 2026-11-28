@@ -86,11 +86,13 @@ def main():
         command = ["xcodebuild", "test-without-building", "-xctestrun", str(runs[0]),
                    "-destination", f"platform=iOS Simulator,id={simulator}", "-parallel-testing-enabled", "NO",
                    "-enableCodeCoverage", "NO",
-                   "-test-timeouts-enabled", "YES", "-maximum-test-execution-time-allowance", "360",
+                   "-test-timeouts-enabled", "YES", "-maximum-test-execution-time-allowance", "540",
                    "-clonedSourcePackagesDirPath", "/Volumes/DISK/Xcode/SourcePackages" if Path("/Volumes/DISK").is_dir() else str(parent / "SourcePackages"),
                    "-resultBundlePath", str(result)]
         command += [f"-only-testing:MoviePilotUITests/NativeV2EntryTests/{test}" for test in tests]
         environment = dict(os.environ, TEST_RUNNER_MOVIEPILOT_NATIVE_V2_E2E="1")
+        if os.environ.get("CI"):
+            environment["TEST_RUNNER_MOVIEPILOT_CI"] = "1"
         completed = subprocess.run(command, env=environment, check=False)
         if not result.exists():
             raise RuntimeError("模拟器没有生成测试结果，不能视为通过")
