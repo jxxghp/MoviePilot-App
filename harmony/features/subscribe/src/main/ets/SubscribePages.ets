@@ -49,9 +49,45 @@ function inferPathResolutionTag(rawText: string): string {
   return '';
 }
 
-const QUALITY_OPTIONS: string[] = ['', '蓝光原盘', 'REMUX', 'BluRay', 'UHD', 'WEB-DL', 'HDTV', 'H265', 'H264'];
-const RESOLUTION_OPTIONS: string[] = ['', '4k', '1080p', '720p'];
-const EFFECT_OPTIONS: string[] = ['', '杜比视界', '杜比全景声', 'HDR', '60fps'];
+interface SubscribeFilterOption {
+  value: string;
+  label: string;
+}
+
+const QUALITY_OPTIONS: SubscribeFilterOption[] = [
+  { value: '', label: '全部' },
+  { value: 'Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD', label: '蓝光原盘' },
+  { value: 'Remux', label: 'Remux' },
+  { value: 'Blu-?Ray', label: 'BluRay' },
+  { value: 'UHD|UltraHD', label: 'UHD' },
+  { value: 'WEB-?DL|WEB-?RIP', label: 'WEB-DL' },
+  { value: 'HDTV', label: 'HDTV' },
+  { value: '[Hx].?265|HEVC', label: 'H265' },
+  { value: '[Hx].?264|AVC', label: 'H264' }
+];
+
+const RESOLUTION_OPTIONS: SubscribeFilterOption[] = [
+  { value: '', label: '全部' },
+  { value: '4K|2160p|x2160', label: '4K' },
+  { value: '1080[pi]|x1080', label: '1080p' },
+  { value: '720[pi]|x720', label: '720p' }
+];
+
+const EFFECT_OPTIONS: SubscribeFilterOption[] = [
+  { value: '', label: '全部' },
+  { value: 'Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+', label: '杜比视界' },
+  { value: 'Dolby[\\s.]*\\+?Atmos|Atmos', label: '杜比全景声' },
+  { value: '[\\s.]+HDR[\\s.]+|HDR10|HDR10\\+', label: 'HDR' },
+  { value: '[\\s.]+SDR[\\s.]+', label: 'SDR' }
+];
+
+/** 判断当前规则值是否命中内置预设选项，未命中时按自定义正则保留展示。 */
+function hasPresetOption(options: SubscribeFilterOption[], current: string): boolean {
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].value === current) { return true; }
+  }
+  return false;
+}
 
 /**
  * 鸿蒙「订阅」中心：
@@ -564,9 +600,9 @@ export struct HarmonySubscriptionsPage {
 
   private async openEditor(sub: MpSubscribeItem): Promise<void> {
     this.editingSub = sub;
-    this.edQuality = sub.quality || '';
-    this.edResolution = sub.resolution || '';
-    this.edEffect = sub.effect || '';
+    this.edQuality = MoviePilotRepository.normalizeSubscribeFilterOption('quality', sub.quality || '');
+    this.edResolution = MoviePilotRepository.normalizeSubscribeFilterOption('resolution', sub.resolution || '');
+    this.edEffect = MoviePilotRepository.normalizeSubscribeFilterOption('effect', sub.effect || '');
     this.edBestVersion = Boolean(sub.bestVersion);
     this.edSeason = sub.season > 0 ? String(sub.season) : '';
     this.edTotalEp = sub.totalEpisode > 0 ? String(sub.totalEpisode) : '';
@@ -764,35 +800,56 @@ export struct HarmonySubscriptionsPage {
             Column({ space: 12 }) {
               Text('质量').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
               Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
-                ForEach(QUALITY_OPTIONS, (q: string) => {
+                ForEach(QUALITY_OPTIONS, (q: SubscribeFilterOption) => {
                   NativeAdaptivePill({
-                    title: q.length === 0 ? '全部' : q,
-                    selected: this.edQuality === q,
-                    onTap: () => { this.edQuality = q; }
+                    title: q.label,
+                    selected: this.edQuality === q.value,
+                    onTap: () => { this.edQuality = q.value; }
                   })
-                }, (q: string) => `q_${q}`)
+                }, (q: SubscribeFilterOption) => `q_${q.value}`)
+                if (this.edQuality.length > 0 && !hasPresetOption(QUALITY_OPTIONS, this.edQuality)) {
+                  NativeAdaptivePill({
+                    title: `自定义 (${this.edQuality})`,
+                    selected: true,
+                    onTap: () => {}
+                  })
+                }
               }
 
               Text('分辨率').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
               Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
-                ForEach(RESOLUTION_OPTIONS, (r: string) => {
+                ForEach(RESOLUTION_OPTIONS, (r: SubscribeFilterOption) => {
                   NativeAdaptivePill({
-                    title: r.length === 0 ? '全部' : r.toUpperCase(),
-                    selected: this.edResolution.toLowerCase() === r.toLowerCase(),
-                    onTap: () => { this.edResolution = r; }
+                    title: r.label,
+                    selected: this.edResolution === r.value,
+                    onTap: () => { this.edResolution = r.value; }
                   })
-                }, (r: string) => `r_${r}`)
+                }, (r: SubscribeFilterOption) => `r_${r.value}`)
+                if (this.edResolution.length > 0 && !hasPresetOption(RESOLUTION_OPTIONS, this.edResolution)) {
+                  NativeAdaptivePill({
+                    title: `自定义 (${this.edResolution})`,
+                    selected: true,
+                    onTap: () => {}
+                  })
+                }
               }
 
               Text('特效').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
               Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
-                ForEach(EFFECT_OPTIONS, (e: string) => {
+                ForEach(EFFECT_OPTIONS, (e: SubscribeFilterOption) => {
                   NativeAdaptivePill({
-                    title: e.length === 0 ? '全部' : e,
-                    selected: this.edEffect === e,
-                    onTap: () => { this.edEffect = e; }
+                    title: e.label,
+                    selected: this.edEffect === e.value,
+                    onTap: () => { this.edEffect = e.value; }
                   })
-                }, (e: string) => `e_${e}`)
+                }, (e: SubscribeFilterOption) => `e_${e.value}`)
+                if (this.edEffect.length > 0 && !hasPresetOption(EFFECT_OPTIONS, this.edEffect)) {
+                  NativeAdaptivePill({
+                    title: `自定义 (${this.edEffect})`,
+                    selected: true,
+                    onTap: () => {}
+                  })
+                }
               }
 
               Divider().color(HarmonyThemeColors.divider(this.isDark))

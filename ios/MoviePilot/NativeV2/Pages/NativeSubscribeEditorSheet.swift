@@ -478,7 +478,7 @@ struct NativeSubscribeEditorSheet: View {
       try Task.checkCancellation()
       let snapshot = NativeSubscribeDetailDraft(raw: detail)
       loaded = snapshot
-      draft = snapshot
+      draft = snapshot.normalizedFilterOptions()
       downloaders = (clients ?? []).compactMap(\.name).filter { !$0.isEmpty }
       sites = (loadedSites ?? []).filter(\.isActive)
       ruleGroups = loadedGroups ?? []
@@ -910,5 +910,56 @@ private struct NativeSubscribeDetailDraft: Equatable {
     assignOptional("downloader", downloader, baseline.downloader)
     assignOptional("save_path", savePath, baseline.savePath)
     return payload
+  }
+
+  /// 将历史遗留或跨端写入的短标签规范化为与 Web 一致的等价正则，自定义正则原样保留。
+  func normalizedFilterOptions() -> Self {
+    var copy = self
+    copy.quality = Self.normalizeFilterOption(field: "quality", raw: quality)
+    copy.resolution = Self.normalizeFilterOption(field: "resolution", raw: resolution)
+    copy.effect = Self.normalizeFilterOption(field: "effect", raw: effect)
+    return copy
+  }
+
+  /// 将单字段界面短标签转换为等价正则表达式。
+  static func normalizeFilterOption(field: String, raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return "" }
+    let lower = trimmed.lowercased()
+    if lower == "全部" || lower == "all" { return "" }
+    switch field {
+    case "quality":
+      switch lower {
+      case "蓝光原盘", "藍光原盤", "blu-ray original", "bluray original":
+        return "Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD"
+      case "remux": return "Remux"
+      case "bluray", "blu-ray": return "Blu-?Ray"
+      case "uhd": return "UHD|UltraHD"
+      case "web-dl", "webdl": return "WEB-?DL|WEB-?RIP"
+      case "hdtv": return "HDTV"
+      case "h265", "h.265", "hevc": return "[Hx].?265|HEVC"
+      case "h264", "h.264", "avc": return "[Hx].?264|AVC"
+      default: return raw
+      }
+    case "resolution":
+      switch lower {
+      case "4k": return "4K|2160p|x2160"
+      case "1080p": return "1080[pi]|x1080"
+      case "720p": return "720[pi]|x720"
+      default: return raw
+      }
+    case "effect":
+      switch lower {
+      case "杜比视界", "杜比視界", "dolby vision", "dovi", "dv":
+        return "Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+"
+      case "杜比全景声", "杜比全景聲", "dolby atmos", "atmos":
+        return "Dolby[\\s.]*\\+?Atmos|Atmos"
+      case "hdr": return "[\\s.]+HDR[\\s.]+|HDR10|HDR10\\+"
+      case "sdr": return "[\\s.]+SDR[\\s.]+"
+      default: return raw
+      }
+    default:
+      return raw
+    }
   }
 }

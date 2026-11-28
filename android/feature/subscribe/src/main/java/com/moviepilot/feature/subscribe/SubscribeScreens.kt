@@ -701,9 +701,9 @@ private fun SubscribeEditorSheet(
     var startEpText by remember(item) { mutableStateOf(item.startEpisode?.toString().orEmpty()) }
     var episodeGroup by remember(item) { mutableStateOf(item.episodeGroup) }
 
-    var quality by remember(item) { mutableStateOf(item.quality.ifBlank { "全部" }) }
-    var resolution by remember(item) { mutableStateOf(item.resolution.ifBlank { "全部" }) }
-    var effect by remember(item) { mutableStateOf(item.effect.ifBlank { "全部" }) }
+    var quality by remember(item) { mutableStateOf(MoviePilotRepository.normalizeSubscribeFilterOption("quality", item.quality)) }
+    var resolution by remember(item) { mutableStateOf(MoviePilotRepository.normalizeSubscribeFilterOption("resolution", item.resolution)) }
+    var effect by remember(item) { mutableStateOf(MoviePilotRepository.normalizeSubscribeFilterOption("effect", item.effect)) }
     var bestVersion by remember(item) { mutableStateOf(item.bestVersion) }
 
     var downloader by remember(item) { mutableStateOf(item.downloader.ifBlank { "默认" }) }
@@ -786,9 +786,9 @@ private fun SubscribeEditorSheet(
                                 totalEpisode = totalEpText.trim().toIntOrNull() ?: item.totalEpisode,
                                 startEpisode = startEpText.trim().toIntOrNull(),
                                 episodeGroup = episodeGroup.trim(),
-                                quality = if (quality == "全部") "" else quality,
-                                resolution = if (resolution == "全部") "" else resolution,
-                                effect = if (effect == "全部") "" else effect,
+                                quality = quality,
+                                resolution = resolution,
+                                effect = effect,
                                 bestVersion = bestVersion,
                                 downloader = if (downloader == "默认") "" else downloader,
                                 savePath = savePath.trim(),
@@ -853,11 +853,11 @@ private fun SubscribeEditorSheet(
             Text("画质与洗版", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
             CinematicPanel(padding = 0.dp, showsShadow = false) {
                 Column {
-                    EditorPickerRow("质量", quality, listOf("全部", "蓝光原盘", "Remux", "BluRay", "WEB-DL", "HDTV")) { quality = it }
+                    EditorMappedPickerRow("质量", quality, SUBSCRIBE_QUALITY_OPTIONS) { quality = it }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                    EditorPickerRow("分辨率", resolution, listOf("全部", "4K", "1080p", "720p")) { resolution = it }
+                    EditorMappedPickerRow("分辨率", resolution, SUBSCRIBE_RESOLUTION_OPTIONS) { resolution = it }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                    EditorPickerRow("特效", effect, listOf("全部", "杜比视界", "HDR", "中字", "国语")) { effect = it }
+                    EditorMappedPickerRow("特效", effect, SUBSCRIBE_EFFECT_OPTIONS) { effect = it }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -1068,15 +1068,45 @@ private fun SubscribeEditorSheet(
     }
 }
 
+// 对齐 Web `constants.ts` 的订阅质量、分辨率与特效正则选项
+private val SUBSCRIBE_QUALITY_OPTIONS = listOf(
+    "" to "全部",
+    "Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD" to "蓝光原盘",
+    "Remux" to "Remux",
+    "Blu-?Ray" to "BluRay",
+    "UHD|UltraHD" to "UHD",
+    "WEB-?DL|WEB-?RIP" to "WEB-DL",
+    "HDTV" to "HDTV",
+    "[Hx].?265|HEVC" to "H265",
+    "[Hx].?264|AVC" to "H264",
+)
+
+private val SUBSCRIBE_RESOLUTION_OPTIONS = listOf(
+    "" to "全部",
+    "4K|2160p|x2160" to "4K",
+    "1080[pi]|x1080" to "1080p",
+    "720[pi]|x720" to "720p",
+)
+
+private val SUBSCRIBE_EFFECT_OPTIONS = listOf(
+    "" to "全部",
+    "Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+" to "杜比视界",
+    "Dolby[\\s.]*\\+?Atmos|Atmos" to "杜比全景声",
+    "[\\s.]+HDR[\\s.]+|HDR10|HDR10\\+" to "HDR",
+    "[\\s.]+SDR[\\s.]+" to "SDR",
+)
+
+/** 展示可读选项标题、底层提交正则取值并保留自定义表达式的订阅筛选下拉行。 */
 @Composable
-private fun EditorPickerRow(
+private fun EditorMappedPickerRow(
     label: String,
     value: String,
-    options: List<String>,
+    options: List<Pair<String, String>>,
     onSelect: (String) -> Unit,
 ) {
     val colors = LocalMoviePilotColors.current
     var expanded by remember { mutableStateOf(false) }
+    val displayTitle = options.firstOrNull { it.first == value }?.second ?: "自定义 ($value)"
     Box {
         Row(
             modifier = Modifier
@@ -1088,13 +1118,16 @@ private fun EditorPickerRow(
         ) {
             Text(label, color = colors.textPrimary, fontSize = 15.sp)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(value, color = colors.accent, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(displayTitle, color = colors.accent, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 Icon(Icons.Rounded.UnfoldMore, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { opt ->
-                DropdownMenuItem(text = { Text(opt) }, onClick = { onSelect(opt); expanded = false })
+            options.forEach { (optionValue, optionTitle) ->
+                DropdownMenuItem(text = { Text(optionTitle) }, onClick = { onSelect(optionValue); expanded = false })
+            }
+            if (value.isNotEmpty() && options.none { it.first == value }) {
+                DropdownMenuItem(text = { Text("自定义 ($value)") }, onClick = { expanded = false })
             }
         }
     }

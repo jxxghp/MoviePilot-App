@@ -309,6 +309,58 @@ class NativeApiRegressionTest {
         }
     }
 
+    /** 订阅新增与更新须将短标签展开为与 Web 一致的等价正则，同时保留用户自定义正则。 */
+    @Test fun subscribeCreateAndUpdateExpandShortFilterLabelsAndPreserveCustomRegex() = runBlocking {
+        ApiFixture().use { api ->
+            val payloads = CopyOnWriteArrayList<String>()
+            api.route = { exchange ->
+                if (exchange.requestURI.path.endsWith("/subscribe/")) {
+                    payloads += exchange.requestBody.bufferedReader().readText()
+                    exchange.reply(200, """{"success":true,"data":{"id":42}}""")
+                } else exchange.reply(404, "{}")
+            }
+            val repo = repository(); api.login(repo, "a")
+            val created = repo.createOrUpdateSubscriptionFull(
+                SubscribeItemDto(
+                    id = 0,
+                    name = "折月亮",
+                    year = "2026",
+                    type = "电视剧",
+                    season = 1,
+                    mediaSource = "tmdb",
+                    mediaId = "279431",
+                    quality = "蓝光原盘",
+                    resolution = "4K",
+                    effect = "杜比视界",
+                ),
+                isUpdate = false,
+            )
+            assertTrue(created.first)
+            assertEquals(42, created.third)
+            val createdJson = kotlinx.serialization.json.Json.parseToJsonElement(payloads.single()).let {
+                it as kotlinx.serialization.json.JsonObject
+            }
+            assertEquals(
+                "Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD",
+                createdJson["quality"]?.let { (it as kotlinx.serialization.json.JsonPrimitive).content },
+            )
+            assertEquals(
+                "4K|2160p|x2160",
+                createdJson["resolution"]?.let { (it as kotlinx.serialization.json.JsonPrimitive).content },
+            )
+            assertEquals(
+                "Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+",
+                createdJson["effect"]?.let { (it as kotlinx.serialization.json.JsonPrimitive).content },
+            )
+
+            assertEquals("2160p.*HDR10\\+", MoviePilotRepository.normalizeSubscribeFilterOption("resolution", "2160p.*HDR10\\+"))
+            assertEquals("1080[pi]|x1080", MoviePilotRepository.normalizeSubscribeFilterOption("resolution", "1080P"))
+            assertEquals("WEB-?DL|WEB-?RIP", MoviePilotRepository.normalizeSubscribeFilterOption("quality", "WEB-DL"))
+            assertEquals("[Hx].?265|HEVC", MoviePilotRepository.normalizeSubscribeFilterOption("quality", "H265"))
+            assertEquals("", MoviePilotRepository.normalizeSubscribeFilterOption("resolution", "全部"))
+        }
+    }
+
     /** 独立内存存储，关闭凭据持久化以避免调用宿主机不存在的 Android Keystore。 */
     private fun repository(): MoviePilotRepository = MoviePilotRepository(MemoryContext.create()).also {
         it.secretStore.keepLogin = false

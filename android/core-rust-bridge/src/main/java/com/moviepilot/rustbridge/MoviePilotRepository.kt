@@ -2415,9 +2415,9 @@ class MoviePilotRepository(context: Context) {
         }
         baseMap["total_episode"] = JsonPrimitive(item.totalEpisode)
         if (item.startEpisode != null) baseMap["start_episode"] = JsonPrimitive(item.startEpisode) else baseMap.remove("start_episode")
-        baseMap["quality"] = JsonPrimitive(item.quality)
-        baseMap["resolution"] = JsonPrimitive(item.resolution)
-        baseMap["effect"] = JsonPrimitive(item.effect)
+        baseMap["quality"] = JsonPrimitive(normalizeSubscribeFilterOption("quality", item.quality))
+        baseMap["resolution"] = JsonPrimitive(normalizeSubscribeFilterOption("resolution", item.resolution))
+        baseMap["effect"] = JsonPrimitive(normalizeSubscribeFilterOption("effect", item.effect))
         baseMap["best_version"] = JsonPrimitive(if (item.bestVersion) 1 else 0)
         baseMap["sites"] = JsonArray(item.sites.map { JsonPrimitive(it) })
         baseMap["filter_groups"] = JsonArray(item.filterGroups.map { JsonPrimitive(it) })
@@ -6123,6 +6123,65 @@ class MoviePilotRepository(context: Context) {
             val unplayedIdx = episodes.indexOfFirst { !it.played }
             if (unplayedIdx >= 0) return unplayedIdx
             return 0
+        }
+
+        private val SUBSCRIBE_QUALITY_ALIASES = mapOf(
+            "全部" to "",
+            "all" to "",
+            "蓝光原盘" to "Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD",
+            "藍光原盤" to "Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD",
+            "blu-ray original" to "Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD",
+            "bluray original" to "Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD",
+            "remux" to "Remux",
+            "bluray" to "Blu-?Ray",
+            "blu-ray" to "Blu-?Ray",
+            "uhd" to "UHD|UltraHD",
+            "web-dl" to "WEB-?DL|WEB-?RIP",
+            "webdl" to "WEB-?DL|WEB-?RIP",
+            "hdtv" to "HDTV",
+            "h265" to "[Hx].?265|HEVC",
+            "h.265" to "[Hx].?265|HEVC",
+            "hevc" to "[Hx].?265|HEVC",
+            "h264" to "[Hx].?264|AVC",
+            "h.264" to "[Hx].?264|AVC",
+            "avc" to "[Hx].?264|AVC",
+        )
+
+        private val SUBSCRIBE_RESOLUTION_ALIASES = mapOf(
+            "全部" to "",
+            "all" to "",
+            "4k" to "4K|2160p|x2160",
+            "1080p" to "1080[pi]|x1080",
+            "720p" to "720[pi]|x720",
+        )
+
+        private val SUBSCRIBE_EFFECT_ALIASES = mapOf(
+            "全部" to "",
+            "all" to "",
+            "杜比视界" to "Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+",
+            "杜比視界" to "Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+",
+            "dolby vision" to "Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+",
+            "dovi" to "Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+",
+            "dv" to "Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+",
+            "杜比全景声" to "Dolby[\\s.]*\\+?Atmos|Atmos",
+            "杜比全景聲" to "Dolby[\\s.]*\\+?Atmos|Atmos",
+            "dolby atmos" to "Dolby[\\s.]*\\+?Atmos|Atmos",
+            "atmos" to "Dolby[\\s.]*\\+?Atmos|Atmos",
+            "hdr" to "[\\s.]+HDR[\\s.]+|HDR10|HDR10\\+",
+            "sdr" to "[\\s.]+SDR[\\s.]+",
+        )
+
+        /** 将订阅质量、分辨率、特效的界面短标签展开为与 Web `constants.ts` 一致的正则，保留自定义正则。 */
+        fun normalizeSubscribeFilterOption(field: String, raw: String): String {
+            val trimmed = raw.trim()
+            if (trimmed.isEmpty()) return ""
+            val aliases = when (field) {
+                "quality" -> SUBSCRIBE_QUALITY_ALIASES
+                "resolution" -> SUBSCRIBE_RESOLUTION_ALIASES
+                "effect" -> SUBSCRIBE_EFFECT_ALIASES
+                else -> return raw
+            }
+            return aliases[trimmed.lowercase()] ?: raw
         }
     }
 }

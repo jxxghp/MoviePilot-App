@@ -5966,6 +5966,45 @@ export class MoviePilotRepository {
     return out.slice(0, 18);
   }
 
+  /** 将订阅质量、分辨率、特效的界面短标签展开为与 Web `constants.ts` 一致的正则，保留自定义正则。 */
+  static normalizeSubscribeFilterOption(field: string, raw: string): string {
+    const trimmed = (raw ?? '').trim();
+    if (trimmed.length === 0) { return ''; }
+    const lower = trimmed.toLowerCase();
+    if (lower === '全部' || lower === 'all') { return ''; }
+    if (field === 'quality') {
+      if (lower === '蓝光原盘' || lower === '藍光原盤' || lower === 'blu-ray original' || lower === 'bluray original') {
+        return 'Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD';
+      }
+      if (lower === 'remux') { return 'Remux'; }
+      if (lower === 'bluray' || lower === 'blu-ray') { return 'Blu-?Ray'; }
+      if (lower === 'uhd') { return 'UHD|UltraHD'; }
+      if (lower === 'web-dl' || lower === 'webdl') { return 'WEB-?DL|WEB-?RIP'; }
+      if (lower === 'hdtv') { return 'HDTV'; }
+      if (lower === 'h265' || lower === 'h.265' || lower === 'hevc') { return '[Hx].?265|HEVC'; }
+      if (lower === 'h264' || lower === 'h.264' || lower === 'avc') { return '[Hx].?264|AVC'; }
+      return raw;
+    }
+    if (field === 'resolution') {
+      if (lower === '4k') { return '4K|2160p|x2160'; }
+      if (lower === '1080p') { return '1080[pi]|x1080'; }
+      if (lower === '720p') { return '720[pi]|x720'; }
+      return raw;
+    }
+    if (field === 'effect') {
+      if (lower === '杜比视界' || lower === '杜比視界' || lower === 'dolby vision' || lower === 'dovi' || lower === 'dv') {
+        return 'Dolby[\\s.]+Vision|DOVI|[\\s.]+DV[\\s.]+';
+      }
+      if (lower === '杜比全景声' || lower === '杜比全景聲' || lower === 'dolby atmos' || lower === 'atmos') {
+        return 'Dolby[\\s.]*\\+?Atmos|Atmos';
+      }
+      if (lower === 'hdr') { return '[\\s.]+HDR[\\s.]+|HDR10|HDR10\\+'; }
+      if (lower === 'sdr') { return '[\\s.]+SDR[\\s.]+'; }
+      return raw;
+    }
+    return raw;
+  }
+
   /** 无损保存/更新订阅规则（保留未编辑服务端字段）。 */
   async saveSubscription(sub: MpSubscribeItem): Promise<boolean> {
     let payloadObj: Record<string, Object> = {};
@@ -5978,9 +6017,9 @@ export class MoviePilotRepository {
     payloadObj['year'] = sub.year;
     payloadObj['type'] = sub.type;
     payloadObj['state'] = sub.state;
-    payloadObj['quality'] = sub.quality;
-    payloadObj['resolution'] = sub.resolution;
-    payloadObj['effect'] = sub.effect ?? '';
+    payloadObj['quality'] = MoviePilotRepository.normalizeSubscribeFilterOption('quality', sub.quality);
+    payloadObj['resolution'] = MoviePilotRepository.normalizeSubscribeFilterOption('resolution', sub.resolution);
+    payloadObj['effect'] = MoviePilotRepository.normalizeSubscribeFilterOption('effect', sub.effect ?? '');
     payloadObj['best_version'] = sub.bestVersion ? 1 : 0;
     payloadObj['save_path'] = sub.savePath;
     if (sub.season > 0) { payloadObj['season'] = sub.season; }
