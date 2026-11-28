@@ -3513,9 +3513,24 @@ final class NativeV2EntryTests: XCTestCase {
         // 固定原始 ID；删除后不能让 index 0 自动指向下一个实例，误判目标仍存在。
         let row = app.buttons[candidate.identifier]
         reveal(row, app: app)
-        row.swipeLeft()
-        app.buttons["删除"].tap()
-        app.alerts.buttons["删除"].tap()
+        let deleteButton = app.buttons["删除"].firstMatch
+        for attempt in 0..<3 {
+          if attempt == 0 {
+            row.swipeLeft()
+          } else {
+            let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+            let end = row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: end)
+          }
+          if deleteButton.waitForExistence(timeout: 3) {
+            break
+          }
+        }
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
+        deleteButton.tap()
+        let confirmDelete = app.alerts.buttons["删除"].firstMatch
+        XCTAssertTrue(confirmDelete.waitForExistence(timeout: 5))
+        confirmDelete.tap()
         let gone = XCTNSPredicateExpectation(
           predicate: NSPredicate(format: "exists == false"), object: row)
         XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 15), .completed)
@@ -3532,13 +3547,29 @@ final class NativeV2EntryTests: XCTestCase {
     return app
   }
 
+  /// 确保输入框在冷启动模拟器下真正获得键盘焦点后再执行 `typeText`，避免竞态失败。
+  private func focusTextField(_ field: XCUIElement, app: XCUIApplication) {
+    let focusedPredicate = NSPredicate(format: "hasKeyboardFocus == 1")
+    for attempt in 0..<3 {
+      if attempt == 0 {
+        tap(field, app: app)
+      } else {
+        field.tap()
+      }
+      let exp = XCTNSPredicateExpectation(predicate: focusedPredicate, object: field)
+      if XCTWaiter.wait(for: [exp], timeout: 3) == .completed {
+        return
+      }
+    }
+  }
+
   /// 输入完整部署子路径，回车只发送初始化探测，不直接发送账号密码。
   private func connect(_ name: String, app: XCUIApplication, wait: Bool = true) {
     let field = app.textFields["native-v2-address"]
-    tap(field, app: app)
+    focusTextField(field, app: app)
     if app.buttons["native-v2-clear-address"].exists {
       app.buttons["native-v2-clear-address"].tap()
-      tap(field, app: app)
+      focusTextField(field, app: app)
     }
     field.typeText(base + name + "/\n")
     if wait {
@@ -3559,9 +3590,14 @@ final class NativeV2EntryTests: XCTestCase {
   /// 合成密码只填写，不用回车提前移除键盘工具栏；由「完成」按钮统一收起键盘。
   private func enterCredentials(_ name: String, app: XCUIApplication) {
     let username = app.textFields["native-v2-username"]
-    tap(username, app: app)
+    focusTextField(username, app: app)
     username.typeText("native-" + name + "\n")
     let password = app.secureTextFields["native-v2-password"]
+    let focused = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hasKeyboardFocus == 1"), object: password)
+    if XCTWaiter.wait(for: [focused], timeout: 2) != .completed {
+      focusTextField(password, app: app)
+    }
     password.typeText("fixture-" + name + "123")
     dismissKeyboard(app)
   }
