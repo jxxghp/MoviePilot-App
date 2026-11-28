@@ -1,6 +1,6 @@
 {
   "name": "libmoviepilot_core_ohos.so",
   "types": "./index.d.ts",
-  "version": "2.0.10",
+  "version": "2.0.11",
   "description": "MoviePilot Rust ohos-rs NAPI shared core"
 }

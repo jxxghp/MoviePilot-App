@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/library",
-  "version": "2.0.10",
+  "version": "2.0.11",
   "description": "MoviePilot HarmonyOS NEXT library HAR",
   "main": "Index.ets",
   "dependencies": {
