@@ -23,6 +23,8 @@ def main():
     parser.add_argument("--derived-data", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--only-test", action="append", help="只重跑指定用例；缺省执行全部 smoke")
+    parser.add_argument("--port", type=int, default=5330, help="专用 API 夹具端口，默认 5330")
+    parser.add_argument("--runtime-version", help="可选 iOS 模拟器版本，例如 26.1；默认选择最新版本")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     output = args.output_dir.resolve()
@@ -44,7 +46,10 @@ def main():
             raise RuntimeError("需要唯一的 build-for-testing xctestrun 产物")
         runtimes = json.loads(run("xcrun", "simctl", "list", "runtimes", "--json", capture_output=True).stdout)["runtimes"]
         available = [r for r in runtimes if r.get("isAvailable") and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-")
+                     and (args.runtime_version is None or r["version"] == args.runtime_version)
                      and any(d["identifier"] == "com.apple.CoreSimulator.SimDeviceType.iPhone-17" for d in r.get("supportedDeviceTypes", []))]
+        if not available:
+            raise RuntimeError("没有可用的目标 iOS 模拟器运行时")
         runtime = max(available, key=lambda r: tuple(int(n) for n in r["version"].split(".")))
         simulator = run("xcrun", "simctl", "create", f"MoviePilot-API-Smoke-{os.getpid()}",
                         "com.apple.CoreSimulator.SimDeviceType.iPhone-17", runtime["identifier"], capture_output=True).stdout.strip()
@@ -54,15 +59,15 @@ def main():
         # 端口被占用时直接失败，不能接入或停止其他任务的服务。
         import socket
         with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 5330))
+            probe.bind(("127.0.0.1", args.port))
         fixture_log = (output / "fixture.log").open("w")
-        fixture = subprocess.Popen([os.environ.get("PYTHON", "python3"), str(root / "tools/ios/native-v2-fixture.py"), "--port", "5330"],
+        fixture = subprocess.Popen([os.environ.get("PYTHON", "python3"), str(root / "tools/ios/native-v2-fixture.py"), "--port", str(args.port)],
                                    stdout=fixture_log, stderr=subprocess.STDOUT)
         for _ in range(100):
             if fixture.poll() is not None:
                 raise RuntimeError("专用 API 夹具启动失败")
             try:
-                with urlopen("http://127.0.0.1:5330/__native/stats", timeout=1):
+                with urlopen(f"http://127.0.0.1:{args.port}/__native/stats", timeout=1):
                     break
             except OSError:
                 time.sleep(0.1)
@@ -83,7 +88,11 @@ def main():
                    "-clonedSourcePackagesDirPath", "/Volumes/DISK/Xcode/SourcePackages" if Path("/Volumes/DISK").is_dir() else str(parent / "SourcePackages"),
                    "-resultBundlePath", str(result)]
         command += [f"-only-testing:MoviePilotUITests/NativeV2EntryTests/{test}" for test in tests]
-        environment = dict(os.environ, TEST_RUNNER_MOVIEPILOT_NATIVE_V2_E2E="1")
+        environment = dict(
+            os.environ,
+            TEST_RUNNER_MOVIEPILOT_NATIVE_V2_E2E="1",
+            MOVIEPILOT_NATIVE_V2_BASE=f"http://127.0.0.1:{args.port}/",
+        )
         if os.environ.get("CI"):
             environment["TEST_RUNNER_MOVIEPILOT_CI"] = "1"
         completed = subprocess.run(command, env=environment, check=False)

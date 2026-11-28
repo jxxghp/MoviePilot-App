@@ -332,7 +332,6 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
     if let latestAgentState, NSDictionary(dictionary: latestAgentState).isEqual(to: patch) {
       return
     }
-    let previousPanel = latestAgentState?["panelOpen"] as? Bool
     latestAgentState = patch
     if var pending = pendingMountPayload {
       pending["agentHostState"] = patch
@@ -340,9 +339,6 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
     }
     guard isShellReady else { return }
     bridge.sendAgentState(patch)
-    if let open = patch["panelOpen"] as? Bool, previousPanel != open {
-      notifyPanelChanged(panelOpen: open)
-    }
   }
 
   /// 将原生主题视觉令牌同步给插件界面。
@@ -1179,6 +1175,13 @@ private struct NativePluginAgentPetRuntimeOverlay: View {
       .onAppear {
         controller.pushAgentState(buildStatePatch(size: size, safeArea: safeArea))
         syncWindowHitRegion(size: size, safeArea: safeArea)
+      }
+      .onChange(of: panelOpen) { open in
+        controller.pushAgentState(buildStatePatch(size: size, safeArea: safeArea))
+        controller.notifyPanelChanged(panelOpen: open)
+        if !open {
+          controller.webView.setNeedsLayout()
+        }
       }
       .onChange(of: controller.isMounted) { _ in
         syncWindowHitRegion(size: size, safeArea: safeArea)

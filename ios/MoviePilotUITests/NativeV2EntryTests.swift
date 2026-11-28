@@ -4,7 +4,8 @@ import XCTest
 /// API-only 服务通过真实按钮验收原生入口，不启动前端或借用网页登录结果。
 @MainActor
 final class NativeV2EntryTests: XCTestCase {
-  private let base = "http://127.0.0.1:5330/"
+  private let base =
+    ProcessInfo.processInfo.environment["MOVIEPILOT_NATIVE_V2_BASE"] ?? "http://127.0.0.1:5330/"
   private let arguments = [
     "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
     "-nativeV2.appearance.animateBackground", "NO",
@@ -2244,7 +2245,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
-  /// 单独授权 PT 搜索的普通账号仍能管理本身会话并在设置中绑定个人媒体服务器账号，影视和管理端点保持不可达。
+  /// 单独授权 PT 搜索的普通账号可在播放偏好中绑定个人媒体服务器账号，影视和管理端点保持不可达。
   func testNativeBusinessHidesUnpermittedEntries() async throws {
     let app = try await signInToNativeBusiness("b", mode: "resource-search-only")
     defer { app.terminate() }
@@ -2258,11 +2259,13 @@ final class NativeV2EntryTests: XCTestCase {
 
     openSettingsHub(app: app)
     XCTAssertFalse(app.buttons["native-settings-mediaservers"].exists)
-    let bindEntry = app.buttons["native-settings-mediaserver-bindings"]
-    XCTAssertTrue(bindEntry.waitForExistence(timeout: 8))
-    tap(bindEntry, app: app)
+    let playbackEntry = app.buttons["native-settings-playback"]
+    reveal(playbackEntry, app: app)
+    XCTAssertTrue(playbackEntry.waitForExistence(timeout: 8))
+    tap(playbackEntry, app: app)
     XCTAssertTrue(
-      app.scrollViews["native-mediaserver-bindings-scroll"].waitForExistence(timeout: 8))
+      app.descendants(matching: .any)["native-playback-video-engine"].firstMatch
+        .waitForExistence(timeout: 8))
     let bindBtn = app.buttons["native-mediaserver-bind-Emby"]
     XCTAssertTrue(bindBtn.waitForExistence(timeout: 8))
     tap(bindBtn, app: app)
