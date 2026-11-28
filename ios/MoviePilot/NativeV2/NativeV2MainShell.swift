@@ -141,7 +141,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           NativeAgentPetOverlayHost(
             session: session,
             petStore: NativeAgentPetStore.shared(for: session),
-            isVisible: !showsMessagesSheet && !showsPetPickerSheet && !showsModuleSheet && restoredCapsuleSheetTarget == nil && deepLinkPluginTarget == nil,
+            isVisible: !showsMessagesSheet && !showsPetPickerSheet && !showsModuleSheet
+              && restoredCapsuleSheetTarget == nil && deepLinkPluginTarget == nil,
             panelOpen: showsAgentSheet,
             dockVisible: !NativeDeviceLayout.isIPad && !usesDuoSideOperationBar,
             thinking: NativeAgentChatStore.shared(for: session).isSending,
@@ -189,7 +190,13 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         restoredCapsuleSheetTarget = target
       }
     }
-    .sheet(isPresented: $showsPetPickerSheet) {
+    .sheet(
+      isPresented: $showsPetPickerSheet,
+      onDismiss: {
+        showsPetPickerSheet = false
+        NativeAgentPetWindowCoordinator.shared.refreshAfterModalDismissal()
+      }
+    ) {
       NativeAgentPetPickerSheet(
         session: session,
         petStore: NativeAgentPetStore.shared(for: session)
@@ -252,7 +259,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     }
     .sheet(
       isPresented: $showsAgentSheet,
-      onDismiss: { pendingAgentPrompt = "" }
+      onDismiss: {
+        showsAgentSheet = false
+        pendingAgentPrompt = ""
+        NativeAgentPetWindowCoordinator.shared.refreshAfterModalDismissal()
+      }
     ) {
       NavigationStack {
         NativeAgentChatPage(session: session, initialPrompt: pendingAgentPrompt)

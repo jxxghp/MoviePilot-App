@@ -23,6 +23,7 @@ import {
 } from './HarmonyPluginHostBridgeV2';
 import { HarmonyLocalPluginShellView } from './HarmonyLocalPluginShellView';
 import { HarmonyPluginRemoteCache } from './HarmonyPluginRemoteCache';
+import { HarmonyPluginResourceClient } from './HarmonyPluginResourceClient';
 import { buildHarmonyPluginVisualTokens } from './HarmonyPluginVisualTokens';
 
 /** 描述插件助手在 ArkWeb 舞台中的交互锚点矩形。 */
@@ -53,6 +54,7 @@ export class HarmonyAgentPetManager {
   private saving: boolean = false;
   private lastFailure: string = '';
 
+  /** 返回跨页面共享的当前助手管理器。 */
   static shared(): HarmonyAgentPetManager {
     if (!HarmonyAgentPetManager.instance) {
       HarmonyAgentPetManager.instance = new HarmonyAgentPetManager();
@@ -295,9 +297,11 @@ struct HarmonyPluginAgentPetWebLayer {
   private pendingMountJson: string = '';
   private loadTimeoutId: number = -1;
   private bubbleTimerId: number = -1;
+  private resources: HarmonyPluginResourceClient | null = null;
 
   /** 初始化页面可见期间所需的助手数据和宿主桥。 */
   aboutToAppear(): void {
+    this.resources = new HarmonyPluginResourceClient(this.serverUrl, this.authToken);
     this.bridge = new HarmonyPluginHostBridgeV2(
       this.webController,
       this.serverUrl,
@@ -599,6 +603,8 @@ struct HarmonyPluginAgentPetWebLayer {
 
   /** 代理当前插件声明允许访问的远程资源。 */
   private serveRemoteAsset(virtualPath: string): WebResourceResponse {
+    const resources = this.resources;
+    if (!resources || !resources.hasActiveSession()) { return this.makeError(401, 'No active session'); }
     const target = RustCoreBridge.resolvePluginRemoteUpstream(virtualPath);
     if (!target) {
       return this.makeError(400, 'Invalid remote path');
@@ -623,15 +629,7 @@ struct HarmonyPluginAgentPetWebLayer {
     }
     const resp = new WebResourceResponse();
     resp.setResponseIsReady(false);
-    const req = http.createHttp();
-    req.request(`${origin}${target.upstream_api_path}`, {
-      method: http.RequestMethod.GET,
-      header: { 'Authorization': `Bearer ${this.authToken}`, 'X-MoviePilot-Locale': this.locale || 'zh-CN' },
-      connectTimeout: 15000,
-      readTimeout: 30000,
-      expectDataType: http.HttpDataType.ARRAY_BUFFER
-    }).then((httpResp: http.HttpResponse) => {
-      req.destroy();
+    resources.fetch(target.upstream_api_path, this.locale).then((httpResp: http.HttpResponse) => {
       const buf = httpResp.result instanceof ArrayBuffer ? httpResp.result : new ArrayBuffer(0);
       const mime = HarmonyPluginRemoteCache.guessMimeType(target.asset_rel_path);
       if (httpResp.responseCode >= 200 && httpResp.responseCode < 300 && buf.byteLength > 0) {
@@ -647,7 +645,6 @@ struct HarmonyPluginAgentPetWebLayer {
       ]);
       resp.setResponseIsReady(true);
     }).catch(() => {
-      try { req.destroy(); } catch { /* ignore */ }
       resp.setResponseData('Upstream failed');
       resp.setResponseMimeType('text/plain');
       resp.setResponseEncoding('utf-8');
@@ -660,22 +657,15 @@ struct HarmonyPluginAgentPetWebLayer {
 
   /** 转发插件助手所需的只读服务 API。 */
   private servePassiveApi(pathWithQuery: string): WebResourceResponse {
+    const resources = this.resources;
+    if (!resources || !resources.hasActiveSession()) { return this.makeError(401, 'No active session'); }
     const normalized = RustCoreBridge.validatePluginApiPath(pathWithQuery);
     if (!normalized) {
       return this.makeError(400, 'Invalid API path');
     }
     const resp = new WebResourceResponse();
     resp.setResponseIsReady(false);
-    const origin = this.serverUrl.replace(/\/+$/, '');
-    const req = http.createHttp();
-    req.request(`${origin}${normalized}`, {
-      method: http.RequestMethod.GET,
-      header: { 'Authorization': `Bearer ${this.authToken}` },
-      connectTimeout: 15000,
-      readTimeout: 30000,
-      expectDataType: http.HttpDataType.ARRAY_BUFFER
-    }).then((httpResp: http.HttpResponse) => {
-      req.destroy();
+    resources.fetch(normalized, this.locale).then((httpResp: http.HttpResponse) => {
       const buf = httpResp.result instanceof ArrayBuffer ? httpResp.result : new ArrayBuffer(0);
       resp.setResponseData(buf);
       resp.setResponseMimeType(HarmonyPluginRemoteCache.guessMimeType(normalized));
@@ -687,7 +677,6 @@ struct HarmonyPluginAgentPetWebLayer {
       ]);
       resp.setResponseIsReady(true);
     }).catch(() => {
-      try { req.destroy(); } catch { /* ignore */ }
       resp.setResponseData('Proxy failed');
       resp.setResponseMimeType('text/plain');
       resp.setResponseEncoding('utf-8');

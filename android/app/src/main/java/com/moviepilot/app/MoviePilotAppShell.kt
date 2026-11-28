@@ -1807,16 +1807,15 @@ fun MoviePilotRootShell(
 
                     // 3. 全界面 AI 助手形象宿主（覆盖主 Tab 与全部二级子页面；支持原生内置机器人与 Web AgentPets 插件舞台/悬浮形象直跑）
                     if (authSession != null && !isSwitchingServer && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null && !isInPipMode) {
-                        val petSessionPayload = remember(authSession.serverUrl, authSession.token, authSession.identity) {
-                            VuePluginSessionPayload(
-                                serverUrl = authSession.serverUrl,
-                                authToken = authSession.token,
-                                userId = authSession.identity.id,
-                                userName = authSession.identity.name,
-                                avatar = authSession.identity.avatar.orEmpty(),
-                                isSuperuser = authSession.identity.isSuperuser,
-                            )
-                        }
+                        val petSessionPayload = VuePluginSessionPayload(
+                            serverUrl = authSession.serverUrl,
+                            authToken = authSession.token,
+                            userId = authSession.identity.id,
+                            userName = authSession.identity.name,
+                            avatar = authSession.identity.avatar.orEmpty(),
+                            isSuperuser = authSession.identity.isSuperuser,
+                            originCookies = repository.exportOriginCookieEntries(),
+                        )
                         val petScopeKey = "${authSession.serverUrl}|${authSession.identity.id}|${authSession.identity.name}"
                         val petHiddenByFullScreenRoute =
                             showAgentPetPicker ||

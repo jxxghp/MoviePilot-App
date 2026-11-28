@@ -790,7 +790,13 @@ struct NativeAgentChatPage: View {
         .accessibilityIdentifier("native-agent-sessions")
       }
     }
-    .sheet(isPresented: $showsPetPickerSheet) {
+    .sheet(
+      isPresented: $showsPetPickerSheet,
+      onDismiss: {
+        showsPetPickerSheet = false
+        NativeAgentPetWindowCoordinator.shared.refreshAfterModalDismissal()
+      }
+    ) {
       NativeAgentPetPickerSheet(session: session, petStore: petStore)
     }
     .photosPicker(isPresented: $showsPhotoPicker, selection: $selectedPhotoItem, matching: .images)

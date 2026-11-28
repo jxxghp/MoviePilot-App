@@ -37,6 +37,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -64,6 +65,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -4371,6 +4373,7 @@ private fun VideoCenterTransportOverlay(
     }
 }
 
+/** 视频底部进度与紧凑图标操作栏，保留窄屏横向滚动和各项播放设置入口。 */
 @Composable
 private fun VideoBottomControlsOverlay(
     controller: PlayerRuntimeController,
@@ -4574,15 +4577,28 @@ private fun VideoBottomControlsOverlay(
             }
         }
 
-        ExpressiveGroupedActionDock(
-            actions = dockActions,
-            dockColor = Color(0xCC12151E),
-            buttonColor = Color.White.copy(alpha = 0.12f),
-            activeButtonColor = colors.accent,
-            iconColor = Color.White,
-            activeIconColor = colors.primaryButtonFg,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            dockActions.forEach { action ->
+                IconButton(onClick = action.onClick, modifier = Modifier.size(48.dp)) {
+                    Box(
+                        modifier = Modifier.size(36.dp).clip(CircleShape)
+                            .background(if (action.active) colors.accent else Color.Transparent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = action.icon,
+                            contentDescription = action.contentDescription,
+                            tint = if (action.active) colors.primaryButtonFg else Color.White,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

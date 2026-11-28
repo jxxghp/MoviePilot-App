@@ -6,10 +6,7 @@ import android.webkit.WebResourceResponse
 import androidx.webkit.WebViewAssetLoader
 import com.moviepilot.pluginhost.VuePluginSessionPayload
 import com.moviepilot.rustbridge.RustCoreBridge
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.ByteArrayInputStream
-import java.util.concurrent.TimeUnit
 
 /**
  * Android 端虚拟安全源 `https://plugin-shell.moviepilot.local/` 请求拦截器：
@@ -19,6 +16,8 @@ import java.util.concurrent.TimeUnit
  */
 class PluginShellRequestInterceptor(
     private val appContext: Context,
+    private val currentSession: ((VuePluginSessionPayload) -> VuePluginSessionPayload?)? = null,
+    refreshResourceCookie: (() -> Unit)? = null,
 ) {
     companion object {
         const val VIRTUAL_HOST = "plugin-shell.moviepilot.local"
@@ -29,22 +28,25 @@ class PluginShellRequestInterceptor(
     @Volatile
     private var activeSession: VuePluginSessionPayload? = null
 
-    private val okHttp = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .followRedirects(false)
-        .build()
+    private val resources = PluginResourceHttpClient({ resolveSession() }, refreshResourceCookie)
 
     private val assetLoader = WebViewAssetLoader.Builder()
         .setDomain(VIRTUAL_HOST)
         .addPathHandler("/shell/", WebViewAssetLoader.AssetsPathHandler(appContext))
         .build()
 
+    /** 更新容器归属会话；置空后停止所有新的带凭据资源请求。 */
     fun updateSession(session: VuePluginSessionPayload?) {
         activeSession = session
     }
 
+    /** 助手容器按请求读取原生 Cookie，失效的会话不能回退到旧快照。 */
+    private fun resolveSession(): VuePluginSessionPayload? {
+        val bound = activeSession ?: return null
+        return if (currentSession != null) currentSession.invoke(bound) else bound
+    }
+
+    /** 拦截虚拟安全源请求，只代理经 Rust 校验的资源路径。 */
     fun intercept(request: WebResourceRequest): WebResourceResponse? {
         val uri = request.url ?: return null
         if (!uri.scheme.equals("https", ignoreCase = true) || !uri.host.equals(VIRTUAL_HOST, ignoreCase = true)) {
@@ -77,6 +79,7 @@ class PluginShellRequestInterceptor(
         }
     }
 
+    /** 从 APK 读取受控的本地插件壳资源。 */
     private fun serveShellAsset(virtualPath: String): WebResourceResponse {
         val relPath = RustCoreBridge.validatePluginShellAssetPath(virtualPath)
             ?: return errorResponse(400, "Invalid shell asset path")
@@ -100,10 +103,11 @@ class PluginShellRequestInterceptor(
             ?: errorResponse(404, "Shell asset not found")
     }
 
+    /** 优先读取实例缓存，未命中时以最新资源 Cookie 回源。 */
     private fun serveRemotePluginAsset(virtualPath: String): WebResourceResponse {
         val target = RustCoreBridge.resolvePluginRemoteUpstream(virtualPath)
             ?: return errorResponse(400, "Invalid plugin remote path")
-        val session = activeSession ?: return errorResponse(401, "No active session")
+        val session = resolveSession() ?: return errorResponse(401, "No active session")
         val origin = session.serverUrl.trimEnd('/')
 
         PluginRemoteDiskCache.read(
@@ -116,18 +120,10 @@ class PluginShellRequestInterceptor(
             return buildBinaryResponse(200, cached.mimeType, cached.bytes, "public, max-age=31536000, immutable")
         }
 
-        val upstreamUrl = "$origin${target.upstreamApiPath}"
-        val reqBuilder = Request.Builder()
-            .url(upstreamUrl)
-            .header("Authorization", "Bearer ${session.authToken}")
-            .header("X-MoviePilot-Locale", "zh-CN")
-        val cookieHeader = buildCookieHeader(session.originCookies)
-        if (cookieHeader.isNotEmpty()) {
-            reqBuilder.header("Cookie", cookieHeader)
-        }
-
         return runCatching {
-            okHttp.newCall(reqBuilder.build()).execute().use { resp ->
+            val response = resources.execute(target.upstreamApiPath)
+                ?: return errorResponse(401, "No active session")
+            response.use { resp ->
                 val data = resp.body?.bytes() ?: ByteArray(0)
                 val rawCt = resp.header("Content-Type")?.substringBefore(';')?.trim().orEmpty()
                 val mime = if (rawCt.isBlank() || rawCt == "application/octet-stream") {
@@ -158,21 +154,14 @@ class PluginShellRequestInterceptor(
         }
     }
 
+    /** 代理插件只读资源并使用相同的 Cookie 刷新边界。 */
     private fun servePassiveApiResource(pathWithQuery: String): WebResourceResponse {
         val normalized = RustCoreBridge.validatePluginApiPath(pathWithQuery)
             ?: return errorResponse(400, "Invalid API path")
-        val session = activeSession ?: return errorResponse(401, "No active session")
-        val origin = session.serverUrl.trimEnd('/')
-        val reqBuilder = Request.Builder()
-            .url("$origin$normalized")
-            .header("Authorization", "Bearer ${session.authToken}")
-            .header("X-MoviePilot-Locale", "zh-CN")
-        val cookieHeader = buildCookieHeader(session.originCookies)
-        if (cookieHeader.isNotEmpty()) {
-            reqBuilder.header("Cookie", cookieHeader)
-        }
         return runCatching {
-            okHttp.newCall(reqBuilder.build()).execute().use { resp ->
+            val response = resources.execute(normalized)
+                ?: return errorResponse(401, "No active session")
+            response.use { resp ->
                 val data = resp.body?.bytes() ?: ByteArray(0)
                 val rawCt = resp.header("Content-Type")?.substringBefore(';')?.trim().orEmpty()
                 val mime = if (rawCt.isBlank() || rawCt == "application/octet-stream") {
@@ -187,10 +176,7 @@ class PluginShellRequestInterceptor(
         }
     }
 
-    private fun buildCookieHeader(rawCookies: List<String>): String =
-        rawCookies.mapNotNull { it.substringBefore(';').trim().takeIf(String::isNotEmpty) }
-            .joinToString("; ")
-
+    /** 为虚拟安全源响应补齐 CORS 与缓存策略。 */
     private fun corsHeaders(cacheControl: String): Map<String, String> = mapOf(
         "Access-Control-Allow-Origin" to VIRTUAL_ORIGIN,
         "Access-Control-Allow-Methods" to "GET, HEAD, OPTIONS",
@@ -198,6 +184,7 @@ class PluginShellRequestInterceptor(
         "Cache-Control" to cacheControl,
     )
 
+    /** 构造保留上游状态码和资源 MIME 的二进制响应。 */
     private fun buildBinaryResponse(
         status: Int,
         mimeType: String,
@@ -215,6 +202,7 @@ class PluginShellRequestInterceptor(
         )
     }
 
+    /** 构造不可缓存的本地拦截错误。 */
     private fun errorResponse(status: Int, message: String): WebResourceResponse =
         WebResourceResponse(
             "text/plain",

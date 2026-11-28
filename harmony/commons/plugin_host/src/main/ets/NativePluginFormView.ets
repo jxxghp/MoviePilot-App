@@ -46,15 +46,35 @@ export interface VueChromeConfirmation {
   destructive: boolean;
 }
 
+/** 原生统计卡片内容及其内嵌进度条。 */
 export interface PluginStatCell {
   label: string;
   value: string;
   sub: string;
+  progressGroups?: PluginProgressGroup[];
 }
 
+/** 单条 Vuetify 线性进度条的值与显示属性。 */
+export interface PluginProgressSpec {
+  value: number;
+  color: string;
+  height: number;
+  rounded: boolean;
+  backgroundOpacity: number;
+}
+
+/** 一个普通进度条或叠放在同一轨道上的多条进度条。 */
+export interface PluginProgressGroup {
+  id: string;
+  height: number;
+  radius: number;
+  bars: PluginProgressSpec[];
+}
+
+/** 从插件 JSON 提取的原生展示块，保留容器内的线性进度组件。 */
 export interface PluginDataBlock {
   id: string;
-  kind: string; // 'alert' | 'heading' | 'chip' | 'text' | 'card' | 'image' | 'table' | 'stat_grid'
+  kind: string; // 'alert' | 'heading' | 'chip' | 'text' | 'card' | 'image' | 'table' | 'stat_grid' | 'progress' | 'progress_group'
   title: string;
   subtitle?: string;
   body: string;
@@ -64,6 +84,9 @@ export interface PluginDataBlock {
   headers?: string[];
   rows?: string[][];
   stats?: PluginStatCell[];
+  progress?: PluginProgressSpec;
+  progressGroup?: PluginProgressGroup;
+  progressGroups?: PluginProgressGroup[];
 }
 
 /**
@@ -128,6 +151,110 @@ function readBool(obj: Record<string, Object> | null, key: string, fallback: boo
   if (v === null || v === undefined) { return fallback; }
   if (typeof v === 'boolean') { return v; }
   return String(v).toLowerCase() === 'true';
+}
+
+/** 将 Vuetify 线性进度数值夹取到 0..100 百分比范围。 */
+function normalizeProgressPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+/** 从内联 CSS 文本中读取一个样式属性。 */
+function readStyleValue(style: string, property: string): string {
+  const declarations = style.split(';');
+  for (let i = 0; i < declarations.length; i++) {
+    const parts = declarations[i].split(':');
+    if (parts.length >= 2 && parts[0].trim().toLowerCase() === property.toLowerCase()) {
+      return parts.slice(1).join(':').trim();
+    }
+  }
+  return '';
+}
+
+/** 将 CSS 像素尺寸解析为有限的非负数字。 */
+function readCssDimension(style: string, property: string, fallback: number): number {
+  const raw = readStyleValue(style, property).toLowerCase().replace('px', '').trim();
+  if (raw.length === 0) { return fallback; }
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+/** 读取单条 VProgressLinear 节点的值、颜色、轨道高度和圆角属性。 */
+function parseProgressSpec(node: Record<string, Object>): PluginProgressSpec {
+  const props = asObj(node['props']);
+  let rawValue = props ? props['model-value'] : undefined;
+  if (rawValue === undefined && props) { rawValue = props['modelValue']; }
+  if (rawValue === undefined && props) { rawValue = props['value']; }
+  const parsedValue = Number(rawValue === undefined || rawValue === null ? 0 : String(rawValue));
+  const rawHeight = Number(props && props['height'] !== undefined ? String(props['height']).replace('px', '') : '6');
+  const roundedValue = props ? props['rounded'] : undefined;
+  const rounded = roundedValue === undefined || String(roundedValue).toLowerCase() !== 'false' && String(roundedValue) !== '0';
+  const rawOpacity = Number(readStr(props, 'bg-opacity', readStr(props, 'bgOpacity', '0.26')));
+  return {
+    value: normalizeProgressPercent(Number.isFinite(parsedValue) ? parsedValue : 0),
+    color: readStr(props, 'color', 'primary'),
+    height: Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : 6,
+    rounded: rounded,
+    backgroundOpacity: Number.isFinite(rawOpacity) ? Math.max(0, Math.min(1, rawOpacity)) : 0.26
+  };
+}
+
+/** 组合线性进度条节点，并按父级内联样式保留相对定位叠放尺寸。 */
+function makeProgressGroup(nodes: Object[], id: string, style: string = ''): PluginProgressGroup | null {
+  const bars: PluginProgressSpec[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const node = asObj(nodes[i]);
+    if (node && readStr(node, 'component').toLowerCase() === 'vprogresslinear') {
+      bars.push(parseProgressSpec(node));
+    }
+  }
+  if (bars.length === 0) { return null; }
+  const defaultHeight = bars.reduce((height: number, bar: PluginProgressSpec) => Math.max(height, bar.height), 0);
+  const height = readCssDimension(style, 'height', defaultHeight);
+  return {
+    id: id,
+    height: height,
+    radius: readCssDimension(style, 'border-radius', height / 2),
+    bars: bars
+  };
+}
+
+/** 递归查找节点树中的线性进度条和相对定位叠放组。 */
+function collectProgressGroups(nodes: Object[], prefix: string): PluginProgressGroup[] {
+  const groups: PluginProgressGroup[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const node = asObj(nodes[i]);
+    if (!node) { continue; }
+    const component = readStr(node, 'component').toLowerCase();
+    const children = asList(node['content']);
+    const props = asObj(node['props']);
+    const style = readStr(props, 'style') || readStr(node, 'style');
+    if (component === 'vprogresslinear') {
+      const group = makeProgressGroup([node], `${prefix}_${groups.length}`);
+      if (group) { groups.push(group); }
+      continue;
+    }
+    const allProgressChildren = children.length > 0 && children.every((child: Object) => {
+      const childNode = asObj(child);
+      return childNode !== null && readStr(childNode, 'component').toLowerCase() === 'vprogresslinear';
+    });
+    if (component === 'div' && readStyleValue(style, 'position').toLowerCase() === 'relative' && allProgressChildren) {
+      const group = makeProgressGroup(children, `${prefix}_${groups.length}`, style);
+      if (group) { groups.push(group); }
+      continue;
+    }
+    const nested = collectProgressGroups(children, `${prefix}_${groups.length}`);
+    for (let j = 0; j < nested.length; j++) { groups.push(nested[j]); }
+  }
+  return groups;
+}
+
+/** 将主题十六进制颜色的 alpha 通道按轨道透明度缩放。 */
+function colorWithOpacity(color: string, opacity: number): string {
+  if (!color.startsWith('#') || (color.length !== 7 && color.length !== 9)) { return color; }
+  const hasAlpha = color.length === 9;
+  const alpha = hasAlpha ? parseInt(color.slice(1, 3), 16) : 255;
+  const scaled = Math.max(0, Math.min(255, Math.round(alpha * opacity))).toString(16).padStart(2, '0');
+  return `#${scaled}${hasAlpha ? color.slice(3) : color.slice(1)}`;
 }
 
 function copyRecord(src: Record<string, Object>): Record<string, Object> {
@@ -359,6 +486,7 @@ function extractTableBlock(node: Record<string, Object>, id: string): PluginData
   };
 }
 
+/** 聚合原生卡片内容，同时保留文本摘要无法表达的进度组件。 */
 function extractCardSummary(cardNode: Record<string, Object>, serverUrl: string, id: string): PluginDataBlock | null {
   const props = asObj(cardNode['props']);
   let title = readStr(props, 'title').trim();
@@ -408,11 +536,12 @@ function extractCardSummary(cardNode: Record<string, Object>, serverUrl: string,
   };
 
   const children = asList(cardNode['content']);
+  const progressGroups = collectProgressGroups(children, `${id}_progress`);
   for (let i = 0; i < children.length; i++) {
     walkCard(asObj(children[i]));
   }
 
-  if (title.length === 0 && subtitle.length === 0 && bodyLines.length === 0 && chips.length === 0 && imageUrl.length === 0) {
+  if (title.length === 0 && subtitle.length === 0 && bodyLines.length === 0 && chips.length === 0 && imageUrl.length === 0 && progressGroups.length === 0) {
     return null;
   }
   return {
@@ -423,10 +552,12 @@ function extractCardSummary(cardNode: Record<string, Object>, serverUrl: string,
     body: bodyLines.join('\n'),
     tone: readStr(props, 'color', 'default'),
     imageUrl: imageUrl.length > 0 ? imageUrl : undefined,
-    chips: chips.length > 0 ? chips : undefined
+    chips: chips.length > 0 ? chips : undefined,
+    progressGroups: progressGroups
   };
 }
 
+/** 识别统计网格，并为每个统计单元保留其进度条。 */
 function tryExtractStatGridFromRow(rowNode: Record<string, Object>, id: string): PluginDataBlock | null {
   const cols = asList(rowNode['content']);
   if (cols.length < 2) { return null; }
@@ -459,7 +590,8 @@ function tryExtractStatGridFromRow(rowNode: Record<string, Object>, id: string):
     stats.push({
       label: textSegs[0],
       value: textSegs[1],
-      sub: textSegs.length >= 3 ? textSegs.slice(2).join(' · ') : ''
+      sub: textSegs.length >= 3 ? textSegs.slice(2).join(' · ') : '',
+      progressGroups: collectProgressGroups(asList(col['content']), `${id}_stat_${i}`)
     });
   }
   if (stats.length < 2) { return null; }
@@ -473,6 +605,7 @@ function tryExtractStatGridFromRow(rowNode: Record<string, Object>, id: string):
   };
 }
 
+/** 将 Vuetify 数据页 JSON 节点提取为鸿蒙原生展示块。 */
 function extractDataBlocks(nodes: Object[], out: PluginDataBlock[], serverUrl: string = ''): void {
   for (let i = 0; i < nodes.length; i++) {
     const node = asObj(nodes[i]);
@@ -482,6 +615,42 @@ function extractDataBlocks(nodes: Object[], out: PluginDataBlock[], serverUrl: s
     const lower = comp.toLowerCase();
     const props = asObj(node['props']);
     const text = typeof node['text'] === 'string' ? (node['text'] as string) : '';
+    const content = asList(node['content']);
+    const style = readStr(props, 'style') || readStr(node, 'style');
+
+    if (lower === 'div' && readStyleValue(style, 'position').toLowerCase() === 'relative' && content.length > 0) {
+      const allProgressChildren = content.every((child: Object) => {
+        const childNode = asObj(child);
+        return childNode !== null && readStr(childNode, 'component').toLowerCase() === 'vprogresslinear';
+      });
+      if (allProgressChildren) {
+        const group = makeProgressGroup(content, `b_${out.length}`, style);
+        if (group) {
+          out.push({
+            id: `b_${out.length}`,
+            kind: 'progress_group',
+            title: '',
+            body: '',
+            tone: 'default',
+            progressGroup: group
+          });
+          continue;
+        }
+      }
+    }
+
+    if (lower === 'vprogresslinear') {
+      const progress = parseProgressSpec(node);
+      out.push({
+        id: `b_${out.length}`,
+        kind: 'progress',
+        title: '',
+        body: '',
+        tone: progress.color,
+        progress: progress
+      });
+      continue;
+    }
 
     if (comp === 'VTable' || comp === 'VSimpleTable' || lower === 'table') {
       const tbl = extractTableBlock(node, `b_${out.length}`);
@@ -528,13 +697,16 @@ function extractDataBlocks(nodes: Object[], out: PluginDataBlock[], serverUrl: s
 
     if (comp === 'VAlert') {
       const body = text || readStr(props, 'text') || collectPlainText(node);
-      if (body.length > 0) {
+      const progressGroups = collectProgressGroups(content, `b_${out.length}_progress`);
+      const title = readStr(props, 'title');
+      if (body.length > 0 || title.length > 0 || progressGroups.length > 0) {
         out.push({
           id: `b_${out.length}`,
           kind: 'alert',
-          title: readStr(props, 'title'),
+          title: title,
           body: body,
-          tone: readStr(props, 'type', 'info')
+          tone: readStr(props, 'type', 'info'),
+          progressGroups: progressGroups
         });
         continue;
       }
@@ -553,7 +725,6 @@ function extractDataBlocks(nodes: Object[], out: PluginDataBlock[], serverUrl: s
       }
     }
 
-    const content = asList(node['content']);
     if (content.length > 0) {
       extractDataBlocks(content, out, serverUrl);
     }
@@ -605,20 +776,46 @@ export struct NativePluginDataPageView {
     }
   }
 
+  /** 将告警和进度条语义颜色映射为 Harmony 原生颜色。 */
   private alertTint(tone: string): string {
     const t = tone.toLowerCase();
+    if (t.startsWith('#')) { return t; }
     if (t === 'error' || t === 'danger') { return '#E84855'; }
     if (t === 'warning' || t === 'warn') { return '#F29B38'; }
     if (t === 'success') { return '#34C759'; }
     return this.accentHex;
   }
 
+  /** 返回站点统计网格随窗口宽度变化的列模板。 */
   private statColumnsTemplate(): string {
     if (this.windowWidthVp >= 840) { return '1fr 1fr 1fr 1fr'; }
     if (this.windowWidthVp >= 560) { return '1fr 1fr 1fr'; }
     return '1fr 1fr';
   }
 
+  /** 绘制按样式分组的单条或叠放线性进度条。 */
+  @Builder
+  private progressGroupView(group: PluginProgressGroup) {
+    Stack({ alignContent: Alignment.TopStart }) {
+      ForEach(group.bars, (bar: PluginProgressSpec, index: number) => {
+        Progress({ value: bar.value, total: 100, type: ProgressType.Linear })
+          .style({ strokeWidth: bar.height, strokeRadius: bar.rounded ? bar.height / 2 : 0 })
+          .color(this.alertTint(bar.color))
+          .backgroundColor(bar.backgroundOpacity === 0
+            ? Color.Transparent
+            : colorWithOpacity(HarmonyThemeColors.chipFill(this.isDark), bar.backgroundOpacity))
+          .height(bar.height)
+          .borderRadius(bar.rounded ? bar.height / 2 : 0)
+          .width('100%')
+      }, (bar: PluginProgressSpec, index: number) => `${group.id}_${index}_${bar.value}`)
+    }
+    .width('100%')
+    .height(group.height)
+    .clip(true)
+    .borderRadius(group.radius)
+  }
+
+  /** 构建原生插件数据页，或在页面使用 Vue 联邦模式时显示隔离容器。 */
   build() {
     if (this.renderMode === 'vue' || this.blocks.length === 0) {
       IsolatedVuePluginWebView({
@@ -666,6 +863,11 @@ export struct NativePluginDataPageView {
                               .maxLines(1)
                               .width('100%')
                           }
+                          if (st.progressGroups) {
+                            ForEach(st.progressGroups, (group: PluginProgressGroup) => {
+                              this.progressGroupView(group)
+                            }, (group: PluginProgressGroup) => group.id)
+                          }
                         }.alignItems(HorizontalAlign.Start).width('100%')
                       }
                     }
@@ -675,6 +877,15 @@ export struct NativePluginDataPageView {
                 .columnsGap(10)
                 .rowsGap(10)
                 .width('100%')
+              } else if (blk.kind === 'progress' && blk.progress) {
+                this.progressGroupView({
+                  id: blk.id,
+                  height: blk.progress.height,
+                  radius: blk.progress.rounded ? blk.progress.height / 2 : 0,
+                  bars: [blk.progress]
+                })
+              } else if (blk.kind === 'progress_group' && blk.progressGroup) {
+                this.progressGroupView(blk.progressGroup)
               } else if (blk.kind === 'table') {
                 CinematicPanel({ panelPadding: 12, cornerRadius: 16 }) {
                   Scroll() {
@@ -764,6 +975,11 @@ export struct NativePluginDataPageView {
                       Text(blk.body)
                         .fontSize(13).fontColor(mpSecondaryText(this.isDark)).lineHeight(20).width('100%')
                     }
+                    if (blk.progressGroups) {
+                      ForEach(blk.progressGroups, (group: PluginProgressGroup) => {
+                        this.progressGroupView(group)
+                      }, (group: PluginProgressGroup) => group.id)
+                    }
                   }.alignItems(HorizontalAlign.Start).width('100%')
                 }
               } else if (blk.kind === 'alert') {
@@ -772,7 +988,14 @@ export struct NativePluginDataPageView {
                     if (blk.title.length > 0) {
                       Text(blk.title).fontSize(14).fontWeight(FontWeight.Bold).fontColor(this.alertTint(blk.tone))
                     }
-                    Text(blk.body).fontSize(13).fontColor(mpPrimaryText(this.isDark)).lineHeight(20)
+                    if (blk.body.length > 0) {
+                      Text(blk.body).fontSize(13).fontColor(mpPrimaryText(this.isDark)).lineHeight(20)
+                    }
+                    if (blk.progressGroups) {
+                      ForEach(blk.progressGroups, (group: PluginProgressGroup) => {
+                        this.progressGroupView(group)
+                      }, (group: PluginProgressGroup) => group.id)
+                    }
                   }.alignItems(HorizontalAlign.Start).width('100%')
                 }
               } else if (blk.kind === 'heading') {

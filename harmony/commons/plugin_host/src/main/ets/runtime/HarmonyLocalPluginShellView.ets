@@ -11,9 +11,11 @@ import {
   HarmonyPluginToastSpec
 } from './HarmonyPluginHostBridgeV2';
 import { HarmonyPluginRemoteCache } from './HarmonyPluginRemoteCache';
+import { HarmonyPluginResourceClient } from './HarmonyPluginResourceClient';
 import { buildHarmonyPluginVisualTokens } from './HarmonyPluginVisualTokens';
 import { HarmonyPluginCapsuleManager } from './HarmonyPluginCapsule';
 
+/** 描述后端提供的插件远程模块入口。 */
 interface RemoteDescriptorItem {
   id: string;
   url: string;
@@ -70,7 +72,9 @@ export struct HarmonyLocalPluginShellView {
   private pendingMountPayloadJson: string = '';
   private toastTimer: number = -1;
   private backFallbackTimer: number = -1;
+  private resources: HarmonyPluginResourceClient | null = null;
 
+  /** 取消关闭页面所用的返回兜底计时器。 */
   private clearBackFallbackTimer(): void {
     if (this.backFallbackTimer !== -1) {
       clearTimeout(this.backFallbackTimer);
@@ -78,7 +82,9 @@ export struct HarmonyLocalPluginShellView {
     }
   }
 
+  /** 绑定当前插件会话并初始化壳层消息桥。 */
   aboutToAppear(): void {
+    this.resources = new HarmonyPluginResourceClient(this.serverUrl, this.authToken);
     this.bridge = new HarmonyPluginHostBridgeV2(
       this.webController,
       this.serverUrl,
@@ -446,7 +452,10 @@ export struct HarmonyLocalPluginShellView {
     }
   }
 
+  /** 从实例缓存或带资源 Cookie 的原生请求读取插件脚本及资源。 */
   private serveRemotePluginAsset(virtualPath: string): WebResourceResponse {
+    const resources = this.resources;
+    if (!resources || !resources.hasActiveSession()) { return this.makeErrorResponse(401, 'No active session'); }
     const target = RustCoreBridge.resolvePluginRemoteUpstream(virtualPath);
     if (!target) {
       return this.makeErrorResponse(400, 'Invalid plugin remote path');
@@ -481,19 +490,7 @@ export struct HarmonyLocalPluginShellView {
     // 2. 未命中时异步经原生鉴权回源并落盘
     const resp = new WebResourceResponse();
     resp.setResponseIsReady(false);
-    const upstreamUrl = `${origin}${target.upstream_api_path}`;
-    const req = http.createHttp();
-    req.request(upstreamUrl, {
-      method: http.RequestMethod.GET,
-      header: {
-        'Authorization': `Bearer ${this.authToken}`,
-        'X-MoviePilot-Locale': this.locale || 'zh-CN'
-      },
-      connectTimeout: 15000,
-      readTimeout: 30000,
-      expectDataType: http.HttpDataType.ARRAY_BUFFER
-    }).then((httpResp: http.HttpResponse) => {
-      req.destroy();
+    resources.fetch(target.upstream_api_path, this.locale).then((httpResp: http.HttpResponse) => {
       const buf = httpResp.result instanceof ArrayBuffer ? httpResp.result : new ArrayBuffer(0);
       const mime = HarmonyPluginRemoteCache.guessMimeType(target.asset_rel_path);
       if (httpResp.responseCode >= 200 && httpResp.responseCode < 300 && buf.byteLength > 0) {
@@ -513,15 +510,11 @@ export struct HarmonyLocalPluginShellView {
       resp.setReasonMessage(httpResp.responseCode >= 200 && httpResp.responseCode < 300 ? 'OK' : 'Error');
       resp.setResponseHeader([
         { headerKey: 'Access-Control-Allow-Origin', headerValue: HarmonyLocalPluginShellView.VIRTUAL_ORIGIN },
-        { headerKey: 'Cache-Control', headerValue: 'public, max-age=31536000, immutable' }
+        { headerKey: 'Cache-Control', headerValue: httpResp.responseCode >= 200 && httpResp.responseCode < 300
+          ? 'public, max-age=31536000, immutable' : 'no-store' }
       ]);
       resp.setResponseIsReady(true);
     }).catch(() => {
-      try {
-        req.destroy();
-      } catch {
-        // ignore
-      }
       resp.setResponseData('Upstream fetch failed');
       resp.setResponseMimeType('text/plain');
       resp.setResponseEncoding('utf-8');
@@ -532,26 +525,17 @@ export struct HarmonyLocalPluginShellView {
     return resp;
   }
 
+  /** 对插件图片和图标使用与脚本相同的会话 Cookie 代理。 */
   private servePassiveApiResource(pathWithQuery: string): WebResourceResponse {
+    const resources = this.resources;
+    if (!resources || !resources.hasActiveSession()) { return this.makeErrorResponse(401, 'No active session'); }
     const normalized = RustCoreBridge.validatePluginApiPath(pathWithQuery);
     if (!normalized) {
       return this.makeErrorResponse(400, 'Invalid API path');
     }
     const resp = new WebResourceResponse();
     resp.setResponseIsReady(false);
-    const origin = this.serverUrl.replace(/\/+$/, '');
-    const req = http.createHttp();
-    req.request(`${origin}${normalized}`, {
-      method: http.RequestMethod.GET,
-      header: {
-        'Authorization': `Bearer ${this.authToken}`,
-        'X-MoviePilot-Locale': this.locale || 'zh-CN'
-      },
-      connectTimeout: 15000,
-      readTimeout: 30000,
-      expectDataType: http.HttpDataType.ARRAY_BUFFER
-    }).then((httpResp: http.HttpResponse) => {
-      req.destroy();
+    resources.fetch(normalized, this.locale).then((httpResp: http.HttpResponse) => {
       const buf = httpResp.result instanceof ArrayBuffer ? httpResp.result : new ArrayBuffer(0);
       resp.setResponseData(buf);
       resp.setResponseMimeType(HarmonyPluginRemoteCache.guessMimeType(normalized));
@@ -563,11 +547,6 @@ export struct HarmonyLocalPluginShellView {
       ]);
       resp.setResponseIsReady(true);
     }).catch(() => {
-      try {
-        req.destroy();
-      } catch {
-        // ignore
-      }
       resp.setResponseData('Proxy failed');
       resp.setResponseMimeType('text/plain');
       resp.setResponseEncoding('utf-8');
@@ -578,6 +557,7 @@ export struct HarmonyLocalPluginShellView {
     return resp;
   }
 
+  /** 构造不包含会话数据的资源拦截错误。 */
   private makeErrorResponse(code: number, message: string): WebResourceResponse {
     const resp = new WebResourceResponse();
     resp.setResponseData(message);

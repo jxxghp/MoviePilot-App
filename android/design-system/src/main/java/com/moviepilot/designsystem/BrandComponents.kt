@@ -1261,7 +1261,8 @@ fun FloatingAgentMascot(
         } else if (dockLeft) {
             (safeLeftPx - mascotWidthPx * 0.36f) - (anchorX + offsetX)
         } else {
-            (vwNow - safeRightPx - mascotWidthPx * 0.64f) - (anchorX + offsetX)
+            // 右侧再向外收半身，只露出探头与扒边手臂。
+            (vwNow - safeRightPx - mascotWidthPx * 0.50f) - (anchorX + offsetX)
         }
     }
     val dockShiftPx by animateFloatAsState(

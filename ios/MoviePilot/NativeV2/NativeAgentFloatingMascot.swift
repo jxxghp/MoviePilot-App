@@ -56,7 +56,7 @@ enum NativeAgentPetAction: String, CaseIterable, Sendable {
     .wave, .sit, .sleep, .stretch, .peek, .shy, .confused,
   ]
 
-    /// 选择一个不同于上次动作的随机待机动作。
+  /// 选择一个不同于上次动作的随机待机动作。
   static func pickRandomIdle(last: NativeAgentPetAction?) -> NativeAgentPetAction {
     var weighted: [NativeAgentPetAction] = []
     for action in randomIdlePool where action != last {
@@ -86,7 +86,7 @@ struct NativeRobotPalette {
   let eyeGlow: Color
   let shadow: Color
 
-    /// 从系统强调色计算高光、阴影与描边颜色。
+  /// 从系统强调色计算高光、阴影与描边颜色。
   static func derived(from accent: Color) -> NativeRobotPalette {
     let base = UIColor(accent)
     let ink = UIColor(red: 9.0 / 255.0, green: 5.0 / 255.0, blue: 16.0 / 255.0, alpha: 1)
@@ -106,10 +106,16 @@ struct NativeRobotPalette {
     )
   }
 
-    /// 按给定比例混合两种 UIKit 颜色。
+  /// 按给定比例混合两种 UIKit 颜色。
   private static func mix(_ a: UIColor, _ b: UIColor, ratio: CGFloat) -> UIColor {
-    var ar: CGFloat = 0.58, ag: CGFloat = 0.44, ab: CGFloat = 0.95, aa: CGFloat = 1
-    var br: CGFloat = 0.04, bg: CGFloat = 0.02, bb: CGFloat = 0.06, ba: CGFloat = 1
+    var ar: CGFloat = 0.58
+    var ag: CGFloat = 0.44
+    var ab: CGFloat = 0.95
+    var aa: CGFloat = 1
+    var br: CGFloat = 0.04
+    var bg: CGFloat = 0.02
+    var bb: CGFloat = 0.06
+    var ba: CGFloat = 1
     a.getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
     b.getRed(&br, green: &bg, blue: &bb, alpha: &ba)
     let t = min(max(ratio, 0), 1)
@@ -131,6 +137,7 @@ struct NativeAgentFloatingMascot: View {
   let onOpen: () -> Void
   let onHide: () -> Void
   var onSelectPet: (() -> Void)? = nil
+  var onContextMenuVisibilityChange: ((Bool) -> Void)? = nil
   var thinking: Bool = false
   var motionActive: Bool = true
   var dockVisible: Bool = true
@@ -205,7 +212,7 @@ struct NativeAgentFloatingMascot: View {
       let dockedX: CGFloat =
         dockLeft
         ? (leadingClearance + mascotWidth * 0.14)
-        : (proxy.size.width - trailingClearance - mascotWidth * 0.14)
+        : (proxy.size.width - trailingClearance + mascotWidth * 0.14)
       let currentX = effectiveDocked ? dockedX : activeX
       let currentY = activeY
       let hitRect = CGRect(
@@ -218,7 +225,8 @@ struct NativeAgentFloatingMascot: View {
       let palette = NativeRobotPalette.derived(from: appearance.accentColor)
 
       ZStack {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || !motionActive)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || !motionActive))
+        { timeline in
           let now = timeline.date
           let t = now.timeIntervalSinceReferenceDate
           let actionProgress: Double = {
@@ -267,6 +275,8 @@ struct NativeAgentFloatingMascot: View {
           } label: {
             Label("打开智能助手", systemImage: "text.bubble")
           }
+          .onAppear { onContextMenuVisibilityChange?(true) }
+          .onDisappear { onContextMenuVisibilityChange?(false) }
           if let onSelectPet {
             Button {
               onSelectPet()
@@ -397,7 +407,7 @@ struct NativeAgentFloatingMascot: View {
     }
   }
 
-    /// 播放指定动作并重置动画进度。
+  /// 播放指定动作并重置动画进度。
   private func playAction(_ action: NativeAgentPetAction) {
     actionClearTask?.cancel()
     activeAction = action
@@ -437,7 +447,8 @@ struct NativeCssRobotView: View {
       let animEnabled = !reduceMotion
 
       // 常态 5.8s 上半身轻呼吸 & 7.6s 双眨眼
-      let breathPhase = animEnabled && action == nil && !isDocked && !isDragging
+      let breathPhase =
+        animEnabled && action == nil && !isDocked && !isDragging
         ? sin((time / 5.8) * 2.0 * .pi)
         : 0.0
       let breathLiftY = CGFloat(max(0, breathPhase)) * -1.3 * sy
@@ -515,12 +526,16 @@ struct NativeCssRobotView: View {
           let burst = sin(min(max((p - 0.08) / 0.72, 0), 1) * .pi)
           headOffsetY -= CGFloat(burst) * 9.5 * sy
           headRotationDeg += burst * 18.0
-          leftArmOffset = CGSize(width: -7.5 * sx * CGFloat(burst), height: -3.0 * sy * CGFloat(burst))
-          rightArmOffset = CGSize(width: 7.5 * sx * CGFloat(burst), height: -3.0 * sy * CGFloat(burst))
+          leftArmOffset = CGSize(
+            width: -7.5 * sx * CGFloat(burst), height: -3.0 * sy * CGFloat(burst))
+          rightArmOffset = CGSize(
+            width: 7.5 * sx * CGFloat(burst), height: -3.0 * sy * CGFloat(burst))
           leftArmDeg += burst * 42.0
           rightArmDeg -= burst * 42.0
-          leftLegOffset = CGSize(width: -4.0 * sx * CGFloat(burst), height: 4.0 * sy * CGFloat(burst))
-          rightLegOffset = CGSize(width: 4.0 * sx * CGFloat(burst), height: 4.0 * sy * CGFloat(burst))
+          leftLegOffset = CGSize(
+            width: -4.0 * sx * CGFloat(burst), height: 4.0 * sy * CGFloat(burst))
+          rightLegOffset = CGSize(
+            width: 4.0 * sx * CGFloat(burst), height: 4.0 * sy * CGFloat(burst))
           bodyOffsetY += CGFloat(burst) * 2.5 * sy
         case .happyJump:
           let bounce = abs(sin(p * .pi * 3.0))
@@ -805,7 +820,8 @@ struct NativeCssRobotView: View {
             let beamX = faceRect.minX + 3 * sx + CGFloat(sweep) * (faceRect.width - 6 * sx)
             headLayer.drawLayer { clipped in
               clipped.clip(to: facePath)
-              let beamRect = CGRect(x: beamX - 2.2 * sx, y: faceRect.minY, width: 4.4 * sx, height: faceRect.height)
+              let beamRect = CGRect(
+                x: beamX - 2.2 * sx, y: faceRect.minY, width: 4.4 * sx, height: faceRect.height)
               clipped.fill(Path(beamRect), with: .color(palette.eyeGlow.opacity(0.32)))
             }
           }
@@ -814,11 +830,17 @@ struct NativeCssRobotView: View {
           if showBlush {
             let blushColor = Color(red: 1.0, green: 0.45, blue: 0.66).opacity(0.55)
             headLayer.fill(
-              Path(ellipseIn: CGRect(x: faceRect.minX + 3.0 * sx, y: faceRect.midY + 2.2 * sy, width: 5.5 * sx, height: 3.0 * sy)),
+              Path(
+                ellipseIn: CGRect(
+                  x: faceRect.minX + 3.0 * sx, y: faceRect.midY + 2.2 * sy, width: 5.5 * sx,
+                  height: 3.0 * sy)),
               with: .color(blushColor)
             )
             headLayer.fill(
-              Path(ellipseIn: CGRect(x: faceRect.maxX - 8.5 * sx, y: faceRect.midY + 2.2 * sy, width: 5.5 * sx, height: 3.0 * sy)),
+              Path(
+                ellipseIn: CGRect(
+                  x: faceRect.maxX - 8.5 * sx, y: faceRect.midY + 2.2 * sy, width: 5.5 * sx,
+                  height: 3.0 * sy)),
               with: .color(blushColor)
             )
           }
@@ -893,7 +915,7 @@ struct NativeCssRobotView: View {
     }
   }
 
-    /// 按给定姿态绘制机器人手臂。
+  /// 按给定姿态绘制机器人手臂。
   private func drawArm(
     in ctx: inout GraphicsContext,
     center: CGPoint,
@@ -904,7 +926,8 @@ struct NativeCssRobotView: View {
     ctx.drawLayer { armLayer in
       armLayer.translateBy(x: center.x, y: center.y)
       armLayer.rotate(by: .degrees(angleDeg))
-      let rect = CGRect(x: -size.width * 0.5, y: -size.height * 0.5, width: size.width, height: size.height)
+      let rect = CGRect(
+        x: -size.width * 0.5, y: -size.height * 0.5, width: size.width, height: size.height)
       let path = Path(roundedRect: rect, cornerRadius: size.width * 0.5)
       armLayer.fill(
         path,
@@ -918,7 +941,7 @@ struct NativeCssRobotView: View {
     }
   }
 
-    /// 绘制带动态状态与高光效果的机器人眼睛。
+  /// 绘制带动态状态与高光效果的机器人眼睛。
   private func drawRobotEye(
     in ctx: inout GraphicsContext,
     center: CGPoint,
@@ -938,7 +961,11 @@ struct NativeCssRobotView: View {
       let theta = Double(i) / Double(steps) * .pi
       let x = center.x - rx * CGFloat(cos(theta))
       let y = baseY + dir * outerRy * CGFloat(sin(theta))
-      if i == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
+      if i == 0 {
+        path.move(to: CGPoint(x: x, y: y))
+      } else {
+        path.addLine(to: CGPoint(x: x, y: y))
+      }
     }
     for i in stride(from: steps, through: 0, by: -1) {
       let theta = Double(i) / Double(steps) * .pi

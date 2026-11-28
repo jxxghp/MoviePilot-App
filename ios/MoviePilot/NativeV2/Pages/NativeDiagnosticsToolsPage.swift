@@ -30,12 +30,14 @@ struct NativeDiagnosticsToolsPage: View {
     }
   }
 
+  /// 名称识别与过滤规则测试的切换模式。
   private enum TestMode: String, CaseIterable, Identifiable {
     case recognize = "名称识别"
     case rule = "规则测试"
     var id: String { rawValue }
   }
 
+  /// 按检查结果筛选系统模块。
   private enum HealthFilter: String, CaseIterable, Identifiable {
     case all = "全部"
     case failed = "异常"
@@ -54,6 +56,7 @@ struct NativeDiagnosticsToolsPage: View {
     var id: String { rawValue }
   }
 
+  /// 定时服务所属的任务分类。
   private enum SchedulerCategoryFilter: String, CaseIterable, Identifiable {
     case all = "全部"
     case system = "系统任务"
@@ -62,6 +65,7 @@ struct NativeDiagnosticsToolsPage: View {
     var id: String { rawValue }
   }
 
+  /// 词表管理支持的五类配置。
   private enum WordsTab: String, CaseIterable, Identifiable {
     case identifiers = "识别词"
     case releaseGroups = "制作组"
@@ -77,6 +81,7 @@ struct NativeDiagnosticsToolsPage: View {
   private let logTitle: String?
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @Environment(\.colorScheme) private var colorScheme
   @State private var tool: Tool
 
   // 1. 系统检查
@@ -532,15 +537,50 @@ struct NativeDiagnosticsToolsPage: View {
 
   // MARK: - 3. 名称识别与过滤规则测试（对标 Web 英雄卡与解析明细）
 
+  /// 复用订阅广场的 38 点胶囊高度、字号、底色和边框，供本页两个分区切换栏使用。
+  private func sectionTabLabel(
+    _ title: String, symbol: String? = nil, isSelected: Bool, minimumWidth: CGFloat? = nil
+  ) -> some View {
+    HStack(spacing: 6) {
+      if let symbol {
+        Image(systemName: symbol)
+      }
+      Text(L10n.text(title))
+    }
+    .font(.subheadline.weight(isSelected ? .semibold : .medium))
+    .foregroundStyle(.primary.opacity(isSelected ? 0.98 : 0.78))
+    .padding(.horizontal, 16)
+    .frame(minWidth: minimumWidth, maxWidth: minimumWidth == nil ? .infinity : nil, minHeight: 38)
+    .background {
+      Capsule()
+        .fill(
+          isSelected
+            ? appearance.accentColor.opacity(colorScheme == .light ? 0.16 : 0.24)
+            : NativeTheme.chipFill
+        )
+        .overlay {
+          Capsule()
+            .strokeBorder(
+              isSelected ? appearance.accentColor.opacity(0.45) : NativeTheme.chipBorder,
+              lineWidth: 0.7
+            )
+        }
+    }
+  }
+
+  /// 名称识别与规则测试表单，顶部分区按钮与订阅广场保持相同高度和选中样式。
   private var ruleTestContent: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack(spacing: 8) {
         ForEach(TestMode.allCases) { option in
           Button {
-            testMode = option
+            guard testMode != option else { return }
+            withAnimation(.easeOut(duration: 0.18)) {
+              testMode = option
+            }
             testErrorMessage = nil
           } label: {
-            NativeAdaptivePill(
+            sectionTabLabel(
               option.rawValue,
               symbol: option == .recognize
                 ? "sparkle.magnifyingglass" : "line.3.horizontal.decrease.circle",
@@ -550,7 +590,6 @@ struct NativeDiagnosticsToolsPage: View {
           .buttonStyle(.plain)
           .accessibilityIdentifier("native-diag-testmode-\(option.rawValue)")
         }
-        Spacer(minLength: 0)
       }
 
       formGroupedSection("测试内容") {
@@ -658,46 +697,46 @@ struct NativeDiagnosticsToolsPage: View {
       } else {
         formGroupedSection("优先级规则组") {
           VStack(alignment: .leading, spacing: 10) {
-              if ruleGroups.isEmpty {
-                HStack {
+            if ruleGroups.isEmpty {
+              HStack {
+                Text("目标规则组")
+                  .font(.body)
+                  .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text("未检测到规则组")
+                  .font(.caption)
+                  .foregroundStyle(NativeTheme.warning)
+              }
+            } else {
+              Menu {
+                ForEach(ruleGroups) { group in
+                  Button {
+                    selectedRuleGroup = group.name
+                  } label: {
+                    if selectedRuleGroup == group.name {
+                      Label(group.name, systemImage: "checkmark")
+                    } else {
+                      Text(group.name)
+                    }
+                  }
+                }
+              } label: {
+                HStack(spacing: 10) {
                   Text("目标规则组")
                     .font(.body)
                     .foregroundStyle(.primary)
                   Spacer(minLength: 8)
-                  Text("未检测到规则组")
-                    .font(.caption)
-                    .foregroundStyle(NativeTheme.warning)
+                  Text(selectedRuleGroup.isEmpty ? "请选择" : selectedRuleGroup)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                  Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary.opacity(0.65))
                 }
-              } else {
-                Menu {
-                  ForEach(ruleGroups) { group in
-                    Button {
-                      selectedRuleGroup = group.name
-                    } label: {
-                      if selectedRuleGroup == group.name {
-                        Label(group.name, systemImage: "checkmark")
-                      } else {
-                        Text(group.name)
-                      }
-                    }
-                  }
-                } label: {
-                  HStack(spacing: 10) {
-                    Text("目标规则组")
-                      .font(.body)
-                      .foregroundStyle(.primary)
-                    Spacer(minLength: 8)
-                    Text(selectedRuleGroup.isEmpty ? "请选择" : selectedRuleGroup)
-                      .font(.subheadline)
-                      .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.up.chevron.down")
-                      .font(.caption.weight(.medium))
-                      .foregroundStyle(.secondary.opacity(0.65))
-                  }
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                .contentShape(Rectangle())
               }
+              .buttonStyle(.plain)
+            }
             if let current = ruleGroups.first(where: { $0.name == selectedRuleGroup }),
               let ruleStr = current.ruleString, !ruleStr.isEmpty
             {
@@ -977,15 +1016,19 @@ struct NativeDiagnosticsToolsPage: View {
 
   // MARK: - 4. 词表管理（5 大板块，对标 Web WordsView.vue）
 
+  /// 使用订阅广场同款大胶囊切换词表分区，横向滚动保留每个按钮的可读宽度。
   private var wordsContent: some View {
     VStack(alignment: .leading, spacing: 12) {
       ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 7) {
+        HStack(spacing: 8) {
           ForEach(WordsTab.allCases) { tab in
             Button {
-              wordsTab = tab
+              guard wordsTab != tab else { return }
+              withAnimation(.easeOut(duration: 0.18)) {
+                wordsTab = tab
+              }
             } label: {
-              NativeAdaptivePill(tab.rawValue, isSelected: wordsTab == tab)
+              sectionTabLabel(tab.rawValue, isSelected: wordsTab == tab, minimumWidth: 104)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("native-diag-words-tab-\(tab.rawValue)")

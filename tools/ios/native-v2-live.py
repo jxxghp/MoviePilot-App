@@ -86,13 +86,43 @@ def backend_api_base(port):
     return f"http://127.0.0.1:{port}/api/v1/"
 
 
+def agent_selection_restorer(username, password, port):
+    """只在内存中保存原选择和一次性授权，验收完成后原样恢复助手配置。"""
+    base = backend_api_base(port)
+    request = Request(
+        base + "login/access-token",
+        data=urlencode({"username": username, "password": password}).encode(),
+    )
+    with urlopen(request, timeout=20) as response:
+        token = json.load(response)["access_token"]
+    headers = {"Authorization": "Bearer " + token}
+    with urlopen(Request(base + "user/config/AgentPet", headers=headers), timeout=20) as response:
+        original = json.load(response)["data"]["value"]
+
+    def restore():
+        """使用原始值恢复配置并读取确认，不保留服务端资料。"""
+        request = Request(
+            base + "user/config/AgentPet", data=json.dumps(original).encode(),
+            headers={**headers, "Content-Type": "application/json"}, method="POST",
+        )
+        with urlopen(request, timeout=20) as response:
+            if not json.load(response).get("success"):
+                raise RuntimeError("无法恢复原助手选择")
+        with urlopen(Request(base + "user/config/AgentPet", headers=headers), timeout=20) as response:
+            if json.load(response)["data"]["value"] != original:
+                raise RuntimeError("助手选择恢复校验失败")
+        print("Original AgentPet selection restored.", flush=True)
+    return restore
+
+
 def main():
     """运行已构建的原生 UI 测试，仅保留业务截图和无凭据的通过/失败摘要。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--device", required=True)
     parser.add_argument("--derived-data", type=Path, required=True)
+    parser.add_argument("--project", type=Path, default=Path("ios/MoviePilot.xcodeproj"))
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--target", choices=("media", "plugins"), default="media")
+    parser.add_argument("--target", choices=("media", "plugins", "agent"), default="media")
     parser.add_argument("--backend-port", type=int, default=3001)
     parser.add_argument("--username", default="admin")
     args = parser.parse_args()
@@ -111,6 +141,10 @@ def main():
         next_page_identities(username, password, port=args.backend_port)
         if args.target == "media" else []
     )
+    restore_selection = (
+        agent_selection_restorer(username, password, args.backend_port)
+        if args.target == "agent" else None
+    )
     server = SessionInputServer({
         "username": username, "password": password, "nextPageIdentities": identities,
         "backendURL": backend_url,
@@ -123,9 +157,11 @@ def main():
     environment["TEST_RUNNER_MOVIEPILOT_NATIVE_V2_LIVE_INPUT_PORT"] = str(server.server_port)
     environment["TEST_RUNNER_MOVIEPILOT_NATIVE_V2_LIVE_NONCE"] = server.nonce
     environment["DEVELOPER_DIR"] = "/Applications/Xcode.app/Contents/Developer"
-    environment["TMPDIR"] = str(args.derived_data.resolve().parent / "tmp")
+    temporary = Path("/Volumes/DISK/TmpBuild") / ("native-v2-live-" + secrets.token_hex(8))
+    temporary.mkdir(parents=True)
+    environment["TMPDIR"] = str(temporary)
     command = [
-        "xcodebuild", "-project", "ios/MoviePilot.xcodeproj", "-scheme", "MoviePilot",
+        "xcodebuild", "-project", str(args.project), "-scheme", "MoviePilot",
         "-destination", "platform=iOS Simulator,id=" + args.device,
         "-derivedDataPath", str(args.derived_data), "-clonedSourcePackagesDirPath",
         "/Volumes/DISK/Xcode/SourcePackages", "-resultBundlePath", str(raw),
@@ -133,8 +169,9 @@ def main():
         "-default-test-execution-time-allowance", "900",
         "-maximum-test-execution-time-allowance", "900",
         "-only-testing:MoviePilotUITests/NativeV2EntryTests/" + (
-            "testLiveBackendReadOnlyMediaScreens"
-            if args.target == "media" else "testLivePluginFormsAndVueSheetTakeover"
+            {"media": "testLiveBackendReadOnlyMediaScreens",
+             "plugins": "testLivePluginFormsAndVueSheetTakeover",
+             "agent": "testLiveAgentPetRestoresAfterDialogs"}[args.target]
         ),
         "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_ALLOWED=YES", "test-without-building",
     ]
@@ -186,6 +223,14 @@ def main():
             for line in collect_source_lines(node)
         }
         log_text = result.stdout.decode("utf-8", errors="replace")
+        if not (value.get("passedTests") or value.get("failedTests") or value.get("skippedTests")):
+            lines = log_text.splitlines()
+            evidence["runnerErrors"] = [
+                re.sub(r"(?i)bearer\s+[A-Za-z0-9._-]+", "Bearer [redacted]", "\n".join(lines[index:index + 6]))
+                .replace(username, "[redacted]").replace(password, "[redacted]")[:2000]
+                for index, line in enumerate(lines)
+                if any(marker in line for marker in ("error:", "Error Domain=", "Testing failed:"))
+            ][:8]
         source_lines.update(
             int(line)
             for line in re.findall(
@@ -220,6 +265,9 @@ def main():
         username = password = None
         shutil.rmtree(raw, ignore_errors=True)
         shutil.rmtree(exported, ignore_errors=True)
+        shutil.rmtree(temporary, ignore_errors=True)
+        if restore_selection is not None:
+            restore_selection()
     raise SystemExit(result.returncode)
 
 

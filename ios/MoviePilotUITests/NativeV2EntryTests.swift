@@ -890,6 +890,71 @@ final class NativeV2EntryTests: XCTestCase {
     return try JSONDecoder().decode(LiveBackendInput.self, from: data)
   }
 
+  /// 用真实 AgentPets 的舞台与渲染器验证弹窗往返；运行脚本负责恢复原有服务端选择。
+  func testLiveAgentPetRestoresAfterDialogs() async throws {
+    let input = try await readLiveBackendInput()
+    let backend = try XCTUnwrap(URLComponents(string: input.backendURL))
+    XCTAssertEqual(backend.scheme, "http")
+    XCTAssertEqual(backend.host, "127.0.0.1")
+    let app = XCUIApplication()
+    defer { app.terminate() }
+    app.launchArguments =
+      arguments + [
+        "-moviepilot.instance.selected.v1", "", "-nativeV2.showFloatingAssistant", "YES",
+      ]
+    app.launch()
+    let address = app.textFields["native-v2-address"]
+    XCTAssertTrue(address.waitForExistence(timeout: 15))
+    address.tap()
+    let clear = app.buttons["native-v2-clear-address"]
+    if clear.exists { clear.tap() }
+    address.typeText(input.backendURL + "\n")
+    let username = app.textFields["native-v2-username"]
+    XCTAssertTrue(username.waitForExistence(timeout: 15))
+    username.tap()
+    username.typeText(input.username + "\n")
+    app.secureTextFields["native-v2-password"].typeText(input.password + "\n")
+    dismissKeyboard(app)
+    if app.switches["native-v2-remember-session"].value as? String == "1" {
+      toggle("native-v2-remember-session", to: false, app: app)
+    }
+    tap(app.buttons["native-v2-login"], app: app)
+    XCTAssertTrue(tabButton("发现", app: app).waitForExistence(timeout: 30))
+
+    for name in ["放映猫", "小映"] {
+      let current = app.buttons["native-agent-plugin-pet-stage"]
+      let renderer = app.buttons["native-agent-plugin-pet-renderer"]
+      if renderer.exists {
+        renderer.tap()
+      } else {
+        XCTAssertTrue(current.waitForExistence(timeout: 25), "真实助手必须挂载完成")
+        current.tap()
+      }
+      let picker = app.buttons["native-agent-pet-picker"]
+      XCTAssertTrue(picker.waitForExistence(timeout: 10))
+      picker.tap()
+      let option = app.buttons["native-agent-pet-option-\(name)"]
+      XCTAssertTrue(option.waitForExistence(timeout: 10))
+      tap(option, app: app)
+      app.buttons["保存"].tap()
+      let close = app.buttons["native-agent-sheet-close"]
+      XCTAssertTrue(close.waitForExistence(timeout: 10))
+      close.tap()
+      for _ in 0..<2 {
+        let avatar = name == "放映猫" ? renderer : app.buttons["native-agent-plugin-pet-stage"]
+        XCTAssertTrue(avatar.waitForExistence(timeout: 20))
+        let restored = XCTNSPredicateExpectation(
+          predicate: NSPredicate(format: "hittable == true"), object: avatar)
+        let result = await XCTWaiter.fulfillment(of: [restored], timeout: 10)
+        XCTAssertEqual(result, .completed, "真实助手关闭弹窗后应恢复显示和点击：\(avatar.value ?? "")")
+        XCTAssertFalse(app.buttons["native-agent-floating-mascot"].exists)
+        avatar.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
+      }
+    }
+  }
+
   /// 从发现栏打开全部、加载下一页并进入选中作品；图片只由当前服务代理。
   func testNativeDiscoverLoadsArtworkAndPaginatedDetail() async throws {
     let app = try await signInToNativeBusiness()
@@ -1578,6 +1643,115 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
+  /// 验证内置助手闲置时实际移到屏幕边缘，关闭聊天后仍能再次贴边并响应点击。
+  func testBuiltinAgentPetDocksAndRestoresAfterDialogs() async throws {
+    let app = try await signInToNativeBusiness(extra: [
+      "-nativeV2.showFloatingAssistant", "YES", "-nativeV2.mascot.x", "0.98",
+    ])
+    defer { app.terminate() }
+    let mascot = app.buttons["native-agent-floating-mascot"]
+    XCTAssertTrue(mascot.waitForExistence(timeout: 10))
+    for _ in 0..<2 {
+      let deadline = Date().addingTimeInterval(10)
+      while Date() < deadline {
+        if mascot.frame.midX > app.frame.maxX - 32 { break }
+        try await Task.sleep(for: .milliseconds(300))
+      }
+      XCTAssertGreaterThan(
+        mascot.frame.midX, app.frame.maxX - 32,
+        "主场景活跃时应启动贴边计时，将部分身体移到屏幕外")
+      XCTAssertTrue(mascot.isHittable, "贴边后露出的部分仍应可点击")
+      mascot.tap()
+      let close = app.buttons["native-agent-sheet-close"]
+      XCTAssertTrue(close.waitForExistence(timeout: 8))
+      close.tap()
+      XCTAssertTrue(mascot.waitForExistence(timeout: 8))
+    }
+  }
+
+  /// 验证真实插件渲染器与全屏舞台在选择、聊天弹窗和主标签往返后恢复显示及交互。
+  func testAgentPetRestoresAfterPickerDismissal() async throws {
+    let app = try await signInToNativeBusiness(extra: ["-nativeV2.showFloatingAssistant", "YES"])
+    defer { app.terminate() }
+    try await configure("a", mode: "pet-cookie-refresh-once")
+    let sourceRequestsBefore = try await stats()["a"]?["GET api/v1/media/source"] ?? 0
+    let mascot = app.buttons["native-agent-floating-mascot"]
+    XCTAssertTrue(mascot.waitForExistence(timeout: 10))
+    mascot.press(forDuration: 1)
+    tap(app.buttons["更换助手形象"], app: app)
+    XCTAssertTrue(app.navigationBars["更换助手形象"].waitForExistence(timeout: 8))
+    app.buttons["取消"].tap()
+    XCTAssertTrue(mascot.waitForExistence(timeout: 10))
+    XCTAssertTrue(mascot.isHittable, "取消形象弹窗后，助手应恢复显示和交互")
+
+    mascot.press(forDuration: 1)
+    tap(app.buttons["更换助手形象"], app: app)
+    XCTAssertTrue(app.navigationBars["更换助手形象"].waitForExistence(timeout: 8))
+    tap(app.buttons["native-agent-pet-option-测试渲染助手"], app: app)
+    app.buttons["保存"].tap()
+    let renderer = app.buttons["native-agent-plugin-pet-renderer"]
+    XCTAssertTrue(renderer.waitForExistence(timeout: 15))
+    let initialReady = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "hittable == true"), object: renderer)
+    let initialResult = await XCTWaiter.fulfillment(of: [initialReady], timeout: 10)
+    XCTAssertEqual(
+      initialResult, .completed,
+      "保存形象后应恢复交互：\(renderer.value ?? "无状态")")
+    XCTAssertFalse(mascot.exists, "有效的插件入口应实际挂载，不能回退到内置形象冒充成功")
+    for _ in 0..<2 {
+      renderer.tap()
+      XCTAssertTrue(app.buttons["native-agent-sheet-close"].waitForExistence(timeout: 8))
+      app.buttons["native-agent-sheet-close"].tap()
+      XCTAssertTrue(renderer.waitForExistence(timeout: 8))
+      let restored = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "hittable == true"), object: renderer)
+      let result = await XCTWaiter.fulfillment(of: [restored], timeout: 8)
+      if result != .completed {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
+      }
+      XCTAssertEqual(
+        result, .completed,
+        "关闭聊天弹窗后，插件形象应恢复交互：\(renderer.value ?? "无状态") frame=\(renderer.frame)")
+    }
+
+    tap(tabButton("我的", app: app), app: app)
+    XCTAssertTrue(renderer.waitForExistence(timeout: 8))
+    tap(tabButton("发现", app: app), app: app)
+    XCTAssertTrue(renderer.waitForExistence(timeout: 8))
+
+    tap(renderer, app: app)
+    XCTAssertTrue(app.buttons["native-agent-pet-picker"].waitForExistence(timeout: 8))
+    app.buttons["native-agent-pet-picker"].tap()
+    tap(app.buttons["native-agent-pet-option-测试舞台助手"], app: app)
+    app.buttons["保存"].tap()
+    XCTAssertTrue(app.buttons["native-agent-sheet-close"].waitForExistence(timeout: 8))
+    app.buttons["native-agent-sheet-close"].tap()
+    let stage = app.buttons["native-agent-plugin-pet-stage"]
+    for _ in 0..<2 {
+      XCTAssertTrue(stage.waitForExistence(timeout: 15))
+      XCTAssertTrue(stage.isHittable, "关闭形象选择或聊天弹窗后，全屏舞台应恢复显示")
+      tap(stage, app: app)
+      XCTAssertTrue(app.buttons["native-agent-sheet-close"].waitForExistence(timeout: 8))
+      app.buttons["native-agent-sheet-close"].tap()
+    }
+    XCTAssertTrue(stage.waitForExistence(timeout: 8))
+    XCTAssertTrue(stage.isHittable)
+    XCTAssertFalse(mascot.exists)
+
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["POST api/v1/user/config/AgentPet"], 2)
+    XCTAssertEqual(counts["a"]?["pet-resource-first-401"], 1)
+    XCTAssertEqual(
+      counts["a"]?["GET api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js"], 2)
+    XCTAssertGreaterThan(counts["a"]?["GET api/v1/media/source"] ?? 0, sourceRequestsBefore)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
   /// P6.5：验证原生智能助手 SSE 流式回复解析、工具调用摘要与历史会话读取，零 WebView。
   func testNativeAgentChatStreamAndSessionHistory() async throws {
     let app = try await signInToNativeBusiness()
@@ -1630,6 +1804,34 @@ final class NativeV2EntryTests: XCTestCase {
     let counts = try await stats()
     XCTAssertEqual(counts["a"]?["POST api/v1/message/agent/stream"], 1)
     XCTAssertEqual(counts["a"]?["GET api/v1/message/agent/sessions/sess-1"], beforeOpen + 1)
+    XCTAssertEqual(counts["unexpected"], [:])
+  }
+
+  /// 验证告警子组件中的百分比、属性别名和重叠进度条在原生数据页完整呈现。
+  func testNativePluginNestedProgressBars() async throws {
+    let app = try await signInToNativeBusiness()
+    defer { app.terminate() }
+    openOverflowItem("native-overflow-plugin-market", app: app)
+    let plugin = app.descendants(matching: .any)["native-installed-card-DemoPlugin"].firstMatch
+    XCTAssertTrue(plugin.waitForExistence(timeout: 10))
+    tap(plugin, app: app)
+    XCTAssertTrue(app.staticTexts["进度适配回归"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.staticTexts["嵌套进度条"].exists)
+    let bars = app.otherElements.matching(
+      NSPredicate(format: "identifier BEGINSWITH %@", "native-plugin-progress-"))
+    XCTAssertTrue(bars.firstMatch.waitForExistence(timeout: 8))
+    XCTAssertEqual(bars.count, 3)
+    let values = bars.allElementsBoundByIndex.compactMap { $0.value as? String }.sorted()
+    XCTAssertEqual(values, ["1%", "100%", "42%"])
+    let overlaid = bars.allElementsBoundByIndex.filter { ($0.value as? String) != "1%" }
+    XCTAssertEqual(overlaid.count, 2)
+    if overlaid.count == 2 {
+      XCTAssertEqual(overlaid[0].frame.minY, overlaid[1].frame.minY, accuracy: 1)
+      XCTAssertEqual(overlaid[0].frame.height, 10, accuracy: 1)
+    }
+    XCTAssertEqual(app.webViews.count, 0)
+    let counts = try await stats()
+    XCTAssertEqual(counts["a"]?["GET api/v1/plugin/page/DemoPlugin"], 1)
     XCTAssertEqual(counts["unexpected"], [:])
   }
 

@@ -26,6 +26,7 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
   private var isShellReady = false
   private var pendingMountPayload: [String: Any]?
   private var latestAgentState: [String: Any]?
+  private var latestVisualTokens: PluginVisualTokensSnapshot?
   private var mountedPetID: String?
   private var lastValidAnchorRect: CGRect?
   private var loadTimeoutTask: Task<Void, Never>?
@@ -36,6 +37,7 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
   var onCloseAgent: (() -> Void)?
   var onFailed: ((_ reason: String) -> Void)?
 
+  /// 创建与普通插件页面隔离的透明渲染器，并在整个形象生命周期内保留桥接。
   override init() {
     let handler = PluginShellSchemeHandler()
     let hostBridge = PluginHostBridgeV2()
@@ -82,6 +84,11 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
     hostBridge.webView = wv
     bindBridge()
     wv.load(URLRequest(url: PluginShellSchemeHandler.entryURL))
+  }
+
+  /// 仅在形象控制器真正释放时拆除运行时，避免临时视图退场使其永久失效。
+  isolated deinit {
+    dispose()
   }
 
   /// 关闭系统对 WebView 手势的抢占以保留原生拖动行为。
@@ -183,7 +190,7 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
   ) async {
     guard !isDisposed else { return }
     if mountedPetID == pet.id && isMounted {
-      bridge.sendAgentState(initialAgentState)
+      pushAgentState(initialAgentState)
       return
     }
 
@@ -199,6 +206,7 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
     do {
       let auth = try session.playbackAuthorization()
       let cookie = try? await session.resolveResourceCookie()
+      guard !Task.isCancelled, !isDisposed else { return }
       let locale = AppLanguage.current.rawValue
       let ctx = PluginShellSchemeHandler.SessionContext(
         address: auth.address,
@@ -207,6 +215,7 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
         locale: locale
       )
       schemeHandler.updateSessionContext(ctx)
+      schemeHandler.nativeSession = session
       bridge.updateSessionContext(ctx)
       bridge.nativeSession = session
 
@@ -216,6 +225,7 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
       } else {
         rawRemoteURL = try await discoverRemoteURL(for: pet.pluginID, session: session)
       }
+      guard !Task.isCancelled, !isDisposed else { return }
 
       let entryPlan = try PluginRemoteRuntime.normalizeRemoteEntry(
         pluginId: pet.resolvedSourcePluginID,
@@ -248,7 +258,7 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
           "bubbles": pet.bubbles ?? "host",
           "name": pet.name,
         ],
-        "agentHostState": initialAgentState,
+        "agentHostState": latestAgentState ?? initialAgentState,
         "remoteEntryUrl": virtualEntryURL,
         "locale": locale,
         "visualTokens": visualTokensObj,
@@ -319,6 +329,10 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
 
   /// 将最新 Agent 会话状态推送给插件运行时。
   func pushAgentState(_ patch: [String: Any]) {
+    if let latestAgentState, NSDictionary(dictionary: latestAgentState).isEqual(to: patch) {
+      return
+    }
+    let previousPanel = latestAgentState?["panelOpen"] as? Bool
     latestAgentState = patch
     if var pending = pendingMountPayload {
       pending["agentHostState"] = patch
@@ -326,11 +340,15 @@ final class NativeAgentPetWebController: NSObject, ObservableObject, WKNavigatio
     }
     guard isShellReady else { return }
     bridge.sendAgentState(patch)
+    if let open = patch["panelOpen"] as? Bool, previousPanel != open {
+      notifyPanelChanged(panelOpen: open)
+    }
   }
 
   /// 将原生主题视觉令牌同步给插件界面。
   func pushVisualTokens(_ tokens: PluginVisualTokensSnapshot) {
-    guard isShellReady else { return }
+    guard isShellReady, latestVisualTokens != tokens else { return }
+    latestVisualTokens = tokens
     bridge.sendVisualTokens(tokens)
   }
 
@@ -400,6 +418,23 @@ final class NativeAgentPetPassthroughContainer: UIView {
   var passthroughEnabled: Bool = false
   var interactiveRect: CGRect? = nil
   var forceCaptureAll: Bool = false
+  var onAccessibilityOpen: (() -> Void)?
+
+  /// 无障碍焦点跟随插件角色上报的热区，不覆盖全屏透明舞台。
+  override var accessibilityFrame: CGRect {
+    get {
+      guard passthroughEnabled, let interactiveRect else { return super.accessibilityFrame }
+      return UIAccessibility.convertToScreenCoordinates(interactiveRect, in: self)
+    }
+    set { super.accessibilityFrame = newValue }
+  }
+
+  /// 允许 VoiceOver 用户直接打开当前插件助手。
+  override func accessibilityActivate() -> Bool {
+    guard isCaptureEnabled, let onAccessibilityOpen else { return false }
+    onAccessibilityOpen()
+    return true
+  }
 
   /// 判断触点是否落入当前插件助手的可交互区域。
   private func shouldCapture(point: CGPoint) -> Bool {
@@ -438,6 +473,9 @@ private struct NativeAgentPetWebViewRepresentable: UIViewRepresentable {
   let passthroughEnabled: Bool
   let interactiveRect: CGRect?
   let forceCaptureAll: Bool
+  var onRuntimeUpdate: (() -> Void)? = nil
+  var accessibilityName: String? = nil
+  var onAccessibilityOpen: (() -> Void)? = nil
 
   /// 创建用于承载透明插件 WebView 的 UIKit 容器。
   func makeUIView(context: Context) -> NativeAgentPetPassthroughContainer {
@@ -457,6 +495,13 @@ private struct NativeAgentPetWebViewRepresentable: UIViewRepresentable {
     container.passthroughEnabled = passthroughEnabled
     container.interactiveRect = interactiveRect
     container.forceCaptureAll = forceCaptureAll
+    container.isAccessibilityElement =
+      accessibilityName != nil && isCaptureEnabled && interactiveRect != nil
+    container.accessibilityLabel = accessibilityName
+    container.accessibilityIdentifier =
+      accessibilityName == nil ? nil : "native-agent-plugin-pet-stage"
+    container.accessibilityTraits = .button
+    container.onAccessibilityOpen = onAccessibilityOpen
     // 始终保持 WKWebView 自身交互与可见态激活，仅由外层 NativeAgentPetPassthroughContainer.hitTest 控制穿透，
     // 避免 WebKit 因 UIKit alpha=0 / isUserInteractionEnabled=false 触发页面休眠而导致关闭对话弹窗后数秒内点击无响应
     webView.isUserInteractionEnabled = true
@@ -465,6 +510,7 @@ private struct NativeAgentPetWebViewRepresentable: UIViewRepresentable {
     webView.backgroundColor = .clear
     webView.scrollView.backgroundColor = .clear
     webView.underPageBackgroundColor = .clear
+    onRuntimeUpdate?()
   }
 
   /// 把控制器管理的 WebView 接入透明宿主容器。
@@ -527,7 +573,18 @@ final class NativeAgentPetPassthroughWindow: UIWindow {
 @MainActor
 final class NativeAgentPetWindowState: ObservableObject {
   @Published var isModalOccluded: Bool = false
+  @Published var isSceneActive: Bool = false
   @Published var hardwareSafeArea: EdgeInsets = .init(top: 59, leading: 0, bottom: 34, trailing: 0)
+  @Published var presentation = NativeAgentPetPresentationState()
+}
+
+/// 主窗口交付的助手展示快照；独立窗口持续观察，避免替换根视图遗失状态变化。
+struct NativeAgentPetPresentationState: Equatable {
+  var isVisible = false
+  var panelOpen = false
+  var dockVisible = true
+  var thinking = false
+  var verticalBarEdge: NativeDeviceLayout.VerticalBarEdge = .none
 }
 
 @MainActor
@@ -543,8 +600,10 @@ final class NativeAgentPetWindowCoordinator {
   private var desiredCaptureEnabled: Bool = false
   private var desiredInteractiveRect: CGRect? = nil
   private var desiredForceFullCapture: Bool = false
+  private var isContextMenuVisible = false
   let windowState = NativeAgentPetWindowState()
 
+  /// 保持全应用唯一的助手窗口协调器。
   private init() {}
 
   /// 更新浮层窗口接收触摸的区域和全屏捕获策略。
@@ -555,20 +614,36 @@ final class NativeAgentPetWindowCoordinator {
     applyDesiredHitRegion()
   }
 
+  /// 原生快捷菜单超出角色热区时，由助手窗口接收菜单按钮点击。
+  func setContextMenuVisible(_ visible: Bool) {
+    isContextMenuVisible = visible
+    applyDesiredHitRegion()
+  }
+
+  /// 系统弹窗关闭后重新读取主窗口状态，及时恢复助手浮层。
+  func refreshAfterModalDismissal() {
+    Task { @MainActor [weak self] in
+      await Task.yield()
+      self?.syncSafeAreaAndModalState()
+    }
+  }
+
   /// 把当前命中区域配置应用到实际悬浮窗口。
   private func applyDesiredHitRegion() {
     guard let overlayWindow else { return }
     let occluded = windowState.isModalOccluded
-    overlayWindow.isCaptureEnabled = desiredCaptureEnabled && !occluded
+    overlayWindow.isCaptureEnabled = (desiredCaptureEnabled || isContextMenuVisible) && !occluded
     overlayWindow.interactiveRect = desiredInteractiveRect
-    overlayWindow.forceFullCapture = desiredForceFullCapture && !occluded
+    overlayWindow.forceFullCapture = (desiredForceFullCapture || isContextMenuVisible) && !occluded
   }
 
   /// 挂载或更新与锚点关联的助手浮层窗口。
   func attachOrUpdate<Content: View>(
     anchor: UIView,
+    presentation: NativeAgentPetPresentationState,
     @ViewBuilder content: () -> Content
   ) {
+    let sameAnchor = self.anchorView === anchor
     self.anchorView = anchor
     guard let mainWindow = anchor.window, let scene = mainWindow.windowScene else {
       return
@@ -576,11 +651,9 @@ final class NativeAgentPetWindowCoordinator {
     self.hostMainWindow = mainWindow
     syncSafeAreaAndModalState()
 
-    let rootAnyView = AnyView(content())
     if let existingWindow = overlayWindow, existingWindow.windowScene === scene,
-      let hc = hostingController
+      hostingController != nil, sameAnchor
     {
-      hc.rootView = rootAnyView
       if existingWindow.frame != scene.screen.bounds {
         existingWindow.frame = scene.screen.bounds
       }
@@ -593,7 +666,7 @@ final class NativeAgentPetWindowCoordinator {
       win.backgroundColor = .clear
       win.isOpaque = false
 
-      let hc = UIHostingController(rootView: rootAnyView)
+      let hc = UIHostingController(rootView: AnyView(content()))
       hc.view.backgroundColor = .clear
       hc.view.isOpaque = false
       if #available(iOS 16.4, *) {
@@ -603,6 +676,13 @@ final class NativeAgentPetWindowCoordinator {
       win.isHidden = false
       self.overlayWindow = win
       self.hostingController = hc
+    }
+    // UIViewRepresentable 更新期间不发布 SwiftUI 状态；按主线程顺序交付最新快照。
+    DispatchQueue.main.async { [weak self, weak anchor] in
+      guard let self, let anchor, self.anchorView === anchor else { return }
+      if self.windowState.presentation != presentation {
+        self.windowState.presentation = presentation
+      }
     }
     startModalWatchTimerIfNeeded()
   }
@@ -614,6 +694,7 @@ final class NativeAgentPetWindowCoordinator {
     }
     self.anchorView = nil
     self.hostMainWindow = nil
+    isContextMenuVisible = false
     modalWatchTimer?.invalidate()
     modalWatchTimer = nil
     detachWindowOnly()
@@ -648,6 +729,10 @@ final class NativeAgentPetWindowCoordinator {
       overlayWindow?.isCaptureEnabled = false
       return
     }
+    let sceneActive = mainWindow.windowScene?.activationState == .foregroundActive
+    if windowState.isSceneActive != sceneActive {
+      windowState.isSceneActive = sceneActive
+    }
     if let overlayWindow, let scene = mainWindow.windowScene,
       overlayWindow.frame != scene.screen.bounds
     {
@@ -659,37 +744,29 @@ final class NativeAgentPetWindowCoordinator {
       windowState.hardwareSafeArea = nextSafe
     }
 
-    let anchorHidden = Self.hasHiddenOrTransparentAncestor(anchor)
+    // 锚点是零尺寸的 SwiftUI 探针，系统可在弹窗转场后隐藏该视图。
+    // 它只负责确定所属窗口，不能用它的可见性决定独立悬浮窗口是否显示。
     let modalPresented: Bool = {
       guard let rootVC = mainWindow.rootViewController else { return false }
       return Self.hasPresentedModal(in: rootVC)
     }()
-    let nextOccluded = anchorHidden || modalPresented
+    let nextOccluded = mainWindow.isHidden || modalPresented
     if windowState.isModalOccluded != nextOccluded {
       windowState.isModalOccluded = nextOccluded
     }
     applyDesiredHitRegion()
   }
 
-  /// 检查视图链中是否存在隐藏或透明的祖先节点。
-  private static func hasHiddenOrTransparentAncestor(_ view: UIView) -> Bool {
-    var cursor: UIView? = view
-    while let current = cursor {
-      if current.isHidden || current.alpha < 0.05 {
-        return true
-      }
-      cursor = current.superview
-    }
-    return false
-  }
-
-  /// 检查控制器层级是否正展示系统模态界面。
+  /// 依据展示状态和实际窗口附着检查控制器层级中的系统模态界面。
   private static func hasPresentedModal(in vc: UIViewController) -> Bool {
     if let presented = vc.presentedViewController {
-      // 非交互式关闭动画（点击取消/保存/关闭按钮）一旦进入 isBeingDismissed 即立即放行恢复助手形象；
-      // 手势下拉关闭则等真正松手完成后再恢复，避免半途取消手势时闪烁。
-      let isInteractiveDismiss = presented.transitionCoordinator?.isInteractive ?? false
-      if !presented.isBeingDismissed || isInteractiveDismiss {
+      let transition = presented.transitionCoordinator
+      if presented.isBeingDismissed {
+        // 交互式下拉若被取消，视图会继续留在窗口中，下一轮轮询会保持遮挡。
+        if transition?.isInteractive == true || presented.viewIfLoaded?.window != nil {
+          return true
+        }
+      } else if presented.isBeingPresented || presented.viewIfLoaded?.window != nil {
         return true
       }
     }
@@ -705,39 +782,48 @@ final class NativeAgentPetWindowCoordinator {
 /// 将 SwiftUI 宿主视图锚定到 UIKit 浮层窗口。
 private struct NativeAgentPetWindowAnchor<OverlayContent: View>: UIViewRepresentable {
   let content: OverlayContent
+  let presentation: NativeAgentPetPresentationState
 
-  init(@ViewBuilder content: () -> OverlayContent) {
+  /// 保存独立窗口内容；探针自身不参与浮层可见性判断。
+  init(
+    presentation: NativeAgentPetPresentationState, @ViewBuilder content: () -> OverlayContent
+  ) {
     self.content = content()
+    self.presentation = presentation
   }
 
-  /// 创建用于承载透明插件 WebView 的 UIKit 容器。
+  /// 创建仅用于识别主窗口的零尺寸探针。
   func makeUIView(context: Context) -> UIView {
     let view = NativeAgentPetWindowMountProbeView()
     view.backgroundColor = .clear
     view.isUserInteractionEnabled = false
     let captured = content
+    let snapshot = presentation
     view.onWindowChanged = { [weak view] in
       guard let view, view.window != nil else { return }
-      NativeAgentPetWindowCoordinator.shared.attachOrUpdate(anchor: view) {
+      NativeAgentPetWindowCoordinator.shared.attachOrUpdate(anchor: view, presentation: snapshot) {
         captured
       }
     }
     return view
   }
 
-  /// 根据 SwiftUI 状态更新容器及其 WebView 内容。
+  /// 在 SwiftUI 状态变化时更新独立窗口内容与挂载回调。
   func updateUIView(_ uiView: UIView, context: Context) {
     let captured = content
+    let snapshot = presentation
     if let probe = uiView as? NativeAgentPetWindowMountProbeView {
       probe.onWindowChanged = { [weak probe] in
         guard let probe, probe.window != nil else { return }
-        NativeAgentPetWindowCoordinator.shared.attachOrUpdate(anchor: probe) {
+        NativeAgentPetWindowCoordinator.shared.attachOrUpdate(anchor: probe, presentation: snapshot)
+        {
           captured
         }
       }
     }
     if uiView.window != nil {
-      NativeAgentPetWindowCoordinator.shared.attachOrUpdate(anchor: uiView) {
+      NativeAgentPetWindowCoordinator.shared.attachOrUpdate(anchor: uiView, presentation: snapshot)
+      {
         captured
       }
     }
@@ -784,15 +870,14 @@ struct NativeAgentPetOverlayHost: View {
   @Environment(\.nativeVerticalBarEdge) private var verticalBarEdge
 
   var body: some View {
-    NativeAgentPetWindowAnchor {
+    NativeAgentPetWindowAnchor(
+      presentation: NativeAgentPetPresentationState(
+        isVisible: isVisible, panelOpen: panelOpen, dockVisible: dockVisible,
+        thinking: thinking, verticalBarEdge: verticalBarEdge)
+    ) {
       NativeAgentPetWindowRootView(
         session: session,
         petStore: petStore,
-        isVisible: isVisible,
-        panelOpen: panelOpen,
-        dockVisible: dockVisible,
-        thinking: thinking,
-        verticalBarEdge: verticalBarEdge,
         onOpenAgent: onOpenAgent,
         onCloseAgent: onCloseAgent,
         onOpenPetPicker: onOpenPetPicker,
@@ -812,11 +897,6 @@ struct NativeAgentPetOverlayHost: View {
 private struct NativeAgentPetWindowRootView: View {
   let session: NativeSession
   @ObservedObject var petStore: NativeAgentPetStore
-  let isVisible: Bool
-  let panelOpen: Bool
-  let dockVisible: Bool
-  let thinking: Bool
-  let verticalBarEdge: NativeDeviceLayout.VerticalBarEdge
   let onOpenAgent: (_ draft: String?) -> Void
   let onCloseAgent: () -> Void
   let onOpenPetPicker: () -> Void
@@ -825,11 +905,18 @@ private struct NativeAgentPetWindowRootView: View {
   @ObservedObject private var windowState = NativeAgentPetWindowCoordinator.shared.windowState
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @Environment(\.colorScheme) private var colorScheme
-  @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   @State private var mascotHitRect: CGRect = .zero
   @State private var isDraggingMascot: Bool = false
+
+  private var isVisible: Bool { windowState.presentation.isVisible }
+  private var panelOpen: Bool { windowState.presentation.panelOpen }
+  private var dockVisible: Bool { windowState.presentation.dockVisible }
+  private var thinking: Bool { windowState.presentation.thinking }
+  private var verticalBarEdge: NativeDeviceLayout.VerticalBarEdge {
+    windowState.presentation.verticalBarEdge
+  }
 
   private var effectiveVisible: Bool {
     isVisible && !panelOpen && !windowState.isModalOccluded
@@ -846,7 +933,7 @@ private struct NativeAgentPetWindowRootView: View {
           panelOpen: panelOpen || windowState.isModalOccluded,
           dockVisible: dockVisible,
           thinking: thinking,
-          motionActive: effectiveVisible && scenePhase == .active && !reduceMotion,
+          motionActive: effectiveVisible && windowState.isSceneActive && !reduceMotion,
           hardwareSafeArea: windowState.hardwareSafeArea,
           onOpenAgent: onOpenAgent,
           onCloseAgent: onCloseAgent,
@@ -860,8 +947,10 @@ private struct NativeAgentPetWindowRootView: View {
           onOpen: { onOpenAgent(nil) },
           onHide: onHideFloating,
           onSelectPet: onOpenPetPicker,
+          onContextMenuVisibilityChange: NativeAgentPetWindowCoordinator.shared
+            .setContextMenuVisible,
           thinking: thinking,
-          motionActive: effectiveVisible && scenePhase == .active,
+          motionActive: effectiveVisible && windowState.isSceneActive,
           dockVisible: dockVisible,
           onInteractiveFrameChange: { rect, dragging in
             mascotHitRect = rect
@@ -1056,6 +1145,8 @@ private struct NativePluginAgentPetRuntimeOverlay: View {
             onOpen: { onOpenAgent(nil) },
             onHide: onHideFloating,
             onSelectPet: onOpenPetPicker,
+            onContextMenuVisibilityChange: NativeAgentPetWindowCoordinator.shared
+              .setContextMenuVisible,
             thinking: thinking,
             motionActive: motionActive,
             dockVisible: dockVisible,
@@ -1086,13 +1177,7 @@ private struct NativePluginAgentPetRuntimeOverlay: View {
         syncWindowHitRegion(size: size, safeArea: safeArea)
       }
       .onAppear {
-        syncWindowHitRegion(size: size, safeArea: safeArea)
-      }
-      .onChange(of: panelOpen) { open in
-        controller.notifyPanelChanged(panelOpen: open)
-        if !open {
-          controller.webView.setNeedsLayout()
-        }
+        controller.pushAgentState(buildStatePatch(size: size, safeArea: safeArea))
         syncWindowHitRegion(size: size, safeArea: safeArea)
       }
       .onChange(of: controller.isMounted) { _ in
@@ -1111,15 +1196,6 @@ private struct NativePluginAgentPetRuntimeOverlay: View {
         if !pet.isStageMode {
           syncWindowHitRegion(size: size, safeArea: safeArea)
         }
-      }
-      .onChange(
-        of:
-          "\(isVisible)|\(panelOpen)|\(dockVisible)|\(thinking)|\(motionActive)|\(Int(size.width))x\(Int(size.height))|\(Int(safeArea.top))|\(Int(safeArea.bottom))|\(preferDark)"
-      ) { _ in
-        controller.pushAgentState(buildStatePatch(size: size, safeArea: safeArea))
-        let tokens = PluginVisualTokensSnapshot.make(from: appearance, colorScheme: colorScheme)
-        controller.pushVisualTokens(tokens)
-        syncWindowHitRegion(size: size, safeArea: safeArea)
       }
       .onChange(of: rendererAction) { _ in
         if !pet.isStageMode {
@@ -1146,11 +1222,16 @@ private struct NativePluginAgentPetRuntimeOverlay: View {
           }
         }
       }
-      .onDisappear {
-        controller.dispose()
-      }
     }
     .ignoresSafeArea()
+  }
+
+  /// 在 UIKit 实际应用当前视图输入时同步桥接，避免模态转场遗漏 SwiftUI 变化回调。
+  private func synchronizeRuntime(size: CGSize, safeArea: EdgeInsets) {
+    controller.pushAgentState(buildStatePatch(size: size, safeArea: safeArea))
+    controller.pushVisualTokens(
+      PluginVisualTokensSnapshot.make(from: appearance, colorScheme: colorScheme))
+    syncWindowHitRegion(size: size, safeArea: safeArea)
   }
 
   @ViewBuilder
@@ -1164,7 +1245,10 @@ private struct NativePluginAgentPetRuntimeOverlay: View {
         isCaptureEnabled: stageActive,
         passthroughEnabled: true,
         interactiveRect: stageActive ? controller.anchorRect : nil,
-        forceCaptureAll: stageActive && controller.isInteracting
+        forceCaptureAll: stageActive && controller.isInteracting,
+        onRuntimeUpdate: { synchronizeRuntime(size: size, safeArea: safeArea) },
+        accessibilityName: pet.name,
+        onAccessibilityOpen: { onOpenAgent(nil) }
       )
       .frame(width: size.width, height: size.height)
       .opacity(controller.isMounted ? 1 : 0)
@@ -1211,7 +1295,8 @@ private struct NativePluginAgentPetRuntimeOverlay: View {
           isCaptureEnabled: false,
           passthroughEnabled: false,
           interactiveRect: nil,
-          forceCaptureAll: false
+          forceCaptureAll: false,
+          onRuntimeUpdate: { synchronizeRuntime(size: size, safeArea: safeArea) }
         )
         .allowsHitTesting(false)
         Color.white.opacity(0.001)
@@ -1226,12 +1311,18 @@ private struct NativePluginAgentPetRuntimeOverlay: View {
       .onTapGesture {
         onOpenAgent(nil)
       }
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(pet.name)
+      .accessibilityAddTraits(.isButton)
+      .accessibilityIdentifier("native-agent-plugin-pet-renderer")
       .contextMenu {
         Button {
           onOpenAgent(nil)
         } label: {
           Label("打开智能助手", systemImage: "text.bubble")
         }
+        .onAppear { NativeAgentPetWindowCoordinator.shared.setContextMenuVisible(true) }
+        .onDisappear { NativeAgentPetWindowCoordinator.shared.setContextMenuVisible(false) }
         Button {
           onOpenPetPicker()
         } label: {

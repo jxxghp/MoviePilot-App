@@ -2602,6 +2602,23 @@ export struct NativeMediaPlayerView {
     }
   }
 
+  /** 视频底栏图标按钮，保留原生点击反馈、选中状态和完整的无障碍说明。 */
+  @Builder
+  private videoControlIcon(symbol: Resource, label: string, active: boolean, onTap: () => void) {
+    Button({ type: ButtonType.Circle }) {
+      SymbolGlyph(symbol)
+        .fontSize(20)
+        .fontColor([active ? '#6099FF' : Color.White])
+    }
+    .width(44)
+    .height(44)
+    .padding(0)
+    .backgroundColor(active ? '#26317AF7' : Color.Transparent)
+    .accessibilityText(label)
+    .onClick(onTap)
+  }
+
+  /** 根据当前面板类型构建系统原生播放设置弹层。 */
   @Builder
   private playerSheetBuilder() {
     Column({ space: 12 }) {
@@ -3954,134 +3971,60 @@ export struct NativeMediaPlayerView {
               .width('100%')
               .alignItems(VerticalAlign.Center)
 
-              Row() {
-                Row({ space: 10 }) {
-                  // 弹幕开关与弹幕设置按钮（仅当服务端启用弹幕时展示）
+              Scroll() {
+                Row({ space: 2 }) {
                   if (this.activeVideoReq.danmakuEnabled) {
-                    Row({ space: 4 }) {
-                      SymbolGlyph($r('sys.symbol.message_on_message'))
-                        .fontSize(18)
-                        .fontColor([this.danmakuVisible ? '#317AF7' : Color.White])
-                      Text(this.danmakuVisible ? '弹幕开' : '弹幕')
-                        .fontSize(12)
-                        .fontColor(this.danmakuVisible ? '#317AF7' : '#D9FFFFFF')
-                    }
-                    .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                    .borderRadius(12)
-                    .backgroundColor('#26FFFFFF')
-                    .accessibilityText(this.danmakuVisible ? '关闭弹幕' : '开启弹幕')
-                    .onClick(() => {
-                      const next = !this.danmakuVisible;
-                      DanmakuPreferencesStore.setEnabled(next);
-                      this.danmakuVisible = next;
-                      this.danmakuConfigVersion += 1;
-                      this.showTransientHud('checkmark', next ? '已开启弹幕' : '已关闭弹幕');
-                      this.resetControlsAutoHideTimer();
-                    })
-
-                    Row({ space: 4 }) {
-                      SymbolGlyph($r('sys.symbol.slider_horizontal_2'))
-                        .fontSize(17)
-                        .fontColor([Color.White])
-                      Text('弹幕设置')
-                        .fontSize(12)
-                        .fontColor('#D9FFFFFF')
-                    }
-                    .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                    .borderRadius(12)
-                    .backgroundColor('#26FFFFFF')
-                    .accessibilityText('打开弹幕设置')
-                    .onClick(() => {
-                      this.danmakuSheetFeedback = '';
-                      this.openSheet('danmakuSettings');
-                    })
+                    this.videoControlIcon(
+                      $r('sys.symbol.message_on_message'),
+                      this.danmakuVisible ? '关闭弹幕' : '开启弹幕',
+                      this.danmakuVisible,
+                      () => {
+                        const next = !this.danmakuVisible;
+                        DanmakuPreferencesStore.setEnabled(next);
+                        this.danmakuVisible = next;
+                        this.danmakuConfigVersion += 1;
+                        this.showTransientHud('checkmark', next ? '已开启弹幕' : '已关闭弹幕');
+                        this.resetControlsAutoHideTimer();
+                      }
+                    )
+                    this.videoControlIcon(
+                      $r('sys.symbol.slider_horizontal_2'), '打开弹幕设置', false,
+                      () => {
+                        this.danmakuSheetFeedback = '';
+                        this.openSheet('danmakuSettings');
+                      }
+                    )
                   }
-
-                  // 字幕选择按钮
-                  Row({ space: 4 }) {
-                    SymbolGlyph($r('sys.symbol.AI_subtitles'))
-                      .fontSize(19)
-                      .fontColor([this.selectedSubId !== 'off' ? '#317AF7' : Color.White])
-                    Text(this.selectedSubId !== 'off' ? '字幕开' : '字幕')
-                      .fontSize(12)
-                      .fontColor(this.selectedSubId !== 'off' ? '#317AF7' : '#D9FFFFFF')
-                  }
-                  .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                  .borderRadius(12)
-                  .backgroundColor('#26FFFFFF')
-                  .accessibilityText('选择字幕轨道')
-                  .onClick(() => this.openSheet('subtitles'))
-
-                  // 音轨选择按钮
-                  Row({ space: 4 }) {
-                    SymbolGlyph($r('sys.symbol.waveform'))
-                      .fontSize(18)
-                      .fontColor([this.audioTrackOptions.length > 1 ? '#317AF7' : Color.White])
-                    Text('音轨')
-                      .fontSize(12)
-                      .fontColor('#D9FFFFFF')
-                  }
-                  .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                  .borderRadius(12)
-                  .backgroundColor('#26FFFFFF')
-                  .accessibilityText('选择音轨')
-                  .onClick(() => this.openSheet('audioTracks'))
-
-                  // 剧集选集按钮
+                  this.videoControlIcon(
+                    $r('sys.symbol.AI_subtitles'), '选择字幕轨道', this.selectedSubId !== 'off',
+                    () => this.openSheet('subtitles')
+                  )
+                  this.videoControlIcon(
+                    $r('sys.symbol.waveform'), '选择音轨', this.audioTrackOptions.length > 1,
+                    () => this.openSheet('audioTracks')
+                  )
                   if (this.videoQueue.length > 1) {
-                    Row({ space: 4 }) {
-                      SymbolGlyph($r('sys.symbol.list_bullet'))
-                        .fontSize(17)
-                        .fontColor([Color.White])
-                      Text(`选集 (${this.videoQueueIdx + 1}/${this.videoQueue.length})`)
-                        .fontSize(12)
-                        .fontColor('#D9FFFFFF')
-                    }
-                    .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                    .borderRadius(12)
-                    .backgroundColor('#26FFFFFF')
-                    .accessibilityText('打开选集列表')
-                    .onClick(() => this.openSheet('queue'))
+                    this.videoControlIcon(
+                      $r('sys.symbol.list_bullet'),
+                      `打开选集列表，第 ${this.videoQueueIdx + 1} 集，共 ${this.videoQueue.length} 集`, false,
+                      () => this.openSheet('queue')
+                    )
                   }
-                }
-
-                Blank()
-
-                Row({ space: 10 }) {
-                  // 画面比例切换按钮
-                  Row({ space: 4 }) {
-                    SymbolGlyph($r('sys.symbol.aspect_ratio'))
-                      .fontSize(18)
-                      .fontColor([this.scaleMode !== 'fit' ? '#317AF7' : Color.White])
-                    Text(PlaybackPreferencesStore.scaleModeLabel(this.scaleMode))
-                      .fontSize(12)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor(this.scaleMode !== 'fit' ? '#317AF7' : '#D9FFFFFF')
-                  }
-                  .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                  .borderRadius(12)
-                  .backgroundColor('#26FFFFFF')
-                  .accessibilityText('切换画面比例')
-                  .onClick(() => this.handleCycleScaleMode())
-
-                  // 倍速选择按钮
-                  Row({ space: 4 }) {
-                    SymbolGlyph($r('sys.symbol.timer'))
-                      .fontSize(18)
-                      .fontColor([this.speedIndex !== DEFAULT_AUDIO_SPEED_INDEX ? '#317AF7' : Color.White])
-                    Text(HARMONY_SPEED_LABELS[this.speedIndex])
-                      .fontSize(12)
-                      .fontWeight(FontWeight.Bold)
-                      .fontColor(this.speedIndex !== DEFAULT_AUDIO_SPEED_INDEX ? '#317AF7' : '#D9FFFFFF')
-                  }
-                  .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-                  .borderRadius(12)
-                  .backgroundColor('#26FFFFFF')
-                  .accessibilityText('选择播放倍速')
-                  .onClick(() => this.openSheet('speed'))
+                  this.videoControlIcon(
+                    $r('sys.symbol.aspect_ratio'),
+                    `切换画面比例，当前${PlaybackPreferencesStore.scaleModeLabel(this.scaleMode)}`,
+                    this.scaleMode !== 'fit', () => this.handleCycleScaleMode()
+                  )
+                  this.videoControlIcon(
+                    $r('sys.symbol.timer'), `选择播放倍速，当前 ${HARMONY_SPEED_LABELS[this.speedIndex]}`,
+                    this.speedIndex !== DEFAULT_AUDIO_SPEED_INDEX, () => this.openSheet('speed')
+                  )
                 }
               }
+              .scrollable(ScrollDirection.Horizontal)
+              .scrollBar(BarState.Off)
               .width('100%')
+              .height(44)
             }
             .width('100%')
             .padding({

@@ -94,11 +94,13 @@ import com.moviepilot.rustbridge.AgentPetDeclarationDto
 import com.moviepilot.rustbridge.AgentPetSelection
 import com.moviepilot.rustbridge.MoviePilotRepository
 import com.moviepilot.rustbridge.RustCoreBridge
+import com.moviepilot.rustbridge.SessionState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -321,11 +323,20 @@ private class DedicatedAndroidPetSlot(
 /** 创建隔离的插件 WebView 并安装安全请求拦截器。 */
 private fun createDedicatedPetSlot(
     context: Context,
+    repository: MoviePilotRepository,
     session: VuePluginSessionPayload,
     onRenderProcessGone: () -> Unit,
 ): DedicatedAndroidPetSlot {
     val appCtx = context.applicationContext
-    val interceptor = PluginShellRequestInterceptor(appCtx).apply { updateSession(session) }
+    val interceptor = PluginShellRequestInterceptor(
+        appCtx,
+        currentSession = { bound -> currentPetResourceSession(repository, bound) },
+        refreshResourceCookie = {
+            if (currentPetResourceSession(repository, session) != null) {
+                runBlocking(Dispatchers.IO) { repository.authedRequest(listOf("media", "source")) }
+            }
+        },
+    ).apply { updateSession(session) }
     val bridge = AndroidPluginHostBridgeV2(appCtx).apply { updateSession(session) }
     val wv = StagePassthroughWebView(appCtx)
     val slot = DedicatedAndroidPetSlot(wv, interceptor, bridge)
@@ -380,6 +391,20 @@ private fun createDedicatedPetSlot(
     return slot
 }
 
+/** 仅为仍归属当前账号和实例的助手导出最新 Cookie，防止旧容器借用新会话。 */
+private fun currentPetResourceSession(
+    repository: MoviePilotRepository,
+    bound: VuePluginSessionPayload,
+): VuePluginSessionPayload? {
+    val auth = repository.session.value as? SessionState.Authenticated ?: return null
+    if (auth.serverUrl != bound.serverUrl || auth.token != bound.authToken ||
+        auth.identity.id != bound.userId || auth.identity.name != bound.userName
+    ) return null
+    val cookies = repository.exportOriginCookieEntries()
+    if (repository.session.value !== auth) return null
+    return bound.copy(originCookies = cookies)
+}
+
 /**
  * Android 全界面 Agent 助手形象统一宿主层（挂在 `MoviePilotAppShell` 根层，覆盖所有 Tab 与二级子页面）：
  * - 未选插件形象或加载失败：展示纯原生高质感 `FloatingAgentMascot`（0 WebView 内存）；
@@ -408,6 +433,7 @@ fun AndroidAgentPetOverlayHost(
     if (effectivePet != null) {
         AndroidPluginAgentPetRuntimeOverlay(
             pet = effectivePet,
+            repository = repository,
             session = session,
             isVisible = isVisible,
             panelOpen = panelOpen,
@@ -444,6 +470,7 @@ fun AndroidAgentPetOverlayHost(
 /** 运行插件助手舞台与渲染器并转发宿主状态。 */
 private fun AndroidPluginAgentPetRuntimeOverlay(
     pet: AgentPetDeclarationDto,
+    repository: MoviePilotRepository,
     session: VuePluginSessionPayload,
     isVisible: Boolean,
     panelOpen: Boolean,
@@ -476,7 +503,7 @@ private fun AndroidPluginAgentPetRuntimeOverlay(
 
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val slot = remember(pet.id, session.serverUrl, session.authToken) {
-        createDedicatedPetSlot(context, session) {
+        createDedicatedPetSlot(context, repository, session) {
             mainHandler.post {
                 isMounted = false
                 AndroidAgentPetManager.markFailed(pet, "渲染进程中断")
@@ -626,6 +653,10 @@ private fun AndroidPluginAgentPetRuntimeOverlay(
                 speechBubbleNonce++
             }
 
+            // 必须等待资源 Cookie 就绪后再挂载，不能记住登录初期尚为空的 Cookie 快照。
+            repository.authedRequest(listOf("media", "source"))
+            val resourceSession = currentPetResourceSession(repository, session) ?: return@LaunchedEffect
+            slot.bridge.updateSession(resourceSession)
             val rawRemoteUrl = pet.remoteUrl?.takeIf { it.isNotBlank() } ?: withContext(Dispatchers.IO) {
                 discoverRemoteEntryUrl(session, pet.pluginId)
             }

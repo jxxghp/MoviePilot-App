@@ -258,7 +258,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                     "ready", "new", "otp", "expired", "unavailable", "slow",
                     "discovery-only", "resource-search-only", "search-failed", "storage-failed",
                     "partial-discovery-failed", "subscribe-failed", "mediaserver",
-                    "logs-empty", "logs-failed",
+                    "logs-empty", "logs-failed", "pet-cookie-refresh-once",
                 }:
                     raise ValueError()
             except (KeyError, ValueError, TypeError):
@@ -269,6 +269,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                 profile["mode"] = mode
                 if config.get("reset"):
                     profile["counts"].clear()
+                    profile["pet_fixture_version"] = f"1.2.0-dismissal-{time.time_ns()}"
                     profile["subscriptions"].clear()
                     profile["sub_items"] = [
                         {
@@ -1809,10 +1810,37 @@ class NativeHandler(BaseHTTPRequestHandler):
             profile = self.server.profiles[name]
             profile["counts"]["GET api/v1/plugin/agent_pets"] += 1
             mode = profile["mode"]
+            version = profile.setdefault("pet_fixture_version", f"1.2.0-dismissal-{time.time_ns()}")
         if mode == "expired":
             self.reply(401, {"success": False})
             return
-        self.reply(200, [])
+        self.reply(
+            200,
+            [
+                {
+                    "plugin_id": "VueCompatDemo",
+                    "plugin_name": "测试助手形象",
+                    "key": "dismissal-renderer",
+                    "name": "测试渲染助手",
+                    "description": "弹窗关闭回归用例",
+                    "mode": "renderer",
+                    "api_version": 1,
+                    "remote_url": "/api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js",
+                    "plugin_version": version,
+                },
+                {
+                    "plugin_id": "VueCompatDemo",
+                    "plugin_name": "测试助手形象",
+                    "key": "dismissal-stage",
+                    "name": "测试舞台助手",
+                    "description": "全屏舞台弹窗关闭回归用例",
+                    "mode": "stage",
+                    "api_version": 1,
+                    "remote_url": "/api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js",
+                    "plugin_version": version,
+                },
+            ],
+        )
 
     def plugin_remotes_endpoint(self, name):
         """返回合成 Vue 联邦插件远程入口清单（完全无前端 HTML / 3000 端口依赖）。"""
@@ -1846,8 +1874,17 @@ class NativeHandler(BaseHTTPRequestHandler):
             profile = self.server.profiles[name]
             profile["counts"]["GET api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js"] += 1
             mode = profile["mode"]
-        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+        if (mode == "expired"
+                or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}"
+                or self.headers.get("Cookie") != f"MoviePilot={self.resource_token(name)}"):
             self.reply(401, {"success": False})
+            return
+        with self.server.lock:
+            simulate_expiry = mode == "pet-cookie-refresh-once" and not profile["counts"]["pet-resource-first-401"]
+            if simulate_expiry:
+                profile["counts"]["pet-resource-first-401"] += 1
+        if simulate_expiry:
+            self.reply(401, {"detail": "Synthetic resource cookie expired"})
             return
         js_body = r"""
 let sharedScope = null;
@@ -2131,8 +2168,55 @@ function createDemoComponent(Vue, mode) {
   });
 }
 
+/** 创建实际挂载到独立窗口的插件形象，验证桥接状态与弹窗往返。 */
+function createPetComponent(Vue) {
+  const { defineComponent, h, ref, onMounted, onBeforeUnmount } = Vue;
+  return defineComponent({
+    name: 'DismissalRegressionPet',
+    props: { agent: Object, pet: Object },
+    setup(props) {
+      const visible = ref(false);
+      const position = ref({ x: 0, y: 0 });
+      const stage = props.pet.mode === 'stage';
+      let unsubscribe;
+      onMounted(() => {
+        unsubscribe = props.agent.subscribe(state => {
+          visible.value = state.pageVisible && !state.panelOpen;
+          const viewport = state.viewport;
+          position.value = {
+            x: Math.max(0, viewport.width - 104),
+            y: Math.max(0, viewport.height - 240),
+          };
+          if (stage) {
+            props.pet.setBubbleAnchor(visible.value
+              ? { ...position.value, width: 86, height: 96 } : null);
+          }
+        });
+      });
+      onBeforeUnmount(() => { if (unsubscribe) unsubscribe(); });
+      return () => h('button', {
+        type: 'button',
+        'aria-label': stage ? '测试舞台助手' : '测试渲染助手',
+        style: {
+          position: stage ? 'fixed' : 'relative',
+          left: stage ? position.value.x + 'px' : '0',
+          top: stage ? position.value.y + 'px' : '0',
+          width: '86px', height: '96px', borderRadius: '16px',
+          border: 'none', color: 'white', background: '#3478f6',
+          visibility: visible.value ? 'visible' : 'hidden',
+        },
+        onClick: () => props.agent.open(),
+      }, stage ? '测试舞台助手' : '测试渲染助手');
+    },
+  });
+}
+
+/** 按请求的联邦暴露名称返回测试组件。 */
 export async function get(moduleName) {
   const Vue = await resolveSharedVue(sharedScope);
+  if (moduleName === './AgentPet' || moduleName === 'AgentPet') {
+    return () => ({ __esModule: true, default: createPetComponent(Vue) });
+  }
   if (moduleName === './Config' || moduleName === 'Config') {
     const comp = createDemoComponent(Vue, 'Config');
     return () => ({ __esModule: true, default: comp });
@@ -2187,6 +2271,21 @@ export async function get(moduleName) {
             self.reply(200, {"success": True, "message": "", "data": {"render_mode": "vue", "page": []}})
             return
         page = [
+            {
+                "component": "VAlert",
+                "props": {"type": "info", "text": "嵌套进度条", "title": "进度适配回归"},
+                "content": [
+                    {"component": "VProgressLinear", "props": {"model-value": 1, "height": "8px", "rounded": False}},
+                    {
+                        "component": "div",
+                        "props": {"style": "position: relative; height: 10px; border-radius: 5px; overflow: hidden"},
+                        "content": [
+                            {"component": "VProgressLinear", "props": {"model-value": 120, "height": 10, "color": "error"}},
+                            {"component": "VProgressLinear", "props": {"modelValue": "42", "height": 10, "color": "success", "bg-opacity": 0}},
+                        ],
+                    },
+                ],
+            },
             {
                 "component": "VRow",
                 "content": [

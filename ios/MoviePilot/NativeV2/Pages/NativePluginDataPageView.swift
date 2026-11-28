@@ -577,7 +577,18 @@ struct NativePluginJSONRenderer: View {
     let children = node.children.filter {
       !["style", "script"].contains($0.component.lowercased())
     }
-    if children.contains(where: { $0.component.lowercased() == "vspacer" }) {
+    let progressChildren = children.filter { $0.component.lowercased() == "vprogresslinear" }
+    if node.styleValue("position")?.lowercased() == "relative",
+      !children.isEmpty, progressChildren.count == children.count
+    {
+      ZStack(alignment: .topLeading) {
+        ForEach(progressChildren) { child in AnyView(renderNode(child)) }
+      }
+      .frame(maxWidth: .infinity)
+      .frame(height: node.styleDimension("height", fallback: 10))
+      .clipShape(
+        RoundedRectangle(cornerRadius: node.styleDimension("border-radius", fallback: 5)))
+    } else if children.contains(where: { $0.component.lowercased() == "vspacer" }) {
       HStack(alignment: .center, spacing: 8) {
         if !node.displayText.isEmpty {
           Text(node.displayText).font(.subheadline).foregroundStyle(.primary)
@@ -612,6 +623,7 @@ struct NativePluginJSONRenderer: View {
     }
   }
 
+  /// 渲染保留语义颜色与图标的紧凑插件徽标。
   private func chipView(_ node: NativePluginJSONNode) -> some View {
     let tint = Self.tintColor(node.stringProp("color"))
     let label = node.combinedText.isEmpty ? (node.stringProp("text") ?? "") : node.combinedText
@@ -659,7 +671,7 @@ struct NativePluginJSONRenderer: View {
           if !bodyText.isEmpty {
             Text(bodyText).font(.caption).foregroundStyle(.primary)
           }
-          if !node.children.isEmpty && node.stringProp("text") == nil {
+          if !node.children.isEmpty {
             ForEach(node.children) { child in AnyView(renderNode(child)) }
           }
         }
@@ -743,18 +755,34 @@ struct NativePluginJSONRenderer: View {
 
   /// 进度条渲染。
   private func progressView(_ node: NativePluginJSONNode) -> some View {
-    let raw = node.doubleProp("modelValue") ?? node.doubleProp("value") ?? 0
-    let fraction = min(max(raw > 1 ? raw / 100.0 : raw, 0), 1)
-    let tint = Self.tintColor(node.stringProp("color"))
+    let raw =
+      node.doubleProp("model-value") ?? node.doubleProp("modelValue") ?? node.doubleProp("value")
+      ?? 0
+    let fraction = min(max(raw / 100.0, 0), 1)
+    let tint =
+      node.stringProp("color").flatMap(NativeAppearanceStore.color(fromHex:))
+      ?? Self.tintColor(node.stringProp("color"))
+    let height = node.dimensionProp("height", fallback: 6)
+    let rounded =
+      node.props["rounded"]?.boolValue != false
+      && node.stringProp("rounded")?.lowercased() != "false"
+      && node.stringProp("rounded") != "0"
+    let radius = rounded ? height / 2 : 0
+    let backgroundOpacity = min(
+      max(node.doubleProp("bg-opacity") ?? node.doubleProp("bgOpacity") ?? 0.26, 0), 1)
     return GeometryReader { bar in
       ZStack(alignment: .leading) {
-        Capsule().fill(NativeTheme.chipFill)
-        Capsule()
+        RoundedRectangle(cornerRadius: radius).fill(NativeTheme.chipFill.opacity(backgroundOpacity))
+        RoundedRectangle(cornerRadius: radius)
           .fill(tint)
-          .frame(width: max(bar.size.width * fraction, 4))
+          .frame(width: bar.size.width * fraction)
       }
     }
-    .frame(height: 6)
+    .frame(height: height)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("进度")
+    .accessibilityValue("\(Int((fraction * 100).rounded()))%")
+    .accessibilityIdentifier("native-plugin-progress-\(node.id)")
   }
 
   /// 通过同源图片代理渲染插件图片，拒绝非法方案。
@@ -2733,9 +2761,54 @@ struct NativePluginJSONNode: Identifiable, Sendable {
     return output
   }
 
+  /// 按键读取节点字符串属性。
   func stringProp(_ key: String) -> String? { props[key]?.stringValue }
 
-  func doubleProp(_ key: String) -> Double? { props[key]?.numberValue }
+  /// 按键读取有限数值，兼容 Vuetify 数字与字符串属性。
+  func doubleProp(_ key: String) -> Double? {
+    guard let value = props[key]?.numberValue ?? props[key]?.stringValue.flatMap(Double.init),
+      value.isFinite
+    else { return nil }
+    return value
+  }
+
+  /// 从节点内联样式中读取指定 CSS 属性。
+  func styleValue(_ property: String) -> String? {
+    guard let style = stringProp("style") else { return nil }
+    for declaration in style.split(separator: ";") {
+      let parts = declaration.split(separator: ":", maxSplits: 1).map(String.init)
+      if parts.count == 2,
+        parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+          .caseInsensitiveCompare(property) == .orderedSame
+      {
+        return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+    }
+    return nil
+  }
+
+  /// 读取 CSS 像素尺寸并转换为 SwiftUI 布局尺寸。
+  func styleDimension(_ property: String, fallback: CGFloat) -> CGFloat {
+    guard let raw = styleValue(property),
+      let value = Double(
+        raw.lowercased().replacingOccurrences(of: "px", with: "").trimmingCharacters(
+          in: .whitespacesAndNewlines)),
+      value.isFinite, value >= 0
+    else { return fallback }
+    return CGFloat(value)
+  }
+
+  /// 读取数字或 CSS 像素形式的 Vuetify 尺寸属性。
+  func dimensionProp(_ key: String, fallback: CGFloat) -> CGFloat {
+    if let value = doubleProp(key), value.isFinite, value > 0 { return CGFloat(value) }
+    guard let raw = stringProp(key),
+      let value = Double(
+        raw.lowercased().replacingOccurrences(of: "px", with: "").trimmingCharacters(
+          in: .whitespacesAndNewlines)),
+      value.isFinite, value > 0
+    else { return fallback }
+    return CGFloat(value)
+  }
 
   /// `VIcon` 的 `text` / `icon` 是 MDI 图标名，不是可读文字，不能混入标题、徽标或表格文本。
   var isIcon: Bool {

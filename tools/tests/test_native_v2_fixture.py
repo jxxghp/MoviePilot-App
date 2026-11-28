@@ -305,6 +305,10 @@ class NativeFixtureTests(unittest.TestCase):
             self.base + "/a/api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js",
             headers={"Authorization": "Bearer synthetic-native-a"},
         )
+        with self.assertRaises(HTTPError) as denied:
+            urlopen(js_req, timeout=5)
+        self.assertEqual(denied.exception.code, 401)
+        js_req.add_header("Cookie", f"MoviePilot={MODULE.NativeHandler.resource_token('a')}")
         with urlopen(js_req, timeout=5) as js_resp:
             self.assertEqual(js_resp.status, 200)
             self.assertIn("javascript", js_resp.headers.get("Content-Type", ""))

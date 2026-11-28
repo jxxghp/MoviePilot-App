@@ -1155,13 +1155,14 @@ export struct FloatingAiMascotButton {
     return this.isIdleDocked && !this.isDragging && !this.thinking && this.nearScreenEdge();
   }
 
+  /** 右侧贴边时将半身收至屏幕外，仍保留可见的探头与手臂。 */
   private effectiveTranslateX(): number {
     const clamped = this.clampDx(this.dragDx);
     if (!this.effectiveDocked()) {
       return clamped;
     }
     const bounds = this.dockBounds();
-    return this.dockOnLeft() ? (bounds[0] - 20) : (this.baseRight + 20);
+    return this.dockOnLeft() ? (bounds[0] - 20) : (this.baseRight + 28);
   }
 
   onViewportChanged(): void {

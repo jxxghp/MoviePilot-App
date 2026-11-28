@@ -27,7 +27,9 @@ def main():
     root = Path(__file__).resolve().parents[2]
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    parent = Path(os.environ["RUNNER_TEMP"]) if os.environ.get("CI") else Path.home() / "Library/Caches/MoviePilotSimulator"
+    parent = Path(os.environ.get("MOVIEPILOT_SIMULATOR_CACHE_DIR", "")) if os.environ.get("MOVIEPILOT_SIMULATOR_CACHE_DIR") else (
+        Path(os.environ["RUNNER_TEMP"]) if os.environ.get("CI") else Path.home() / "Library/Caches/MoviePilotSimulator"
+    )
     parent.mkdir(parents=True, exist_ok=True)
     scratch = Path(tempfile.mkdtemp(prefix="api-smoke-", dir=parent))
     simulator = None
@@ -66,7 +68,7 @@ def main():
                 time.sleep(0.1)
         else:
             raise RuntimeError("专用 API 夹具就绪超时")
-        tests = ["testNativeAgentChatStreamAndSessionHistory", "testNativeBusinessHidesUnpermittedEntries",
+        tests = ["testBuiltinAgentPetDocksAndRestoresAfterDialogs", "testAgentPetRestoresAfterPickerDismissal", "testNativePluginNestedProgressBars", "testNativeAgentChatStreamAndSessionHistory", "testNativeBusinessHidesUnpermittedEntries",
                  "testOTPAndSessionNotRemembered", "testUserEditorPreservesUneditedFields",
                  "testPluginLogSnapshotLoadsRefreshesAndRetries", "testNativeDiagnosticsAndShortcutsTools"]
         if args.only_test:

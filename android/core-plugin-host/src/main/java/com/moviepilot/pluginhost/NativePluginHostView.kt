@@ -108,6 +108,67 @@ private fun JsonElement?.safeArr(): JsonArray? = this as? JsonArray
 private fun JsonElement?.safePrim(): JsonPrimitive? = this as? JsonPrimitive
 private fun JsonObject.safeStr(key: String): String? = this[key].safePrim()?.content?.takeIf { it != "null" }
 
+/** 将 Vuetify 进度值限制到 0..100；Vuetify 的数字始终表示百分比。 */
+internal fun normalizeVuetifyProgressPercent(value: Double): Float =
+    if (value.isFinite()) value.coerceIn(0.0, 100.0).toFloat() else 0f
+
+/** 原生进度条使用的百分比、尺寸和透明度，统一兼容 Vuetify 属性别名。 */
+internal data class NativePluginProgressSpec(
+    val percent: Float,
+    val height: Float,
+    val rounded: Boolean,
+    val backgroundOpacity: Float,
+)
+
+/** 从插件 JSON 解析进度条属性，不把 0..1 的百分比误判为原生比例。 */
+internal fun parseVuetifyProgress(props: JsonObject): NativePluginProgressSpec {
+    val value = props.numberValue("model-value") ?: props.numberValue("modelValue") ?: props.numberValue("value") ?: 0.0
+    val height = props.safeStr("height")?.trim()?.removeSuffix("px")?.trim()?.toFloatOrNull()
+        ?.takeIf { it.isFinite() && it > 0f } ?: 6f
+    val opacity = (props.numberValue("bg-opacity") ?: props.numberValue("bgOpacity"))
+        ?.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0)?.toFloat() ?: 0.26f
+    return NativePluginProgressSpec(
+        percent = normalizeVuetifyProgressPercent(value),
+        height = height,
+        rounded = props.safeStr("rounded")?.lowercase() !in setOf("false", "0"),
+        backgroundOpacity = opacity,
+    )
+}
+
+/** 从内联 CSS 字符串读取指定样式值。 */
+private fun inlineStyleValue(style: String, property: String): String? {
+    return style.split(';').firstNotNullOfOrNull { declaration ->
+        val parts = declaration.split(':', limit = 2)
+        if (parts.size == 2 && parts[0].trim().equals(property, ignoreCase = true)) parts[1].trim() else null
+    }
+}
+
+/** 读取数字或字符串形式的 JSON 数值属性。 */
+private fun JsonObject.numberValue(key: String): Double? = this[key].safePrim()?.content?.toDoubleOrNull()
+
+/** 将 CSS 像素尺寸转换为有限的非负 dp 数值。 */
+private fun cssDimension(style: String, property: String, fallback: Float): Float {
+    val raw = inlineStyleValue(style, property)?.removeSuffix("px")?.trim()?.toFloatOrNull() ?: return fallback
+    return raw.takeIf { it.isFinite() && it >= 0f } ?: fallback
+}
+
+/** 将 Vuetify 语义色或 CSS 十六进制颜色映射为 Compose 颜色。 */
+@Composable
+private fun vuetifyProgressColor(value: String?, fallback: Color): Color {
+    val colors = LocalMoviePilotColors.current
+    val normalized = value.orEmpty().trim().lowercase()
+    return when (normalized) {
+        "success" -> colors.success
+        "error", "danger" -> colors.danger
+        "warning" -> colors.warning
+        "info" -> colors.info
+        "primary", "" -> fallback
+        else -> runCatching {
+            Color(android.graphics.Color.parseColor(normalized))
+        }.getOrDefault(fallback)
+    }
+}
+
 /**
  * 清空受控隔离 Vue 模块联邦 WebView 的全部会话态（Cookie、localStorage/WebStorage 与磁盘缓存）。
  * 必须在用户主动退出登录或 401 令牌失效自动退登时调用，杜绝跨账号残留。
@@ -644,6 +705,7 @@ fun NativePluginDataPageView(
     }
 }
 
+/** 递归渲染受支持的 Vuetify 插件 JSON 节点，保留告警容器中的原生子组件。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RenderVuetifyNode(
@@ -732,7 +794,24 @@ private fun RenderVuetifyNode(
 
         "VCol", "VCardText", "VCardItem", "VContainer", "VSheet", "div" -> {
             val css = props.safeStr("class").orEmpty()
-            if (css.contains("d-flex") && !css.contains("flex-column") && children.size in 2..4 && !obj.toString().contains("VApexChart")) {
+            val style = props.safeStr("style").orEmpty()
+            val progressChildren = children.mapNotNull { child ->
+                child.safeObj()?.takeIf { it.safeStr("component").equals("VProgressLinear", ignoreCase = true) }
+            }
+            if (comp.equals("div", ignoreCase = true) &&
+                inlineStyleValue(style, "position").equals("relative", ignoreCase = true) &&
+                children.isNotEmpty() && progressChildren.size == children.size
+            ) {
+                val height = cssDimension(style, "height", 10f)
+                val radius = cssDimension(style, "border-radius", height / 2f)
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(height.dp)
+                        .clip(RoundedCornerShape(radius.dp)),
+                    contentAlignment = Alignment.TopStart,
+                ) {
+                    children.forEach { child -> RenderVuetifyNode(child, resolveImageUrl, onInvokeApi) }
+                }
+            } else if (css.contains("d-flex") && !css.contains("flex-column") && children.size in 2..4 && !obj.toString().contains("VApexChart")) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -778,11 +857,38 @@ private fun RenderVuetifyNode(
         }
 
         "VAlert" -> {
-            val txt = ownText ?: collectAllText(children)
-            if (txt.isNotBlank()) {
+            val alertText = obj.safeStr("text") ?: props.safeStr("text").orEmpty()
+            val title = props.safeStr("title").orEmpty()
+            if (alertText.isNotBlank() || title.isNotBlank() || children.isNotEmpty()) {
                 CinematicPanel(padding = 12.dp, showsShadow = false) {
-                    Text(txt, color = colors.info, fontSize = 13.sp, lineHeight = 19.sp)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (title.isNotBlank()) {
+                            Text(title, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (alertText.isNotBlank()) {
+                            Text(alertText, color = colors.info, fontSize = 13.sp, lineHeight = 19.sp)
+                        }
+                        children.forEach { RenderVuetifyNode(it, resolveImageUrl, onInvokeApi) }
+                    }
                 }
+            }
+        }
+
+        "VProgressLinear" -> {
+            val progress = parseVuetifyProgress(props)
+            val height = progress.height
+            val radius = if (progress.rounded) height / 2f else 0f
+            val tint = vuetifyProgressColor(props.safeStr("color"), colors.accent)
+            val track = colors.chipFill.copy(alpha = colors.chipFill.alpha * progress.backgroundOpacity)
+            Box(
+                modifier = Modifier.fillMaxWidth().height(height.dp)
+                    .clip(RoundedCornerShape(radius.dp)).background(track),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(progress.percent / 100f)
+                        .height(height.dp).background(tint),
+                )
             }
         }
 

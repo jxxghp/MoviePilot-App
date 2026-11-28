@@ -686,6 +686,7 @@ struct NativeAgentPetPickerSheet: View {
       )
     }
     .buttonStyle(.plain)
+    .accessibilityIdentifier("native-agent-pet-option-\(title)")
     .disabled(petStore.isSaving)
   }
 }

@@ -299,6 +299,7 @@ struct NativePluginLocalRuntimeView: View {
 
   // MARK: - Mount Flow
 
+  /// 绑定当前原生会话和动态资源 Cookie 后挂载联邦插件。
   private func mountPlugin() async {
     errorMessage = nil
     isMounted = false
@@ -331,6 +332,7 @@ struct NativePluginLocalRuntimeView: View {
         let slot = resumed.slot
         slot.sessionContext = context
         slot.schemeHandler.updateSessionContext(context)
+        slot.schemeHandler.nativeSession = session
         slot.bridge.updateSessionContext(context)
         slot.bridge.nativeSession = session
         slot.bindActivePlugin(id: pluginID, name: resumed.pluginName)
@@ -361,6 +363,7 @@ struct NativePluginLocalRuntimeView: View {
 
       // 3. 从预热池借出透明 WKWebView 槽
       let slot = PluginWebViewPool.shared.acquire(context: context)
+      slot.schemeHandler.nativeSession = session
       slot.bridge.nativeSession = session
       let resolvedDisplayName =
         pluginName.isEmpty ? (descriptor.name ?? pluginID) : pluginName
