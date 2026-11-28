@@ -111,14 +111,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Cache Xcode SwiftPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/SourcePackages
           key: spm-packages-${{ runner.os }}-${{ hashFiles('ios/MoviePilot.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             spm-packages-${{ runner.os }}-
       - name: Cache SwiftPM core build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ios/.build
           key: swiftpm-core-${{ runner.os }}-${{ hashFiles('ios/Package.swift', 'ios/Sources/**/*.swift', 'ios/Tests/**/*.swift') }}
@@ -205,7 +205,7 @@ jobs:
           shared-key: rust-harmony
           cache-on-failure: true
       - name: Cache ohpm packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.ohpm
           key: ohpm-${{ runner.os }}-${{ hashFiles('harmony/**/oh-package.json5') }}

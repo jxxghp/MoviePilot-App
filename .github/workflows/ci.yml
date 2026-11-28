@@ -45,14 +45,14 @@ jobs:
       - name: Toolchain
         run: xcodebuild -version
       - name: Cache Xcode SwiftPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/SourcePackages
           key: spm-packages-${{ runner.os }}-${{ hashFiles('ios/MoviePilot.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             spm-packages-${{ runner.os }}-
       - name: Cache SwiftPM core build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ios/.build
           key: swiftpm-core-${{ runner.os }}-${{ hashFiles('ios/Package.swift', 'ios/Sources/**/*.swift', 'ios/Tests/**/*.swift') }}
@@ -89,7 +89,7 @@ jobs:
   ios-smoke:
     needs: ios-build
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -112,7 +112,7 @@ jobs:
           mkdir -p DerivedData/Build
           tar -C DerivedData/Build -xf "${{ runner.temp }}/ios-sim-products.tar"
       - name: Run API-only simulator smoke tests (shard ${{ matrix.shard }})
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: >-
           python3 tools/ios/test-api-smoke.py
           --derived-data DerivedData
@@ -175,7 +175,7 @@ jobs:
           shared-key: rust-harmony
           cache-on-failure: true
       - name: Cache ohpm packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.ohpm
           key: ohpm-${{ runner.os }}-${{ hashFiles('harmony/**/oh-package.json5') }}

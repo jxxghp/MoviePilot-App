@@ -3628,72 +3628,92 @@ final class NativeV2EntryTests: XCTestCase {
     element.tap()
   }
 
+  private static let priorityScrollIdentifiers: [String] = [
+    "native-media-detail-scroll", "native-person-detail-scroll",
+    "native-more-scroll", "native-diag-scroll", "native-appearance-scroll",
+    "native-notification-settings-scroll", "native-widget-settings-scroll",
+    "native-sysmod-scroll",
+    "native-plugin-page-scroll", "native-dashboard-scroll",
+    "native-agent-scroll", "native-plugin-market-scroll", "native-music-artist-scroll",
+    "native-music-album-scroll", "native-music-scroll", "native-subscribe-editor-scroll",
+    "native-community-scroll",
+    "native-explore-scroll",
+    "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
+    "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
+    "native-messages-scroll", "native-files-scroll", "native-workflows-scroll",
+    "native-settings-scroll", "native-users-scroll",
+    "native-media-search-scroll", "native-discover-grid", "native-discover-page",
+  ]
+
+  private static let toolbarActionIdentifiers: Set<String> = [
+    "native-plugin-selection-done", "native-cron-apply", "native-cron-cancel",
+    "native-cron-field-apply", "native-combobox-apply", "native-combobox-cancel",
+    "native-modules-save", "native-modules-cancel",
+    "native-subscribe-editor-save", "native-subscribe-editor-cancel",
+    "native-agent-new", "native-agent-sessions", "native-agent-sessions-close",
+    "native-workflow-node-editor-apply", "native-workflow-node-editor-cancel",
+    "native-workflow-catalog-close",
+    "native-user-editor-save", "native-user-editor-cancel",
+    "native-more-settings-btn",
+    "native-subscriptions-community", "native-subscriptions-calendar",
+    "native-subscriptions-history",
+  ]
+
+  private static let navigationActionLabels: Set<String> = [
+    "发现", "订阅", "我的", "更多", "探索", "设置", "搜索", "保存", "添加节点", "新建目录", "新增用户", "新建对话",
+  ]
+
+  /// 单次谓词批量解析当前活跃滚动容器，避免每次点击遍历 30+ 不存在的 ScrollView 造成大量 XPC 往返。
+  private func resolveActiveScrollContainer(_ app: XCUIApplication) -> XCUIElement {
+    let forms = app.collectionViews.allElementsBoundByIndex
+    if let modulesList = forms.first(where: { $0.identifier == "native-modules-list" }) {
+      return modulesList
+    }
+    let matchedScrolls = app.scrollViews.matching(
+      NSPredicate(format: "identifier IN %@", Self.priorityScrollIdentifiers)
+    ).allElementsBoundByIndex
+    if !matchedScrolls.isEmpty {
+      var hittableByID: [String: XCUIElement] = [:]
+      for candidate in matchedScrolls where candidate.isHittable {
+        hittableByID[candidate.identifier] = candidate
+      }
+      for identifier in Self.priorityScrollIdentifiers {
+        if let hit = hittableByID[identifier] {
+          return hit
+        }
+      }
+    }
+    for formID in [
+      "native-cron-mode-form", "native-cron-field-form", "native-cron-form", "native-combobox-form",
+    ] {
+      if let form = forms.first(where: { $0.identifier == formID }) {
+        return form
+      }
+    }
+    if !forms.isEmpty {
+      return (app.buttons["native-plugin-selection-done"].exists ? forms.last : forms.first) ?? app
+    }
+    return app
+  }
+
   /// Form 延迟创建行且部分 SwiftUI 后代会误报 hittable，必须检查点击中心在可见区域内。
   private func reveal(_ element: XCUIElement, app: XCUIApplication) {
     _ = dismissSystemPasswordSavePromptIfPresent(app)
-    _ = element.waitForExistence(timeout: 2)
+    if !element.exists {
+      _ = element.waitForExistence(timeout: 2)
+    }
+    // 已处于当前安全视口内且可命中的控件直接返回，跳过昂贵的滚动容器扫描。
+    if visible(element, app: app, scroll: nil) { return }
     // 键盘候选栏也是 CollectionView；正文继续取首个 Form，只有已打开选择弹层才取其末个 Form。
-    let forms = app.collectionViews.allElementsBoundByIndex
-    let cronMode = app.collectionViews["native-cron-mode-form"]
-    let cronField = app.collectionViews["native-cron-field-form"]
-    let cron = app.collectionViews["native-cron-form"]
-    let combobox = app.collectionViews["native-combobox-form"]
-    let modulesList = app.collectionViews["native-modules-list"]
-    let detailScroll = app.scrollViews.matching(identifier: "native-media-detail-scroll")
-      .allElementsBoundByIndex.last(where: { $0.isHittable })
-    let personScroll = app.scrollViews.matching(identifier: "native-person-detail-scroll")
-      .allElementsBoundByIndex.last(where: { $0.isHittable })
-    let workspaceScroll = [
-      "native-more-scroll", "native-diag-scroll", "native-appearance-scroll",
-      "native-notification-settings-scroll", "native-widget-settings-scroll",
-      "native-sysmod-scroll",
-      "native-plugin-page-scroll", "native-dashboard-scroll",
-      "native-agent-scroll", "native-plugin-market-scroll", "native-music-artist-scroll",
-      "native-music-album-scroll", "native-music-scroll", "native-subscribe-editor-scroll",
-      "native-community-scroll",
-      "native-explore-scroll",
-      "native-downloads-scroll", "native-subscriptions-scroll", "native-calendar-scroll",
-      "native-resource-search-scroll", "native-history-scroll", "native-sites-scroll",
-      "native-messages-scroll", "native-files-scroll", "native-workflows-scroll",
-      "native-settings-scroll", "native-users-scroll",
-    ].compactMap { identifier in
-      app.scrollViews.matching(identifier: identifier).allElementsBoundByIndex.last(where: {
-        $0.isHittable
-      })
-    }.first
-    let mediaSearch = app.scrollViews["native-media-search-scroll"]
-    let discoverGrid = app.scrollViews["native-discover-grid"]
-    let discoverPage = app.scrollViews["native-discover-page"]
-    let scroll =
-      (modulesList.exists ? modulesList : nil)
-      ?? detailScroll
-      ?? personScroll
-      ?? workspaceScroll
-      ?? (mediaSearch.exists && mediaSearch.isHittable
-        ? mediaSearch
-        : discoverGrid.exists && discoverGrid.isHittable
-          ? discoverGrid
-          : discoverPage.exists && discoverPage.isHittable
-            ? discoverPage
-            : cronMode.exists
-              ? cronMode
-              : cronField.exists
-                ? cronField
-                : cron.exists
-                  ? cron
-                  : combobox.exists
-                    ? combobox
-                    : (app.buttons["native-plugin-selection-done"].exists
-                      ? forms.last : forms.first)
-                      ?? app)
+    let scroll = resolveActiveScrollContainer(app)
     for direction in [true, false] {
       for _ in 0..<12 {
         _ = dismissSystemPasswordSavePromptIfPresent(app)
         if visible(element, app: app, scroll: scroll) { return }
+        let area = viewport(app, scroll: scroll)
         let upward =
           element.exists
-          ? element.frame.midY > viewport(app, scroll: scroll).midY : direction
-        let area = viewport(app, scroll: scroll)
+          ? element.frame.midY > area.midY : direction
         let origin = app.coordinate(withNormalizedOffset: .zero)
         let x = area.minX + min(32, area.width * 0.1)
         // 矮横屏的长距离惯性滚动会在目标上下反复越过；按差值短拖并停稳，再查询原生命中区域。
@@ -3724,11 +3744,17 @@ final class NativeV2EntryTests: XCTestCase {
   }
 
   /// 系统导航、键盘与底部安全区不能被当作表单的有效点击区域。
-  private func viewport(_ app: XCUIApplication, scroll: XCUIElement) -> CGRect {
-    let window = app.windows.firstMatch.frame
-    var rect = scroll.frame.intersection(window).insetBy(dx: 0, dy: 12)
-    let bar = app.navigationBars.allElementsBoundByIndex.last ?? app.navigationBars.firstMatch
-    if bar.exists, bar.frame.maxY > rect.minY {
+  private func viewport(
+    _ app: XCUIApplication,
+    scroll: XCUIElement?,
+    windowFrame: CGRect? = nil,
+    navBars: [XCUIElement]? = nil
+  ) -> CGRect {
+    let window = windowFrame ?? app.windows.firstMatch.frame
+    let baseRect = scroll.map { $0.frame.intersection(window) } ?? window
+    var rect = baseRect.insetBy(dx: 0, dy: 12)
+    let bars = navBars ?? app.navigationBars.allElementsBoundByIndex
+    if let bar = bars.last, bar.exists, bar.frame.maxY > rect.minY {
       let bottom = rect.maxY
       rect.origin.y = bar.frame.maxY + 6
       rect.size.height = max(0, bottom - rect.minY)
@@ -3741,50 +3767,46 @@ final class NativeV2EntryTests: XCTestCase {
 
   /// 以真实元素中心验证命中点，保留普通 isHittable 检查而不使用坐标直接点击控件。
   private func visible(
-    _ element: XCUIElement, app: XCUIApplication, scroll: XCUIElement
+    _ element: XCUIElement, app: XCUIApplication, scroll: XCUIElement?
   ) -> Bool {
     // 被导航栏完全遮挡的 SwiftUI Menu 在查询 isHittable 时会抛出激活点错误，先检查几何范围再查询。
     guard element.exists else { return false }
-    if [
-      "native-plugin-selection-done", "native-cron-apply", "native-cron-cancel",
-      "native-cron-field-apply", "native-combobox-apply", "native-combobox-cancel",
-      "native-modules-save", "native-modules-cancel",
-      "native-subscribe-editor-save", "native-subscribe-editor-cancel",
-      "native-agent-new", "native-agent-sessions", "native-agent-sessions-close",
-      "native-workflow-node-editor-apply", "native-workflow-node-editor-cancel",
-      "native-workflow-catalog-close",
-      "native-user-editor-save", "native-user-editor-cancel",
-      "native-more-settings-btn",
-      "native-subscriptions-community", "native-subscriptions-calendar",
-      "native-subscriptions-history",
-    ].contains(element.identifier) {
+    let frame = element.frame
+    guard !frame.isEmpty else { return false }
+    let center = CGPoint(x: frame.midX, y: frame.midY)
+    let window = app.windows.firstMatch.frame
+    guard window.contains(center) else { return false }
+
+    let identifier = element.identifier
+    if Self.toolbarActionIdentifiers.contains(identifier) {
       // iPad 原生 sheet 的工具栏 AX 框可能仍用局部坐标；这是导航动作，不属于滚动内容。
-      return app.windows.firstMatch.frame.contains(
-        CGPoint(x: element.frame.midX, y: element.frame.midY)) && element.isHittable
+      return element.isHittable
     }
-    if !element.identifier.isEmpty {
-      for bar in app.navigationBars.allElementsBoundByIndex
-      where bar.buttons.matching(identifier: element.identifier).firstMatch.exists {
-        return bar.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY))
-          && element.isHittable
+
+    let navBars = app.navigationBars.allElementsBoundByIndex
+    if !identifier.isEmpty {
+      for bar in navBars
+      where bar.frame.contains(center)
+        && bar.buttons.matching(identifier: identifier).firstMatch.exists
+      {
+        return element.isHittable
       }
     }
-    if [
-      "发现", "订阅", "我的", "更多", "探索", "设置", "搜索", "保存", "添加节点", "新建目录", "新增用户", "新建对话",
-    ].contains(element.label),
-      app.windows.firstMatch.frame.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)),
-      element.isHittable
-    {
+
+    let safeArea = viewport(app, scroll: scroll, windowFrame: window, navBars: navBars)
+    if safeArea.contains(center), element.isHittable {
       return true
     }
-    for tabBar in app.tabBars.allElementsBoundByIndex {
-      let center = CGPoint(x: element.frame.midX, y: element.frame.midY)
-      if tabBar.frame.contains(center), element.isHittable {
+
+    if Self.navigationActionLabels.contains(element.label), element.isHittable {
+      return true
+    }
+    for tabBar in app.tabBars.allElementsBoundByIndex where tabBar.frame.contains(center) {
+      if element.isHittable {
         return true
       }
     }
-    return viewport(app, scroll: scroll).contains(
-      CGPoint(x: element.frame.midX, y: element.frame.midY)) && element.isHittable
+    return false
   }
 
   /// SwiftUI 的带标题开关包含实际 UISwitch，直接操作该控件并验证真实值。
