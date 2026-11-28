@@ -92,7 +92,7 @@ struct NativeSettingsHubPage: View {
             adminTopStatusGrid
             coreWorkflowSection
           } else {
-            memberTopAuthCard
+            memberAccountBindingSection
             memberPlaybackSection
           }
 
@@ -304,30 +304,21 @@ struct NativeSettingsHubPage: View {
     .accessibilityIdentifier(id)
   }
 
-  private var memberTopAuthCard: some View {
-    Button {
-      onNavigate(.channelAuth)
-    } label: {
-      CinematicPanel(padding: 16) {
-        HStack(spacing: 14) {
-          iconBadge("person.badge.key.fill")
-          VStack(alignment: .leading, spacing: 3) {
-            Text(t("渠道授权与绑定"))
-              .font(.body.weight(.semibold))
-              .foregroundStyle(.primary)
-            Text(t("生成 5 分钟渠道关联绑定码"))
-              .font(.footnote)
-              .foregroundStyle(.secondary)
-          }
-          Spacer()
-          Image(systemName: "chevron.right")
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.secondary.opacity(0.55))
-        }
-      }
+  /// 非超级管理员顶部展示个人账号绑定入口（媒体服务器账号绑定 + 渠道授权绑定码）。
+  private var memberAccountBindingSection: some View {
+    settingsGroup(t("账号与绑定")) {
+      navRow(
+        title: t("绑定媒体服务器账号"), subtitle: t("Emby · Jellyfin · Plex 个人同步"),
+        symbol: "tv.badge.wifi",
+        id: "native-settings-mediaserver-bindings"
+      ) { onNavigate(.mediaServerBindings) }
+      settingsRowDivider
+      navRow(
+        title: t("渠道授权与绑定"), subtitle: t("生成 5 分钟渠道关联绑定码"),
+        symbol: "person.badge.key",
+        id: "native-workspace-channel-auth"
+      ) { onNavigate(.channelAuth) }
     }
-    .buttonStyle(.plain)
-    .accessibilityIdentifier("native-workspace-channel-auth")
   }
 
   // MARK: - 2. 分组一：基础
@@ -359,6 +350,12 @@ struct NativeSettingsHubPage: View {
         symbol: "server.rack",
         id: "native-settings-mediaservers"
       ) { onNavigate(.mediaServersManage) }
+      settingsRowDivider
+      navRow(
+        title: t("绑定媒体服务器账号"), subtitle: t("Emby · Jellyfin · Plex 个人同步"),
+        symbol: "tv.badge.wifi",
+        id: "native-settings-mediaserver-bindings"
+      ) { onNavigate(.mediaServerBindings) }
       settingsRowDivider
       navRow(
         title: t("整理与目录"), subtitle: t("目录映射与刮削"), symbol: "folder.badge.gearshape",
@@ -2754,13 +2751,6 @@ struct NativePlaybackPreferencesPage: View {
   @AppStorage("nativeV2.playback.externalPlayerTemplate") private var externalPlayerTemplate = ""
   @ObservedObject private var appearance = NativeAppearanceStore.shared
 
-  @State private var accountBindings: [MediaServerAccountBindingDTO] = []
-  @State private var isLoadingBindings = true
-  @State private var bindingsError: String?
-  @State private var bindingSheetTarget: MediaServerAccountBindingDTO?
-  @State private var unbindConfirmTarget: MediaServerAccountBindingDTO?
-  @State private var isUnbinding = false
-
   private var videoEngineLabel: String {
     switch videoEngine {
     case "native": return "系统原生内核"
@@ -3110,73 +3100,7 @@ struct NativePlaybackPreferencesPage: View {
             }
           }
 
-          VStack(alignment: .leading, spacing: 10) {
-            HStack {
-              Text("媒体服务器进度同步")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-              Spacer()
-              if !isLoadingBindings {
-                Button {
-                  Task { await loadBindings() }
-                } label: {
-                  Image(systemName: "arrow.clockwise")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("刷新媒体服务器绑定状态")
-              }
-            }
-            .padding(.horizontal, 8)
-
-            CinematicPanel(padding: 0) {
-              if isLoadingBindings && accountBindings.isEmpty {
-                HStack(spacing: 10) {
-                  ProgressView().controlSize(.small)
-                  Text("正在加载媒体服务器同步状态…")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
-              } else if let bindingsError, accountBindings.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                  Text(bindingsError)
-                    .font(.subheadline)
-                    .foregroundStyle(NativeTheme.danger)
-                  Button("重试") {
-                    Task { await loadBindings() }
-                  }
-                  .font(.subheadline.weight(.semibold))
-                  .tint(appearance.accentColor)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-              } else if accountBindings.isEmpty {
-                Text("暂无已启用的媒体服务器")
-                  .font(.subheadline)
-                  .foregroundStyle(.secondary)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-                  .padding(16)
-              } else {
-                VStack(spacing: 0) {
-                  ForEach(Array(accountBindings.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 {
-                      CinematicFormDivider()
-                    }
-                    bindingRow(item)
-                  }
-                }
-              }
-            }
-
-            Text("绑定 Emby、Jellyfin 或 Plex 个人账号后，播放进度将实时显示在媒体服务器「正在播放」仪表盘中；密码仅用于一次性换取令牌，绝不保存在本地。")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .padding(.horizontal, 8)
-          }
+          NativeMediaServerAccountBindingsSection(session: session, showSectionHeader: true)
         }
         .frame(maxWidth: 740, alignment: .leading)
         .padding(.horizontal, CinematicStyle.margin).padding(.vertical, 16)
@@ -3188,7 +3112,157 @@ struct NativePlaybackPreferencesPage: View {
     .navigationTitle("播放偏好")
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
-    .task {
+  }
+}
+
+/// 独立的个人媒体服务器账号绑定页（面向所有已登录用户，包括非超级管理员与超级管理员）。
+@MainActor
+struct NativeMediaServerAccountBindingsPage: View {
+  let session: NativeSession
+
+  @State private var reloadTrigger = 0
+
+  var body: some View {
+    ZStack {
+      CinematicBackground()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          NativeMediaServerAccountBindingsSection(
+            session: session,
+            showSectionHeader: false,
+            externalReloadToken: reloadTrigger
+          )
+        }
+        .frame(maxWidth: 740, alignment: .leading)
+        .padding(.horizontal, CinematicStyle.margin)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+      }
+      .scrollIndicators(.hidden)
+      .refreshable {
+        reloadTrigger &+= 1
+      }
+      .modifier(NativeSoftTopScrollEdge())
+      .accessibilityIdentifier("native-mediaserver-bindings-scroll")
+    }
+    .navigationTitle("绑定媒体服务器账号")
+    .navigationBarTitleDisplayMode(.inline)
+    .nativeTopNavigationBar()
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Button {
+          reloadTrigger &+= 1
+        } label: {
+          Image(systemName: "arrow.clockwise")
+        }
+        .tint(.primary)
+        .accessibilityLabel("刷新媒体服务器绑定状态")
+        .accessibilityIdentifier("native-mediaserver-bindings-refresh")
+      }
+    }
+  }
+}
+
+/// 个人媒体服务器账号绑定列表与绑定/解绑交互区块（供独立「绑定媒体服务器账号」页与「播放偏好」页共同复用）。
+@MainActor
+private struct NativeMediaServerAccountBindingsSection: View {
+  let session: NativeSession
+  let showSectionHeader: Bool
+  var externalReloadToken: Int = 0
+
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
+  @State private var accountBindings: [MediaServerAccountBindingDTO] = []
+  @State private var isLoadingBindings = true
+  @State private var bindingsError: String?
+  @State private var feedbackText: String?
+  @State private var bindingSheetTarget: MediaServerAccountBindingDTO?
+  @State private var unbindConfirmTarget: MediaServerAccountBindingDTO?
+  @State private var isUnbinding = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      if showSectionHeader {
+        HStack {
+          Text("媒体服务器进度同步")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+          Spacer()
+          if !isLoadingBindings {
+            Button {
+              Task { await loadBindings() }
+            } label: {
+              Image(systemName: "arrow.clockwise")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("刷新媒体服务器绑定状态")
+          }
+        }
+        .padding(.horizontal, 8)
+      }
+
+      if let feedbackText, !feedbackText.isEmpty {
+        CinematicPanel(padding: 11) {
+          HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+              .foregroundStyle(NativeTheme.success)
+            Text(feedbackText)
+              .font(.caption.weight(.medium))
+            Spacer()
+          }
+        }
+        .accessibilityIdentifier("native-mediaserver-bindings-feedback")
+      }
+
+      CinematicPanel(padding: 0) {
+        if isLoadingBindings && accountBindings.isEmpty {
+          HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text("正在加载媒体服务器同步状态…")
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 16)
+        } else if let bindingsError, accountBindings.isEmpty {
+          VStack(alignment: .leading, spacing: 10) {
+            Text(bindingsError)
+              .font(.subheadline)
+              .foregroundStyle(NativeTheme.danger)
+            Button("重试") {
+              Task { await loadBindings() }
+            }
+            .font(.subheadline.weight(.semibold))
+            .tint(appearance.accentColor)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(16)
+        } else if accountBindings.isEmpty {
+          Text("暂无已启用的媒体服务器")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+        } else {
+          VStack(spacing: 0) {
+            ForEach(Array(accountBindings.enumerated()), id: \.element.id) { index, item in
+              if index > 0 {
+                CinematicFormDivider()
+              }
+              bindingRow(item)
+            }
+          }
+        }
+      }
+
+      Text("绑定 Emby、Jellyfin 或 Plex 个人账号后，播放进度将实时显示在媒体服务器「正在播放」仪表盘中；密码仅用于一次性换取令牌，绝不保存在本地。")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+    }
+    .task(id: externalReloadToken) {
       await loadBindings()
     }
     .sheet(item: $bindingSheetTarget) { target in
@@ -3198,6 +3272,7 @@ struct NativePlaybackPreferencesPage: View {
         } else {
           Task { await loadBindings() }
         }
+        feedbackText = "已绑定 \(updated.server)，实时会话同步已启用。"
       }
     }
     .confirmationDialog(
@@ -3226,6 +3301,12 @@ struct NativePlaybackPreferencesPage: View {
   private func bindingRow(_ item: MediaServerAccountBindingDTO) -> some View {
     let badge = syncBadge(for: item)
     HStack(alignment: .center, spacing: 12) {
+      NativeBrandIcon(
+        kind: .mediaServer,
+        type: item.serverType.isEmpty ? item.server : item.serverType,
+        size: 38,
+        cornerRadius: 10
+      )
       VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 8) {
           Text(item.server)
@@ -3254,6 +3335,7 @@ struct NativePlaybackPreferencesPage: View {
             .foregroundStyle(NativeTheme.danger)
             .buttonStyle(.plain)
             .disabled(isUnbinding)
+            .accessibilityIdentifier("native-mediaserver-unbind-\(item.server)")
           }
           Button(item.bound || item.status == "invalid" ? "重绑" : "绑定") {
             bindingSheetTarget = item
@@ -3264,6 +3346,7 @@ struct NativePlaybackPreferencesPage: View {
           .padding(.vertical, 6)
           .background(appearance.accentColor.opacity(0.14), in: Capsule())
           .buttonStyle(.plain)
+          .accessibilityIdentifier("native-mediaserver-bind-\(item.server)")
         }
       }
     }
@@ -3322,6 +3405,7 @@ struct NativePlaybackPreferencesPage: View {
     defer { isUnbinding = false }
     do {
       try await MediaServerAccountBindingClient.unbind(session: session, server: target.server)
+      feedbackText = "已解除 \(target.server) 的个人账号绑定。"
       await loadBindings()
     } catch {
       bindingsError = error.localizedDescription
@@ -3393,6 +3477,7 @@ private struct NativeMediaServerAccountBindSheet: View {
                       .multilineTextAlignment(.trailing)
                       .textInputAutocapitalization(.never)
                       .autocorrectionDisabled()
+                      .accessibilityIdentifier("native-mediaserver-bind-token")
                   }
                   .padding(.horizontal, 15).padding(.vertical, 12)
                 } else {
@@ -3403,6 +3488,7 @@ private struct NativeMediaServerAccountBindSheet: View {
                       .multilineTextAlignment(.trailing)
                       .textInputAutocapitalization(.never)
                       .autocorrectionDisabled()
+                      .accessibilityIdentifier("native-mediaserver-bind-username")
                   }
                   .padding(.horizontal, 15).padding(.vertical, 12)
                   CinematicFormDivider()
@@ -3411,6 +3497,7 @@ private struct NativeMediaServerAccountBindSheet: View {
                     SecureField("媒体服务器登录密码", text: $password)
                       .font(.subheadline)
                       .multilineTextAlignment(.trailing)
+                      .accessibilityIdentifier("native-mediaserver-bind-password")
                   }
                   .padding(.horizontal, 15).padding(.vertical, 12)
                 }
@@ -3458,6 +3545,7 @@ private struct NativeMediaServerAccountBindSheet: View {
           }
           .tint(appearance.accentColor)
           .disabled(!canSubmit)
+          .accessibilityIdentifier("native-mediaserver-bind-submit")
         }
       }
     }

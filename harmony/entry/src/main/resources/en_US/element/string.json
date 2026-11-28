@@ -425,6 +425,10 @@
       "value": "This installation is unpaired."
     },
     {
+      "name": "mp_32249c71",
+      "value": "Account & Bindings"
+    },
+    {
       "name": "mp_32bc332f",
       "value": "LAN Direct"
     },
@@ -1955,6 +1959,10 @@
     {
       "name": "mp_emby_jellyfin_plex_e2951fb0",
       "value": "Stream directly from bound Emby / Jellyfin / Plex servers when reachable, falling back to MoviePilot proxy automatically"
+    },
+    {
+      "name": "mp_emby_jellyfin_plex_f8e2d4df",
+      "value": "Emby · Jellyfin · Plex Personal Sync"
     },
     {
       "name": "mp_f0409080",

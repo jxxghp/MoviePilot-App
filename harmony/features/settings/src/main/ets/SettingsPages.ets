@@ -1339,6 +1339,7 @@ export struct HarmonySettingsHubPage {
   @StorageProp('mp_open_settings_sheet') @Watch('onPendingSettingsSheetChanged') pendingSettingsSheet: string = '';
   @Prop serverUrl: string = '';
   @Prop userName: string = 'admin';
+  @Prop isSuperuser: boolean = true;
   @State private stats: MpDashboardStats = {
     movieCount: 0, tvCount: 0, episodeCount: 0, userCount: 0,
     storageUsedBytes: 0, storageTotalBytes: 0,
@@ -1371,6 +1372,7 @@ export struct HarmonySettingsHubPage {
   @State private showNotificationsSheet: boolean = false;
   @State private showNotifEditorSheet: boolean = false;
   @State private showPlaybackSheet: boolean = false;
+  @State private showMediaServerBindingsSheet: boolean = false;
   @State private mediaServerBindings: MpMediaServerAccountBinding[] = [];
   @State private loadingBindings: boolean = false;
   @State private bindingsNotice: string = '';
@@ -1490,9 +1492,11 @@ export struct HarmonySettingsHubPage {
     AppStorage.setOrCreate('mp_open_settings_sheet', '');
     if (req === 'playback') {
       this.openPlaybackSettingsSheet();
+    } else if (req === 'mediaserver_bindings') {
+      this.openMediaServerBindingsSheet();
     } else if (req === 'appearance') {
       this.showAppearanceSheet = true;
-    } else if (req === 'users') {
+    } else if (req === 'users' && this.isSuperuser) {
       this.showUsersSheet = true;
     }
   }
@@ -1507,42 +1511,53 @@ export struct HarmonySettingsHubPage {
     }
     const repo = MoviePilotRepository.shared();
     try {
-      const res = await Promise.all([
-        repo.fetchDashboardStats(),
-        repo.fetchSites(),
-        repo.fetchUsers(),
-        repo.fetchCommunityMedals(),
-        repo.fetchDownloaders(),
-        repo.fetchMediaServers(),
-        repo.fetchDirectories(),
-        repo.fetchStorages(),
-        repo.fetchSystemSettingList('Notifications'),
-        repo.fetchAuthorizations().catch(() => this.authorizations),
-        repo.fetchSystemSettingString('RECOGNIZE_SOURCE', 'themoviedb'),
-        repo.fetchSystemSettingString('SCRAP_SOURCE', 'themoviedb'),
-        repo.fetchSystemSettingBool('MEDIASERVER_SYNC', true),
-        repo.fetchSystemSettingString('SEARCH_SOURCE', 'themoviedb'),
-        repo.fetchSystemSettingString('SUBSCRIBE_MODE', 'spider'),
-        repo.fetchSystemSettingBool('SUBSCRIBE_SEARCH', false),
-        repo.fetchSystemSettingBool('SEARCH_MULTIPLE_NAME', true)
-      ]);
-      this.stats = res[0];
-      this.siteCount = res[1].filter((s) => s.isActive).length;
-      this.users = res[2];
-      this.community = res[3];
-      this.downloaders = res[4];
-      this.mediaServers = res[5];
-      this.directories = res[6];
-      this.storages = res[7];
-      this.notifications = res[8];
-      this.authorizations = res[9];
-      this.recognizeSource = res[10];
-      this.scrapSource = res[11];
-      this.mediaServerSync = res[12];
-      this.searchSource = res[13];
-      this.subscribeMode = res[14];
-      this.subscribeSearchNow = res[15];
-      this.searchMultipleName = res[16];
+      if (this.isSuperuser) {
+        const res = await Promise.all([
+          repo.fetchDashboardStats(),
+          repo.fetchSites(),
+          repo.fetchUsers(),
+          repo.fetchCommunityMedals(),
+          repo.fetchDownloaders(),
+          repo.fetchMediaServers(),
+          repo.fetchDirectories(),
+          repo.fetchStorages(),
+          repo.fetchSystemSettingList('Notifications'),
+          repo.fetchAuthorizations().catch(() => this.authorizations),
+          repo.fetchSystemSettingString('RECOGNIZE_SOURCE', 'themoviedb'),
+          repo.fetchSystemSettingString('SCRAP_SOURCE', 'themoviedb'),
+          repo.fetchSystemSettingBool('MEDIASERVER_SYNC', true),
+          repo.fetchSystemSettingString('SEARCH_SOURCE', 'themoviedb'),
+          repo.fetchSystemSettingString('SUBSCRIBE_MODE', 'spider'),
+          repo.fetchSystemSettingBool('SUBSCRIBE_SEARCH', false),
+          repo.fetchSystemSettingBool('SEARCH_MULTIPLE_NAME', true),
+          repo.fetchMediaServerAccountBindings().catch(() => this.mediaServerBindings)
+        ]);
+        this.stats = res[0];
+        this.siteCount = res[1].filter((s) => s.isActive).length;
+        this.users = res[2];
+        this.community = res[3];
+        this.downloaders = res[4];
+        this.mediaServers = res[5];
+        this.directories = res[6];
+        this.storages = res[7];
+        this.notifications = res[8];
+        this.authorizations = res[9];
+        this.recognizeSource = res[10];
+        this.scrapSource = res[11];
+        this.mediaServerSync = res[12];
+        this.searchSource = res[13];
+        this.subscribeMode = res[14];
+        this.subscribeSearchNow = res[15];
+        this.searchMultipleName = res[16];
+        this.mediaServerBindings = res[17];
+      } else {
+        const res = await Promise.all([
+          repo.fetchCommunityMedals(),
+          repo.fetchMediaServerAccountBindings().catch(() => this.mediaServerBindings)
+        ]);
+        this.community = res[0];
+        this.mediaServerBindings = res[1];
+      }
     } catch {
       // ignore
     }
@@ -1778,8 +1793,11 @@ export struct HarmonySettingsHubPage {
     }
   }
 
-  /** 授权请求失败时保留已加载列表并提示，不将失败显示为空成员。 */
+  /** 授权请求失败时保留已加载列表并提示，不将失败显示为空成员；非超级管理员不请求管理员授权列表。 */
   private async reloadAuthorizations(): Promise<void> {
+    if (!this.isSuperuser) {
+      return;
+    }
     this.loadingAuth = true;
     try {
       this.authorizations = await MoviePilotRepository.shared().fetchAuthorizations();
@@ -1809,12 +1827,14 @@ export struct HarmonySettingsHubPage {
   authorizationSheetBuilder() {
     Column({ space: 12 }) {
       HarmonySheetHeader({
-        title: ((this.loadingSummary || this.loadingAuth) && this.authorizations.length === 0)
-          ? '渠道授权'
-          : `渠道授权 (${this.authorizations.length})`,
+        title: !this.isSuperuser
+          ? '渠道授权与绑定'
+          : (((this.loadingSummary || this.loadingAuth) && this.authorizations.length === 0)
+              ? '渠道授权'
+              : `渠道授权 (${this.authorizations.length})`),
         cancelText: '关闭',
-        actionText: this.loadingAuth ? '加载中' : '刷新',
-        actionEnabled: !this.loadingAuth,
+        actionText: this.isSuperuser ? (this.loadingAuth ? '加载中' : '刷新') : '',
+        actionEnabled: this.isSuperuser && !this.loadingAuth,
         onCancel: () => { this.showAuthorizationSheet = false; },
         onAction: async () => {
           await this.reloadAuthorizations();
@@ -1827,7 +1847,7 @@ export struct HarmonySettingsHubPage {
             Column({ space: 10 }) {
               Text('外部机器人 / 渠道会话绑定')
                 .fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).width('100%')
-              Text('生成 5 分钟有效绑定码后，在 Telegram / 微信 / 飞书等机器人对话中发送绑定命令即可关联当前管理员身份。')
+              Text('生成 5 分钟有效绑定码后，在 Telegram / 微信 / 飞书等机器人对话中发送绑定命令即可关联当前账号身份。')
                 .fontSize(12).fontColor(mpSecondaryText(this.isDark)).lineHeight(18).width('100%')
 
               if (this.authCode.length > 0) {
@@ -1865,78 +1885,80 @@ export struct HarmonySettingsHubPage {
             }
           }
 
-          Text('授权会话与待审批请求').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-          if ((this.loadingSummary || this.loadingAuth) && this.authorizations.length === 0) {
-            HarmonyCardGridSkeleton({
-              variant: 'service',
-              singleColumn: true,
-              count: 3,
-              horizontalPadding: 0,
-              bottomPadding: 8
-            })
-          } else if (this.authorizations.length === 0) {
-            CinematicPanel({ panelPadding: 20, cornerRadius: 16 }) {
-              Text('当前没有外部渠道授权会话或待审批请求')
-                .fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%').textAlign(TextAlign.Center)
-            }
-          } else {
-            ForEach(this.authorizations, (auth: MpAuthorizationItem) => {
-              CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
-                Row({ space: 10 }) {
-                  HarmonyEntityLogo({
-                    kind: 'notification',
-                    value: auth.channel,
-                    logoSize: 32,
-                    cornerRadius: 8
-                  })
-                  Column({ space: 3 }) {
-                    Row({ space: 6 }) {
-                      Text(auth.name).fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                      NativeAdaptiveBadge({
-                        text: auth.status === 'pending' ? '待审批' : (auth.status === 'approved' ? '已授权' : (auth.status === 'disabled' ? '已停用' : '已拒绝')),
-                        tintHex: auth.approved ? '#34C759' : '#F29B38'
-                      })
-                    }
-                    Text(`${auth.channel}${auth.createdAt ? ' · ' + auth.createdAt : ''}`)
-                      .fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
-                  }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-
-                  if (!auth.approved) {
-                    Button('批准')
-                      .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
-                      .fontSize(12).fontWeight(FontWeight.Bold)
-                      .backgroundColor('#34C759').fontColor(Color.White)
-                      .onClick(async () => {
-                        const ok = await MoviePilotRepository.shared().approveAuthorization(auth.id).catch(() => false);
-                        this.authCodeHint = ok ? `已批准「${auth.name}」` : '审批失败';
-                        await this.reloadAuthorizations();
-                      })
-                  }
-                  Button('撤销')
-                    .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
-                    .fontSize(12).fontColor('#E84855')
-                    .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
-                    .onClick(() => {
-                      this.getUIContext().showAlertDialog({
-                        title: '撤销渠道授权',
-                        message: `确定撤销「${auth.name}」的访问授权吗？`,
-                        autoCancel: true,
-                        primaryButton: { value: '取消', action: () => {} },
-                        secondaryButton: {
-                          value: '确认撤销',
-                          fontColor: '#E84855',
-                          action: () => {
-                            MoviePilotRepository.shared().revokeAuthorization(auth.id).then(async (ok: boolean) => {
-                              this.authCodeHint = ok ? `已撤销「${auth.name}」` : '撤销失败';
-                              await this.reloadAuthorizations();
-                            }).catch(() => { this.authCodeHint = '撤销失败'; });
-                          }
-                        }
-                      });
-                    })
-                }.width('100%')
+          if (this.isSuperuser) {
+            Text('授权会话与待审批请求').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+            if ((this.loadingSummary || this.loadingAuth) && this.authorizations.length === 0) {
+              HarmonyCardGridSkeleton({
+                variant: 'service',
+                singleColumn: true,
+                count: 3,
+                horizontalPadding: 0,
+                bottomPadding: 8
+              })
+            } else if (this.authorizations.length === 0) {
+              CinematicPanel({ panelPadding: 20, cornerRadius: 16 }) {
+                Text('当前没有外部渠道授权会话或待审批请求')
+                  .fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%').textAlign(TextAlign.Center)
               }
-            }, (auth: MpAuthorizationItem) => `${auth.id}_${auth.approved}`)
+            } else {
+              ForEach(this.authorizations, (auth: MpAuthorizationItem) => {
+                CinematicPanel({ panelPadding: 14, cornerRadius: 16 }) {
+                  Row({ space: 10 }) {
+                    HarmonyEntityLogo({
+                      kind: 'notification',
+                      value: auth.channel,
+                      logoSize: 32,
+                      cornerRadius: 8
+                    })
+                    Column({ space: 3 }) {
+                      Row({ space: 6 }) {
+                        Text(auth.name).fontSize(14.5).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                        NativeAdaptiveBadge({
+                          text: auth.status === 'pending' ? '待审批' : (auth.status === 'approved' ? '已授权' : (auth.status === 'disabled' ? '已停用' : '已拒绝')),
+                          tintHex: auth.approved ? '#34C759' : '#F29B38'
+                        })
+                      }
+                      Text(`${auth.channel}${auth.createdAt ? ' · ' + auth.createdAt : ''}`)
+                        .fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                    }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+
+                    if (!auth.approved) {
+                      Button('批准')
+                        .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
+                        .fontSize(12).fontWeight(FontWeight.Bold)
+                        .backgroundColor('#34C759').fontColor(Color.White)
+                        .onClick(async () => {
+                          const ok = await MoviePilotRepository.shared().approveAuthorization(auth.id).catch(() => false);
+                          this.authCodeHint = ok ? `已批准「${auth.name}」` : '审批失败';
+                          await this.reloadAuthorizations();
+                        })
+                    }
+                    Button('撤销')
+                      .height(30).padding({ left: 12, right: 12 }).borderRadius(15)
+                      .fontSize(12).fontColor('#E84855')
+                      .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
+                      .onClick(() => {
+                        this.getUIContext().showAlertDialog({
+                          title: '撤销渠道授权',
+                          message: `确定撤销「${auth.name}」的访问授权吗？`,
+                          autoCancel: true,
+                          primaryButton: { value: '取消', action: () => {} },
+                          secondaryButton: {
+                            value: '确认撤销',
+                            fontColor: '#E84855',
+                            action: () => {
+                              MoviePilotRepository.shared().revokeAuthorization(auth.id).then(async (ok: boolean) => {
+                                this.authCodeHint = ok ? `已撤销「${auth.name}」` : '撤销失败';
+                                await this.reloadAuthorizations();
+                              }).catch(() => { this.authCodeHint = '撤销失败'; });
+                            }
+                          }
+                        });
+                      })
+                  }.width('100%')
+                }
+              }, (auth: MpAuthorizationItem) => `${auth.id}_${auth.approved}`)
+            }
           }
         }.padding({ bottom: 24 })
       }.align(Alignment.Top).scrollBar(BarState.Off).layoutWeight(1)
@@ -3570,11 +3592,26 @@ export struct HarmonySettingsHubPage {
     this.bindingsNotice = '';
     this.showPlaybackSheet = true;
     this.loadMediaServerBindings();
-    if (MoviePilotRepository.shared().isSuperuser) {
+    if (this.isSuperuser) {
       MoviePilotRepository.shared().fetchDanmakuConfig().then((cfg: MpDanmakuConfig) => {
         this.danmakuConfigSummary = cfg;
       }).catch(() => {});
     }
+  }
+
+  /** 打开独立的个人媒体服务器账号绑定半模态面板（所有登录用户均可用）。 */
+  private openMediaServerBindingsSheet(): void {
+    this.bindingsNotice = '';
+    this.showMediaServerBindingsSheet = true;
+    this.loadMediaServerBindings();
+  }
+
+  private mediaServerBindingsSummaryText(): string {
+    const boundCount = this.mediaServerBindings.filter((b: MpMediaServerAccountBinding) => b.bound).length;
+    if (boundCount > 0) {
+      return `已绑定 ${boundCount} 个账号`;
+    }
+    return 'Emby · Jellyfin · Plex 个人同步';
   }
 
   private loadMediaServerBindings(): void {
@@ -3764,6 +3801,114 @@ export struct HarmonySettingsHubPage {
             .width('100%')
         }.width('100%').padding({ bottom: 20 })
       }.scrollBar(BarState.Off).layoutWeight(1)
+    }
+    .padding(20)
+    .width('100%')
+    .height('100%')
+  }
+
+  @Builder
+  mediaServerBindingsSheetBuilder() {
+    Column({ space: 12 }) {
+      HarmonySheetHeader({
+        title: '绑定媒体服务器账号',
+        cancelText: '关闭',
+        actionText: this.loadingBindings ? '刷新中' : '刷新',
+        actionEnabled: !this.loadingBindings,
+        onCancel: () => { this.showMediaServerBindingsSheet = false; },
+        onAction: () => { this.loadMediaServerBindings(); }
+      })
+
+      Scroll() {
+        Column({ space: 12 }) {
+          if (this.bindingsNotice.length > 0) {
+            Text(this.bindingsNotice)
+              .fontSize(12)
+              .fontColor(this.accentHex)
+              .width('100%')
+          }
+
+          CinematicPanel({ panelPadding: 0, cornerRadius: 16 }) {
+            if (this.loadingBindings && this.mediaServerBindings.length === 0) {
+              Row({ space: 8 }) {
+                LoadingProgress().width(18).height(18).color(this.accentHex)
+                Text('正在加载媒体服务器同步状态…').fontSize(13.5).fontColor(mpSecondaryText(this.isDark))
+              }.width('100%').padding(16)
+            } else if (this.mediaServerBindings.length === 0) {
+              Text('暂无已启用的媒体服务器')
+                .fontSize(13.5)
+                .fontColor(mpSecondaryText(this.isDark))
+                .width('100%')
+                .padding(16)
+            } else {
+              Column() {
+                ForEach(this.mediaServerBindings, (binding: MpMediaServerAccountBinding, idx: number) => {
+                  Column() {
+                    if (idx > 0) {
+                      Divider().color(HarmonyThemeColors.divider(this.isDark)).margin({ left: 16, right: 16 })
+                    }
+                    Row({ space: 10 }) {
+                      HarmonyEntityLogo({
+                        kind: 'mediaserver',
+                        value: binding.serverType || binding.server,
+                        logoSize: 34,
+                        cornerRadius: 10
+                      })
+                      Column({ space: 4 }) {
+                        Row({ space: 6 }) {
+                          Text(binding.server)
+                            .fontSize(14.5)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(mpPrimaryText(this.isDark))
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          NativeAdaptiveBadge({
+                            text: this.bindingStatusLabel(binding),
+                            tintHex: this.bindingStatusTint(binding)
+                          })
+                        }.alignItems(VerticalAlign.Center)
+                        Text(this.bindingSubtitle(binding))
+                          .fontSize(11.5)
+                          .fontColor(mpSecondaryText(this.isDark))
+                          .maxLines(2)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+
+                      if (binding.supportsBinding) {
+                        Row({ space: 6 }) {
+                          if (binding.bound) {
+                            Text('解绑')
+                              .fontSize(12)
+                              .fontWeight(FontWeight.Medium)
+                              .fontColor('#E84855')
+                              .padding({ left: 6, right: 6, top: 6, bottom: 6 })
+                              .onClick(() => { this.confirmUnbindMediaServer(binding.server); })
+                          }
+                          Text((binding.bound || binding.status === 'invalid') ? '重绑' : '绑定')
+                            .fontSize(12)
+                            .fontWeight(FontWeight.Bold)
+                            .fontColor(this.accentHex)
+                            .padding({ left: 11, right: 11, top: 6, bottom: 6 })
+                            .borderRadius(14)
+                            .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                            .onClick(() => { this.openMediaServerBindSheet(binding); })
+                        }
+                      }
+                    }
+                    .width('100%')
+                    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+                  }
+                }, (b: MpMediaServerAccountBinding, idx: number) => `ms_hub_bind_${idx}_${b.server}_${b.status}_${b.bound}_${b.remoteUsername}`)
+              }.width('100%')
+            }
+          }
+
+          Text('绑定 Emby、Jellyfin 或 Plex 个人账号后，播放进度将实时显示在媒体服务器「正在播放」仪表盘中；密码仅用于一次性换取加密令牌，绝不保存在本地。')
+            .fontSize(11.5)
+            .fontColor(mpSecondaryText(this.isDark))
+            .width('100%')
+        }.width('100%').padding({ bottom: 24 })
+      }.align(Alignment.Top).scrollBar(BarState.Off).layoutWeight(1)
     }
     .padding(20)
     .width('100%')
@@ -3967,140 +4112,176 @@ export struct HarmonySettingsHubPage {
       Scroll() {
         Column() {
           Column({ space: 16 }) {
-            HarmonySkeletonHost({ loadingLabel: '设置概览状态' }) {
-              Column({ space: 16 }) {
-                CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
-                  if (this.loadingSummary) {
-                    Column({ space: 9 }) {
-                      Row() {
-                        Text(`● ${this.serverUrl.replace(/^https?:\/\//, '') || '127.0.0.1'}`)
-                          .fontSize(13).fontColor('#34C759').layoutWeight(1).maxLines(1)
-                        HarmonySkeletonBlock({ blockWidth: 108, blockHeight: 13, cornerRadius: 4 })
-                      }.width('100%')
-                      HarmonySkeletonBlock({ blockWidth: '100%', blockHeight: 6, cornerRadius: 3, tone: 'subtle' })
-                      Row() {
-                        HarmonySkeletonBlock({ blockWidth: 56, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
-                        Blank()
-                        HarmonySkeletonBlock({ blockWidth: 78, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
-                      }.width('100%')
-                    }
-                  } else {
-                    Column({ space: 8 }) {
-                      Row() {
-                        Text(`● ${this.serverUrl.replace(/^https?:\/\//, '') || '127.0.0.1'}`)
-                          .fontSize(13).fontColor('#34C759').layoutWeight(1).maxLines(1)
-                        Text(`${formatByteSize(this.stats.storageUsedBytes)} / ${formatByteSize(this.stats.storageTotalBytes)}`)
-                          .fontSize(12).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
-                      }.width('100%')
-                      Progress({ value: this.storagePct(), total: 100, type: ProgressType.Linear })
-                        .color(this.accentHex).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                      Row() {
-                        Text(`已用 ${this.storagePct()}%`).fontSize(11.5).fontColor(this.accentHex)
-                        Blank()
-                        Text(`可用 ${formatByteSize(Math.max(0, this.stats.storageTotalBytes - this.stats.storageUsedBytes))}`)
-                          .fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
-                      }.width('100%')
+            if (this.isSuperuser) {
+              HarmonySkeletonHost({ loadingLabel: '设置概览状态' }) {
+                Column({ space: 16 }) {
+                  CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
+                    if (this.loadingSummary) {
+                      Column({ space: 9 }) {
+                        Row() {
+                          Text(`● ${this.serverUrl.replace(/^https?:\/\//, '') || '127.0.0.1'}`)
+                            .fontSize(13).fontColor('#34C759').layoutWeight(1).maxLines(1)
+                          HarmonySkeletonBlock({ blockWidth: 108, blockHeight: 13, cornerRadius: 4 })
+                        }.width('100%')
+                        HarmonySkeletonBlock({ blockWidth: '100%', blockHeight: 6, cornerRadius: 3, tone: 'subtle' })
+                        Row() {
+                          HarmonySkeletonBlock({ blockWidth: 56, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
+                          Blank()
+                          HarmonySkeletonBlock({ blockWidth: 78, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
+                        }.width('100%')
+                      }
+                    } else {
+                      Column({ space: 8 }) {
+                        Row() {
+                          Text(`● ${this.serverUrl.replace(/^https?:\/\//, '') || '127.0.0.1'}`)
+                            .fontSize(13).fontColor('#34C759').layoutWeight(1).maxLines(1)
+                          Text(`${formatByteSize(this.stats.storageUsedBytes)} / ${formatByteSize(this.stats.storageTotalBytes)}`)
+                            .fontSize(12).fontWeight(FontWeight.Medium).fontColor(mpPrimaryText(this.isDark))
+                        }.width('100%')
+                        Progress({ value: this.storagePct(), total: 100, type: ProgressType.Linear })
+                          .color(this.accentHex).backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                        Row() {
+                          Text(`已用 ${this.storagePct()}%`).fontSize(11.5).fontColor(this.accentHex)
+                          Blank()
+                          Text(`可用 ${formatByteSize(Math.max(0, this.stats.storageTotalBytes - this.stats.storageUsedBytes))}`)
+                            .fontSize(11.5).fontColor(mpSecondaryText(this.isDark))
+                        }.width('100%')
+                      }
                     }
                   }
+
+                  // 三枚快捷磁贴：站点管理 / 用户管理 / 渠道授权
+                  Row({ space: 10 }) {
+                    Column() {
+                      CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
+                        Column({ space: 4 }) {
+                          HarmonyEntityLogo({ kind: 'site', value: 'site', logoSize: 22, cornerRadius: 6 })
+                          Text('站点管理').fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                          if (this.loadingSummary) {
+                            HarmonySkeletonBlock({ blockWidth: 54, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
+                          } else {
+                            Text(`● ${this.siteCount} 启用`).fontSize(11).fontColor('#34C759')
+                          }
+                        }.alignItems(HorizontalAlign.Start)
+                      }
+                    }.layoutWeight(1).onClick(() => this.onOpenSites())
+
+                    Column() {
+                      CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
+                        Column({ space: 4 }) {
+                          SymbolGlyph($r('sys.symbol.person_2')).fontSize(20).fontColor([this.accentHex])
+                          Text('用户管理').fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                          if (this.loadingSummary) {
+                            HarmonySkeletonBlock({ blockWidth: 58, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
+                          } else {
+                            Text(`● ${this.users.length} 位成员`).fontSize(11).fontColor(this.accentHex)
+                          }
+                        }.alignItems(HorizontalAlign.Start)
+                      }
+                    }.layoutWeight(1).onClick(() => { this.showUsersSheet = true; })
+
+                    Column() {
+                      CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
+                        Column({ space: 4 }) {
+                          SymbolGlyph($r('sys.symbol.checkmark_shield')).fontSize(20).fontColor(['#34C759'])
+                          Text('渠道授权').fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
+                          if (this.loadingSummary) {
+                            HarmonySkeletonBlock({ blockWidth: 54, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
+                          } else {
+                            Text(`● 会话 ${this.authorizations.length}`).fontSize(11).fontColor('#34C759')
+                          }
+                        }.alignItems(HorizontalAlign.Start)
+                      }
+                    }.layoutWeight(1).onClick(() => { this.showAuthorizationSheet = true; })
+                  }
                 }
-
-                // 三枚快捷磁贴：站点管理 / 用户管理 / 渠道授权
-                Row({ space: 10 }) {
-                  Column() {
-                    CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
-                      Column({ space: 4 }) {
-                        HarmonyEntityLogo({ kind: 'site', value: 'site', logoSize: 22, cornerRadius: 6 })
-                        Text('站点管理').fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                        if (this.loadingSummary) {
-                          HarmonySkeletonBlock({ blockWidth: 54, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
-                        } else {
-                          Text(`● ${this.siteCount} 启用`).fontSize(11).fontColor('#34C759')
-                        }
-                      }.alignItems(HorizontalAlign.Start)
-                    }
-                  }.layoutWeight(1).onClick(() => this.onOpenSites())
-
-                  Column() {
-                    CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
-                      Column({ space: 4 }) {
-                        SymbolGlyph($r('sys.symbol.person_2')).fontSize(20).fontColor([this.accentHex])
-                        Text('用户管理').fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                        if (this.loadingSummary) {
-                          HarmonySkeletonBlock({ blockWidth: 58, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
-                        } else {
-                          Text(`● ${this.users.length} 位成员`).fontSize(11).fontColor(this.accentHex)
-                        }
-                      }.alignItems(HorizontalAlign.Start)
-                    }
-                  }.layoutWeight(1).onClick(() => { this.showUsersSheet = true; })
-
-                  Column() {
-                    CinematicPanel({ panelPadding: 13, cornerRadius: 16, interactive: true }) {
-                      Column({ space: 4 }) {
-                        SymbolGlyph($r('sys.symbol.checkmark_shield')).fontSize(20).fontColor(['#34C759'])
-                        Text('渠道授权').fontSize(14).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark))
-                        if (this.loadingSummary) {
-                          HarmonySkeletonBlock({ blockWidth: 54, blockHeight: 12, cornerRadius: 4, tone: 'subtle' })
-                        } else {
-                          Text(`● 会话 ${this.authorizations.length}`).fontSize(11).fontColor('#34C759')
-                        }
-                      }.alignItems(HorizontalAlign.Start)
-                    }
-                  }.layoutWeight(1).onClick(() => { this.showAuthorizationSheet = true; })
+                .width('100%')
+              }
+            } else {
+              // 非超级管理员顶部展示个人账号与渠道绑定入口
+              Text('账号与绑定').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+              CinematicPanel({ panelPadding: 0, cornerRadius: 18 }) {
+                Column() {
+                  HarmonySettingsRow({
+                    title: '绑定媒体服务器账号',
+                    sub: this.mediaServerBindingsSummaryText(),
+                    loadingSub: this.loadingSummary,
+                    symbolName: 'sys.symbol.TV_tv_fill',
+                    symbolTint: this.accentHex,
+                    onTap: () => { this.openMediaServerBindingsSheet(); }
+                  })
+                  Divider().color(HarmonyThemeColors.divider(this.isDark))
+                  HarmonySettingsRow({
+                    title: '渠道授权与绑定',
+                    sub: '生成 5 分钟机器人绑定码',
+                    symbolName: 'sys.symbol.checkmark_shield',
+                    symbolTint: '#34C759',
+                    onTap: () => { this.showAuthorizationSheet = true; }
+                  })
                 }
               }
-              .width('100%')
             }
 
             // 基础配置分组（全部配备品牌图标或系统符号）
-            Text('基础配置').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+            Text(this.isSuperuser ? '基础配置' : '播放').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
             CinematicPanel({ panelPadding: 0, cornerRadius: 18 }) {
               Column() {
-                HarmonySettingsRow({
-                  title: '媒体数据源',
-                  sub: this.recognizeSource === 'douban' ? '豆瓣' : 'TMDB',
-                  loadingSub: this.loadingSummary,
-                  logoKind: 'media_source',
-                  logoValue: this.recognizeSource,
-                  onTap: () => { this.showMediaSourcesSheet = true; }
-                })
-                Divider().color(HarmonyThemeColors.divider(this.isDark))
-                HarmonySettingsRow({
-                  title: '订阅与搜索',
-                  sub: this.subscribeMode === 'rss' ? 'RSS 刷新' : '自动检索',
-                  loadingSub: this.loadingSummary,
-                  symbolName: 'sys.symbol.bookmark',
-                  symbolTint: '#26B8A8',
-                  onTap: () => { this.showSubscribeSearchSheet = true; }
-                })
-                Divider().color(HarmonyThemeColors.divider(this.isDark))
-                HarmonySettingsRow({
-                  title: '下载器',
-                  sub: `${this.downloaders.length} 个`,
-                  loadingSub: this.loadingSummary,
-                  logoKind: 'downloader',
-                  logoValue: this.primaryDownloaderType(),
-                  onTap: () => { this.showDownloadersSheet = true; }
-                })
-                Divider().color(HarmonyThemeColors.divider(this.isDark))
-                HarmonySettingsRow({
-                  title: '媒体服务器',
-                  sub: `${this.mediaServers.length} 个`,
-                  loadingSub: this.loadingSummary,
-                  logoKind: 'mediaserver',
-                  logoValue: this.primaryMediaServerType(),
-                  onTap: () => { this.showMediaServersSheet = true; }
-                })
-                Divider().color(HarmonyThemeColors.divider(this.isDark))
-                HarmonySettingsRow({
-                  title: '整理与目录',
-                  sub: `${this.directories.length} 组映射`,
-                  loadingSub: this.loadingSummary,
-                  logoKind: 'storage',
-                  logoValue: this.primaryStorageType(),
-                  onTap: () => { this.showDirectoriesSheet = true; }
-                })
-                Divider().color(HarmonyThemeColors.divider(this.isDark))
+                if (this.isSuperuser) {
+                  HarmonySettingsRow({
+                    title: '媒体数据源',
+                    sub: this.recognizeSource === 'douban' ? '豆瓣' : 'TMDB',
+                    loadingSub: this.loadingSummary,
+                    logoKind: 'media_source',
+                    logoValue: this.recognizeSource,
+                    onTap: () => { this.showMediaSourcesSheet = true; }
+                  })
+                  Divider().color(HarmonyThemeColors.divider(this.isDark))
+                  HarmonySettingsRow({
+                    title: '订阅与搜索',
+                    sub: this.subscribeMode === 'rss' ? 'RSS 刷新' : '自动检索',
+                    loadingSub: this.loadingSummary,
+                    symbolName: 'sys.symbol.bookmark',
+                    symbolTint: '#26B8A8',
+                    onTap: () => { this.showSubscribeSearchSheet = true; }
+                  })
+                  Divider().color(HarmonyThemeColors.divider(this.isDark))
+                  HarmonySettingsRow({
+                    title: '下载器',
+                    sub: `${this.downloaders.length} 个`,
+                    loadingSub: this.loadingSummary,
+                    logoKind: 'downloader',
+                    logoValue: this.primaryDownloaderType(),
+                    onTap: () => { this.showDownloadersSheet = true; }
+                  })
+                  Divider().color(HarmonyThemeColors.divider(this.isDark))
+                  HarmonySettingsRow({
+                    title: '媒体服务器',
+                    sub: `${this.mediaServers.length} 个`,
+                    loadingSub: this.loadingSummary,
+                    logoKind: 'mediaserver',
+                    logoValue: this.primaryMediaServerType(),
+                    onTap: () => { this.showMediaServersSheet = true; }
+                  })
+                  Divider().color(HarmonyThemeColors.divider(this.isDark))
+                  HarmonySettingsRow({
+                    title: '绑定媒体服务器账号',
+                    sub: this.mediaServerBindingsSummaryText(),
+                    loadingSub: this.loadingSummary,
+                    symbolName: 'sys.symbol.TV_tv_fill',
+                    symbolTint: this.accentHex,
+                    onTap: () => { this.openMediaServerBindingsSheet(); }
+                  })
+                  Divider().color(HarmonyThemeColors.divider(this.isDark))
+                  HarmonySettingsRow({
+                    title: '整理与目录',
+                    sub: `${this.directories.length} 组映射`,
+                    loadingSub: this.loadingSummary,
+                    logoKind: 'storage',
+                    logoValue: this.primaryStorageType(),
+                    onTap: () => { this.showDirectoriesSheet = true; }
+                  })
+                  Divider().color(HarmonyThemeColors.divider(this.isDark))
+                }
                 HarmonySettingsRow({
                   title: '播放偏好',
                   sub: PlaybackPreferencesStore.formatSettingsSummary(
@@ -4116,18 +4297,20 @@ export struct HarmonySettingsHubPage {
             }
 
             // 通知与个性化
-            Text('通知与个性化').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+            Text(this.isSuperuser ? '通知与个性化' : '个性化').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
             CinematicPanel({ panelPadding: 0, cornerRadius: 18 }) {
               Column() {
-                HarmonySettingsRow({
-                  title: '通知渠道',
-                  sub: `${this.notifications.length} 个渠道`,
-                  loadingSub: this.loadingSummary,
-                  logoKind: 'notification',
-                  logoValue: this.primaryNotificationType(),
-                  onTap: () => { this.showNotificationsSheet = true; }
-                })
-                Divider().color(HarmonyThemeColors.divider(this.isDark))
+                if (this.isSuperuser) {
+                  HarmonySettingsRow({
+                    title: '通知渠道',
+                    sub: `${this.notifications.length} 个渠道`,
+                    loadingSub: this.loadingSummary,
+                    logoKind: 'notification',
+                    logoValue: this.primaryNotificationType(),
+                    onTap: () => { this.showNotificationsSheet = true; }
+                  })
+                  Divider().color(HarmonyThemeColors.divider(this.isDark))
+                }
                 HarmonySettingsRow({
                   title: '主题与外观',
                   sub: `${HarmonyAppearanceStore.paletteById(this.paletteId).titleZh} · ${this.dynamicLight ? HarmonyDynamicLight.materialLevelLabel() : '标准'}`,
@@ -4287,6 +4470,14 @@ export struct HarmonySettingsHubPage {
         backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
       })
       Blank().width(0).height(0).bindSheet($$this.showPlaybackSheet, this.playbackSheetBuilder(), {
+        detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
+        preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
+        blurStyle: BlurStyle.COMPONENT_REGULAR,
+        dragBar: true,
+        showClose: false,
+        backgroundColor: HarmonyThemeColors.overlayFallback(this.isDark)
+      })
+      Blank().width(0).height(0).bindSheet($$this.showMediaServerBindingsSheet, this.mediaServerBindingsSheetBuilder(), {
         detents: HarmonyAdaptiveLayout.adaptiveSheetDetents(this.windowHeightVp),
         preferType: HarmonyAdaptiveLayout.sheetPreferType(this.windowWidthVp),
         blurStyle: BlurStyle.COMPONENT_REGULAR,

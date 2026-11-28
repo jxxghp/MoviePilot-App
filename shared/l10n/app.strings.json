@@ -1746,6 +1746,16 @@
       "zh-Hant": "綁定媒體伺服器賬號",
       "en": "Bind Media Server Account"
     },
+    "Emby · Jellyfin · Plex 个人同步": {
+      "zh-Hans": "Emby · Jellyfin · Plex 个人同步",
+      "zh-Hant": "Emby · Jellyfin · Plex 個人同步",
+      "en": "Emby · Jellyfin · Plex Personal Sync"
+    },
+    "账号与绑定": {
+      "zh-Hans": "账号与绑定",
+      "zh-Hant": "賬號與綁定",
+      "en": "Account & Bindings"
+    },
     "绑定码已复制。请在主屏幕通知网页中粘贴。": {
       "zh-Hans": "绑定码已复制。请在主屏幕通知网页中粘贴。",
       "zh-Hant": "綁定碼已複製。請在主屏幕通知網頁中粘貼。",

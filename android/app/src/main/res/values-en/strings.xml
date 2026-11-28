@@ -107,6 +107,7 @@
     <string name="mp_30a71d31" formatted="false">View download and upload speeds and status on the Lock Screen.</string>
     <string name="mp_31666400" formatted="false">Do not include a username or password in the address. Sign in securely after connecting.</string>
     <string name="mp_31961ac9" formatted="false">This installation is unpaired.</string>
+    <string name="mp_32249c71" formatted="false">Account &amp; Bindings</string>
     <string name="mp_32bc332f" formatted="false">LAN Direct</string>
     <string name="mp_33246f6a" formatted="false">Done</string>
     <string name="mp_33b6a458" formatted="false">Server unavailable. Retrying automatically…</string>
@@ -490,6 +491,7 @@
     <string name="mp_efd9aa2e" formatted="false">Download status</string>
     <string name="mp_emby_jellyfin_plex_377a4835" formatted="false">Bind your media server account to sync live Now Playing status and accurate progress to Emby, Jellyfin, and Plex.</string>
     <string name="mp_emby_jellyfin_plex_e2951fb0" formatted="false">Stream directly from bound Emby / Jellyfin / Plex servers when reachable, falling back to MoviePilot proxy automatically</string>
+    <string name="mp_emby_jellyfin_plex_f8e2d4df" formatted="false">Emby · Jellyfin · Plex Personal Sync</string>
     <string name="mp_f0409080" formatted="false">Search</string>
     <string name="mp_f0739f4f" formatted="false">This instance requires a client certificate. Sign in with a browser.</string>
     <string name="mp_f12849f1" formatted="false">Switch Server</string>

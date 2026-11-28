@@ -2041,7 +2041,7 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertEqual(counts["unexpected"], [:])
   }
 
-  /// 单独授权 PT 搜索的普通账号仍能管理本身会话，影视和管理端点保持不可达。
+  /// 单独授权 PT 搜索的普通账号仍能管理本身会话并在设置中绑定个人媒体服务器账号，影视和管理端点保持不可达。
   func testNativeBusinessHidesUnpermittedEntries() async throws {
     let app = try await signInToNativeBusiness("b", mode: "resource-search-only")
     defer { app.terminate() }
@@ -2052,10 +2052,36 @@ final class NativeV2EntryTests: XCTestCase {
     XCTAssertFalse(tabButton("探索", app: app).exists)
     XCTAssertFalse(tabButton("搜索", app: app).exists)
     XCTAssertTrue(tabButton("更多", app: app).exists)
+
+    openSettingsHub(app: app)
+    XCTAssertFalse(app.buttons["native-settings-mediaservers"].exists)
+    let bindEntry = app.buttons["native-settings-mediaserver-bindings"]
+    XCTAssertTrue(bindEntry.waitForExistence(timeout: 8))
+    tap(bindEntry, app: app)
+    XCTAssertTrue(
+      app.scrollViews["native-mediaserver-bindings-scroll"].waitForExistence(timeout: 8))
+    let bindBtn = app.buttons["native-mediaserver-bind-Emby"]
+    XCTAssertTrue(bindBtn.waitForExistence(timeout: 8))
+    tap(bindBtn, app: app)
+    let pwdField = app.secureTextFields["native-mediaserver-bind-password"]
+    XCTAssertTrue(pwdField.waitForExistence(timeout: 8))
+    tap(pwdField, app: app)
+    pwdField.typeText("synthetic-emby-pass")
+    let submitBtn = app.buttons["native-mediaserver-bind-submit"]
+    XCTAssertTrue(submitBtn.waitForExistence(timeout: 5))
+    submitBtn.tap()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["native-mediaserver-bindings-feedback"].firstMatch
+        .waitForExistence(timeout: 8))
+    XCTAssertTrue(app.buttons["native-mediaserver-unbind-Emby"].waitForExistence(timeout: 6))
+
     let counts = try await stats()
+    XCTAssertEqual(counts["b"]?["GET api/v1/mediaserver/account-bindings"], 1)
+    XCTAssertEqual(counts["b"]?["POST api/v1/mediaserver/account-bindings"], 1)
     XCTAssertTrue(
       counts["b"]?.keys.allSatisfy {
         !$0.contains("/discover/") && !$0.contains("/media/") && !$0.contains("/dashboard/")
+          && !$0.contains("/system/setting/")
       } == true)
     XCTAssertEqual(counts["unexpected"], [:])
   }

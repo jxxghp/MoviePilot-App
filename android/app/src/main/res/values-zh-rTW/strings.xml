@@ -107,6 +107,7 @@
     <string name="mp_30a71d31" formatted="false">在鎖屏查看下載、上傳速度及只讀狀態。</string>
     <string name="mp_31666400" formatted="false">地址中不要包含帳號或密碼。連接後再安全登錄。</string>
     <string name="mp_31961ac9" formatted="false">當前安裝已解除綁定。</string>
+    <string name="mp_32249c71" formatted="false">賬號與綁定</string>
     <string name="mp_32bc332f" formatted="false">區域網直連</string>
     <string name="mp_33246f6a" formatted="false">完成</string>
     <string name="mp_33b6a458" formatted="false">服務暫時不可用，正在自動重試…</string>
@@ -490,6 +491,7 @@
     <string name="mp_efd9aa2e" formatted="false">下載狀態</string>
     <string name="mp_emby_jellyfin_plex_377a4835" formatted="false">綁定個人媒體伺服器賬號後，在播放時可向 Emby / Jellyfin / Plex 儀表板即時同步正在播放狀態與精準進度。</string>
     <string name="mp_emby_jellyfin_plex_e2951fb0" formatted="false">已綁定個人帳號的 Emby / Jellyfin / Plex 在直連可達時優先直連播放，不可達或失敗時自動回退背景中轉</string>
+    <string name="mp_emby_jellyfin_plex_f8e2d4df" formatted="false">Emby · Jellyfin · Plex 個人同步</string>
     <string name="mp_f0409080" formatted="false">搜尋</string>
     <string name="mp_f0739f4f" formatted="false">此實例要求客戶端證書，請使用網頁登錄。</string>
     <string name="mp_f12849f1" formatted="false">切換服務</string>

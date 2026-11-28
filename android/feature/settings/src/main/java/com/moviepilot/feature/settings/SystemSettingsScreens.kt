@@ -3481,6 +3481,197 @@ private fun DanmakuAdminConfigSheet(
     }
 }
 
+/**
+ * 个人媒体服务器账号绑定页（面向所有已登录用户，包括非超级管理员与超级管理员）：
+ * 汇总当前实例已启用的媒体服务器列表，支持一次性凭据验证换取个人同步令牌与随时解绑。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MediaServerAccountBindingsScreen(
+    repository: MoviePilotRepository,
+    onBack: () -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    val margin = AdaptiveDeviceLayout.horizontalMargin()
+    val bottomOverlayInset = LocalBottomOverlayInset.current
+    val scope = rememberCoroutineScope()
+    val snackbar = LocalSnackbarHostState.current
+
+    var bindings by remember { mutableStateOf<List<MediaServerAccountBindingDto>>(emptyList()) }
+    var bindingsLoading by remember { mutableStateOf(true) }
+    var bindingsError by remember { mutableStateOf<String?>(null) }
+    var activeBindTarget by remember { mutableStateOf<MediaServerAccountBindingDto?>(null) }
+    var pendingUnbindTarget by remember { mutableStateOf<MediaServerAccountBindingDto?>(null) }
+    var isUnbinding by remember { mutableStateOf(false) }
+
+    suspend fun reloadBindings() {
+        bindingsLoading = true
+        bindingsError = null
+        repository.fetchMediaServerAccountBindings()
+            .onSuccess { bindings = it }
+            .onFailure { bindingsError = it.message ?: "加载媒体服务器同步状态失败" }
+        bindingsLoading = false
+    }
+
+    LaunchedEffect(repository) {
+        reloadBindings()
+    }
+
+    ExpressiveTintedScaffold(
+        title = "绑定媒体服务器账号",
+        subtitle = "Emby · Jellyfin · Plex 实时播放会话同步",
+        onBack = onBack,
+        actions = {
+            ExpressiveHeaderActionButton(
+                icon = Icons.Rounded.Refresh,
+                contentDescription = "刷新媒体服务器绑定状态",
+                onClick = {
+                    if (!bindingsLoading) {
+                        scope.launch { reloadBindings() }
+                    }
+                },
+            )
+        },
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = margin,
+                end = margin,
+                top = 14.dp,
+                bottom = bottomOverlayInset + 28.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item(key = "ms_account_bindings_panel") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CinematicPanel(padding = 0.dp) {
+                        when {
+                            bindingsLoading && bindings.isEmpty() -> {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = colors.accent,
+                                    )
+                                    Text(
+                                        "正在加载媒体服务器同步状态…",
+                                        color = colors.textMuted,
+                                        fontSize = 13.5.sp,
+                                    )
+                                }
+                            }
+                            bindingsError != null && bindings.isEmpty() -> {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        bindingsError.orEmpty(),
+                                        color = colors.danger,
+                                        fontSize = 13.5.sp,
+                                    )
+                                    TextButton(onClick = { scope.launch { reloadBindings() } }) {
+                                        Text("重试", color = colors.accent)
+                                    }
+                                }
+                            }
+                            bindings.isEmpty() -> {
+                                Text(
+                                    "暂无已启用的媒体服务器",
+                                    color = colors.textMuted,
+                                    fontSize = 13.5.sp,
+                                    modifier = Modifier.padding(16.dp),
+                                )
+                            }
+                            else -> {
+                                Column {
+                                    bindings.forEachIndexed { idx, item ->
+                                        if (idx > 0) {
+                                            HorizontalDivider(
+                                                color = colors.divider,
+                                                modifier = Modifier.padding(horizontal = 16.dp),
+                                            )
+                                        }
+                                        MediaServerBindingRow(
+                                            item = item,
+                                            isUnbinding = isUnbinding,
+                                            onBindClick = { activeBindTarget = item },
+                                            onUnbindClick = { pendingUnbindTarget = item },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        "绑定 Emby、Jellyfin 或 Plex 个人账号后，播放进度将实时显示在媒体服务器「正在播放」仪表盘中；密码仅用于一次性换取加密令牌，绝不保存在本地。",
+                        color = colors.textMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
+                }
+            }
+        }
+    }
+
+    val bindTarget = activeBindTarget
+    if (bindTarget != null) {
+        MediaServerAccountBindSheet(
+            repository = repository,
+            target = bindTarget,
+            onDismiss = { activeBindTarget = null },
+            onBound = { updated ->
+                bindings = bindings.map { if (it.server == updated.server) updated else it }
+                activeBindTarget = null
+                scope.launch {
+                    snackbar?.showSnackbar("已绑定 ${updated.server}，实时会话同步已启用")
+                }
+            },
+        )
+    }
+
+    val unbindTarget = pendingUnbindTarget
+    if (unbindTarget != null) {
+        AlertDialog(
+            onDismissRequest = { if (!isUnbinding) pendingUnbindTarget = null },
+            title = { Text("解除 ${unbindTarget.server} 绑定？") },
+            text = { Text("解绑后将清除已保存的个人同步令牌，恢复为服务器默认进度同步模式。") },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingUnbindTarget = null },
+                    enabled = !isUnbinding,
+                ) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isUnbinding,
+                    onClick = {
+                        isUnbinding = true
+                        scope.launch {
+                            val res = repository.unbindMediaServerAccount(unbindTarget.server)
+                            isUnbinding = false
+                            pendingUnbindTarget = null
+                            res.onSuccess { msg ->
+                                reloadBindings()
+                                snackbar?.showSnackbar(msg)
+                            }.onFailure { err ->
+                                snackbar?.showSnackbar(err.message ?: "解绑失败")
+                            }
+                        }
+                    },
+                ) {
+                    Text("确认解绑", color = colors.danger)
+                }
+            },
+        )
+    }
+}
+
 @Composable
 private fun MediaServerBindingRow(
     item: MediaServerAccountBindingDto,

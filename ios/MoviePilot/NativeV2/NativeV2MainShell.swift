@@ -1443,6 +1443,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       NativeDownloadersManagePage(session: session)
     case .mediaServersManage:
       NativeMediaServersManagePage(session: session)
+    case .mediaServerBindings:
+      NativeMediaServerAccountBindingsPage(session: session)
     case .playbackSettings:
       NativePlaybackPreferencesPage(session: session)
     }
@@ -3005,6 +3007,7 @@ enum NativeWorkspaceDestination: Hashable {
   case mediaSourceSettings
   case downloadersManage
   case mediaServersManage
+  case mediaServerBindings
   case playbackSettings
 }
 

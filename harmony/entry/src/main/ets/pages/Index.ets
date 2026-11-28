@@ -945,6 +945,7 @@ struct Index {
         HarmonySettingsHubPage({
           serverUrl: this.serverUrl,
           userName: this.userName,
+          isSuperuser: this.isSuperuser,
           onBack: () => this.popRoute(),
           onOpenSites: () => this.pushRoute('sites'),
           onSwitchServer: () => {

@@ -320,3 +320,49 @@ class NativeFixtureTests(unittest.TestCase):
         self.assertEqual(status_code, 200)
         self.assertTrue(payload["success"])
         self.assertEqual(payload["data"]["items"], 42)
+
+    def test_non_superuser_can_bind_and_unbind_mediaserver_account_without_admin_or_discovery(self):
+        """非超级管理员即使无发现和管理权限，也可查询、绑定与解绑个人媒体服务器账号，而系统级配置仍返回 403。"""
+        self.request("/__native/config", b'{"profile":"b","mode":"resource-search-only","reset":true}')
+        self.assertEqual(
+            self.request("/b/api/v1/system/setting/MediaServers", token="synthetic-native-b")[0],
+            403,
+        )
+        status_code, initial = self.request(
+            "/b/api/v1/mediaserver/account-bindings",
+            token="synthetic-native-b",
+        )
+        self.assertEqual(status_code, 200)
+        self.assertEqual(len(initial["data"]), 1)
+        self.assertFalse(initial["data"][0]["bound"])
+        self.assertEqual(initial["data"][0]["sync_mode"], "userdata")
+
+        bind_status, bound = self.request(
+            "/b/api/v1/mediaserver/account-bindings",
+            body=json.dumps({
+                "server": "Emby",
+                "username": "member-emby",
+                "password": "synthetic-password",
+            }).encode(),
+            token="synthetic-native-b",
+            method="POST",
+        )
+        self.assertEqual(bind_status, 200)
+        self.assertTrue(bound["data"]["bound"])
+        self.assertEqual(bound["data"]["sync_mode"], "session")
+        self.assertEqual(bound["data"]["remote_username"], "member-emby")
+        self.assertIsInstance(bound["data"]["updated_at"], int)
+
+        unbind_status, unbound = self.request(
+            "/b/api/v1/mediaserver/account-bindings/Emby",
+            token="synthetic-native-b",
+            method="DELETE",
+        )
+        self.assertEqual(unbind_status, 200)
+        self.assertTrue(unbound["success"])
+
+        _, after = self.request(
+            "/b/api/v1/mediaserver/account-bindings",
+            token="synthetic-native-b",
+        )
+        self.assertFalse(after["data"][0]["bound"])

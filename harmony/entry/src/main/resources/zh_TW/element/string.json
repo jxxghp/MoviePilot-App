@@ -425,6 +425,10 @@
       "value": "當前安裝已解除綁定。"
     },
     {
+      "name": "mp_32249c71",
+      "value": "賬號與綁定"
+    },
+    {
       "name": "mp_32bc332f",
       "value": "區域網直連"
     },
@@ -1955,6 +1959,10 @@
     {
       "name": "mp_emby_jellyfin_plex_e2951fb0",
       "value": "已綁定個人帳號的 Emby / Jellyfin / Plex 在直連可達時優先直連播放，不可達或失敗時自動回退背景中轉"
+    },
+    {
+      "name": "mp_emby_jellyfin_plex_f8e2d4df",
+      "value": "Emby · Jellyfin · Plex 個人同步"
     },
     {
       "name": "mp_f0409080",

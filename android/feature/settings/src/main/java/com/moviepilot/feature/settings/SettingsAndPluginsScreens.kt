@@ -182,6 +182,7 @@ fun SettingsHubScreen(
     onOpenMediaSources: () -> Unit,
     onOpenDownloaders: () -> Unit,
     onOpenMediaServers: () -> Unit,
+    onOpenMediaServerBindings: () -> Unit = {},
     onOpenDirectories: () -> Unit,
     onOpenPlayback: () -> Unit,
     onOpenNotifications: () -> Unit,
@@ -245,9 +246,9 @@ fun SettingsHubScreen(
     var isRefreshing by remember { mutableStateOf(false) }
 
     suspend fun loadAll() {
-        coroutineScope {
-            val statsDef = async { repository.fetchDashboardStats() }
-            if (isAdmin) {
+        if (isAdmin) {
+            coroutineScope {
+                val statsDef = async { repository.fetchDashboardStats() }
                 val sitesDef = async { repository.fetchSites().count { it.isActive } }
                 val usersDef = async { repository.fetchUsers().size.coerceAtLeast(1) }
                 val serversDef = async { repository.fetchMediaServers().count { it.enabled } }
@@ -259,18 +260,16 @@ fun SettingsHubScreen(
                 mediaServersCount = serversDef.await()
                 notificationsCount = notifDef.await()
                 authorizedCount = authDef.await()
-            } else {
-                stats = statsDef.await()
             }
+            repository.cachedSettingsSummary = com.moviepilot.rustbridge.SettingsSummarySnapshot(
+                stats = stats,
+                activeSitesCount = activeSitesCount,
+                usersCount = usersCount,
+                mediaServersCount = mediaServersCount,
+                notificationsCount = notificationsCount,
+                authorizedCount = authorizedCount,
+            )
         }
-        repository.cachedSettingsSummary = com.moviepilot.rustbridge.SettingsSummarySnapshot(
-            stats = stats,
-            activeSitesCount = activeSitesCount,
-            usersCount = usersCount,
-            mediaServersCount = mediaServersCount,
-            notificationsCount = notificationsCount,
-            authorizedCount = authorizedCount,
-        )
         isLoading = false
         isRefreshing = false
     }
@@ -311,70 +310,70 @@ fun SettingsHubScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // 1. 顶部实例与真实存储进度条卡
-                item {
-                    CinematicPanel(padding = 16.dp) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Box(Modifier.size(8.dp).clip(CircleShape).background(colors.success))
-                                    Text(host.ifBlank { "MoviePilot" }, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                // 1. 顶部实例存储卡（管理员）或个人账号绑定分组（普通成员）
+                if (isAdmin) {
+                    item {
+                        CinematicPanel(padding = 16.dp) {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Box(Modifier.size(8.dp).clip(CircleShape).background(colors.success))
+                                        Text(host.ifBlank { "MoviePilot" }, color = colors.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                    if (showInlineShimmer) {
+                                        NativeSkeletonBlock(
+                                            cornerRadius = 5.dp,
+                                            role = SkeletonSurfaceRole.Bar,
+                                            modifier = Modifier.size(width = 112.dp, height = 14.dp),
+                                        )
+                                    } else {
+                                        Text(
+                                            text = if (stats.totalBytes > 0) "${fmtStorage(stats.usedBytes)} / ${fmtStorage(stats.totalBytes)}" else "-- / --",
+                                            color = colors.textPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
                                 }
-                                if (showInlineShimmer) {
-                                    NativeSkeletonBlock(
-                                        cornerRadius = 5.dp,
-                                        role = SkeletonSurfaceRole.Bar,
-                                        modifier = Modifier.size(width = 112.dp, height = 14.dp),
-                                    )
-                                } else {
-                                    Text(
-                                        text = if (stats.totalBytes > 0) "${fmtStorage(stats.usedBytes)} / ${fmtStorage(stats.totalBytes)}" else "-- / --",
-                                        color = colors.textPrimary,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-                            }
-                            if (showInlineShimmer) {
-                                NativeSkeletonBlock(
-                                    cornerRadius = 4.dp,
-                                    role = SkeletonSurfaceRole.Bar,
-                                    modifier = Modifier.fillMaxWidth().height(7.dp),
-                                )
-                            } else {
-                                Box(modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(colors.chipFill)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth(usedRatio)
-                                            .height(7.dp)
-                                            .clip(CircleShape)
-                                            .background(Brush.horizontalGradient(listOf(colors.accent, colors.pink))),
-                                    )
-                                }
-                            }
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 if (showInlineShimmer) {
                                     NativeSkeletonBlock(
                                         cornerRadius = 4.dp,
                                         role = SkeletonSurfaceRole.Bar,
-                                        modifier = Modifier.size(width = 58.dp, height = 12.dp),
-                                    )
-                                    NativeSkeletonBlock(
-                                        cornerRadius = 4.dp,
-                                        role = SkeletonSurfaceRole.Bar,
-                                        modifier = Modifier.size(width = 72.dp, height = 12.dp),
+                                        modifier = Modifier.fillMaxWidth().height(7.dp),
                                     )
                                 } else {
-                                    Text("• 已用 ${(usedRatio * 100).roundToInt()}%", color = colors.accent, fontSize = 12.sp)
-                                    Text("可用 ${fmtStorage(freeBytes)}", color = colors.textSecondary, fontSize = 12.sp)
+                                    Box(modifier = Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(colors.chipFill)) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth(usedRatio)
+                                                .height(7.dp)
+                                                .clip(CircleShape)
+                                                .background(Brush.horizontalGradient(listOf(colors.accent, colors.pink))),
+                                        )
+                                    }
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    if (showInlineShimmer) {
+                                        NativeSkeletonBlock(
+                                            cornerRadius = 4.dp,
+                                            role = SkeletonSurfaceRole.Bar,
+                                            modifier = Modifier.size(width = 58.dp, height = 12.dp),
+                                        )
+                                        NativeSkeletonBlock(
+                                            cornerRadius = 4.dp,
+                                            role = SkeletonSurfaceRole.Bar,
+                                            modifier = Modifier.size(width = 72.dp, height = 12.dp),
+                                        )
+                                    } else {
+                                        Text("• 已用 ${(usedRatio * 100).roundToInt()}%", color = colors.accent, fontSize = 12.sp)
+                                        Text("可用 ${fmtStorage(freeBytes)}", color = colors.textSecondary, fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                // 2. 三枚并列快捷磁贴（站点管理 / 用户管理 / 渠道授权）
-                if (isAdmin) {
+                    // 2. 三枚并列快捷磁贴（站点管理 / 用户管理 / 渠道授权）
                     item {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             QuickTile("站点管理", "$activeSitesCount 启用", Icons.Outlined.Language, colors.success, Modifier.weight(1f), isLoading = showInlineShimmer, onClick = onOpenSites)
@@ -390,9 +389,22 @@ fun SettingsHubScreen(
                             )
                         }
                     }
+                } else {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("账号与绑定", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+                            CinematicPanel(padding = 0.dp, showsShadow = false) {
+                                Column {
+                                    SettingsRow(Icons.Rounded.AccountCircle, "绑定媒体服务器账号", "Emby · Jellyfin · Plex 个人同步", onOpenMediaServerBindings)
+                                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
+                                    SettingsRow(Icons.Outlined.Key, "渠道授权与绑定", "生成 5 分钟机器人绑定码", onOpenChannelAuth)
+                                }
+                            }
+                        }
+                    }
                 }
 
-                // 3. 基础分组列表（非管理员仅展示本机播放偏好）
+                // 3. 基础分组列表（非管理员展示本机播放偏好，管理员额外包含媒体服务器管理及个人账号绑定）
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("基础配置", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
@@ -406,6 +418,8 @@ fun SettingsHubScreen(
                                     SettingsRow(Icons.Outlined.Download, "下载器", "qBittorrent · Transmission · rTorrent", onOpenDownloaders)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                     SettingsRow(Icons.Outlined.Dns, "媒体服务器", "$mediaServersCount 个", onOpenMediaServers, isLoadingValue = showInlineShimmer)
+                                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
+                                    SettingsRow(Icons.Rounded.AccountCircle, "绑定媒体服务器账号", "Emby · Jellyfin · Plex 个人同步", onOpenMediaServerBindings)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                     SettingsRow(Icons.Outlined.Folder, "整理与目录", "目录映射与刮削", onOpenDirectories)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
@@ -531,9 +545,6 @@ fun SettingsHubScreen(
                                 HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                 if (isAdmin) {
                                     SettingsRow(Icons.Outlined.Notifications, "服务端通知渠道", "$notificationsCount 个已启用", onOpenNotifications, isLoadingValue = showInlineShimmer)
-                                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
-                                } else {
-                                    SettingsRow(Icons.Outlined.Key, "渠道授权", "生成 5 分钟机器人绑定码", onOpenChannelAuth)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                 }
                                 SettingsRow(Icons.Outlined.Palette, "外观与主题", appearance.summaryText, onOpenAppearance)

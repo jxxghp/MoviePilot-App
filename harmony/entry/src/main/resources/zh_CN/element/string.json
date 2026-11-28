@@ -425,6 +425,10 @@
       "value": "当前安装已解除绑定。"
     },
     {
+      "name": "mp_32249c71",
+      "value": "账号与绑定"
+    },
+    {
       "name": "mp_32bc332f",
       "value": "局域网直连"
     },
@@ -1955,6 +1959,10 @@
     {
       "name": "mp_emby_jellyfin_plex_e2951fb0",
       "value": "已绑定个人账号的 Emby / Jellyfin / Plex 在直连可达时优先直连播放，不可达或失败时自动回退后台中转"
+    },
+    {
+      "name": "mp_emby_jellyfin_plex_f8e2d4df",
+      "value": "Emby · Jellyfin · Plex 个人同步"
     },
     {
       "name": "mp_f0409080",

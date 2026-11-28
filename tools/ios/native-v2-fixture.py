@@ -121,6 +121,7 @@ class NativeFixture(ThreadingHTTPServer):
                     },
                 ],
                 "user_configs": {},
+                "mediaserver_bindings": {},
                 "market_plugins": [
                     {
                         "id": "AutoSignIn", "plugin_name": "站点自动签到", "plugin_desc": "定时执行站点签到与刷流任务",
@@ -349,6 +350,7 @@ class NativeHandler(BaseHTTPRequestHandler):
                         "VERSION": "v3.0.0-synthetic",
                     }
                     profile["user_configs"] = {}
+                    profile["mediaserver_bindings"] = {}
                     profile["market_plugins"] = [
                         {
                             "id": "AutoSignIn", "plugin_name": "站点自动签到", "plugin_desc": "定时执行站点签到与刷流任务",
@@ -511,6 +513,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                     self.server.profiles[name]["counts"]["POST api/v1/mediaserver/progress"] += 1
                 self.reply(200, {"success": True, "message": "", "data": {"reported": True}})
                 return
+            if endpoint == "api/v1/mediaserver/account-bindings":
+                self.mediaserver_account_bind_endpoint(name, body)
+                return
             if endpoint == "api/v1/notification/app":
                 with self.server.lock:
                     self.server.profiles[name]["counts"]["POST api/v1/notification/app"] += 1
@@ -564,6 +569,9 @@ class NativeHandler(BaseHTTPRequestHandler):
                 return
             if re.fullmatch(r"api/v1/message/agent/sessions/[A-Za-z0-9_-]+", endpoint):
                 self.agent_session_delete_endpoint(name, endpoint)
+                return
+            if re.fullmatch(r"api/v1/mediaserver/account-bindings/[^/]+", endpoint):
+                self.mediaserver_account_unbind_endpoint(name, endpoint)
                 return
         allowed = {
             ("GET", "api/v1/login/initialization"),
@@ -687,7 +695,10 @@ class NativeHandler(BaseHTTPRequestHandler):
         requires_discovery = (
             endpoint.startswith("api/v1/discover/")
             or endpoint.startswith("api/v1/recommend/")
-            or endpoint.startswith("api/v1/mediaserver/")
+            or (
+                endpoint.startswith("api/v1/mediaserver/")
+                and endpoint != "api/v1/mediaserver/account-bindings"
+            )
             or endpoint.startswith("api/v1/tmdb/")
             or endpoint.startswith("api/v1/music/")
             or endpoint == "api/v1/media/search"
@@ -793,6 +804,8 @@ class NativeHandler(BaseHTTPRequestHandler):
             value = {"enabled": False, "sources": []}
         elif re.fullmatch(r"api/v1/subscribe/media/[A-Za-z0-9_-]+", endpoint):
             value = None
+        elif endpoint == "api/v1/mediaserver/account-bindings":
+            value = self.list_mediaserver_account_bindings(name)
         elif endpoint.startswith("api/v1/mediaserver/"):
             value = self.mediaserver_fixture(endpoint, query, mode)
         elif endpoint.startswith("api/v1/user/config/"):
@@ -2412,6 +2425,80 @@ export async function get(moduleName) {
                 profile["counts"]["image-served"] += 1
             self.reply_image(reference)
 
+    def list_mediaserver_account_bindings(self, name):
+        """返回当前登录账号的个人媒体服务器绑定列表（对齐后端 verify_token 语义，无需超管或发现权限）。"""
+        with self.server.lock:
+            saved = dict(self.server.profiles[name]["mediaserver_bindings"].get("Emby") or {})
+        bound = bool(saved.get("bound"))
+        return [
+            {
+                "server": "Emby",
+                "server_type": "emby",
+                "sync_mode": "session" if bound else "userdata",
+                "supports_binding": True,
+                "bound": bound,
+                "status": "bound" if bound else "unbound",
+                "remote_username": saved.get("remote_username") if bound else None,
+                "source": "manual" if bound else None,
+                "updated_at": saved.get("updated_at") if bound else None,
+            }
+        ]
+
+    def mediaserver_account_bind_endpoint(self, name, body):
+        """验证当前登录令牌并记录个人媒体服务器绑定，不要求超级管理员或特定业务权限。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["POST api/v1/mediaserver/account-bindings"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        try:
+            payload = json.loads(body)
+            server = str(payload.get("server") or "").strip()
+            username = str(payload.get("username") or "").strip()
+            password = str(payload.get("password") or "")
+            token = str(payload.get("token") or "").strip()
+        except (ValueError, TypeError, AttributeError):
+            self.reply(422, {"detail": "invalid payload"})
+            return
+        if server != "Emby":
+            self.reply(404, {"detail": "未找到对应的已启用媒体服务器"})
+            return
+        if not token and (not username or not password):
+            self.reply(422, {"detail": "请填写媒体服务器用户名和密码"})
+            return
+        remote_user = username or f"native-{name}"
+        with self.server.lock:
+            self.server.profiles[name]["mediaserver_bindings"]["Emby"] = {
+                "bound": True,
+                "remote_username": remote_user,
+                "updated_at": 1795827600,
+            }
+        updated = self.list_mediaserver_account_bindings(name)[0]
+        self.reply(200, {"success": True, "message": "媒体服务器账号绑定成功", "data": updated})
+
+    def mediaserver_account_unbind_endpoint(self, name, endpoint):
+        """解除当前登录账号在指定媒体服务器上的个人同步令牌绑定。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"][f"DELETE {endpoint}"] += 1
+            mode = profile["mode"]
+        if mode == "expired" or self.headers.get("Authorization") != f"Bearer synthetic-native-{name}":
+            self.reply(401, {"success": False})
+            return
+        server = endpoint.rsplit("/", 1)[-1]
+        with self.server.lock:
+            removed = self.server.profiles[name]["mediaserver_bindings"].pop(server, None) is not None
+        self.reply(
+            200,
+            {
+                "success": True,
+                "message": "已解除媒体服务器账号绑定" if removed else "当前服务器未绑定账号",
+                "data": None,
+            },
+        )
+
     @staticmethod
     def mediaserver_fixture(endpoint, query, mode):
         """在 mediaserver 验收模式下返回多维 Emby 风格媒体库浏览、三层详情与播前选轨夹具。"""
@@ -2425,8 +2512,6 @@ export async function get(moduleName) {
         server = query.get("server", ["Emby"])[0] or "Emby"
         if endpoint == "api/v1/mediaserver/clients":
             return [{"name": "Emby", "type": "emby"}]
-        if endpoint == "api/v1/mediaserver/account-bindings":
-            return []
         if endpoint == "api/v1/mediaserver/library":
             return [
                 {

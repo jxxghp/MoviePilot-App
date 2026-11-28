@@ -115,6 +115,7 @@ import com.moviepilot.feature.settings.AppearanceSettingsScreen
 import com.moviepilot.feature.settings.ChannelAuthorizationScreen
 import com.moviepilot.feature.settings.DirectoriesStorageSettingsScreen
 import com.moviepilot.feature.settings.DownloadersSettingsScreen
+import com.moviepilot.feature.settings.MediaServerAccountBindingsScreen
 import com.moviepilot.feature.settings.MediaServersSettingsScreen
 import com.moviepilot.feature.settings.MediaSourcesSettingsScreen
 import com.moviepilot.feature.settings.NotificationsSettingsScreen
@@ -212,6 +213,7 @@ sealed interface AppRoute {
     data object MediaSourcesSettings : AppRoute
     data object DownloadersSettings : AppRoute
     data object MediaServersSettings : AppRoute
+    data object MediaServerAccountBindings : AppRoute
     data object DirectoriesSettings : AppRoute
     data object NotificationsSettings : AppRoute
     data object ChannelAuthorization : AppRoute
@@ -1225,6 +1227,7 @@ fun MoviePilotRootShell(
                             "sources", "system" -> AppRoute.MediaSourcesSettings
                             "downloaders" -> AppRoute.DownloadersSettings
                             "mediaservers" -> AppRoute.MediaServersSettings
+                            "mediaserver-bindings", "account-bindings" -> AppRoute.MediaServerAccountBindings
                             "directories" -> AppRoute.DirectoriesSettings
                             "notifications" -> AppRoute.NotificationsSettings
                             "authorization", "channel-auth" -> AppRoute.ChannelAuthorization
@@ -1566,6 +1569,7 @@ fun MoviePilotRootShell(
                                                     onOpenMediaSources = { pushRoute(AppRoute.MediaSourcesSettings) },
                                                     onOpenDownloaders = { pushRoute(AppRoute.DownloadersSettings) },
                                                     onOpenMediaServers = { pushRoute(AppRoute.MediaServersSettings) },
+                                                    onOpenMediaServerBindings = { pushRoute(AppRoute.MediaServerAccountBindings) },
                                                     onOpenDirectories = { pushRoute(AppRoute.DirectoriesSettings) },
                                                     onOpenPlayback = { pushRoute(AppRoute.PlaybackSettings) },
                                                     onOpenNotifications = { pushRoute(AppRoute.NotificationsSettings) },
@@ -1728,6 +1732,7 @@ fun MoviePilotRootShell(
                                                 AppRoute.MediaSourcesSettings -> MediaSourcesSettingsScreen(repository, onBack = ::popRoute)
                                                 AppRoute.DownloadersSettings -> DownloadersSettingsScreen(repository, onBack = ::popRoute)
                                                 AppRoute.MediaServersSettings -> MediaServersSettingsScreen(repository, onBack = ::popRoute)
+                                                AppRoute.MediaServerAccountBindings -> MediaServerAccountBindingsScreen(repository, onBack = ::popRoute)
                                                 AppRoute.DirectoriesSettings -> DirectoriesStorageSettingsScreen(repository, onBack = ::popRoute)
                                                 AppRoute.NotificationsSettings -> NotificationsSettingsScreen(repository, onBack = ::popRoute)
                                                 AppRoute.ChannelAuthorization -> ChannelAuthorizationScreen(

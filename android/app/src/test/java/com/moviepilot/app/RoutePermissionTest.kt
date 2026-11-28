@@ -20,4 +20,12 @@ class RoutePermissionTest {
         assertNotNull(checkRoutePermission(AppRoute.Workflows, PermissionsFfi(true, true, true, false, false)))
         assertNull(checkRoutePermission(AppRoute.Users, PermissionsFfi(false, false, false, false, true)))
     }
+
+    /** 非超级管理员即使无任何业务子权限，也可进入设置与个人媒体服务器账号绑定，而实例级媒体服务器配置仍受保护。 */
+    @Test fun nonAdminCanAccessSettingsAndPersonalMediaServerAccountBindings() {
+        val memberPermissions = PermissionsFfi(false, false, false, false, false)
+        assertNull(checkRoutePermission(AppRoute.SettingsHub, memberPermissions))
+        assertNull(checkRoutePermission(AppRoute.MediaServerAccountBindings, memberPermissions))
+        assertNotNull(checkRoutePermission(AppRoute.MediaServersSettings, memberPermissions))
+    }
 }
