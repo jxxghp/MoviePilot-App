@@ -601,7 +601,7 @@ private struct NativeSiteDataSheet: View {
                   tint: NativeTheme.brand)
                 metricTile(
                   "魔力 / 积分",
-                  value: String(format: "%.1f", latest.bonus),
+                  value: latest.bonus.formatted(.number.precision(.fractionLength(1))),
                   delta: previousData.map { Self.formatSignedDouble(latest.bonus - $0.bonus) },
                   deltaPositive: previousData.map { latest.bonus >= $0.bonus },
                   tint: NativeTheme.warning)
@@ -710,7 +710,7 @@ private struct NativeSiteDataSheet: View {
         spacing: 10
       ) {
         ForEach(0..<6, id: \.self) { _ in
-          CinematicPanel(padding: 13) {
+          CinematicPanel(padding: 13, cornerRadius: 18, style: .subtle) {
             VStack(alignment: .leading, spacing: 7) {
               NativeSkeletonBlock(width: 56, height: 11, cornerRadius: 4)
               NativeSkeletonBlock(width: 88, height: 20, cornerRadius: 6)
@@ -757,10 +757,18 @@ private struct NativeSiteDataSheet: View {
       selectedHistoryIndex.flatMap { idx in
         points.indices.contains(idx) ? points[idx] : nil
       }
-    let xStride = max(1, points.count / 4)
-    let xTicks = points.indices.filter {
-      $0 == 0 || $0 == points.count - 1 || $0 % xStride == 0
-    }
+    let xTicks: [Int] = {
+      guard points.count > 1 else { return points.isEmpty ? [] : [0] }
+      let lastIdx = points.count - 1
+      let step = max(1, Int((Double(lastIdx) / 4.0).rounded()))
+      var values = Array(stride(from: 0, to: lastIdx, by: step))
+      // 若倒数第二个刻度距末位过近，移除以避免与右对齐末位日期标签重叠。
+      if let prev = values.last, lastIdx - prev <= max(1, step / 2) {
+        values.removeLast()
+      }
+      values.append(lastIdx)
+      return values
+    }()
     return CinematicPanel(padding: 15) {
       VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .center, spacing: 8) {
@@ -866,10 +874,13 @@ private struct NativeSiteDataSheet: View {
         .chartXAxis {
           AxisMarks(values: xTicks) { value in
             if let idx = value.as(Int.self), points.indices.contains(idx) {
-              AxisValueLabel {
+              let anchor: UnitPoint =
+                idx == points.count - 1 ? .topTrailing : (idx == 0 ? .topLeading : .top)
+              AxisValueLabel(anchor: anchor) {
                 Text(points[idx].shortDay)
                   .font(.caption2.monospacedDigit())
                   .foregroundStyle(.secondary)
+                  .fixedSize()
               }
             }
           }
@@ -1057,7 +1068,7 @@ private struct NativeSiteDataSheet: View {
     deltaPositive: Bool? = nil,
     tint: Color
   ) -> some View {
-    CinematicPanel(padding: 13) {
+    CinematicPanel(padding: 13, cornerRadius: 18, style: .subtle) {
       VStack(alignment: .leading, spacing: 5) {
         HStack(spacing: 4) {
           Text(title).font(.caption2).foregroundStyle(.secondary)
@@ -1107,7 +1118,7 @@ private struct NativeSiteDataSheet: View {
 
   private static func formatSignedDouble(_ diff: Double) -> String {
     if abs(diff) < 0.01 { return "0" }
-    return String(format: "%+.1f", diff)
+    return diff.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always()))
   }
 
   private static func formatSignedInt(_ diff: Int) -> String {

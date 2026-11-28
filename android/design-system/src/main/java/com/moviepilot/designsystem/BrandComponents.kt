@@ -66,6 +66,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -1075,9 +1076,9 @@ fun FloatingAgentMascot(
     val safeRightPx = with(density) { safePadding.calculateRightPadding(layoutDir).toPx() }
     val statusTopPx = with(density) { safePadding.calculateTopPadding().toPx() }
     val navBottomPx = with(density) { safePadding.calculateBottomPadding().toPx() }
-    val safeMarginPx = with(density) { 8.dp.toPx() }
-    val mascotWidthPx = with(density) { 56.dp.toPx() }
-    val mascotHeightPx = with(density) { 68.dp.toPx() }
+    val safeMarginPx = with(density) { 6.dp.toPx() }
+    val mascotWidthPx = with(density) { 50.dp.toPx() }
+    val mascotHeightPx = with(density) { 60.dp.toPx() }
     val screenSizeKey = cfg.screenWidthDp to cfg.screenHeightDp
 
     var offsetX by remember { mutableFloatStateOf(0f) }
@@ -1089,6 +1090,8 @@ fun FloatingAgentMascot(
     var lastOrientation by remember { mutableStateOf(cfg.orientation) }
     var isDragging by remember { mutableStateOf(false) }
     var isBlinking by remember { mutableStateOf(false) }
+    var isIdleDocked by remember { mutableStateOf(false) }
+    var idleRevision by remember { mutableIntStateOf(0) }
 
     fun clampOffsets(rawX: Float, rawY: Float): Pair<Float, Float> {
         val vw = if (rootWidthPx > 0f) rootWidthPx else view.width.toFloat()
@@ -1108,6 +1111,7 @@ fun FloatingAgentMascot(
             lastOrientation = cfg.orientation
             offsetX = 0f
             offsetY = 0f
+            idleRevision++
         }
     }
 
@@ -1116,6 +1120,14 @@ fun FloatingAgentMascot(
             val (cx, cy) = clampOffsets(offsetX, offsetY)
             offsetX = cx
             offsetY = cy
+        }
+    }
+
+    LaunchedEffect(idleRevision) {
+        isIdleDocked = false
+        delay(3200L)
+        if (!isDragging) {
+            isIdleDocked = true
         }
     }
 
@@ -1136,9 +1148,42 @@ fun FloatingAgentMascot(
         label = "mascotBlink",
     )
     val dragScale by animateFloatAsState(
-        targetValue = if (isDragging) 1.06f else 1.0f,
-        animationSpec = tween(durationMillis = 140),
+        targetValue = when {
+            isDragging -> 1.06f
+            isIdleDocked -> 0.90f
+            else -> 1.0f
+        },
+        animationSpec = tween(durationMillis = 200),
         label = "mascotDragScale",
+    )
+    val idleAlpha by animateFloatAsState(
+        targetValue = when {
+            isDragging -> 1.0f
+            isIdleDocked -> 0.50f
+            else -> 0.94f
+        },
+        animationSpec = tween(durationMillis = 260),
+        label = "mascotIdleAlpha",
+    )
+    val dockShiftTargetPx = run {
+        if (!isIdleDocked || isDragging || anchorX < 0f) {
+            0f
+        } else {
+            val vw = if (rootWidthPx > 0f) rootWidthPx else view.width.toFloat()
+            val centerAbsX = anchorX + offsetX + mascotWidthPx * 0.5f
+            if (vw > 0f && centerAbsX < vw * 0.5f) {
+                (safeLeftPx - mascotWidthPx * 0.34f) - (anchorX + offsetX)
+            } else if (vw > 0f) {
+                (vw - safeRightPx - mascotWidthPx * 0.66f) - (anchorX + offsetX)
+            } else {
+                0f
+            }
+        }
+    }
+    val dockShiftPx by animateFloatAsState(
+        targetValue = dockShiftTargetPx,
+        animationSpec = tween(durationMillis = 280),
+        label = "mascotDockShift",
     )
 
     Box(
@@ -1152,17 +1197,27 @@ fun FloatingAgentMascot(
                 if (kotlin.math.abs(nw - rootWidthPx) > 0.5f) rootWidthPx = nw
                 if (kotlin.math.abs(nh - rootHeightPx) > 0.5f) rootHeightPx = nh
             }
-            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-            .size(width = 56.dp, height = 68.dp)
+            .offset { IntOffset((offsetX + dockShiftPx).roundToInt(), offsetY.roundToInt()) }
+            .size(width = 50.dp, height = 60.dp)
             .graphicsLayer {
                 scaleX = dragScale
                 scaleY = dragScale
+                alpha = idleAlpha
             }
             .pointerInput(Unit) {
                 detectDragGestures(
-                    onDragStart = { isDragging = true },
-                    onDragEnd = { isDragging = false },
-                    onDragCancel = { isDragging = false },
+                    onDragStart = {
+                        isIdleDocked = false
+                        isDragging = true
+                    },
+                    onDragEnd = {
+                        isDragging = false
+                        idleRevision++
+                    },
+                    onDragCancel = {
+                        isDragging = false
+                        idleRevision++
+                    },
                 ) { change, dragAmount ->
                     change.consume()
                     val (cx, cy) = clampOffsets(offsetX + dragAmount.x, offsetY + dragAmount.y)
@@ -1170,7 +1225,10 @@ fun FloatingAgentMascot(
                     offsetY = cy
                 }
             }
-            .clickable(onClick = onClick),
+            .clickable {
+                idleRevision++
+                onClick()
+            },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -1179,7 +1237,7 @@ fun FloatingAgentMascot(
             val cx = size.width * 0.5f
             val cy = size.height * 0.5f
 
-            val outline = Color(0xFF473080)
+            val outline = Color(0x6B473080)
             val shellStart = Color(0xFFDBD1FF)
             val shellMid = Color(0xFFA385FA)
             val shellEnd = Color(0xFF7A57E0)

@@ -186,7 +186,7 @@ fun WorkspaceHubScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                 ) {
-                    // 分组 1：资源与媒体流转（按 RBAC discovery / search / manage / admin 动态组装网格卡片）
+                    // 分组 1：资源与媒体流转（冷静蓝青色系收束；窄屏双列若为奇数项则尾项全宽承托）
                     val flowCards = buildList<@Composable (Modifier) -> Unit> {
                         if (canSearch) {
                             add { mod ->
@@ -206,7 +206,7 @@ fun WorkspaceHubScreen(
                                     title = "下载管理",
                                     subtitle = if (activeDownloads > 0) "$activeDownloads 个任务" else "队列与限速控制",
                                     icon = Icons.Rounded.DownloadForOffline,
-                                    accentTint = colors.success,
+                                    accentTint = colors.cyan,
                                     onClick = onOpenDownloads,
                                     modifier = mod,
                                 )
@@ -216,7 +216,7 @@ fun WorkspaceHubScreen(
                                     title = "文件管理",
                                     subtitle = "多存储浏览与播放",
                                     icon = Icons.Rounded.Folder,
-                                    accentTint = colors.warning,
+                                    accentTint = colors.info,
                                     onClick = onOpenFiles,
                                     modifier = mod,
                                 )
@@ -226,7 +226,7 @@ fun WorkspaceHubScreen(
                                     title = "整理历史",
                                     subtitle = "识别入库与记录队列",
                                     icon = Icons.Rounded.History,
-                                    accentTint = colors.brand,
+                                    accentTint = colors.cyan,
                                     onClick = onOpenHistory,
                                     modifier = mod,
                                 )
@@ -238,7 +238,7 @@ fun WorkspaceHubScreen(
                                     title = "媒体库",
                                     subtitle = "${libraries.size} 个媒体库浏览",
                                     icon = Icons.Rounded.Folder,
-                                    accentTint = colors.accent,
+                                    accentTint = colors.info,
                                     onClick = { onOpenMediaLibrary(libraries.first()) },
                                     modifier = mod,
                                 )
@@ -257,8 +257,10 @@ fun WorkspaceHubScreen(
                                 flowCards.chunked(gridCols).forEach { rowItems ->
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         rowItems.forEach { card -> card(Modifier.weight(1f)) }
-                                        repeat(gridCols - rowItems.size) {
-                                            Spacer(Modifier.weight(1f))
+                                        if (!(gridCols == 2 && rowItems.size == 1 && flowCards.size > 1)) {
+                                            repeat(gridCols - rowItems.size) {
+                                                Spacer(Modifier.weight(1f))
+                                            }
                                         }
                                     }
                                 }

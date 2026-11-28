@@ -1763,14 +1763,15 @@ final class NativeV2EntryTests: XCTestCase {
     tap(tabButton("更多", app: app), app: app)
     XCTAssertFalse(app.descendants(matching: .any)["native-overflow-user-header"].exists)
 
+    // 一级主标签页保留浮动智能助手形象，推入二级页面后自动隐藏避免遮挡正文与操作按钮
+    XCTAssertTrue(app.buttons["native-agent-floating-mascot"].waitForExistence(timeout: 8))
+
     // 通过「更多」右上角齿轮按钮推入「设置」中心，验证站点/用户双卡、站点范围、目录/刮削保存/网络诊断
     openSettingsHub(app: app)
     XCTAssertTrue(app.buttons["native-workspace-sites"].waitForExistence(timeout: 10))
     let usersEntry = app.buttons["native-workspace-users"]
     XCTAssertTrue(usersEntry.exists)
-
-    // 验证浮动智能助手形象存在
-    XCTAssertTrue(app.buttons["native-agent-floating-mascot"].waitForExistence(timeout: 8))
+    XCTAssertFalse(app.buttons["native-agent-floating-mascot"].exists)
 
     // 先进入顶部的「用户管理」验证右上角已有新增按钮时右下角统一保持「搜索」，并通过长按菜单编辑用户权限
     tap(usersEntry, app: app)

@@ -500,6 +500,7 @@ struct NativeMediaDetailPage: View {
   @State private var activeEditorTarget: NativeMediaSubscribeEditTarget?
   @State private var actionFeedback: NativeDetailActionFeedback?
   @State private var scrollOffset: CGFloat = 0
+  @State private var heroFadeColor: Color?
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -744,9 +745,9 @@ struct NativeMediaDetailPage: View {
   private func ambientSurface(progress: CGFloat) -> some View {
     ZStack {
       CinematicBackground()
-      if colorScheme == .dark {
-        Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
-          .opacity(max(0, 1 - Double(progress) * 1.15) * 0.55)
+      if colorScheme == .dark && !appearance.pureBlackDark {
+        (heroFadeColor ?? Color(red: 12 / 255, green: 14 / 255, blue: 22 / 255))
+          .opacity(max(0, 1 - Double(progress) * 1.15) * 0.58)
       }
     }
   }
@@ -774,25 +775,34 @@ struct NativeMediaDetailPage: View {
       let fadeBase =
         isLight
         ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
-        : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
+        : (appearance.pureBlackDark
+          ? Color.black
+          : (heroFadeColor ?? Color(red: 12 / 255, green: 14 / 255, blue: 22 / 255)))
       ZStack(alignment: .bottom) {
         NativeMediaArtwork(
-          session: session, reference: seedRef, role: .backdrop, maximumWidth: 1280
+          session: session,
+          reference: seedRef,
+          role: .backdrop,
+          maximumWidth: 1280,
+          onImageResolved: { img in
+            heroFadeColor = NativePosterToneExtractor.velvetFadeColor(
+              for: img, cacheKey: "detail-seed|\(seedRef)")
+          }
         )
         .frame(width: width, height: backdropHeight)
         .clipped()
         LinearGradient(
           stops: isLight
             ? [
-              .init(color: .clear, location: 0.48),
-              .init(color: fadeBase.opacity(0.42), location: 0.68),
-              .init(color: fadeBase.opacity(0.88), location: 0.86),
+              .init(color: .clear, location: 0.42),
+              .init(color: fadeBase.opacity(0.56), location: 0.64),
+              .init(color: fadeBase.opacity(0.92), location: 0.82),
               .init(color: fadeBase, location: 1),
             ]
             : [
-              .init(color: .clear, location: 0.48),
-              .init(color: fadeBase.opacity(0.38), location: 0.68),
-              .init(color: fadeBase.opacity(0.86), location: 0.88),
+              .init(color: .clear, location: 0.38),
+              .init(color: fadeBase.opacity(0.58), location: 0.62),
+              .init(color: fadeBase.opacity(0.92), location: 0.80),
               .init(color: fadeBase, location: 1),
             ], startPoint: .top, endPoint: .bottom
         )
@@ -843,26 +853,37 @@ struct NativeMediaDetailPage: View {
     let fadeBase =
       isLight
       ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
-      : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
+      : (appearance.pureBlackDark
+        ? Color.black
+        : (heroFadeColor ?? Color(red: 12 / 255, green: 14 / 255, blue: 22 / 255)))
     return ZStack(alignment: .bottom) {
       NativeMediaArtwork(
-        session: session, reference: heroReference, role: .backdrop, maximumWidth: 1280
+        session: session,
+        reference: heroReference,
+        role: .backdrop,
+        maximumWidth: 1280,
+        onImageResolved: { img in
+          if let ref = heroReference {
+            heroFadeColor = NativePosterToneExtractor.velvetFadeColor(
+              for: img, cacheKey: "detail-hero|\(ref)")
+          }
+        }
       )
       .frame(width: width, height: backdropHeight)
       .clipped()
-      // 仅底部平滑融底托起 Logo 与信息区，顶部保持 100% 纯净无遮挡。
+      // 仅底部平滑丝绒融底托起 Logo 与信息区，提前中下段承托曲线以杜绝与海报印字重影，顶部保持 100% 纯净无遮挡。
       LinearGradient(
         stops: isLight
           ? [
-            .init(color: .clear, location: 0.48),
-            .init(color: fadeBase.opacity(0.42), location: 0.68),
-            .init(color: fadeBase.opacity(0.88), location: 0.86),
+            .init(color: .clear, location: 0.42),
+            .init(color: fadeBase.opacity(0.56), location: 0.64),
+            .init(color: fadeBase.opacity(0.92), location: 0.82),
             .init(color: fadeBase, location: 1),
           ]
           : [
-            .init(color: .clear, location: 0.48),
-            .init(color: fadeBase.opacity(0.38), location: 0.68),
-            .init(color: fadeBase.opacity(0.86), location: 0.88),
+            .init(color: .clear, location: 0.38),
+            .init(color: fadeBase.opacity(0.58), location: 0.62),
+            .init(color: fadeBase.opacity(0.92), location: 0.80),
             .init(color: fadeBase, location: 1),
           ], startPoint: .top, endPoint: .bottom
       )
@@ -1363,33 +1384,36 @@ struct NativeMediaDetailPage: View {
     .accessibilityIdentifier("native-media-detail-feedback")
   }
 
-  /// 剧情简介默认保留优雅阅读行距，长文本提供原地展开/收起。
+  /// 剧情简介去繁冗玻璃外框，在大按钮下方以精致排版直接呼吸呈现，长文本支持原地展开/收起。
   @ViewBuilder
   private func synopsisSection(_ detail: MediaDetailPayload) -> some View {
     if let overview = detail.overview?.trimmingCharacters(in: .whitespacesAndNewlines),
       !overview.isEmpty
     {
-      CinematicPanel {
-        VStack(alignment: .leading, spacing: 10) {
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(alignment: .firstTextBaseline) {
           Text("剧情简介")
-            .font(.headline)
+            .font(.headline.weight(.bold))
             .accessibilityAddTraits(.isHeader)
-          Text(overview)
-            .font(.body)
-            .lineSpacing(5)
-            .foregroundStyle(.primary.opacity(0.84))
-            .lineLimit(synopsisExpanded ? nil : 5)
+          Spacer(minLength: 8)
           if overview.count > 120 {
-            Button(synopsisExpanded ? "收起简介" : "展开全部") {
+            Button(synopsisExpanded ? "收起" : "展开全部") {
               withAnimation(.easeInOut(duration: 0.2)) { synopsisExpanded.toggle() }
             }
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.primary.opacity(0.75))
+            .foregroundStyle(appearance.accentColor)
             .buttonStyle(.plain)
           }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        Text(overview)
+          .font(.subheadline)
+          .lineSpacing(5.5)
+          .foregroundStyle(.primary.opacity(0.82))
+          .lineLimit(synopsisExpanded ? nil : 4)
       }
+      .padding(.horizontal, 2)
+      .padding(.vertical, 2)
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 

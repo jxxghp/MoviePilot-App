@@ -458,16 +458,16 @@ fun MediaDetailScreen(
                                 .background(Brush.verticalGradient(listOf(colors.accent.copy(alpha = 0.45f), Color(0xFF231C35)))),
                         )
                     }
-                    // 仅底部平滑融底托起 Logo 与信息区，顶部首屏保持 100% 清透无遮挡
+                    // 仅底部平滑融底托起 Logo 与信息区，提前中下段承托曲线防海报画面与白字打架，顶部首屏保持 100% 清透无遮挡
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
                                     0.0f to Color.Transparent,
-                                    0.48f to Color.Transparent,
-                                    0.68f to fadeBase.copy(alpha = if (colors.isDark) 0.38f else 0.42f),
-                                    0.88f to fadeBase.copy(alpha = if (colors.isDark) 0.86f else 0.88f),
+                                    0.38f to Color.Transparent,
+                                    0.62f to fadeBase.copy(alpha = if (colors.isDark) 0.58f else 0.56f),
+                                    0.80f to fadeBase.copy(alpha = if (colors.isDark) 0.92f else 0.92f),
                                     1.0f to fadeBase,
                                 ),
                             ),
@@ -839,39 +839,43 @@ fun MediaDetailScreen(
                         }
                     }
 
-                    // 3. 剧情简介玻璃卡
+                    // 3. 剧情简介（去外框裸排，提升正文呼吸感）
                     item {
                         val showOverviewShimmer = isDetailLoading && detail.overview.isBlank()
                         val overviewText = detail.overview.ifBlank { "暂无剧情简介，可点击上方按钮快速检索站点高清片源或加入自动追剧订阅。" }
-                        CinematicPanel(
-                            padding = 16.dp,
-                            showsShadow = false,
+                        Column(
                             modifier = Modifier
-                                .padding(horizontal = margin)
+                                .fillMaxWidth()
+                                .padding(horizontal = margin + 2.dp, vertical = 2.dp)
                                 .then(if (!showOverviewShimmer) Modifier.clickable { expandOverview = !expandOverview } else Modifier),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Text("剧情简介", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                if (showOverviewShimmer) {
-                                    NativeOverviewLinesSkeleton(lines = 3)
-                                } else {
+                                if (!showOverviewShimmer && overviewText.length > 90) {
                                     Text(
-                                        text = overviewText,
-                                        color = colors.textSecondary,
-                                        fontSize = 14.sp,
-                                        lineHeight = 22.sp,
-                                        maxLines = if (expandOverview) Int.MAX_VALUE else 4,
-                                        overflow = TextOverflow.Ellipsis,
+                                        text = if (expandOverview) "收起" else "展开全部",
+                                        color = colors.accent,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                     )
-                                    if (overviewText.length > 90) {
-                                        Text(
-                                            text = if (expandOverview) "收起" else "展开全部",
-                                            color = colors.textMuted,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                    }
                                 }
+                            }
+                            if (showOverviewShimmer) {
+                                NativeOverviewLinesSkeleton(lines = 3)
+                            } else {
+                                Text(
+                                    text = overviewText,
+                                    color = colors.textSecondary,
+                                    fontSize = 14.sp,
+                                    lineHeight = 22.sp,
+                                    maxLines = if (expandOverview) Int.MAX_VALUE else 4,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         }
                     }

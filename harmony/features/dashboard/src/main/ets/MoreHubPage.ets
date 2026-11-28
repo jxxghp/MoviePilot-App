@@ -71,6 +71,14 @@ export struct HarmonyMoreHubPage {
     return '1fr 1fr';
   }
 
+  private isOddTwoColumnTail(items: MoreToolItem[]): boolean {
+    return this.breakpoint !== 'md' && this.breakpoint !== 'lg' && items.length > 1 && items.length % 2 === 1;
+  }
+
+  private gridMainItems(items: MoreToolItem[]): MoreToolItem[] {
+    return this.isOddTwoColumnTail(items) ? items.slice(0, items.length - 1) : items;
+  }
+
   @Builder
   toolGridSection(title: string, items: MoreToolItem[]) {
     Column({ space: 10 }) {
@@ -81,7 +89,7 @@ export struct HarmonyMoreHubPage {
         .width('100%')
 
       Grid() {
-        ForEach(items, (item: MoreToolItem) => {
+        ForEach(this.gridMainItems(items), (item: MoreToolItem) => {
           GridItem() {
             Column() {
               CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: true }) {
@@ -94,7 +102,7 @@ export struct HarmonyMoreHubPage {
                   .width(40)
                   .height(40)
                   .borderRadius(20)
-                  .backgroundColor(HarmonyAppearanceStore.withAlpha(item.tintHex, this.isDark ? '28' : '1A'))
+                  .backgroundColor(HarmonyAppearanceStore.withAlpha(item.tintHex, this.isDark ? '24' : '16'))
 
                   Column({ space: 3 }) {
                     Text(item.title)
@@ -124,8 +132,55 @@ export struct HarmonyMoreHubPage {
       .columnsGap(12)
       .rowsGap(12)
       .width('100%')
+
+      // 窄屏双列出现奇数尾项时以全宽横卡自然承托，避免右侧半行空洞。
+      if (this.isOddTwoColumnTail(items)) {
+        this.fullWidthTailTile(items[items.length - 1])
+      }
     }
     .width('100%')
+  }
+
+  @Builder
+  fullWidthTailTile(item: MoreToolItem) {
+    Column() {
+      CinematicPanel({ panelPadding: 14, cornerRadius: 18, interactive: true }) {
+        Row({ space: 12 }) {
+          Stack() {
+            SymbolGlyph($r(item.symbolName))
+              .fontSize(20)
+              .fontColor([item.tintHex])
+          }
+          .width(40)
+          .height(40)
+          .borderRadius(20)
+          .backgroundColor(HarmonyAppearanceStore.withAlpha(item.tintHex, this.isDark ? '24' : '16'))
+
+          Column({ space: 2 }) {
+            Text(item.title)
+              .fontSize(15)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(mpPrimaryText(this.isDark))
+              .maxLines(1)
+            Text(this.liveSubtitle(item))
+              .fontSize(11.5)
+              .fontColor(mpSecondaryText(this.isDark))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+
+          SymbolGlyph($r('sys.symbol.chevron_right'))
+            .fontSize(14)
+            .fontColor([mpSecondaryText(this.isDark)])
+        }
+        .width('100%')
+      }
+    }
+    .width('100%')
+    .accessibilityText(`${item.title}，${this.liveSubtitle(item)}`)
+    .onClick(() => this.onSelectRoute(item.id))
   }
 
   build() {

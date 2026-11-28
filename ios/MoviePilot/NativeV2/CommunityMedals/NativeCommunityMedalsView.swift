@@ -143,12 +143,23 @@ struct NativeCommunityMedalsWidget: View {
           .font(.headline.weight(.semibold))
           .foregroundStyle(.primary)
         if unseen > 0 {
-          Text("\(unseen) 枚新勋章")
+          let champagne = Color(red: 0.90, green: 0.76, blue: 0.44)
+          let champagneInk =
+            colorScheme == .light
+            ? Color(red: 0.62, green: 0.44, blue: 0.12)
+            : Color(red: 0.96, green: 0.85, blue: 0.56)
+          Text("\(unseen) 枚新解锁")
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(Color.red.opacity(0.86), in: Capsule())
+            .foregroundStyle(champagneInk)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2.5)
+            .background {
+              Capsule()
+                .fill(champagne.opacity(colorScheme == .light ? 0.16 : 0.18))
+                .overlay {
+                  Capsule().strokeBorder(champagne.opacity(0.42), lineWidth: 0.65)
+                }
+            }
         }
         Spacer(minLength: 6)
         if let login = profile.login, !login.isEmpty {
@@ -213,13 +224,15 @@ struct NativeCommunityMedalsWidget: View {
           .frame(width: 64, height: 64)
 
           if isUnseen {
+            let champagne = Color(red: 0.94, green: 0.80, blue: 0.48)
             Circle()
-              .fill(Color.red)
-              .frame(width: 8, height: 8)
+              .fill(champagne)
+              .frame(width: 6.5, height: 6.5)
+              .shadow(color: champagne.opacity(0.55), radius: 3)
               .overlay {
-                Circle().strokeBorder(.white.opacity(0.85), lineWidth: 1)
+                Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 0.8)
               }
-              .offset(x: -2, y: 2)
+              .offset(x: -3, y: 3)
           } else if isWorn {
             Image(systemName: "checkmark.seal.fill")
               .font(.system(size: 13, weight: .bold))

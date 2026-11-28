@@ -63,6 +63,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   @State private var restoredCapsuleSheetTarget: MinimizedPluginSession?
   @State private var deepLinkPluginTarget: DeepLinkPluginTarget?
   @State private var userTabAvatar: UIImage?
+  @State private var userTabAvatarInactive: UIImage?
   @AppStorage("nativeV2.showFloatingAssistant") private var showFloatingAssistant = true
   @State private var discoverModules = NativeDiscoverModuleItem.defaults
   @State private var extraRecommendSources: [RecommendSource] = []
@@ -134,8 +135,8 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           }
           .zIndex(46)
         }
-        if showFloatingAssistant && !usesDuoSideOperationBar && !showsAgentSheet
-          && !showsMessagesSheet
+        if showFloatingAssistant && isAtRootNavigationLevel && !usesDuoSideOperationBar
+          && !showsAgentSheet && !showsMessagesSheet
         {
           NativeAgentFloatingMascot(
             onOpen: { showsAgentSheet = true },
@@ -198,8 +199,10 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       }
     }
     .task(id: "\(snapshot.scope)|\(snapshot.user.avatar)") {
-      userTabAvatar = await NativeUserAvatarRenderer.loadTabAvatar(
+      let pair = await NativeUserAvatarRenderer.loadTabAvatarPair(
         session: session, avatar: snapshot.user.avatar)
+      userTabAvatar = pair?.active
+      userTabAvatarInactive = pair?.inactive
     }
     .sheet(isPresented: $showsMessagesSheet) {
       NavigationStack {
@@ -287,6 +290,23 @@ struct NativeV2MainShell<PluginDestination: View>: View {
         }
       }
     }
+  }
+
+  /// 仅在一级根 Tab 停留时展示浮动助手，推入详情、设置、插件或工作流画布后自动隐藏以免遮挡内容与按钮。
+  private var isAtRootNavigationLevel: Bool {
+    switch selectedTab {
+    case .discover: discoverPath.isEmpty
+    case .subscriptions: subscriptionsPath.isEmpty
+    case .mine: minePath.isEmpty
+    case .more: morePath.isEmpty && !showsPlugins
+    case .search: searchPath.isEmpty
+    case .sidebarWorkspace: false
+    }
+  }
+
+  /// 当前「我的」底栏显示头像：未选中态轻度降饱和融入单色图标群，选中态呈现全彩高亮。
+  private var displayedMineTabAvatar: UIImage? {
+    selectedTab == .mine ? userTabAvatar : (userTabAvatarInactive ?? userTabAvatar)
   }
 
   /// 影视发现、探索、媒体搜索与详情沿用现有发现权限，PT 资源搜索属于单独的权限。
@@ -410,7 +430,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
     )
     return NativeLegacyFloatingTabBar(
       items: items,
-      userTabAvatar: userTabAvatar,
+      userTabAvatar: displayedMineTabAvatar,
       showsTrailingButton: canDiscover || hasTrailingCustomAction,
       trailingTitle: hasTrailingCustomAction ? trailingButtonTitle : t("搜索"),
       trailingSymbol: trailingButtonSymbol,
@@ -572,11 +592,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       Button {
         selectDuoRootTab(.mine)
       } label: {
-        if let userTabAvatar {
+        if let avatar = displayedMineTabAvatar {
           Label {
             Text(t("我的"))
           } icon: {
-            Image(uiImage: userTabAvatar)
+            Image(uiImage: avatar)
           }
         } else {
           Label(
@@ -705,11 +725,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       Tab(value: Page.mine) {
         mineTab
       } label: {
-        if let userTabAvatar {
+        if let avatar = displayedMineTabAvatar {
           Label {
             Text(t("我的"))
           } icon: {
-            Image(uiImage: userTabAvatar)
+            Image(uiImage: avatar)
           }
         } else {
           Label(t("我的"), systemImage: "person.crop.circle")
@@ -859,11 +879,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       Tab(value: Page.mine) {
         mineTab
       } label: {
-        if let userTabAvatar {
+        if let avatar = displayedMineTabAvatar {
           Label {
             Text(t("我的"))
           } icon: {
-            Image(uiImage: userTabAvatar)
+            Image(uiImage: avatar)
           }
         } else {
           Label(t("我的"), systemImage: "person.crop.circle")
@@ -912,11 +932,11 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       mineTab
         .tag(Page.mine)
         .tabItem {
-          if let userTabAvatar {
+          if let avatar = displayedMineTabAvatar {
             Label {
               Text(t("我的"))
             } icon: {
-              Image(uiImage: userTabAvatar)
+              Image(uiImage: avatar)
             }
             .accessibilityIdentifier("native-v2-tab-我的")
           } else {
@@ -3176,6 +3196,7 @@ struct NativeMediaArtwork: View {
   let role: NativeDiscoverArtworkRole
   let maximumWidth: Int
   var useCookies: Bool = false
+  var onImageResolved: ((UIImage) -> Void)? = nil
   @Environment(\.colorScheme) private var colorScheme
   @State private var image: UIImage?
   @State private var loadedKey: String?
@@ -3234,6 +3255,7 @@ struct NativeMediaArtwork: View {
     if let cached = NativeMediaArtworkCache.shared.memoryImage(for: key) {
       image = cached
       loadedKey = key
+      onImageResolved?(cached)
       return
     }
     if loadedKey != key {
@@ -3247,6 +3269,7 @@ struct NativeMediaArtwork: View {
       guard !Task.isCancelled else { return }
       image = diskImage
       loadedKey = key
+      onImageResolved?(diskImage)
       return
     }
     let settings = await NativeGlobalImageSettingsStore.shared.ensureLoaded(using: session)
@@ -3262,6 +3285,7 @@ struct NativeMediaArtwork: View {
     guard !Task.isCancelled, let decoded else { return }
     image = decoded
     loadedKey = key
+    onImageResolved?(decoded)
   }
 
   /// 缓存键覆盖服务器实例、用户 ID、尺寸与规范化 URL，跨冷启动复用本地磁盘缓存，登出时按作用域清理。

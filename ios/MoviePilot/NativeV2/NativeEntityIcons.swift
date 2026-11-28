@@ -1,3 +1,4 @@
+import CoreImage
 import CryptoKit
 import Foundation
 import ImageIO
@@ -327,7 +328,7 @@ struct NativeSiteIconView: View {
   }
 }
 
-/// 插件真实图标视图：兼容绝对 URL、同源 `/plugin_icon/<name>` 与官方仓库回退图标；统一裁剪为圆角方形轮廓。
+/// 插件真实图标视图：兼容绝对 URL、同源 `/plugin_icon/<name>` 与官方仓库回退图标；统一裁剪为圆角方形轮廓，深色下自动叠加轻柔压光罩以驯服纯白底图标眩光。
 @MainActor
 struct NativePluginIconView: View {
   let session: NativeSession
@@ -335,10 +336,12 @@ struct NativePluginIconView: View {
   var size: CGFloat = 44
   var cornerRadius: CGFloat = 12
   var inactive: Bool = false
+  @Environment(\.colorScheme) private var colorScheme
   @State private var image: UIImage?
 
   var body: some View {
     let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    let isDark = colorScheme == .dark
     Group {
       if let resolved = image ?? NativeEntityIconCache.shared.image(for: cacheKey) {
         let ratio = resolved.size.height > 0 ? resolved.size.width / resolved.size.height : 1.0
@@ -359,6 +362,18 @@ struct NativePluginIconView: View {
     }
     .frame(width: size, height: size)
     .clipShape(shape)
+    .overlay {
+      if isDark {
+        // 深色模式下轻度压暗纯白底图标高光并补齐精致内框线，消除第三方白底图块突兀感。
+        shape
+          .fill(Color.black.opacity(0.08))
+          .overlay {
+            shape.strokeBorder(Color.white.opacity(0.14), lineWidth: 0.6)
+          }
+      } else {
+        shape.strokeBorder(Color.black.opacity(0.08), lineWidth: 0.5)
+      }
+    }
     .saturation(inactive ? 0.35 : 1.0)
     .opacity(inactive ? 0.72 : 1.0)
     .task(id: cacheKey) { await load() }
@@ -585,7 +600,7 @@ struct NativeUserAvatarView: View {
   }
 }
 
-/// 底部导航栏「我的」圆形用户头像渲染器：仅当用户实际设置了头像时返回原色圆形位图。
+/// 底部导航栏「我的」圆形用户头像渲染器：未选中态轻度降饱和并配细白环以融入单色底栏，选中态恢复全彩高亮与主题外环。
 enum NativeUserAvatarRenderer {
   @MainActor
   static func loadTabAvatar(
@@ -593,32 +608,64 @@ enum NativeUserAvatarRenderer {
     avatar: String?,
     pointSize: CGFloat = 25
   ) async -> UIImage? {
+    await loadTabAvatarPair(session: session, avatar: avatar, pointSize: pointSize)?.active
+  }
+
+  @MainActor
+  static func loadTabAvatarPair(
+    session: NativeSession,
+    avatar: String?,
+    pointSize: CGFloat = 25
+  ) async -> (inactive: UIImage, active: UIImage)? {
     guard let raw = avatar?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty
     else { return nil }
-    let cacheKey =
-      "tab-avatar|\(session.scope.instanceID.uuidString)|\(session.scope.generation.uuidString)|\(raw)"
-    if let cached = NativeEntityIconCache.shared.image(for: cacheKey) {
-      return cached
+    let activeKey =
+      "tab-avatar-active|\(session.scope.instanceID.uuidString)|\(session.scope.generation.uuidString)|\(raw)"
+    let inactiveKey =
+      "tab-avatar-inactive|\(session.scope.instanceID.uuidString)|\(session.scope.generation.uuidString)|\(raw)"
+    if let cachedActive = NativeEntityIconCache.shared.image(for: activeKey),
+      let cachedInactive = NativeEntityIconCache.shared.image(for: inactiveKey)
+    {
+      return (inactive: cachedInactive, active: cachedActive)
     }
     guard
       let source = await NativeEntityIconLoader.loadImage(
         reference: raw, session: session, maximumPixelSize: Int(pointSize * 3))
     else { return nil }
-    let rendered = renderCircularTabIcon(source, pointSize: pointSize)
-    NativeEntityIconCache.shared.store(rendered, for: cacheKey)
-    return rendered
+    let active = renderCircularTabIcon(source, pointSize: pointSize, isSelected: true)
+    let mutedSource = desaturatedImage(source, saturation: 0.62) ?? source
+    let inactive = renderCircularTabIcon(mutedSource, pointSize: pointSize, isSelected: false)
+    NativeEntityIconCache.shared.store(active, for: activeKey)
+    NativeEntityIconCache.shared.store(inactive, for: inactiveKey)
+    return (inactive: inactive, active: active)
+  }
+
+  private static func desaturatedImage(_ source: UIImage, saturation: CGFloat) -> UIImage? {
+    guard let ciInput = CIImage(image: source),
+      let filter = CIFilter(name: "CIColorControls")
+    else { return nil }
+    filter.setValue(ciInput, forKey: kCIInputImageKey)
+    filter.setValue(saturation, forKey: kCIInputSaturationKey)
+    filter.setValue(0.0, forKey: kCIInputBrightnessKey)
+    guard let output = filter.outputImage else { return nil }
+    let context = CIContext(options: [.useSoftwareRenderer: false])
+    guard let cgImage = context.createCGImage(output, from: ciInput.extent) else { return nil }
+    return UIImage(cgImage: cgImage, scale: source.scale, orientation: source.imageOrientation)
   }
 
   @MainActor
-  private static func renderCircularTabIcon(_ source: UIImage, pointSize: CGFloat) -> UIImage {
+  private static func renderCircularTabIcon(
+    _ source: UIImage, pointSize: CGFloat, isSelected: Bool
+  ) -> UIImage {
     let targetSize = CGSize(width: pointSize, height: pointSize)
     let format = UIGraphicsImageRendererFormat()
     format.opaque = false
     format.scale = UIScreen.main.scale
     let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
     let circular = renderer.image { context in
+      let inset: CGFloat = isSelected ? 0.9 : 0.6
       let rect = CGRect(origin: .zero, size: targetSize)
-      let path = UIBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+      let path = UIBezierPath(ovalIn: rect.insetBy(dx: inset, dy: inset))
       context.cgContext.saveGState()
       path.addClip()
 
@@ -631,11 +678,15 @@ enum NativeUserAvatarRenderer {
         y: (rect.height - drawHeight) / 2,
         width: drawWidth,
         height: drawHeight)
-      source.draw(in: drawRect)
+      source.draw(in: drawRect, blendMode: .normal, alpha: isSelected ? 1.0 : 0.86)
       context.cgContext.restoreGState()
 
-      UIColor.white.withAlphaComponent(0.32).setStroke()
-      path.lineWidth = 0.8
+      let ringColor =
+        isSelected
+        ? UIColor.white.withAlphaComponent(0.72)
+        : UIColor.white.withAlphaComponent(0.28)
+      ringColor.setStroke()
+      path.lineWidth = isSelected ? 1.25 : 0.75
       path.stroke()
     }
     return circular.withRenderingMode(.alwaysOriginal)

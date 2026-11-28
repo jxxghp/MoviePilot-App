@@ -49,7 +49,7 @@
       "id": "graphite",
       "titleZh": "极简石墨",
       "titleEn": "Minimal Graphite",
-      "darkStops": ["#21242B", "#2E303B", "#292B36", "#1A1C24"],
+      "darkStops": ["#101218", "#181B24", "#151821", "#0C0E14"],
       "lightStops": ["#F2F2F7", "#EDF0F5", "#F2F2F5", "#E8EBF2"],
       "stopLocations": [0.0, 0.33, 0.70, 1.0]
     },

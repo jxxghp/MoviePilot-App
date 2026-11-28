@@ -58,6 +58,7 @@ import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Tv
+import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -897,20 +898,29 @@ private fun DashboardUserProfileCard(
                     }
 
                     if (earnedCount > 0) {
-                        Box(
+                        val champagne = Color(0xFFE8C678)
+                        val champagneInk = if (colors.isDark) Color(0xFFF5DE9A) else Color(0xFF8C6214)
+                        Row(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(colors.warning.copy(alpha = if (colors.isDark) 0.20f else 0.14f))
-                                .border(0.7.dp, colors.warning.copy(alpha = 0.42f), CircleShape)
+                                .background(champagne.copy(alpha = if (colors.isDark) 0.16f else 0.14f))
+                                .border(0.65.dp, champagne.copy(alpha = 0.38f), CircleShape)
                                 .clickable(onClick = onOpenMedals)
-                                .padding(horizontal = 10.dp, vertical = 3.5.dp),
-                            contentAlignment = Alignment.Center,
+                                .padding(horizontal = 9.dp, vertical = 3.5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
+                            Icon(
+                                imageVector = Icons.Rounded.WorkspacePremium,
+                                contentDescription = null,
+                                tint = champagneInk,
+                                modifier = Modifier.size(12.dp),
+                            )
                             Text(
-                                text = "\uD83C\uDFC5 $earnedCount 枚勋章",
-                                color = colors.warning,
+                                text = "$earnedCount 枚勋章",
+                                color = champagneInk,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                             )
                         }
@@ -1141,7 +1151,17 @@ private fun StatGridCard(
                     Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
                 }
             }
-            NativeAdaptiveBadge(delta, tint = tint)
+            if (delta.endsWith("+0")) {
+                Text(
+                    text = "本月无新增",
+                    color = colors.textMuted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(vertical = 3.dp),
+                )
+            } else {
+                NativeAdaptiveBadge(delta, tint = tint)
+            }
         }
     }
 }

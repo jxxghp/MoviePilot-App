@@ -130,7 +130,7 @@ struct NativeMoreHubPage: View {
   private var visibleSections: [HubSection] {
     var sections: [HubSection] = []
 
-    // 1. 资源与媒体流转
+    // 1. 资源与媒体流转（冷静蓝青同系收束，视觉更像系统工作台而非杂色工具箱）
     var mediaFlowTiles: [HubTile] = []
     if canSearchResources {
       mediaFlowTiles.append(
@@ -139,7 +139,7 @@ struct NativeMoreHubPage: View {
           title: "站点资源",
           subtitle: "多站搜索与精细筛选",
           symbol: "magnifyingglass.circle.fill",
-          tint: .blue
+          tint: NativeTheme.info
         ) { onNavigate(.resources) }
       )
     }
@@ -150,7 +150,7 @@ struct NativeMoreHubPage: View {
           title: "下载管理",
           subtitle: "队列监控与限速控制",
           symbol: "arrow.down.circle.fill",
-          tint: .green
+          tint: NativeTheme.cyan
         ) { onNavigate(.downloads) }
       )
       mediaFlowTiles.append(
@@ -159,7 +159,7 @@ struct NativeMoreHubPage: View {
           title: "文件管理",
           subtitle: "多存储浏览与整理播放",
           symbol: "folder.fill",
-          tint: .orange
+          tint: NativeTheme.info
         ) { onNavigate(.files) }
       )
       mediaFlowTiles.append(
@@ -168,7 +168,7 @@ struct NativeMoreHubPage: View {
           title: "整理历史",
           subtitle: "入库记录与手动重整理",
           symbol: "clock.arrow.circlepath",
-          tint: .indigo
+          tint: NativeTheme.cyan
         ) { onNavigate(.history) }
       )
     }
@@ -192,7 +192,7 @@ struct NativeMoreHubPage: View {
           title: "插件中心",
           subtitle: "已安装管理与插件商店",
           symbol: "puzzlepiece.extension.fill",
-          tint: .cyan
+          tint: NativeTheme.brand
         ) { onNavigate(.pluginMarket) }
       )
     }
@@ -203,7 +203,7 @@ struct NativeMoreHubPage: View {
           title: "工作流",
           subtitle: "自动化流程与节点画布",
           symbol: "flowchart.fill",
-          tint: .purple
+          tint: NativeTheme.brand
         ) { onNavigate(.workflows) }
       )
     }
@@ -218,7 +218,7 @@ struct NativeMoreHubPage: View {
       )
     }
 
-    // 3. 快捷工具与系统诊断（对齐 Android 紧凑横向长方形卡片）
+    // 3. 快捷工具与系统诊断（克制中性与冷青收束，对齐系统诊断工具台）
     var diagTiles: [HubTile] = []
     if snapshot.user.isSuperuser {
       diagTiles.append(
@@ -227,7 +227,7 @@ struct NativeMoreHubPage: View {
           title: "系统检查",
           subtitle: "组件健康与运行状态",
           symbol: "checkmark.shield.fill",
-          tint: .green
+          tint: NativeTheme.success
         ) { onNavigate(.diagnostics(.health)) }
       )
       diagTiles.append(
@@ -236,7 +236,7 @@ struct NativeMoreHubPage: View {
           title: "定时服务",
           subtitle: "后台任务查看与触发",
           symbol: "clock.arrow.2.circlepath",
-          tint: .pink
+          tint: NativeTheme.info
         ) { onNavigate(.diagnostics(.scheduler)) }
       )
       diagTiles.append(
@@ -245,7 +245,7 @@ struct NativeMoreHubPage: View {
           title: "实时日志",
           subtitle: "结构化查看与级别过滤",
           symbol: "terminal.fill",
-          tint: .blue
+          tint: NativeTheme.cyan
         ) { onNavigate(.diagnostics(.liveLog)) }
       )
       diagTiles.append(
@@ -254,7 +254,7 @@ struct NativeMoreHubPage: View {
           title: "词表管理",
           subtitle: "识别词、屏蔽词与规则",
           symbol: "character.book.closed.fill",
-          tint: .teal
+          tint: NativeTheme.brand
         ) { onNavigate(.diagnostics(.words)) }
       )
     }
@@ -265,7 +265,7 @@ struct NativeMoreHubPage: View {
           title: "识别与规则",
           subtitle: "名称识别与规则验证",
           symbol: "text.magnifyingglass",
-          tint: .indigo
+          tint: NativeTheme.info
         ) { onNavigate(.diagnostics(.ruleTest)) }
       )
     }
@@ -276,7 +276,7 @@ struct NativeMoreHubPage: View {
           title: "网络测试",
           subtitle: "自动测速与连通检测",
           symbol: "network",
-          tint: .orange
+          tint: NativeTheme.cyan
         ) { onNavigate(.diagnostics(.nettest)) }
       )
     }
@@ -294,32 +294,32 @@ struct NativeMoreHubPage: View {
     return sections
   }
 
-  /// 常规业务分组的透色毛玻璃磁贴卡片：彩色圆角矩形图标徽章 + 加粗标题 + 单行次级摘要。
+  /// 常规业务分组的透色毛玻璃磁贴卡片：克制低噪边、同心圆角图标徽章 + 加粗标题 + 单行次级摘要。
   private func tileButton(_ tile: HubTile) -> some View {
     let isLight = colorScheme == .light
     return Button(action: tile.action) {
-      CinematicPanel(padding: 14) {
+      CinematicPanel(padding: 14, cornerRadius: 20, style: .subtle) {
         VStack(alignment: .leading, spacing: 12) {
           HStack(alignment: .center) {
             ZStack {
-              RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(tile.tint.opacity(isLight ? 0.14 : 0.20))
+              RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(tile.tint.opacity(isLight ? 0.13 : 0.16))
                 .overlay {
-                  RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .strokeBorder(tile.tint.opacity(isLight ? 0.24 : 0.34), lineWidth: 0.7)
+                  RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(tile.tint.opacity(isLight ? 0.22 : 0.26), lineWidth: 0.6)
                 }
               Image(systemName: tile.symbol)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(tile.tint)
             }
-            .frame(width: 36, height: 36)
+            .frame(width: 34, height: 34)
             .accessibilityHidden(true)
 
             Spacer(minLength: 4)
 
             Image(systemName: "chevron.right")
               .font(.caption2.weight(.semibold))
-              .foregroundStyle(.secondary.opacity(0.50))
+              .foregroundStyle(.secondary.opacity(0.45))
               .accessibilityHidden(true)
           }
 
@@ -338,7 +338,7 @@ struct NativeMoreHubPage: View {
         }
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
       }
-      .contentShape(RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous))
+      .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
     .buttonStyle(.plain)
     .accessibilityElement(children: .combine)

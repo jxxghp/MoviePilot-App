@@ -879,18 +879,24 @@ struct NativeV2RootView: View {
         Text(L10n.text(key))
           .font(.body.weight(.semibold))
           .foregroundStyle(
-            disabled ? Color.primary.opacity(0.48) : Color.white
+            disabled ? Color.primary.opacity(0.62) : Color.white
           )
       }
       .frame(maxWidth: .infinity, minHeight: 52)
       .background {
         if disabled {
           Capsule()
-            .fill(appearance.accentColor.opacity(colorScheme == .light ? 0.14 : 0.16))
+            .fill(
+              colorScheme == .light
+                ? Color.black.opacity(0.06)
+                : Color.white.opacity(0.085)
+            )
             .overlay {
               Capsule().strokeBorder(
-                appearance.accentColor.opacity(colorScheme == .light ? 0.24 : 0.28),
-                lineWidth: 0.7)
+                colorScheme == .light
+                  ? Color.black.opacity(0.14)
+                  : Color.white.opacity(0.18),
+                lineWidth: 0.8)
             }
         } else {
           Capsule()

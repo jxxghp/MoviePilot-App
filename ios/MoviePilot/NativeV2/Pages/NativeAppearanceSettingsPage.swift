@@ -31,71 +31,107 @@ struct NativeAppearanceSettingsPage: View {
     .nativeTopNavigationBar()
   }
 
-  /// 顶部实时预览卡片：随主题、背景渐变与前景色调整即时反映最终视觉效果。
+  /// 顶部实时预览卡片：遵循外圆角 24pt / 内边距 12pt / 内卡 12pt 的同心秩序，即时呈现主题色、背景与播放胶囊层次。
   private var livePreviewCard: some View {
     VStack(alignment: .leading, spacing: 10) {
       sectionHeader("实时预览")
       ZStack {
         CinematicAmbientGradient()
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
           HStack(spacing: 10) {
             Image("DiscoverCards")
               .resizable()
               .scaledToFit()
-              .frame(width: 20, height: 20)
+              .frame(width: 18, height: 18)
               .foregroundStyle(.white)
-              .frame(width: 34, height: 34)
+              .frame(width: 32, height: 32)
               .background(
-                appearance.accentColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                appearance.accentColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-              Text("MoviePilot 原生主题")
+              Text("MoviePilot")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
               Text(appearance.summaryText)
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(.primary.opacity(0.68))
             }
             Spacer(minLength: 0)
-            Text("活跃")
+            Text(appearance.accentPreset.title)
               .font(.caption2.weight(.semibold))
               .foregroundStyle(.white)
               .padding(.horizontal, 9)
               .padding(.vertical, 4)
               .background(appearance.accentColor, in: Capsule())
           }
-          HStack(spacing: 8) {
-            Capsule()
-              .fill(appearance.accentColor)
-              .frame(height: 6)
-            Capsule()
-              .fill(.primary.opacity(0.18))
-              .frame(width: 64, height: 6)
+
+          HStack(spacing: 6) {
+            Text("发现")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 4)
+              .background(appearance.accentColor, in: Capsule())
+            Text("订阅")
+              .font(.caption2.weight(.medium))
+              .foregroundStyle(.primary.opacity(0.75))
+              .padding(.horizontal, 10)
+              .padding(.vertical, 4)
+              .background(NativeTheme.chipFill, in: Capsule())
+            Text("媒体库")
+              .font(.caption2.weight(.medium))
+              .foregroundStyle(.primary.opacity(0.75))
+              .padding(.horizontal, 10)
+              .padding(.vertical, 4)
+              .background(NativeTheme.chipFill, in: Capsule())
+            Spacer(minLength: 0)
           }
+
+          GeometryReader { bar in
+            ZStack(alignment: .leading) {
+              Capsule().fill(.primary.opacity(0.16))
+              Capsule()
+                .fill(
+                  LinearGradient(
+                    colors: [appearance.accentColor, appearance.accentColor.opacity(0.72)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                  )
+                )
+                .frame(width: bar.size.width * 0.68)
+            }
+          }
+          .frame(height: 5)
         }
         .padding(14)
         .background {
-          RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(colorScheme == .light ? Color.white.opacity(0.68) : Color.white.opacity(0.08))
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(
+              colorScheme == .light
+                ? Color.white.opacity(0.72)
+                : (appearance.pureBlackDark
+                  ? Color(red: 0.08, green: 0.09, blue: 0.12).opacity(0.92)
+                  : Color.white.opacity(0.065))
+            )
             .overlay {
-              RoundedRectangle(cornerRadius: 18, style: .continuous)
+              RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(
-                  colorScheme == .light ? Color.black.opacity(0.08) : Color.white.opacity(0.18),
-                  lineWidth: 0.7)
+                  colorScheme == .light ? Color.black.opacity(0.08) : Color.white.opacity(0.13),
+                  lineWidth: 0.65)
             }
         }
-        .padding(14)
+        .padding(12)
       }
       .frame(maxWidth: .infinity)
-      .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+      .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
       .overlay {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
+        RoundedRectangle(cornerRadius: 24, style: .continuous)
           .strokeBorder(.primary.opacity(0.14), lineWidth: 0.7)
       }
       .accessibilityIdentifier("native-appearance-preview")
     }
   }
 
-  /// 外观模式分区：深色、浅色与跟随系统。
+  /// 外观模式分区：深色、浅色与跟随系统，以及深色下的 OLED 纯黑开关。
   private var themeModeSection: some View {
     VStack(alignment: .leading, spacing: 10) {
       sectionHeader("外观主题")
@@ -107,7 +143,7 @@ struct NativeAppearanceSettingsPage: View {
               appearance.mode = option
             }
           } label: {
-            CinematicPanel(padding: 12) {
+            CinematicPanel(padding: 12, cornerRadius: 20, style: .subtle) {
               VStack(spacing: 8) {
                 Image(systemName: option.symbol)
                   .font(.title3.weight(.semibold))
@@ -120,7 +156,7 @@ struct NativeAppearanceSettingsPage: View {
             }
             .overlay {
               if selected {
-                RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                   .strokeBorder(appearance.accentColor, lineWidth: 1.8)
               }
             }
@@ -129,10 +165,26 @@ struct NativeAppearanceSettingsPage: View {
           .accessibilityIdentifier("native-appearance-mode-\(option.rawValue)")
         }
       }
+
+      if appearance.mode != .light {
+        CinematicPanel(padding: 14, cornerRadius: 20, style: .subtle) {
+          Toggle(isOn: $appearance.pureBlackDark) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text("OLED 纯黑模式")
+                .font(.subheadline.weight(.medium))
+              Text("深色画布切换纯黑 #000000，极致对比与省电")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+          }
+          .tint(appearance.accentColor)
+          .accessibilityIdentifier("native-appearance-pure-black")
+        }
+      }
     }
   }
 
-  /// 背景过渡颜色分区：6 款预设多段渐变 + 自定义起/中/止三色拾色器。
+  /// 背景过渡颜色分区：6 款预设多段渐变，仅选中「自定义」时平滑展开起/中/止三色拾色器。
   private var backgroundGradientSection: some View {
     VStack(alignment: .leading, spacing: 10) {
       sectionHeader("背景过渡颜色")
@@ -180,43 +232,45 @@ struct NativeAppearanceSettingsPage: View {
         }
       }
 
-      CinematicPanel(padding: 14) {
+      CinematicPanel(padding: 14, cornerRadius: 20, style: .subtle) {
         VStack(spacing: 12) {
-          ColorPicker(
-            "起始过渡色",
-            selection: customBgBinding(
-              get: { appearance.customBackgroundStartColor },
-              setHex: { appearance.customBackgroundStartHex = $0 }
-            ),
-            supportsOpacity: false
-          )
-          .font(.subheadline)
-          Divider().overlay(.primary.opacity(0.10))
-          ColorPicker(
-            "中间过渡色",
-            selection: customBgBinding(
-              get: { appearance.customBackgroundMidColor },
-              setHex: { appearance.customBackgroundMidHex = $0 }
-            ),
-            supportsOpacity: false
-          )
-          .font(.subheadline)
-          Divider().overlay(.primary.opacity(0.10))
-          ColorPicker(
-            "结束过渡色",
-            selection: customBgBinding(
-              get: { appearance.customBackgroundEndColor },
-              setHex: { appearance.customBackgroundEndHex = $0 }
-            ),
-            supportsOpacity: false
-          )
-          .font(.subheadline)
-          Divider().overlay(.primary.opacity(0.10))
+          if appearance.backgroundPreset == .custom {
+            ColorPicker(
+              "起始过渡色",
+              selection: customBgBinding(
+                get: { appearance.customBackgroundStartColor },
+                setHex: { appearance.customBackgroundStartHex = $0 }
+              ),
+              supportsOpacity: false
+            )
+            .font(.subheadline)
+            Divider().overlay(.primary.opacity(0.10))
+            ColorPicker(
+              "中间过渡色",
+              selection: customBgBinding(
+                get: { appearance.customBackgroundMidColor },
+                setHex: { appearance.customBackgroundMidHex = $0 }
+              ),
+              supportsOpacity: false
+            )
+            .font(.subheadline)
+            Divider().overlay(.primary.opacity(0.10))
+            ColorPicker(
+              "结束过渡色",
+              selection: customBgBinding(
+                get: { appearance.customBackgroundEndColor },
+                setHex: { appearance.customBackgroundEndHex = $0 }
+              ),
+              supportsOpacity: false
+            )
+            .font(.subheadline)
+            Divider().overlay(.primary.opacity(0.10))
+          }
           Toggle(isOn: $appearance.animateBackground) {
             VStack(alignment: .leading, spacing: 2) {
               Text("动态流光背景")
                 .font(.subheadline)
-              Text("在当前配色范围内缓慢流动，低电量或减弱动态时自动静止")
+              Text("在当前配色范围内缓慢流动，纯黑模式、低电量或减弱动态时自动静止")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             }

@@ -52,7 +52,7 @@ export class GeneratedDesignTokens {
     { id: 'ocean', titleZh: '深海极光', titleEn: 'Ocean Aurora', darkStops: ['#142947', '#1A3D57', '#1F4757', '#122138'], lightStops: ['#E6F2FC', '#E8F7FA', '#EDF5FC', '#E3F0FA'] },
     { id: 'forest', titleZh: '静谧松林', titleEn: 'Quiet Forest', darkStops: ['#1A3330', '#244238', '#2E4030', '#142629'], lightStops: ['#E8F7F2', '#F0FAF0', '#F2F7ED', '#E6F2F0'] },
     { id: 'amber', titleZh: '暖阳琥珀', titleEn: 'Warm Amber', darkStops: ['#3D2B26', '#52362B', '#472E33', '#292129'], lightStops: ['#FCF2E8', '#FCEDE6', '#FAF0ED', '#F5EDEB'] },
-    { id: 'graphite', titleZh: '极简石墨', titleEn: 'Minimal Graphite', darkStops: ['#21242B', '#2E303B', '#292B36', '#1A1C24'], lightStops: ['#F2F2F7', '#EDF0F5', '#F2F2F5', '#E8EBF2'] },
+    { id: 'graphite', titleZh: '极简石墨', titleEn: 'Minimal Graphite', darkStops: ['#101218', '#181B24', '#151821', '#0C0E14'], lightStops: ['#F2F2F7', '#EDF0F5', '#F2F2F5', '#E8EBF2'] },
     { id: 'custom', titleZh: '自定义', titleEn: 'Custom', darkStops: ['#30334A', '#4A3B57', '#57384A', '#242E40'], lightStops: ['#F0EDFC', '#F5EBF7', '#FAEDF2', '#EBF0FC'] },
   ];
 

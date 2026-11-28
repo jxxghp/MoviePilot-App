@@ -897,40 +897,52 @@ export struct HarmonyMediaDetailPage {
                   .maxLines(this.isShortLandscape() ? 1 : 2)
               }
 
-              Row({ space: 8 }) {
-                Row({ space: 4 }) {
-                  HarmonyEntityLogo({
-                    kind: 'media_source',
-                    value: this.activeMedia().source || 'themoviedb',
-                    logoSize: 14,
-                    cornerRadius: 3
-                  })
-                  Text(this.sourceDisplayLabel(this.activeMedia().source))
-                    .fontSize(11)
-                    .fontWeight(FontWeight.Bold)
-                    .fontColor(Color.White)
-                }
-                .padding({ left: 7, right: 8, top: 3, bottom: 3 })
-                .borderRadius(10)
-                .backgroundColor('#55000000')
+              // 克制影院排版：年份 · 类型 · 数据源纯文字一行，评分与柔和「已入库」独立承托，去杂色彩虹胶囊。
+              Column({ space: 6 }) {
+                Text(
+                  [
+                    this.activeMedia().year,
+                    this.activeMedia().type || '影视',
+                    this.sourceDisplayLabel(this.activeMedia().source)
+                  ].filter((part: string) => part.length > 0).join('  ·  ')
+                )
+                  .fontSize(13)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor('#D8FFFFFF')
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
 
-                NativeAdaptiveBadge({ text: this.activeMedia().type || '影视', tintHex: this.accentHex, filled: true })
-                if (this.activeMedia().year.length > 0) {
-                  NativeAdaptiveBadge({ text: this.activeMedia().year })
-                }
-                if (this.multiRatings.length > 0) {
-                  HarmonyMultiRatingsRow({
-                    badges: this.multiRatings,
-                    forceLightText: true,
-                    compact: this.isShortLandscape()
-                  })
-                } else if (this.activeMedia().vote > 0) {
-                  NativeAdaptiveBadge({ text: `★ ${this.activeMedia().vote.toFixed(1)}`, tintHex: '#FFC845' })
-                }
-                if (this.activeMedia().inLibrary) {
-                  NativeAdaptiveBadge({ text: '已入库', tintHex: '#52C41A', filled: true })
+                Row({ space: 10 }) {
+                  if (this.multiRatings.length > 0) {
+                    HarmonyMultiRatingsRow({
+                      badges: this.multiRatings,
+                      forceLightText: true,
+                      compact: this.isShortLandscape()
+                    })
+                  } else if (this.activeMedia().vote > 0) {
+                    Text(`★ ${this.activeMedia().vote.toFixed(1)}`)
+                      .fontSize(12.5)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#FFCC6B')
+                  }
+                  if (this.activeMedia().inLibrary) {
+                    Row({ space: 4 }) {
+                      SymbolGlyph($r('sys.symbol.checkmark_circle_fill'))
+                        .fontSize(11)
+                        .fontColor(['#5CE08A'])
+                      Text('已入库')
+                        .fontSize(11)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor('#5CE08A')
+                    }
+                    .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+                    .borderRadius(10)
+                    .backgroundColor('#2E34C759')
+                    .border({ width: 0.6, color: '#555CE08A', radius: 10 })
+                  }
                 }
               }
+              .alignItems(HorizontalAlign.Start)
             }
             .width('100%')
             .alignItems(HorizontalAlign.Start)
@@ -1049,45 +1061,40 @@ export struct HarmonyMediaDetailPage {
               showSeasons: this.isTvMedia()
             })
           } else {
-            // 可折叠剧情简介（默认 3 行 + 展开/收起）
-            Column() {
-              CinematicPanel({ panelPadding: 16, cornerRadius: 18 }) {
-                Column({ space: 8 }) {
-                  Row() {
-                    Text('剧情简介')
-                      .fontSize(16)
-                      .fontWeight(FontWeight.Bold)
-                      .fontColor(mpPrimaryText(this.isDark))
-                      .layoutWeight(1)
-                    if ((this.activeMedia().overview || '').length > 68) {
-                      Text(this.overviewExpanded ? '收起 ▴' : '展开 ▾')
-                        .fontSize(12.5)
-                        .fontWeight(FontWeight.Medium)
-                        .fontColor(this.accentHex)
-                        .onClick(() => { this.overviewExpanded = !this.overviewExpanded; })
-                    }
-                  }
-                  .width('100%')
-
-                  Text(this.activeMedia().overview || '暂无剧情简介，可添加自动追剧订阅或检索 4K 高清片源。')
-                    .fontSize(14)
-                    .fontColor(mpSecondaryText(this.isDark))
-                    .lineHeight(22)
-                    .maxLines(this.overviewExpanded ? 99 : 3)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .width('100%')
-                    .onClick(() => {
-                      if ((this.activeMedia().overview || '').length > 68) {
-                        this.overviewExpanded = !this.overviewExpanded;
-                      }
-                    })
+            // 剧情简介去玻璃外框裸排，提升正文呼吸感（默认 4 行 + 主题色展开/收起）
+            Column({ space: 8 }) {
+              Row() {
+                Text('剧情简介')
+                  .fontSize(16)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(mpPrimaryText(this.isDark))
+                  .layoutWeight(1)
+                if ((this.activeMedia().overview || '').length > 68) {
+                  Text(this.overviewExpanded ? '收起' : '展开全部')
+                    .fontSize(12.5)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.accentHex)
+                    .onClick(() => { this.overviewExpanded = !this.overviewExpanded; })
                 }
-                .alignItems(HorizontalAlign.Start)
-                .width('100%')
               }
+              .width('100%')
+
+              Text(this.activeMedia().overview || '暂无剧情简介，可添加自动追剧订阅或检索 4K 高清片源。')
+                .fontSize(14)
+                .fontColor(mpSecondaryText(this.isDark))
+                .lineHeight(22)
+                .maxLines(this.overviewExpanded ? 99 : 4)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+                .onClick(() => {
+                  if ((this.activeMedia().overview || '').length > 68) {
+                    this.overviewExpanded = !this.overviewExpanded;
+                  }
+                })
             }
+            .alignItems(HorizontalAlign.Start)
             .width('100%')
-            .padding({ left: 16, right: 16 })
+            .padding({ left: 18, right: 18, top: 2, bottom: 2 })
 
             // 剧集分季与横滑 16:9 分集卡片
             if (this.seasons.length > 0) {

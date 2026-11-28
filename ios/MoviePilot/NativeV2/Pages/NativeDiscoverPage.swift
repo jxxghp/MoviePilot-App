@@ -661,9 +661,9 @@ struct NativeDiscoverPage: View {
   private func ambientSurface(progress: CGFloat) -> some View {
     ZStack {
       CinematicBackground()
-      if colorScheme == .dark {
-        Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
-          .opacity(max(0, 1 - Double(progress) * 1.15) * 0.55)
+      if colorScheme == .dark && !appearance.pureBlackDark {
+        Color(red: 10 / 255, green: 11 / 255, blue: 18 / 255)
+          .opacity(max(0, 1 - Double(progress) * 1.15) * 0.45)
       }
     }
   }
@@ -688,26 +688,27 @@ struct NativeDiscoverPage: View {
     let fadeBase =
       isLight
       ? NativeTheme.topVeilColor(for: .light, appearance: appearance)
-      : Color(red: 10 / 255, green: 10 / 255, blue: 22 / 255)
+      : (appearance.pureBlackDark
+        ? Color.black : NativeTheme.topVeilColor(for: .dark, appearance: appearance))
     return ZStack(alignment: .bottom) {
       NativeDiscoverHeroBackdropStrip(
         pager: heroPager, items: content.featuredItems, fallbackIndex: selectedFeatureIndex,
         width: width, height: backdropHeight, artwork: artwork
       )
       .blur(radius: blurRadius, opaque: false)
-      // 仅底部多段平滑融底：默认首屏顶部保持 100% 无遮挡，仅在向上滚动后呈现顶部渐变模糊。
+      // 仅底部多段平滑融底：默认首屏顶部保持 100% 无遮挡，中下段适度提前承托确保片名与海报画面层次清晰。
       LinearGradient(
         stops: isLight
           ? [
             .init(color: .clear, location: 0.34),
-            .init(color: fadeBase.opacity(0.56), location: 0.62),
-            .init(color: fadeBase.opacity(0.92), location: 0.82),
+            .init(color: fadeBase.opacity(0.58), location: 0.60),
+            .init(color: fadeBase.opacity(0.92), location: 0.80),
             .init(color: fadeBase, location: 1),
           ]
           : [
-            .init(color: .clear, location: 0.36),
-            .init(color: fadeBase.opacity(0.45), location: 0.64),
-            .init(color: fadeBase.opacity(0.86), location: 0.86),
+            .init(color: .clear, location: 0.34),
+            .init(color: fadeBase.opacity(0.54), location: 0.60),
+            .init(color: fadeBase.opacity(0.90), location: 0.82),
             .init(color: fadeBase, location: 1),
           ], startPoint: .top, endPoint: .bottom
       )
@@ -972,14 +973,29 @@ struct NativeDiscoverPage: View {
                     .aspectRatio(16.0 / 9.0, contentMode: .fill)
                     .frame(width: cardWidth, height: cardWidth * 9.0 / 16.0).clipped()
                   LinearGradient(
-                    colors: [.clear, .black.opacity(0.68)], startPoint: .center, endPoint: .bottom)
+                    colors: [.clear, .black.opacity(0.72)], startPoint: .center, endPoint: .bottom)
                   VStack(alignment: .leading, spacing: 6) {
-                    Text(item.progressLabel)
-                      .font(.caption.weight(.semibold)).foregroundStyle(.white)
+                    HStack(alignment: .bottom, spacing: 8) {
+                      Text(item.progressLabel)
+                        .font(.caption.weight(.semibold)).foregroundStyle(.white)
+                      Spacer(minLength: 4)
+                      Image(systemName: "play.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .offset(x: 0.6)
+                        .frame(width: 24, height: 24)
+                        .background {
+                          Circle()
+                            .fill(.ultraThinMaterial)
+                            .overlay { Circle().fill(Color.black.opacity(0.28)) }
+                            .overlay { Circle().strokeBorder(.white.opacity(0.24), lineWidth: 0.6) }
+                        }
+                        .accessibilityHidden(true)
+                    }
                     GeometryReader { bar in
                       ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.28))
-                        Capsule().fill(.white.opacity(0.92))
+                        Capsule().fill(.white.opacity(0.26))
+                        Capsule().fill(.white.opacity(0.94))
                           .frame(width: bar.size.width * item.normalizedProgress)
                       }
                     }
@@ -1366,9 +1382,9 @@ struct NativeDiscoverPage: View {
     }
     .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
     .padding(.horizontal, 9)
-    .padding(.vertical, 10)
-    .contentShape(.rect(cornerRadius: CinematicStyle.radius))
-    .background { CinematicPanel(padding: 0) { Color.clear } }
+    .padding(.vertical, 9)
+    .contentShape(.rect(cornerRadius: 18))
+    .background { CinematicPanel(padding: 0, cornerRadius: 18, style: .subtle) { Color.clear } }
   }
 
   /// 区块头部遵循 Cinematic 极简层级：左侧粗标题、右侧单个原生箭头并保留 44pt 触控区。

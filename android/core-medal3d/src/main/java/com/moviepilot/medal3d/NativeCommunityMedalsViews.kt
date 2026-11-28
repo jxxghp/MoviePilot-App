@@ -175,14 +175,17 @@ fun NativeCommunityMedalsWidget(
                 fontWeight = FontWeight.Bold,
             )
             if (unseen > 0) {
+                val champagne = Color(0xFFE8C678)
+                val champagneInk = if (colors.isDark) Color(0xFFF5DE9A) else Color(0xFF8C6214)
                 Spacer(Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
-                        .background(Color(0xDBE53935))
-                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                        .background(champagne.copy(alpha = if (colors.isDark) 0.18f else 0.16f))
+                        .border(0.65.dp, champagne.copy(alpha = 0.42f), CircleShape)
+                        .padding(horizontal = 8.dp, vertical = 2.5.dp),
                 ) {
-                    Text("$unseen 枚新勋章", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text("$unseen 枚新解锁", color = champagneInk, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -282,11 +285,11 @@ private fun MedalDashboardTile(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .offset(x = (-2).dp, y = 2.dp)
-                        .size(8.dp)
+                        .offset(x = (-3).dp, y = 3.dp)
+                        .size(6.5.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFFF3B30))
-                        .border(1.dp, Color.White.copy(alpha = 0.85f), CircleShape),
+                        .background(Color(0xFFF0CC7A))
+                        .border(0.8.dp, Color.Black.copy(alpha = 0.35f), CircleShape),
                 )
             } else if (isWorn) {
                 Icon(

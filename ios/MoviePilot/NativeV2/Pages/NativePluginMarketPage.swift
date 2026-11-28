@@ -1263,15 +1263,10 @@ private struct NativePluginCardSurface: View {
     let isInactive = isInstalledContext && !plugin.isRunning
     let accent = Self.pluginAccentColor(from: plugin.pluginColor)
 
-    return CinematicPanel(padding: 0) {
+    return CinematicPanel(padding: 0, cornerRadius: 20, style: .subtle) {
       VStack(alignment: .leading, spacing: 0) {
         VStack(alignment: .leading, spacing: 8) {
           HStack(alignment: .center, spacing: 6) {
-            if isInstalledContext {
-              Circle()
-                .fill(plugin.isRunning ? NativeTheme.success : Color.secondary.opacity(0.4))
-                .frame(width: 7, height: 7)
-            }
             Text(plugin.displayName)
               .font(.headline.weight(.semibold))
               .foregroundStyle(isInactive ? Color.secondary : Color.primary)

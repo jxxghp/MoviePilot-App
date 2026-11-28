@@ -400,7 +400,7 @@ struct NativeDashboardPage: View {
     title: String, count: Int?, added: Int, symbol: String, tint: Color,
     accessibilityIdentifier: String
   ) -> some View {
-    CinematicPanel(padding: 15) {
+    CinematicPanel(padding: 15, cornerRadius: 20, style: .subtle) {
       VStack(alignment: .leading, spacing: 10) {
         HStack(alignment: .top) {
           VStack(alignment: .leading, spacing: 3) {
@@ -419,11 +419,18 @@ struct NativeDashboardPage: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(tint)
             .frame(width: 32, height: 32)
-            .background(tint.opacity(0.15), in: Circle())
+            .background(tint.opacity(0.14), in: Circle())
             .accessibilityHidden(true)
         }
         Spacer(minLength: 0)
-        NativeAdaptiveBadge("本月 +\(added.formatted(.number))", tint: tint)
+        if added > 0 {
+          NativeAdaptiveBadge("本月 +\(added.formatted(.number))", tint: tint)
+        } else {
+          Text("本月无新增")
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary.opacity(0.68))
+            .padding(.vertical, 3)
+        }
       }
       .frame(maxWidth: .infinity, minHeight: 106, alignment: .leading)
     }
@@ -2278,6 +2285,26 @@ struct NativeDashboardUserProfileCard: View {
   }
 
   private var medalBadge: some View {
-    NativeAdaptiveBadge("🏅 \(earnedMedalCount) 枚勋章", tint: NativeTheme.pink)
+    let champagne = Color(red: 0.90, green: 0.76, blue: 0.44)
+    let ink =
+      colorScheme == .light
+      ? Color(red: 0.62, green: 0.44, blue: 0.12)
+      : Color(red: 0.96, green: 0.85, blue: 0.56)
+    return HStack(spacing: 4) {
+      Image(systemName: "rosette")
+        .font(.system(size: 10, weight: .semibold))
+      Text("\(earnedMedalCount) 枚勋章")
+        .font(.caption2.monospacedDigit().weight(.semibold))
+    }
+    .foregroundStyle(ink)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 3)
+    .background {
+      Capsule()
+        .fill(champagne.opacity(colorScheme == .light ? 0.14 : 0.16))
+        .overlay {
+          Capsule().strokeBorder(champagne.opacity(0.36), lineWidth: 0.6)
+        }
+    }
   }
 }

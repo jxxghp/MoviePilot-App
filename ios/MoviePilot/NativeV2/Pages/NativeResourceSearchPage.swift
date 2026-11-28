@@ -353,7 +353,7 @@ struct NativeResourceSearchPage: View {
           .foregroundStyle(.secondary)
           .padding(.leading, 6)
         TextField(
-          canBrowseSingleSite ? "输入关键词，留空可浏览所选站点" : "输入关键词搜索（单选站点可浏览）",
+          canBrowseSingleSite ? "关键词搜索或直接浏览" : "搜索资源关键词",
           text: $keyword
         )
         .textInputAutocapitalization(.never)
@@ -444,22 +444,22 @@ struct NativeResourceSearchPage: View {
           .foregroundStyle(
             hasKeyword
               ? Color.white
-              : (canBrowseSingleSite ? Color.primary : Color.secondary.opacity(0.65))
+              : (canBrowseSingleSite ? Color.primary : Color.primary.opacity(0.45))
           )
           .padding(.horizontal, 12)
-          .frame(minWidth: 50, minHeight: 32)
+          .frame(minWidth: 48, minHeight: 32)
           .background {
             Capsule()
               .fill(
                 hasKeyword
                   ? appearance.accentColor
-                  : NativeTheme.chipFill.opacity(canBrowseSingleSite ? 1.0 : 0.45)
+                  : (canBrowseSingleSite ? NativeTheme.chipFill : Color.clear)
               )
               .overlay {
                 if !hasKeyword {
                   Capsule().strokeBorder(
-                    NativeTheme.chipBorder.opacity(canBrowseSingleSite ? 1.0 : 0.45),
-                    lineWidth: 0.6)
+                    NativeTheme.chipBorder.opacity(canBrowseSingleSite ? 1.0 : 0.72),
+                    lineWidth: 0.7)
                 }
               }
           }
@@ -469,7 +469,6 @@ struct NativeResourceSearchPage: View {
         .padding(.trailing, 4)
         .buttonStyle(.plain)
         .disabled(isLoading || !canSubmit)
-        .opacity(canSubmit || isLoading ? 1.0 : 0.65)
         .accessibilityLabel(hasKeyword ? "搜索资源" : "浏览站点资源")
         .accessibilityIdentifier("native-resource-search-submit")
       }
@@ -663,7 +662,7 @@ struct NativeResourceSearchPage: View {
     return Button {
       selectedForDownload = item
     } label: {
-      CinematicPanel(padding: 13) {
+      CinematicPanel(padding: 13, cornerRadius: 20, style: .subtle) {
         VStack(alignment: .leading, spacing: 8) {
           if let mediaHeading, !mediaHeading.isEmpty {
             HStack(spacing: 8) {
@@ -692,38 +691,39 @@ struct NativeResourceSearchPage: View {
               }
               Spacer(minLength: 4)
               if let typeLabel = item.recognizedMediaType, !typeLabel.isEmpty {
-                NativeAdaptiveBadge(typeLabel, tint: NativeTheme.brand)
+                Text(typeLabel)
+                  .font(.caption2.weight(.medium))
+                  .foregroundStyle(.secondary)
               }
             }
             Divider().overlay(NativeTheme.divider)
           }
-          ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-              if let siteName = resolvedSiteName(for: item) {
-                NativeAdaptiveBadge(siteName, tint: appearance.accentColor, filled: true)
-              }
-              if let promo = item.promoBadge {
-                NativeAdaptiveBadge(promo, tint: NativeTheme.success)
-              }
-              if item.torrent.hitAndRun == true {
-                NativeAdaptiveBadge("H&R", tint: NativeTheme.danger)
-              }
-              if !item.pixBadge.isEmpty {
-                NativeAdaptiveBadge(item.pixBadge, tint: NativeTheme.info)
-              }
-              if let edition = item.meta?.edition, !edition.isEmpty {
-                NativeAdaptiveBadge(edition)
-              }
-              if let codec = item.meta?.videoEncode, !codec.isEmpty {
-                NativeAdaptiveBadge(codec)
-              }
-              if let seasonEp = item.meta?.seasonEpisode, !seasonEp.isEmpty {
-                NativeAdaptiveBadge(seasonEp, tint: NativeTheme.brand)
-              }
-              if item.hasChineseSubtitle {
-                NativeAdaptiveBadge("中字", tint: NativeTheme.warning)
-              }
+          // 色彩降噪：仅「站点名」「促销」「H&R」保留语义色胶囊，分辨率/来源/编码/季集/中字收束为清晰等宽规格条。
+          HStack(spacing: 6) {
+            if let siteName = resolvedSiteName(for: item) {
+              NativeAdaptiveBadge(siteName, tint: appearance.accentColor, filled: true)
             }
+            if let promo = item.promoBadge {
+              NativeAdaptiveBadge(promo, tint: NativeTheme.success)
+            }
+            if item.torrent.hitAndRun == true {
+              NativeAdaptiveBadge("H&R", tint: NativeTheme.danger)
+            }
+            let specParts: [String] = [
+              item.pixBadge.isEmpty ? nil : item.pixBadge,
+              item.meta?.edition?.isEmpty == false ? item.meta?.edition : nil,
+              item.meta?.videoEncode?.isEmpty == false ? item.meta?.videoEncode : nil,
+              item.meta?.seasonEpisode?.isEmpty == false ? item.meta?.seasonEpisode : nil,
+              item.hasChineseSubtitle ? "中字" : nil,
+            ].compactMap { $0 }
+            if !specParts.isEmpty {
+              Text(specParts.joined(separator: " · "))
+                .font(.caption2.monospaced().weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            }
+            Spacer(minLength: 0)
           }
           Text(item.torrent.title ?? "未命名种子")
             .font(.subheadline.weight(.semibold))

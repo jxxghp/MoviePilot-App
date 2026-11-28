@@ -2240,18 +2240,15 @@ export struct HarmonySubscriptionsPage {
                           Blank()
 
                           Button({ type: ButtonType.Circle }) {
-                            SymbolGlyph($r('sys.symbol.trash'))
-                              .fontSize(15)
-                              .fontColor(['#E84855'])
+                            SymbolGlyph($r('sys.symbol.dot_grid_1x2'))
+                              .fontSize(14)
+                              .fontColor([mpSecondaryText(this.isDark)])
                           }
-                          .width(34)
-                          .height(34)
-                          .backgroundColor(HarmonyThemeColors.softDangerBg(this.isDark))
-                          .accessibilityText('删除订阅')
-                          .onClick(() => {
-                            this.confirmDeleteSub = sub;
-                            this.showDeleteConfirm = true;
-                          })
+                          .width(32)
+                          .height(32)
+                          .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                          .accessibilityText('更多订阅操作')
+                          .bindMenu(this.subscribeCardMenuBuilder(sub))
                         }
                         .width('100%')
                         .margin({ top: 4 })

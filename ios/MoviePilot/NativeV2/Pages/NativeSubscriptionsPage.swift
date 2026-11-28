@@ -568,12 +568,12 @@ struct NativeSubscriptionsPage: View {
 
   // MARK: - 单条订阅卡片
 
-  /// 单条订阅高质感透色玻璃卡片：`76×114pt` 2:3 海报（含角标评分）、季号胶囊、语义状态角标、离散胶片刻度与三键内联动作栏。
+  /// 单条订阅高质感轻量玻璃卡片：`76×114pt` 2:3 海报（含角标评分）、季号胶囊、语义状态角标、离散胶片刻度与轻量操作栏。
   private func subscribeCard(_ item: NativeSubscribeItem) -> some View {
     let poster = NativeMediaDetailPage.resolveArtwork(
       item.poster, source: item.mediaSource ?? "themoviedb")
     let isMutating = mutatingID == item.id
-    return CinematicPanel(padding: 13) {
+    return CinematicPanel(padding: 13, cornerRadius: 20, style: .subtle) {
       HStack(alignment: .top, spacing: 13) {
         posterView(poster, vote: item.vote)
 
@@ -695,7 +695,7 @@ struct NativeSubscriptionsPage: View {
     .accessibilityIdentifier("native-subscribe-card-\(item.id)")
   }
 
-  /// 订阅卡片底部统一 34pt 胶囊操作按钮。
+  /// 订阅卡片底部轻量无厚边框操作按钮：降低列表重复描边噪音，保留清晰点击态与 32pt 易触区。
   private func cardActionButton(
     title: String,
     symbol: String,
@@ -714,18 +714,19 @@ struct NativeSubscriptionsPage: View {
             .font(.caption2.weight(.semibold))
         }
         Text(title)
-          .font(.caption.weight(.semibold))
+          .font(.caption.weight(.medium))
           .lineLimit(1)
       }
-      .foregroundStyle(.primary.opacity(0.92))
-      .padding(.horizontal, 10)
-      .frame(minHeight: 34)
+      .foregroundStyle(.primary.opacity(0.84))
+      .padding(.horizontal, 9)
+      .frame(minHeight: 32)
       .background {
         Capsule()
-          .fill(NativeTheme.chipFill)
-          .overlay {
-            Capsule().strokeBorder(NativeTheme.chipBorder, lineWidth: 0.65)
-          }
+          .fill(
+            colorScheme == .light
+              ? Color.black.opacity(0.045)
+              : Color.white.opacity(0.065)
+          )
       }
       .contentShape(Capsule())
     }

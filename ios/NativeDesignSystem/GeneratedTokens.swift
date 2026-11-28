@@ -55,10 +55,10 @@ enum GeneratedDesignTokens {
       Color(red: 0.9608, green: 0.9294, blue: 0.9216),
     ]
     static let graphiteDark: [Color] = [
-      Color(red: 0.1294, green: 0.1412, blue: 0.1686),
-      Color(red: 0.1804, green: 0.1882, blue: 0.2314),
-      Color(red: 0.1608, green: 0.1686, blue: 0.2118),
-      Color(red: 0.1020, green: 0.1098, blue: 0.1412),
+      Color(red: 0.0627, green: 0.0706, blue: 0.0941),
+      Color(red: 0.0941, green: 0.1059, blue: 0.1412),
+      Color(red: 0.0824, green: 0.0941, blue: 0.1294),
+      Color(red: 0.0471, green: 0.0549, blue: 0.0784),
     ]
     static let graphiteLight: [Color] = [
       Color(red: 0.9490, green: 0.9490, blue: 0.9686),

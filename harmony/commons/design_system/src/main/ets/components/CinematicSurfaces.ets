@@ -24,22 +24,22 @@ export interface MoreToolItem {
 }
 
 export const MORE_TOOL_ITEMS: MoreToolItem[] = [
-  // 0. 资源与媒体流转
+  // 0. 资源与媒体流转（冷静蓝青色系收束）
   { id: 'resources', title: '站点资源', subtitle: '多站搜索与精细筛选', symbolName: 'sys.symbol.magnifyingglass', tintHex: '#317AF7', group: 0 },
-  { id: 'downloads', title: '下载管理', subtitle: '实时速率与任务控制', symbolName: 'sys.symbol.arrow_down_circle', tintHex: '#34C759', group: 0 },
-  { id: 'files', title: '文件管理', subtitle: '多存储浏览与整理播放', symbolName: 'sys.symbol.folder', tintHex: '#F29B38', group: 0 },
+  { id: 'downloads', title: '下载管理', subtitle: '实时速率与任务控制', symbolName: 'sys.symbol.arrow_down_circle', tintHex: '#38B2AC', group: 0 },
+  { id: 'files', title: '文件管理', subtitle: '多存储浏览与整理播放', symbolName: 'sys.symbol.folder', tintHex: '#5AC8FA', group: 0 },
   { id: 'history', title: '整理历史', subtitle: '入库记录与手动重整理', symbolName: 'sys.symbol.clock', tintHex: '#64A2FF', group: 0 },
-  { id: 'media_library', title: '媒体库', subtitle: 'Emby / Jellyfin / Plex', symbolName: 'sys.symbol.film', tintHex: '#5AC8FA', group: 0 },
-  // 1. 插件与工作流
-  { id: 'plugins', title: '插件中心', subtitle: '已安装与市场扩展', symbolName: 'sys.symbol.puzzle', tintHex: '#26B8A8', group: 1 },
-  { id: 'workflows', title: '工作流', subtitle: '自动化流程与节点画布', symbolName: 'sys.symbol.share', tintHex: '#8E7BFF', group: 1 },
-  // 2. 快捷工具与系统诊断
+  { id: 'media_library', title: '媒体库', subtitle: 'Emby / Jellyfin / Plex', symbolName: 'sys.symbol.film', tintHex: '#47A3FA', group: 0 },
+  // 1. 插件与工作流（品牌紫青收束）
+  { id: 'plugins', title: '插件中心', subtitle: '已安装与市场扩展', symbolName: 'sys.symbol.puzzle', tintHex: '#8E7BFF', group: 1 },
+  { id: 'workflows', title: '工作流', subtitle: '自动化流程与节点画布', symbolName: 'sys.symbol.share', tintHex: '#7A68F0', group: 1 },
+  // 2. 快捷工具与系统诊断（清爽克制系统诊断色系）
   { id: 'diag_check', title: '系统检查', subtitle: '核心状态自检', symbolName: 'sys.symbol.checkmark_shield', tintHex: '#34C759', group: 2 },
-  { id: 'diag_schedulers', title: '定时服务', subtitle: '查看与手动触发', symbolName: 'sys.symbol.clock', tintHex: '#EE6896', group: 2 },
+  { id: 'diag_schedulers', title: '定时服务', subtitle: '查看与手动触发', symbolName: 'sys.symbol.clock', tintHex: '#64A2FF', group: 2 },
   { id: 'diag_logs', title: '实时日志', subtitle: '服务端日志追踪', symbolName: 'sys.symbol.doc_text', tintHex: '#5AC8FA', group: 2 },
-  { id: 'diag_words', title: '词表管理', subtitle: '识别与过滤规则', symbolName: 'sys.symbol.bookmark', tintHex: '#26B8A8', group: 2 },
+  { id: 'diag_words', title: '词表管理', subtitle: '识别与过滤规则', symbolName: 'sys.symbol.bookmark', tintHex: '#8E7BFF', group: 2 },
   { id: 'diag_recognize', title: '名称识别', subtitle: '种子标题在线测试', symbolName: 'sys.symbol.magnifyingglass', tintHex: '#64A2FF', group: 2 },
-  { id: 'diag_network', title: '网络测试', subtitle: '连通与延迟检测', symbolName: 'sys.symbol.worldclock', tintHex: '#F29B38', group: 2 }
+  { id: 'diag_network', title: '网络测试', subtitle: '连通与延迟检测', symbolName: 'sys.symbol.worldclock', tintHex: '#38B2AC', group: 2 }
 ];
 
 export function mpPrimaryText(isDark: boolean): string {
@@ -997,11 +997,54 @@ export struct FloatingAiMascotButton {
   @Prop baseBottom: number = 94;
   @State private dragDx: number = 0;
   @State private dragDy: number = 0;
+  @State private isIdleDocked: boolean = false;
+  @State private isDragging: boolean = false;
+  private idleTimerId: number = -1;
   private dragStartDx: number = 0;
   private dragStartDy: number = 0;
   private mascotSettings: RenderingContextSettings = new RenderingContextSettings(true);
   private mascotCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.mascotSettings);
   onTap: () => void = () => {};
+
+  aboutToAppear(): void {
+    this.scheduleIdleDock();
+  }
+
+  aboutToDisappear(): void {
+    this.clearIdleTimer();
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimerId !== -1) {
+      clearTimeout(this.idleTimerId);
+      this.idleTimerId = -1;
+    }
+  }
+
+  private scheduleIdleDock(): void {
+    this.clearIdleTimer();
+    this.isIdleDocked = false;
+    this.idleTimerId = setTimeout(() => {
+      if (!this.isDragging) {
+        this.isIdleDocked = true;
+      }
+    }, 3200);
+  }
+
+  private effectiveTranslateX(): number {
+    const clamped = this.clampDx(this.dragDx);
+    if (!this.isIdleDocked || this.isDragging) {
+      return clamped;
+    }
+    const railWidth = (this.breakpoint === 'md' || this.breakpoint === 'lg')
+      ? (84 + this.safeLeftVp)
+      : this.safeLeftVp;
+    const availW = Math.max(200, this.windowWidthVp - railWidth - this.safeRightVp);
+    const minDx = Math.min(0, -(availW - 44 - this.baseRight - 10));
+    const midDx = minDx * 0.5;
+    // 贴近最近一侧边缘轻柔缩进，半隐露身不遮挡主画面。
+    return clamped < midDx ? (minDx - 12) : (this.baseRight + 10);
+  }
 
   onViewportChanged(): void {
     this.dragDx = this.clampDx(this.dragDx);
@@ -1152,22 +1195,41 @@ export struct FloatingAiMascotButton {
       bottom: this.effectiveBottomVp()
     })
     .translate({
-      x: this.clampDx(this.dragDx),
+      x: this.effectiveTranslateX(),
       y: this.clampDy(this.dragDy)
     })
+    .scale({
+      x: this.isDragging ? 1.06 : (this.isIdleDocked ? 0.90 : 1.0),
+      y: this.isDragging ? 1.06 : (this.isIdleDocked ? 0.90 : 1.0)
+    })
+    .opacity(this.isDragging ? 1.0 : (this.isIdleDocked ? 0.50 : 0.94))
     .animation({ duration: HarmonyMotionTokens.DURATION_LOCAL, curve: HarmonyMotionTokens.CURVE_STANDARD })
     .hoverEffect(HoverEffect.Scale)
     .accessibilityText('打开 MoviePilot 智能助手（支持按住自由拖拽）')
-    .onClick(() => this.onTap())
+    .onClick(() => {
+      this.scheduleIdleDock();
+      this.onTap();
+    })
     .gesture(
       PanGesture({ distance: 4 })
         .onActionStart(() => {
+          this.clearIdleTimer();
+          this.isDragging = true;
+          this.isIdleDocked = false;
           this.dragStartDx = this.clampDx(this.dragDx);
           this.dragStartDy = this.clampDy(this.dragDy);
         })
         .onActionUpdate((ev: GestureEvent) => {
           this.dragDx = this.clampDx(this.dragStartDx + ev.offsetX);
           this.dragDy = this.clampDy(this.dragStartDy + ev.offsetY);
+        })
+        .onActionEnd(() => {
+          this.isDragging = false;
+          this.scheduleIdleDock();
+        })
+        .onActionCancel(() => {
+          this.isDragging = false;
+          this.scheduleIdleDock();
         })
     )
   }

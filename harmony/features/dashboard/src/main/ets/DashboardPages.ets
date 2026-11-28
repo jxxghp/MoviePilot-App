@@ -269,9 +269,14 @@ export struct HarmonyDashboardPage {
 
   private monthlyBadgeText(delta: number | undefined, fallback: string): string {
     if (delta !== undefined && delta > 0) {
-      return `本月 +${delta}`;
+      return `本月 +${this.formatCount(delta)}`;
     }
     return fallback;
+  }
+
+  private formatCount(value: number | undefined): string {
+    const num = Math.max(0, Math.round(value ?? 0));
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
   private isMedalShortLandscape(): boolean {
@@ -355,10 +360,18 @@ export struct HarmonyDashboardPage {
               tintHex: this.userLevel >= 2 ? '#34C759' : '#F29B38'
             })
             if (this.community.earnedCount > 0) {
-              NativeAdaptiveBadge({
-                text: '🏅 ' + this.community.earnedCount + ' 枚勋章',
-                tintHex: '#F2B830'
-              })
+              Row({ space: 4 }) {
+                SymbolGlyph($r('sys.symbol.star_circle'))
+                  .fontSize(11)
+                  .fontColor(['#E8C678'])
+                Text(`${this.community.earnedCount} 枚勋章`)
+                  .fontSize(11)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor('#E8C678')
+              }
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .borderRadius(10)
+              .backgroundColor(HarmonyAppearanceStore.withAlpha('#E8C678', this.isDark ? '24' : '16'))
             }
           }
 
@@ -705,7 +718,7 @@ export struct HarmonyDashboardPage {
             CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
               Column({ space: 6 }) {
                 Row() {
-                  Text(`${this.stats.movieCount}`).fontSize(26).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Text(this.formatCount(this.stats.movieCount)).fontSize(26).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
                   Stack({ alignContent: Alignment.Center }) {
                     SymbolGlyph($r('sys.symbol.film')).fontSize(16).fontColor(['#F29B38'])
                   }
@@ -721,7 +734,7 @@ export struct HarmonyDashboardPage {
             CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
               Column({ space: 6 }) {
                 Row() {
-                  Text(`${this.stats.tvCount}`).fontSize(26).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Text(this.formatCount(this.stats.tvCount)).fontSize(26).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
                   Stack({ alignContent: Alignment.Center }) {
                     SymbolGlyph($r('sys.symbol.play_circle_fill')).fontSize(16).fontColor([this.accentHex])
                   }
@@ -737,7 +750,7 @@ export struct HarmonyDashboardPage {
             CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
               Column({ space: 6 }) {
                 Row() {
-                  Text(`${this.stats.episodeCount}`).fontSize(26).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Text(this.formatCount(this.stats.episodeCount)).fontSize(26).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
                   Stack({ alignContent: Alignment.Center }) {
                     SymbolGlyph($r('sys.symbol.bookmark')).fontSize(16).fontColor(['#26B8A8'])
                   }
@@ -753,7 +766,7 @@ export struct HarmonyDashboardPage {
             CinematicPanel({ panelPadding: 15, cornerRadius: 18 }) {
               Column({ space: 6 }) {
                 Row() {
-                  Text(`${this.stats.musicCount ?? 0}`).fontSize(26).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Text(this.formatCount(this.stats.musicCount)).fontSize(26).fontWeight(FontWeight.Bold).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
                   Stack({ alignContent: Alignment.Center }) {
                     SymbolGlyph($r('sys.symbol.music_fill')).fontSize(16).fontColor(['#EE6896'])
                   }
@@ -761,7 +774,11 @@ export struct HarmonyDashboardPage {
                   .backgroundColor(HarmonyAppearanceStore.withAlpha('#EE6896', this.isDark ? '26' : '18'))
                 }.width('100%')
                 Text('音乐').fontSize(12).fontColor(mpSecondaryText(this.isDark))
-                NativeAdaptiveBadge({ text: this.monthlyBadgeText(this.stats.musicMonthly, '音乐库'), tintHex: '#EE6896' })
+                if ((this.stats.musicCount ?? 0) > 0 || (this.stats.musicMonthly ?? 0) > 0) {
+                  NativeAdaptiveBadge({ text: this.monthlyBadgeText(this.stats.musicMonthly, '音乐库'), tintHex: '#EE6896' })
+                } else {
+                  Text('暂无曲目').fontSize(11).fontColor(mpSecondaryText(this.isDark)).padding({ top: 3, bottom: 3 })
+                }
               }.alignItems(HorizontalAlign.Start)
             }
           }

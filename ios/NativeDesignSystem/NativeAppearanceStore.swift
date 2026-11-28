@@ -147,6 +147,7 @@ final class NativeAppearanceStore: ObservableObject {
     static let textHex = "nativeV2.appearance.textHex"
     static let lightTextHex = "nativeV2.appearance.lightTextHex"
     static let animateBackground = "nativeV2.appearance.animateBackground"
+    static let pureBlackDark = "nativeV2.appearance.pureBlackDark"
   }
 
   private let defaults: UserDefaults
@@ -196,6 +197,11 @@ final class NativeAppearanceStore: ObservableObject {
     didSet { defaults.set(animateBackground, forKey: Keys.animateBackground) }
   }
 
+  /// 是否在深色模式下启用 OLED 纯黑画布（`#000000` 极致对比与省电）。
+  @Published var pureBlackDark: Bool {
+    didSet { defaults.set(pureBlackDark, forKey: Keys.pureBlackDark) }
+  }
+
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
     mode =
@@ -214,6 +220,7 @@ final class NativeAppearanceStore: ObservableObject {
     customLightTextHex = defaults.string(forKey: Keys.lightTextHex) ?? "#1C1A24"
     animateBackground =
       defaults.object(forKey: Keys.animateBackground) as? Bool ?? true
+    pureBlackDark = defaults.bool(forKey: Keys.pureBlackDark)
     // 导航栏默认入口与返回按钮统一采用系统文本色，避免被主题强调色染成彩色。
     let navBar = UINavigationBar.appearance()
     navBar.tintColor = .label
@@ -266,7 +273,10 @@ final class NativeAppearanceStore: ObservableObject {
 
   /// 当前外观概要文案，供设置列表副标题展示。
   var summaryText: String {
-    "\(mode.title) · \(backgroundPreset.title)"
+    if mode != .light && pureBlackDark {
+      return "\(mode.title) · OLED 纯黑"
+    }
+    return "\(mode.title) · \(backgroundPreset.title)"
   }
 
   /// 当前自定义背景起/中/止三色 Color 投影。
@@ -284,6 +294,12 @@ final class NativeAppearanceStore: ObservableObject {
 
   /// 按当前深/浅色环境计算背景多段过渡色点。
   func backgroundStops(for scheme: ColorScheme) -> [Gradient.Stop] {
+    if scheme == .dark && pureBlackDark {
+      return [
+        .init(color: .black, location: 0),
+        .init(color: .black, location: 1),
+      ]
+    }
     if backgroundPreset == .custom {
       return [
         .init(color: customBackgroundStartColor, location: 0),
@@ -302,6 +318,9 @@ final class NativeAppearanceStore: ObservableObject {
 
   /// 返回用于网格流光渐变的 4 节点同源色板，确保动态流动严格限定在用户所选配色内。
   func backgroundPalette(for scheme: ColorScheme) -> [Color] {
+    if scheme == .dark && pureBlackDark {
+      return [.black, .black, .black, .black]
+    }
     if backgroundPreset == .custom {
       return [
         customBackgroundStartColor,
@@ -315,6 +334,9 @@ final class NativeAppearanceStore: ObservableObject {
 
   /// 隐私遮罩与纯色降级底色。
   func solidBackgroundColor(for scheme: ColorScheme) -> Color {
+    if scheme == .dark && pureBlackDark {
+      return .black
+    }
     if backgroundPreset == .custom {
       return customBackgroundStartColor
     }
@@ -335,6 +357,7 @@ final class NativeAppearanceStore: ObservableObject {
     customTextHex = "#F5F2FF"
     customLightTextHex = "#1C1A24"
     animateBackground = true
+    pureBlackDark = false
   }
 
   /// 将十六进制色值解析为 `Color`。

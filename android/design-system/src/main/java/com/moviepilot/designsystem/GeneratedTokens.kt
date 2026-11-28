@@ -57,7 +57,7 @@ object GeneratedDesignTokens {
         BackgroundPresetToken("ocean", "深海极光", "Ocean Aurora", listOf(Color(0xFF142947), Color(0xFF1A3D57), Color(0xFF1F4757), Color(0xFF122138)), listOf(Color(0xFFE6F2FC), Color(0xFFE8F7FA), Color(0xFFEDF5FC), Color(0xFFE3F0FA))),
         BackgroundPresetToken("forest", "静谧松林", "Quiet Forest", listOf(Color(0xFF1A3330), Color(0xFF244238), Color(0xFF2E4030), Color(0xFF142629)), listOf(Color(0xFFE8F7F2), Color(0xFFF0FAF0), Color(0xFFF2F7ED), Color(0xFFE6F2F0))),
         BackgroundPresetToken("amber", "暖阳琥珀", "Warm Amber", listOf(Color(0xFF3D2B26), Color(0xFF52362B), Color(0xFF472E33), Color(0xFF292129)), listOf(Color(0xFFFCF2E8), Color(0xFFFCEDE6), Color(0xFFFAF0ED), Color(0xFFF5EDEB))),
-        BackgroundPresetToken("graphite", "极简石墨", "Minimal Graphite", listOf(Color(0xFF21242B), Color(0xFF2E303B), Color(0xFF292B36), Color(0xFF1A1C24)), listOf(Color(0xFFF2F2F7), Color(0xFFEDF0F5), Color(0xFFF2F2F5), Color(0xFFE8EBF2))),
+        BackgroundPresetToken("graphite", "极简石墨", "Minimal Graphite", listOf(Color(0xFF101218), Color(0xFF181B24), Color(0xFF151821), Color(0xFF0C0E14)), listOf(Color(0xFFF2F2F7), Color(0xFFEDF0F5), Color(0xFFF2F2F5), Color(0xFFE8EBF2))),
         BackgroundPresetToken("custom", "自定义", "Custom", listOf(Color(0xFF30334A), Color(0xFF4A3B57), Color(0xFF57384A), Color(0xFF242E40)), listOf(Color(0xFFF0EDFC), Color(0xFFF5EBF7), Color(0xFFFAEDF2), Color(0xFFEBF0FC))),
     )
 

@@ -501,14 +501,17 @@ struct CinematicAmbientGradient: View {
   @Environment(\.scenePhase) private var scenePhase
   @ObservedObject private var appearance = NativeAppearanceStore.shared
 
-  /// 仅在前台、启用动态背景、未开启减弱动态与非低电量模式下缓慢流动。
+  /// 仅在前台、启用动态背景、未开启减弱动态、非纯黑模式与非低电量模式下缓慢流动。
   private var isPaused: Bool {
     !appearance.animateBackground || reduceMotion || scenePhase != .active
+      || (colorScheme == .dark && appearance.pureBlackDark)
       || ProcessInfo.processInfo.isLowPowerModeEnabled
   }
 
   var body: some View {
-    if isPaused {
+    if colorScheme == .dark && appearance.pureBlackDark {
+      Color.black
+    } else if isPaused {
       // 静态状态不创建动画时钟，避免隐藏的帧调度仍阻止界面进入空闲。
       gradientView(at: 0)
     } else {
@@ -587,6 +590,91 @@ struct CinematicBackground: View {
   }
 }
 
+/// 面板视觉层级：`.glass` 用于主角卡片（身份卡、勋章展柜、总览卡），`.subtle` 用于高密度列表项与工具磁贴以减弱重复线框感。
+enum CinematicPanelStyle: Sendable {
+  case glass
+  case subtle
+}
+
+/// 海报主色提取器：从海报/剧照下半部极速采样并调和为深邃丝绒电影底色，使详情页与发现页融底自然呼应画面情绪。
+@MainActor
+enum NativePosterToneExtractor {
+  private static let cache = NSCache<NSString, UIColor>()
+
+  /// 提取图片下半部的深邃电影融底色（高饱和微调 + 深暗明度），保障前景白色标题对比度始终充裕。
+  static func velvetFadeColor(for image: UIImage, cacheKey: String) -> Color {
+    let nsKey = cacheKey as NSString
+    if let cached = cache.object(forKey: nsKey) {
+      return Color(uiColor: cached)
+    }
+    let extracted = computeVelvetColor(from: image)
+    cache.setObject(extracted, forKey: nsKey)
+    return Color(uiColor: extracted)
+  }
+
+  private static func computeVelvetColor(from image: UIImage) -> UIColor {
+    let fallback = UIColor(red: 14 / 255, green: 16 / 255, blue: 24 / 255, alpha: 1)
+    guard let cgImage = image.cgImage else { return fallback }
+    let width = 8
+    let height = 4
+    let cropY = Int(Double(cgImage.height) * 0.52)
+    let cropHeight = max(cgImage.height - cropY, 1)
+    let cropRect = CGRect(x: 0, y: cropY, width: cgImage.width, height: cropHeight)
+    let sampleSource = cgImage.cropping(to: cropRect) ?? cgImage
+
+    var bytes = [UInt8](repeating: 0, count: width * height * 4)
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard
+      let ctx = CGContext(
+        data: &bytes,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+      )
+    else { return fallback }
+    ctx.interpolationQuality = .low
+    ctx.draw(sampleSource, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+    var totalR: CGFloat = 0
+    var totalG: CGFloat = 0
+    var totalB: CGFloat = 0
+    var totalWeight: CGFloat = 0
+    for idx in 0..<(width * height) {
+      let base = idx * 4
+      let r = CGFloat(bytes[base]) / 255.0
+      let g = CGFloat(bytes[base + 1]) / 255.0
+      let b = CGFloat(bytes[base + 2]) / 255.0
+      let maxC = max(r, max(g, b))
+      let minC = min(r, min(g, b))
+      let sat = maxC > 0.001 ? (maxC - minC) / maxC : 0
+      // 偏向采集有色相倾向的中景像素，避免纯黑或过曝高光主导色调。
+      let weight = 0.35 + sat * 1.15
+      totalR += r * weight
+      totalG += g * weight
+      totalB += b * weight
+      totalWeight += weight
+    }
+    guard totalWeight > 0 else { return fallback }
+    let avgColor = UIColor(
+      red: totalR / totalWeight,
+      green: totalG / totalWeight,
+      blue: totalB / totalWeight,
+      alpha: 1
+    )
+    var h: CGFloat = 0
+    var s: CGFloat = 0
+    var b: CGFloat = 0
+    var a: CGFloat = 1
+    guard avgColor.getHue(&h, saturation: &s, brightness: &b, alpha: &a) else { return fallback }
+    let velvetSat = min(max(s * 0.72, 0.14), 0.46)
+    let velvetBright = min(max(b * 0.24, 0.065), 0.115)
+    return UIColor(hue: h, saturation: velvetSat, brightness: velvetBright, alpha: 1)
+  }
+}
+
 /// Cinematic 透明玻璃分组；在深色下透出渐变底色，在浅色下呈现通透磨砂白玻璃层次。
 @MainActor
 struct CinematicPanel<Content: View>: View {
@@ -595,12 +683,22 @@ struct CinematicPanel<Content: View>: View {
   @Environment(\.colorScheme) private var colorScheme
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   private let padding: CGFloat
+  private let cornerRadius: CGFloat
+  private let style: CinematicPanelStyle
   private let showsShadow: Bool
   private let content: Content
 
-  /// 统一边距和圆角，同时允许表单行使用零内边距或禁用阴影避免在 Form 单元格内被裁切。
-  init(padding: CGFloat = 18, showsShadow: Bool = true, @ViewBuilder content: () -> Content) {
+  /// 统一边距、圆角与视觉层级，同时允许表单行使用零内边距或禁用阴影避免在 Form 单元格内被裁切。
+  init(
+    padding: CGFloat = 18,
+    cornerRadius: CGFloat = CinematicStyle.radius,
+    style: CinematicPanelStyle = .glass,
+    showsShadow: Bool = true,
+    @ViewBuilder content: () -> Content
+  ) {
     self.padding = padding
+    self.cornerRadius = cornerRadius
+    self.style = style
     self.showsShadow = showsShadow
     self.content = content()
   }
@@ -608,17 +706,18 @@ struct CinematicPanel<Content: View>: View {
   /// 降低透明度时换为同色系实底，浅色与深色自动匹配边框高光与投影深度。
   var body: some View {
     let isLight = colorScheme == .light
+    let isSubtle = style == .subtle
     let borderColors: [Color] =
       isLight
       ? [
-        .white.opacity(0.85),
-        .black.opacity(contrast == .increased ? 0.20 : 0.08),
-        appearance.accentColor.opacity(0.18),
+        .white.opacity(isSubtle ? 0.65 : 0.85),
+        .black.opacity(contrast == .increased ? 0.20 : (isSubtle ? 0.055 : 0.08)),
+        appearance.accentColor.opacity(isSubtle ? 0.08 : 0.16),
       ]
       : [
-        .white.opacity(contrast == .increased ? 0.40 : 0.175),
-        .white.opacity(contrast == .increased ? 0.24 : 0.070),
-        .white.opacity(contrast == .increased ? 0.32 : 0.125),
+        .white.opacity(contrast == .increased ? 0.40 : (isSubtle ? 0.085 : 0.145)),
+        .white.opacity(contrast == .increased ? 0.24 : (isSubtle ? 0.032 : 0.055)),
+        .white.opacity(contrast == .increased ? 0.32 : (isSubtle ? 0.055 : 0.095)),
       ]
     content
       .padding(padding)
@@ -629,24 +728,27 @@ struct CinematicPanel<Content: View>: View {
           contrast: contrast,
           colorScheme: colorScheme,
           accentColor: appearance.accentColor,
-          showsShadow: showsShadow
+          pureBlackDark: appearance.pureBlackDark,
+          cornerRadius: cornerRadius,
+          style: style,
+          showsShadow: showsShadow && !isSubtle
         )
       )
       .overlay(
         shape.strokeBorder(
           LinearGradient(colors: borderColors, startPoint: .topLeading, endPoint: .bottomTrailing),
-          lineWidth: contrast == .increased ? 1 : 0.75
+          lineWidth: contrast == .increased ? 1 : (isSubtle ? 0.55 : 0.72)
         ).allowsHitTesting(false)
       )
   }
 
-  /// 相关卡片、表单与状态面板采用相同的连续圆角。
+  /// 相关卡片、表单与状态面板采用连续圆角，并允许按同心规则指定外圆角。
   private var shape: RoundedRectangle {
-    RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous)
+    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
   }
 }
 
-/// 正文以轻系统材质和主题强调色染色透出底色；支持深色暗透玻璃与浅色磨砂白玻璃。
+/// 正文以轻系统材质和主题强调色染色透出底色；支持深色暗透玻璃、OLED 纯黑轻层叠与浅色磨砂白玻璃。
 /// 投影只挂在背景里的单个填充形状上，而不是整张卡片内容上，避免滚动时逐帧离屏合成整棵子树。
 @MainActor
 private struct CinematicPanelSurface: ViewModifier {
@@ -654,20 +756,29 @@ private struct CinematicPanelSurface: ViewModifier {
   let contrast: ColorSchemeContrast
   let colorScheme: ColorScheme
   let accentColor: Color
+  let pureBlackDark: Bool
+  let cornerRadius: CGFloat
+  let style: CinematicPanelStyle
   let showsShadow: Bool
 
   @ViewBuilder
   func body(content: Content) -> some View {
-    let shape = RoundedRectangle(cornerRadius: CinematicStyle.radius, style: .continuous)
+    let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
     let isLight = colorScheme == .light
     let increased = contrast == .increased
+    let isSubtle = style == .subtle
     let shadowRadius: CGFloat = showsShadow ? (isLight ? 8 : 10) : 0
     let shadowY: CGFloat = showsShadow ? (isLight ? 3 : 5) : 0
     if reduceTransparency {
       // 实底卡片本身不透明，投影颜色沿用原值。
       content.background {
         shape
-          .fill(isLight ? Color(red: 0.97, green: 0.97, blue: 0.99) : CinematicStyle.solidSurface)
+          .fill(
+            isLight
+              ? Color(red: 0.97, green: 0.97, blue: 0.99)
+              : (pureBlackDark
+                ? Color(red: 0.08, green: 0.09, blue: 0.12) : CinematicStyle.solidSurface)
+          )
           .shadow(
             color: shadowColor(isLight ? 0.055 : 0.08), radius: shadowRadius, y: shadowY)
       }
@@ -676,27 +787,41 @@ private struct CinematicPanelSurface: ViewModifier {
       // 颜色不透明度按改动前后截图实测校准，使投影深浅与原先整卡投影一致。
       content.background {
         ZStack {
-          shape.fill(.ultraThinMaterial).opacity(increased ? 0.92 : 0.76)
-          shape.fill(Color.white.opacity(increased ? 0.78 : 0.56))
+          shape.fill(.ultraThinMaterial).opacity(increased ? 0.92 : (isSubtle ? 0.64 : 0.76))
+          shape.fill(Color.white.opacity(increased ? 0.78 : (isSubtle ? 0.48 : 0.56)))
             .shadow(
               color: shadowColor(increased ? 0.085 : 0.13), radius: shadowRadius, y: shadowY)
-          shape.fill(
-            LinearGradient(
-              colors: [accentColor.opacity(0.05), .clear, accentColor.opacity(0.03)],
-              startPoint: .topLeading, endPoint: .bottomTrailing))
+          if !isSubtle {
+            shape.fill(
+              LinearGradient(
+                colors: [accentColor.opacity(0.05), .clear, accentColor.opacity(0.03)],
+                startPoint: .topLeading, endPoint: .bottomTrailing))
+          }
         }
+      }
+    } else if pureBlackDark {
+      // OLED 纯黑画布下采用深石墨微浮表面，保持层级清晰且零发灰雾感。
+      content.background {
+        shape.fill(
+          Color(red: 0.075, green: 0.082, blue: 0.105)
+            .opacity(increased ? 0.96 : (isSubtle ? 0.78 : 0.90))
+        )
       }
     } else {
       // 深色采用纯净中性白色镜面玻璃提亮，彻底移除重色颜料染色与浓重黑影，使底层渐变清澈透出并呈现轻盈玻璃边界。
       content.background {
         ZStack {
-          shape.fill(Color.white.opacity(increased ? 0.095 : 0.046))
+          shape.fill(Color.white.opacity(increased ? 0.095 : (isSubtle ? 0.036 : 0.048)))
           shape.fill(
             LinearGradient(
               stops: [
-                .init(color: .white.opacity(increased ? 0.038 : 0.020), location: 0),
+                .init(
+                  color: .white.opacity(increased ? 0.038 : (isSubtle ? 0.012 : 0.022)),
+                  location: 0),
                 .init(color: .white.opacity(0.004), location: 0.48),
-                .init(color: .white.opacity(increased ? 0.020 : 0.010), location: 1),
+                .init(
+                  color: .white.opacity(increased ? 0.020 : (isSubtle ? 0.006 : 0.010)),
+                  location: 1),
               ],
               startPoint: .topLeading,
               endPoint: .bottomTrailing
