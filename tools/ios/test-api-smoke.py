@@ -76,6 +76,7 @@ def main():
         result = scratch / "smoke.xcresult"
         command = ["xcodebuild", "test-without-building", "-xctestrun", str(runs[0]),
                    "-destination", f"platform=iOS Simulator,id={simulator}", "-parallel-testing-enabled", "NO",
+                   "-enableCodeCoverage", "NO",
                    "-test-timeouts-enabled", "YES", "-maximum-test-execution-time-allowance", "360",
                    "-clonedSourcePackagesDirPath", "/Volumes/DISK/Xcode/SourcePackages" if Path("/Volumes/DISK").is_dir() else str(parent / "SourcePackages"),
                    "-resultBundlePath", str(result)]

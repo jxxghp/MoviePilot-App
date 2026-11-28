@@ -10,12 +10,22 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ssot-and-rust:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      - name: Cache Rust workspace
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/core-rust
+          shared-key: rust-linux
+          cache-on-failure: true
       - name: Verify SSOT sync gate
         run: python3 tools/sync-all.py --check
       - name: Run Python tooling and fixture tests
@@ -27,69 +37,126 @@ jobs:
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
 
-  ios:
-    needs: ssot-and-rust
+  ios-build:
     runs-on: macos-26
-    # 冷构建、首次启动和六项交互回归分别占用时间，保留导出失败证据的余量。
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Toolchain
         run: xcodebuild -version
+      - name: Cache Xcode SwiftPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: spm-packages-${{ runner.os }}-${{ hashFiles('ios/MoviePilot.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-packages-${{ runner.os }}-
+      - name: Cache SwiftPM core build
+        uses: actions/cache@v4
+        with:
+          path: ios/.build
+          key: swiftpm-core-${{ runner.os }}-${{ hashFiles('ios/Package.swift', 'ios/Sources/**/*.swift', 'ios/Tests/**/*.swift') }}
+          restore-keys: |
+            swiftpm-core-${{ runner.os }}-
       - name: Swift core tests
         run: zsh tools/ios/test-core.sh
       - name: Swift formatting check
         run: xcrun swift-format lint --strict ios/NativeDesignSystem/GeneratedTokens.swift
-      - name: Build WidgetKit extension
-        run: >-
-          xcodebuild build
-          -project ios/MoviePilot.xcodeproj
-          -scheme MoviePilotWidgets
-          -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath DerivedData
-          CODE_SIGNING_ALLOWED=NO
-      - name: Build iOS simulator app
-        run: >-
-          xcodebuild build-for-testing
-          -project ios/MoviePilot.xcodeproj
-          -scheme MoviePilot
-          -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath DerivedData
-          CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES
-      - name: Run API-only simulator smoke tests
-        timeout-minutes: 30
+      - name: Build iOS simulator app & WidgetKit extension for testing
+        run: |
+          xcodebuild build-for-testing \
+            -project ios/MoviePilot.xcodeproj \
+            -scheme MoviePilot \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath DerivedData \
+            -clonedSourcePackagesDirPath "${{ runner.temp }}/SourcePackages" \
+            -enableCodeCoverage NO \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES
+          test -d DerivedData/Build/Products/Debug-iphonesimulator/MoviePilot.app/PlugIns/MoviePilotWidgets.appex
+      - name: Pack simulator test products
+        run: |
+          tar -C DerivedData/Build -cf "${{ runner.temp }}/ios-sim-products.tar" Products
+          ls -lh "${{ runner.temp }}/ios-sim-products.tar"
+      - name: Upload simulator test products
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-sim-products
+          path: ${{ runner.temp }}/ios-sim-products.tar
+          retention-days: 1
+          compression-level: 1
+
+  ios-smoke:
+    needs: ios-build
+    runs-on: macos-26
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1
+            tests: --only-test testPluginLogSnapshotLoadsRefreshesAndRetries --only-test testUserEditorPreservesUneditedFields
+          - shard: 2
+            tests: --only-test testNativeDiagnosticsAndShortcutsTools --only-test testOTPAndSessionNotRemembered
+          - shard: 3
+            tests: --only-test testNativeBusinessHidesUnpermittedEntries --only-test testNativeAgentChatStreamAndSessionHistory
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download simulator test products
+        uses: actions/download-artifact@v7
+        with:
+          name: ios-sim-products
+          path: ${{ runner.temp }}
+      - name: Extract simulator test products
+        run: |
+          mkdir -p DerivedData/Build
+          tar -C DerivedData/Build -xf "${{ runner.temp }}/ios-sim-products.tar"
+      - name: Run API-only simulator smoke tests (shard ${{ matrix.shard }})
+        timeout-minutes: 15
         run: >-
           python3 tools/ios/test-api-smoke.py
           --derived-data DerivedData
           --output-dir "${{ runner.temp }}/api-smoke-results"
+          ${{ matrix.tests }}
       - name: Upload API smoke failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: ios-api-smoke-results
+          name: ios-api-smoke-results-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/api-smoke-results
 
   android:
-    needs: ssot-and-rust
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/shared/core-rust/target
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Rust Android target & cargo-ndk
-        run: |
-          rustup target add aarch64-linux-android
-          cargo install cargo-ndk --locked
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Cache Rust Android build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/core-rust
+          shared-key: rust-android-arm64
+          cache-on-failure: true
+      - name: Install cargo-ndk (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - name: Add Rust Android target
+        run: rustup target add aarch64-linux-android
       - name: Run Android unit tests and verify Release APK gate
         run: bash tools/android/build-android.sh artifacts
 
   harmony:
-    needs: ssot-and-rust
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/shared/core-rust/target
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
@@ -101,6 +168,19 @@ jobs:
         with:
           version: '26.0.0.821'
           cache: 'true'
+      - name: Cache Rust HarmonyOS build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/core-rust
+          shared-key: rust-harmony
+          cache-on-failure: true
+      - name: Cache ohpm packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.ohpm
+          key: ohpm-${{ runner.os }}-${{ hashFiles('harmony/**/oh-package.json5') }}
+          restore-keys: |
+            ohpm-${{ runner.os }}-
       - name: Install Rust OHOS target & build HarmonyOS HAP gate
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1

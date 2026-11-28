@@ -27,8 +27,11 @@ else
 fi
 trap 'rm -rf "$build_dir"' EXIT
 
-source_packages_dir="${CLONED_SOURCE_PACKAGES_DIR:-/Volumes/DISK/Xcode/SourcePackages}"
-if [[ ! -d "$source_packages_dir" ]]; then
+if [[ -n "${CLONED_SOURCE_PACKAGES_DIR:-}" ]]; then
+  source_packages_dir="$CLONED_SOURCE_PACKAGES_DIR"
+elif [[ -d "/Volumes/DISK/Xcode/SourcePackages" ]]; then
+  source_packages_dir="/Volumes/DISK/Xcode/SourcePackages"
+else
   source_packages_dir="$build_dir/SourcePackages"
 fi
 mkdir -p "$source_packages_dir"

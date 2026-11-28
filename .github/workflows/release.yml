@@ -41,6 +41,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Cache Rust workspace
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/core-rust
+          shared-key: rust-linux
+          cache-on-failure: true
       - id: ver
         shell: bash
         run: |
@@ -97,11 +103,27 @@ jobs:
   build-ios:
     needs: prepare
     runs-on: macos-26
-    timeout-minutes: 35
+    timeout-minutes: 30
+    env:
+      CLONED_SOURCE_PACKAGES_DIR: ${{ runner.temp }}/SourcePackages
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Cache Xcode SwiftPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: spm-packages-${{ runner.os }}-${{ hashFiles('ios/MoviePilot.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-packages-${{ runner.os }}-
+      - name: Cache SwiftPM core build
+        uses: actions/cache@v4
+        with:
+          path: ios/.build
+          key: swiftpm-core-${{ runner.os }}-${{ hashFiles('ios/Package.swift', 'ios/Sources/**/*.swift', 'ios/Tests/**/*.swift') }}
+          restore-keys: |
+            swiftpm-core-${{ runner.os }}-
       - name: Run Swift core tests
         run: zsh tools/ios/test-core.sh
       - name: Build and verify unsigned iOS IPA
@@ -116,7 +138,9 @@ jobs:
   build-android:
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/shared/core-rust/target
     steps:
       - uses: actions/checkout@v7
         with:
@@ -125,13 +149,23 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Rust Android targets & cargo-ndk
-        run: |
-          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-          cargo install cargo-ndk --locked
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Cache Rust Android release build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/core-rust
+          shared-key: rust-android-release
+          cache-on-failure: true
+      - name: Install cargo-ndk (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - name: Add Rust Android targets
+        run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
       - name: Build and verify Android Release APKs (arm64-v8a & universal)
         env:
           BUILD_UNIVERSAL: '1'
+          SKIP_ANDROID_LINT: '1'
           REQUIRE_RELEASE_SIGNING: '1'
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -148,7 +182,9 @@ jobs:
   build-harmony:
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/shared/core-rust/target
     steps:
       - uses: actions/checkout@v7
         with:
@@ -162,6 +198,19 @@ jobs:
         with:
           version: '26.0.0.821'
           cache: 'true'
+      - name: Cache Rust HarmonyOS build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/core-rust
+          shared-key: rust-harmony
+          cache-on-failure: true
+      - name: Cache ohpm packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.ohpm
+          key: ohpm-${{ runner.os }}-${{ hashFiles('harmony/**/oh-package.json5') }}
+          restore-keys: |
+            ohpm-${{ runner.os }}-
       - name: Build and verify HarmonyOS NEXT HAP
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1
