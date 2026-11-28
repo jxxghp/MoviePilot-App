@@ -140,7 +140,12 @@ export struct HarmonySubscriptionsPage {
   @State private edQuality: string = '';
   @State private edResolution: string = '';
   @State private edEffect: string = '';
+  @State private edAudioQuality: string = '';
+  @State private edAudioFormat: string = '';
   @State private edBestVersion: boolean = false;
+  @State private edBestVersionFull: boolean = false;
+  @State private edKeyword: string = '';
+  @State private edMediaCategory: string = '';
   @State private edSeason: string = '';
   @State private edTotalEp: string = '';
   @State private edStartEp: string = '';
@@ -603,8 +608,13 @@ export struct HarmonySubscriptionsPage {
     this.edQuality = MoviePilotRepository.normalizeSubscribeFilterOption('quality', sub.quality || '');
     this.edResolution = MoviePilotRepository.normalizeSubscribeFilterOption('resolution', sub.resolution || '');
     this.edEffect = MoviePilotRepository.normalizeSubscribeFilterOption('effect', sub.effect || '');
+    this.edAudioQuality = sub.audioQuality || '';
+    this.edAudioFormat = sub.audioFormat || '';
     this.edBestVersion = Boolean(sub.bestVersion);
-    this.edSeason = sub.season > 0 ? String(sub.season) : '';
+    this.edBestVersionFull = Boolean(sub.bestVersion && sub.bestVersionFull);
+    this.edKeyword = sub.keyword || '';
+    this.edMediaCategory = sub.mediaCategory || '';
+    this.edSeason = sub.season >= 0 ? String(sub.season) : '';
     this.edTotalEp = sub.totalEpisode > 0 ? String(sub.totalEpisode) : '';
     this.edStartEp = (sub.startEpisode ?? 0) > 0 ? String(sub.startEpisode) : '';
     this.edEpGroup = sub.episodeGroup || '';
@@ -640,13 +650,14 @@ export struct HarmonySubscriptionsPage {
     if (!this.editingSub || this.savingEditor) { return; }
     this.savingEditor = true;
     const base = this.editingSub;
+    const parsedSeason = this.edSeason.trim().length > 0 ? Number(this.edSeason.trim()) : base.season;
     const updated: MpSubscribeItem = {
       id: base.id,
       name: base.name,
       year: base.year,
       type: base.type,
-      season: Number(this.edSeason) || base.season,
-      totalEpisode: Number(this.edTotalEp) || base.totalEpisode,
+      season: Number.isFinite(parsedSeason) ? parsedSeason : base.season,
+      totalEpisode: Number(this.edTotalEp.trim()) || 0,
       lackEpisode: base.lackEpisode,
       state: base.state,
       posterUrl: base.posterUrl,
@@ -657,8 +668,16 @@ export struct HarmonySubscriptionsPage {
       quality: this.edQuality,
       resolution: this.edResolution,
       effect: this.edEffect,
+      audioQuality: this.edAudioQuality,
+      audioFormat: this.edAudioFormat,
+      minBitrate: base.minBitrate,
+      minBitDepth: base.minBitDepth,
+      minSampleRate: base.minSampleRate,
       bestVersion: this.edBestVersion,
-      startEpisode: Number(this.edStartEp) || 0,
+      bestVersionFull: this.edBestVersion && this.edBestVersionFull,
+      keyword: this.edKeyword.trim(),
+      mediaCategory: this.edMediaCategory.trim(),
+      startEpisode: Number(this.edStartEp.trim()) || 0,
       episodeGroup: this.edEpGroup.trim(),
       downloader: this.edDownloader,
       sites: this.edSites,
@@ -794,90 +813,21 @@ export struct HarmonySubscriptionsPage {
             })
           }
 
-          // 1. 画质与洗版
-          Text('画质与洗版').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          // 0. 搜索与集数范围（置顶对齐 Web 基础页）
+          Text(this.editingSub?.type === '电视剧' ? '搜索与集数范围' : '搜索关键词')
+            .fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
           CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
-            Column({ space: 12 }) {
-              Text('质量').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-              Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
-                ForEach(QUALITY_OPTIONS, (q: SubscribeFilterOption) => {
-                  NativeAdaptivePill({
-                    title: q.label,
-                    selected: this.edQuality === q.value,
-                    onTap: () => { this.edQuality = q.value; }
-                  })
-                }, (q: SubscribeFilterOption) => `q_${q.value}`)
-                if (this.edQuality.length > 0 && !hasPresetOption(QUALITY_OPTIONS, this.edQuality)) {
-                  NativeAdaptivePill({
-                    title: `自定义 (${this.edQuality})`,
-                    selected: true,
-                    onTap: () => {}
-                  })
-                }
-              }
+            Column({ space: 10 }) {
+              Text('搜索关键词').fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+              TextInput({ placeholder: '默认使用片名', text: this.edKeyword })
+                .fontColor(mpPrimaryText(this.isDark))
+                .placeholderColor(mpSecondaryText(this.isDark))
+                .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                .borderRadius(10)
+                .onChange((v: string) => { this.edKeyword = v; })
 
-              Text('分辨率').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-              Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
-                ForEach(RESOLUTION_OPTIONS, (r: SubscribeFilterOption) => {
-                  NativeAdaptivePill({
-                    title: r.label,
-                    selected: this.edResolution === r.value,
-                    onTap: () => { this.edResolution = r.value; }
-                  })
-                }, (r: SubscribeFilterOption) => `r_${r.value}`)
-                if (this.edResolution.length > 0 && !hasPresetOption(RESOLUTION_OPTIONS, this.edResolution)) {
-                  NativeAdaptivePill({
-                    title: `自定义 (${this.edResolution})`,
-                    selected: true,
-                    onTap: () => {}
-                  })
-                }
-              }
-
-              Text('特效').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-              Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
-                ForEach(EFFECT_OPTIONS, (e: SubscribeFilterOption) => {
-                  NativeAdaptivePill({
-                    title: e.label,
-                    selected: this.edEffect === e.value,
-                    onTap: () => { this.edEffect = e.value; }
-                  })
-                }, (e: SubscribeFilterOption) => `e_${e.value}`)
-                if (this.edEffect.length > 0 && !hasPresetOption(EFFECT_OPTIONS, this.edEffect)) {
-                  NativeAdaptivePill({
-                    title: `自定义 (${this.edEffect})`,
-                    selected: true,
-                    onTap: () => {}
-                  })
-                }
-              }
-
-              Divider().color(HarmonyThemeColors.divider(this.isDark))
-              Row() {
-                Text('自动洗版').fontSize(14).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
-                Toggle({ type: ToggleType.Switch, isOn: this.edBestVersion })
-                  .selectedColor(this.accentHex)
-                  .onChange((v: boolean) => { this.edBestVersion = v; })
-              }.width('100%')
-            }
-          }
-
-          // 2. 剧集设置（电视剧专属）
-          if (this.editingSub && this.editingSub.type === '电视剧') {
-            Text('剧集设置').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
-            CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
-              Column({ space: 10 }) {
+              if (this.editingSub && this.editingSub.type === '电视剧') {
                 Row({ space: 8 }) {
-                  Column({ space: 4 }) {
-                    Text('季数').fontSize(12).fontColor(mpSecondaryText(this.isDark))
-                    TextInput({ placeholder: '1', text: this.edSeason })
-                      .type(InputType.Number)
-                      .fontColor(mpPrimaryText(this.isDark))
-                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
-                      .borderRadius(10)
-                      .onChange((v: string) => { this.edSeason = v; })
-                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-
                   Column({ space: 4 }) {
                     Text('总集数').fontSize(12).fontColor(mpSecondaryText(this.isDark))
                     TextInput({ placeholder: '自动', text: this.edTotalEp })
@@ -897,15 +847,125 @@ export struct HarmonySubscriptionsPage {
                       .borderRadius(10)
                       .onChange((v: string) => { this.edStartEp = v; })
                   }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+
+                  Column({ space: 4 }) {
+                    Text('指定季').fontSize(12).fontColor(mpSecondaryText(this.isDark))
+                    TextInput({ placeholder: '0~100', text: this.edSeason })
+                      .type(InputType.Number)
+                      .fontColor(mpPrimaryText(this.isDark))
+                      .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
+                      .borderRadius(10)
+                      .onChange((v: string) => { this.edSeason = v; })
+                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                 }.width('100%')
 
-                Text('剧集组（可选）').fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                Text('指定剧集组（可选）').fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
                 TextInput({ placeholder: '留空使用默认剧集分组', text: this.edEpGroup })
                   .fontColor(mpPrimaryText(this.isDark))
                   .placeholderColor(mpSecondaryText(this.isDark))
                   .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
                   .borderRadius(10)
                   .onChange((v: string) => { this.edEpGroup = v; })
+              }
+            }
+          }
+
+          // 1. 画质与洗版 / 音质与洗版
+          Text(this.editingSub?.type === '音乐' ? '音质与洗版' : '画质与洗版')
+            .fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
+            Column({ space: 12 }) {
+              if (this.editingSub?.type === '音乐') {
+                Text('音质等级').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+                  ForEach([
+                    { value: '', label: '全部' } as SubscribeFilterOption,
+                    { value: 'hires', label: 'Hi-Res' } as SubscribeFilterOption,
+                    { value: 'hires|lossless', label: '无损及以上' } as SubscribeFilterOption,
+                    { value: 'lossy', label: '有损' } as SubscribeFilterOption
+                  ], (aq: SubscribeFilterOption) => {
+                    NativeAdaptivePill({
+                      title: aq.label,
+                      selected: this.edAudioQuality === aq.value,
+                      onTap: () => { this.edAudioQuality = aq.value; }
+                    })
+                  }, (aq: SubscribeFilterOption) => `aq_${aq.value}`)
+                }
+              } else {
+                Text('质量').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+                  ForEach(QUALITY_OPTIONS, (q: SubscribeFilterOption) => {
+                    NativeAdaptivePill({
+                      title: q.label,
+                      selected: this.edQuality === q.value,
+                      onTap: () => { this.edQuality = q.value; }
+                    })
+                  }, (q: SubscribeFilterOption) => `q_${q.value}`)
+                  if (this.edQuality.length > 0 && !hasPresetOption(QUALITY_OPTIONS, this.edQuality)) {
+                    NativeAdaptivePill({
+                      title: `自定义 (${this.edQuality})`,
+                      selected: true,
+                      onTap: () => {}
+                    })
+                  }
+                }
+
+                Text('分辨率').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+                  ForEach(RESOLUTION_OPTIONS, (r: SubscribeFilterOption) => {
+                    NativeAdaptivePill({
+                      title: r.label,
+                      selected: this.edResolution === r.value,
+                      onTap: () => { this.edResolution = r.value; }
+                    })
+                  }, (r: SubscribeFilterOption) => `r_${r.value}`)
+                  if (this.edResolution.length > 0 && !hasPresetOption(RESOLUTION_OPTIONS, this.edResolution)) {
+                    NativeAdaptivePill({
+                      title: `自定义 (${this.edResolution})`,
+                      selected: true,
+                      onTap: () => {}
+                    })
+                  }
+                }
+
+                Text('特效').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                Flex({ wrap: FlexWrap.Wrap, space: { main: { value: 6, unit: 1 }, cross: { value: 6, unit: 1 } } }) {
+                  ForEach(EFFECT_OPTIONS, (e: SubscribeFilterOption) => {
+                    NativeAdaptivePill({
+                      title: e.label,
+                      selected: this.edEffect === e.value,
+                      onTap: () => { this.edEffect = e.value; }
+                    })
+                  }, (e: SubscribeFilterOption) => `e_${e.value}`)
+                  if (this.edEffect.length > 0 && !hasPresetOption(EFFECT_OPTIONS, this.edEffect)) {
+                    NativeAdaptivePill({
+                      title: `自定义 (${this.edEffect})`,
+                      selected: true,
+                      onTap: () => {}
+                    })
+                  }
+                }
+              }
+
+              Divider().color(HarmonyThemeColors.divider(this.isDark))
+              Row() {
+                Text('自动洗版').fontSize(14).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.edBestVersion })
+                  .selectedColor(this.accentHex)
+                  .onChange((v: boolean) => {
+                    this.edBestVersion = v;
+                    if (!v) { this.edBestVersionFull = false; }
+                  })
+              }.width('100%')
+
+              if (this.edBestVersion && this.editingSub?.type === '电视剧') {
+                Divider().color(HarmonyThemeColors.divider(this.isDark))
+                Row() {
+                  Text('全集洗版（仅整季合集）').fontSize(14).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.edBestVersionFull })
+                    .selectedColor(this.accentHex)
+                    .onChange((v: boolean) => { this.edBestVersionFull = v; })
+                }.width('100%')
               }
             }
           }
@@ -1016,24 +1076,24 @@ export struct HarmonySubscriptionsPage {
 
               Row({ space: 8 }) {
                 Text('搜索间隔').fontSize(14).fontColor(mpPrimaryText(this.isDark)).layoutWeight(1)
-                Text(this.edInterval <= 0 ? '默认' : `${this.edInterval} 分钟`)
+                Text(this.edInterval <= 0 ? '跟随系统' : `${this.edInterval} 小时`)
                   .fontSize(13).fontColor(mpSecondaryText(this.isDark))
                 Button('−')
                   .height(30).width(34).borderRadius(15)
                   .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
                   .fontColor(mpPrimaryText(this.isDark))
-                  .onClick(() => { this.edInterval = Math.max(0, this.edInterval - 10); })
+                  .onClick(() => { this.edInterval = Math.max(0, this.edInterval - 6); })
                 Button('+')
                   .height(30).width(34).borderRadius(15)
                   .backgroundColor(HarmonyThemeColors.chipFill(this.isDark))
                   .fontColor(mpPrimaryText(this.isDark))
-                  .onClick(() => { this.edInterval = this.edInterval + 10; })
+                  .onClick(() => { this.edInterval = Math.min(8760, this.edInterval + 6); })
               }.width('100%')
             }
           }
 
-          // 5. 过滤与识别规则
-          Text('过滤与识别规则').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
+          // 5. 进阶过滤与识别规则
+          Text('进阶过滤与识别规则').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
           CinematicPanel({ panelPadding: 14, cornerRadius: 18 }) {
             Column({ space: 10 }) {
               Text('包含（支持正则）').fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
@@ -1048,11 +1108,19 @@ export struct HarmonySubscriptionsPage {
                 .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
                 .onChange((v: string) => { this.edExclude = v; })
 
-              Text('自定义识别词').fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
-              TextInput({ placeholder: '针对本订阅生效的识别替换规则', text: this.edCustomWords })
+              Text('自定义类别').fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+              TextInput({ placeholder: '留空自动识别', text: this.edMediaCategory })
                 .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
                 .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
-                .onChange((v: string) => { this.edCustomWords = v; })
+                .onChange((v: string) => { this.edMediaCategory = v; })
+
+              if (this.editingSub?.type !== '音乐') {
+                Text('自定义识别词').fontSize(12).fontColor(mpSecondaryText(this.isDark)).width('100%')
+                TextInput({ placeholder: '针对本订阅生效的识别替换规则（支持 @global）', text: this.edCustomWords })
+                  .fontColor(mpPrimaryText(this.isDark)).placeholderColor(mpSecondaryText(this.isDark))
+                  .backgroundColor(HarmonyThemeColors.chipFill(this.isDark)).borderRadius(10)
+                  .onChange((v: string) => { this.edCustomWords = v; })
+              }
             }
           }
         }

@@ -18,3 +18,9 @@ export {
   HarmonyGlobalVuePluginOverlay,
   HarmonyPluginFloatingCapsule
 } from './src/main/ets/runtime/HarmonyPluginCapsule';
+export {
+  HarmonyPetAnchorRect,
+  HarmonyAgentPetManager,
+  HarmonyAgentPetOverlayHost,
+  HarmonyAgentPetPickerSheet
+} from './src/main/ets/runtime/HarmonyAgentPetOverlayHost';

@@ -32,7 +32,9 @@ struct NativeSubscribeCommunityPage: View {
   @State private var forkingID: Int?
   @State private var feedback: NativeCommunityFeedback?
 
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
   @State private var containerWidth: CGFloat = 0
+  @Environment(\.colorScheme) private var colorScheme
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -223,35 +225,40 @@ struct NativeSubscribeCommunityPage: View {
     .nativeSkeletonShimmer()
   }
 
-  /// 顶部分区切换胶囊栏。
+  /// 顶部分区切换胶囊栏（1:1 对齐「订阅历史」等宽较大选项切换风格）。
   private var tabSelector: some View {
     HStack(spacing: 8) {
       ForEach(Tab.allCases) { tab in
-        let active = selectedTab == tab
+        let selected = selectedTab == tab
         Button {
-          selectedTab = tab
+          guard selectedTab != tab else { return }
+          withAnimation(.easeOut(duration: 0.18)) {
+            selectedTab = tab
+          }
         } label: {
-          Text(tab.rawValue)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(active ? Color.white : NativeTheme.chipText)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+          Text(L10n.text(tab.rawValue))
+            .font(.subheadline.weight(selected ? .semibold : .medium))
+            .foregroundStyle(.primary.opacity(selected ? 0.98 : 0.78))
+            .frame(maxWidth: .infinity, minHeight: 38)
             .background {
               Capsule()
                 .fill(
-                  active
-                    ? Color(red: 0.58, green: 0.42, blue: 0.88).opacity(0.78)
+                  selected
+                    ? appearance.accentColor.opacity(colorScheme == .light ? 0.16 : 0.24)
                     : NativeTheme.chipFill
                 )
                 .overlay {
-                  Capsule().strokeBorder(.primary.opacity(active ? 0.32 : 0.14), lineWidth: 0.7)
+                  Capsule()
+                    .strokeBorder(
+                      selected ? appearance.accentColor.opacity(0.45) : NativeTheme.chipBorder,
+                      lineWidth: 0.7
+                    )
                 }
             }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-community-tab-\(tab.rawValue)")
       }
-      Spacer(minLength: 0)
     }
   }
 

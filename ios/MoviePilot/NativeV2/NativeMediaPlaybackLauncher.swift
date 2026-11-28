@@ -46,6 +46,7 @@ final class NativeMediaPlaybackLauncher: ObservableObject {
 
   private var activePlayer: MediaPlaybackViewController?
   private var minimizedPlayer: MediaPlaybackViewController?
+  var hasActivePlayer: Bool { activePlayer != nil }
   private var pendingExternalPlayback: PendingExternalPlayback?
   private var externalLaunchTask: Task<Void, Never>?
 

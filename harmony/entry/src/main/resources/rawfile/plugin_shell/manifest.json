@@ -2,32 +2,32 @@
   "schemaVersion": 1,
   "protocol": "moviepilot.pluginHost",
   "protocolMajor": 2,
-  "shellVersion": "635f7e9b9454657c",
-  "bundleHash": "635f7e9b9454657c",
+  "shellVersion": "75700390411a3fec",
+  "bundleHash": "75700390411a3fec",
   "entry": "plugin-shell.html",
   "files": {
-    "assets/_virtual_mf-localSharedImportMap___mfe_internal__MoviePilot__mf_owner__1-2EUd6dKk.js": {
-      "sha256": "d55812290603448137d1f875daa20e607778348559b1b556c20dea94241afbb6",
+    "assets/_virtual_mf-localSharedImportMap___mfe_internal__MoviePilot__mf_owner__1-DTn7a3ns.js": {
+      "sha256": "1b5e14e36de903a2871b4eb531983be40db31ccd6be0732fd2a2206d9ce1bcec",
       "size": 1995
     },
-    "assets/_virtual_mf___mfe_internal__MoviePilot__mf_owner__270887288814861__loadShare__vue__loadShare__.js-DcIF9Ylz.js": {
-      "sha256": "2c822c473f20b503c70228a9bc48aa76b8a6db2b07411857d20c1e90d574b280",
-      "size": 128101
+    "assets/_virtual_mf___mfe_internal__MoviePilot__mf_owner__270887288814861__loadShare__vue__loadShare__.js-oAyaQB71.js": {
+      "sha256": "6f2981b4f65cd5d0470160d9dacbe0930c97b8c3b4e318172ecf8e467e52f595",
+      "size": 128116
     },
-    "assets/_virtual_mf___mfe_internal__MoviePilot__mf_owner__270887288814861__loadShare__vuetify__loadShare__.js-d3hOu0ER.js": {
-      "sha256": "ebb4d5d7f9b72e8748c6edae02692d48424d3654f824beeb04afe7f94ecf0601",
+    "assets/_virtual_mf___mfe_internal__MoviePilot__mf_owner__270887288814861__loadShare__vuetify__loadShare__.js-DbRJ_gTa.js": {
+      "sha256": "ef6e365e682a6016f0e793fbf04a921f7471cd5a64286a77cadf366757739033",
       "size": 61192
     },
     "assets/helpers-Mspi5Is9.js": {
       "sha256": "38d8222b4d30d9e1be5cdfc4da3be492e7e78fc2d7216df3ee3fcd5447e780ab",
       "size": 72
     },
-    "assets/hostInit-CrzSsPVn.js": {
-      "sha256": "c895f93643019d229da33d962e6428ccc6b339d155556d0c9612509752e974be",
+    "assets/hostInit-Ctv8VQ1i.js": {
+      "sha256": "cfacf9b0ca9edc32ad623500502b5bff6257e65a5d6b82a2439e2e6658d36e47",
       "size": 5827
     },
-    "assets/icons-bundle-BVlXwYq-.js": {
-      "sha256": "d330c6ac381da2dc82ede2424288e3697f8dcc37b184f027ff109d5e6c6b236e",
+    "assets/icons-bundle-CDJ5fv9P.js": {
+      "sha256": "ae45f711fbe076779dc296501cd2d01711d6cfa38c787bf89baf96bdad0f6b8d",
       "size": 180953
     },
     "assets/index-BDPrJYKc.js": {
@@ -38,32 +38,32 @@
       "sha256": "6197a049c4b9a80c57ccc74e4bd3ab685dcdafd9fec393ff745660db6e58d09c",
       "size": 64799
     },
-    "assets/mf-entry-bootstrap-0-01b2807a.js": {
-      "sha256": "01b2807a2bfec980d5af9c07285e7e2ba9969a14a44d89f59f83a350aa4684df",
+    "assets/mf-entry-bootstrap-0-cfb3e6ad.js": {
+      "sha256": "cfb3e6ad3affedf57b88f0afcb1de0f9f5848f26c46b18431ecf6b943fdd161e",
       "size": 2169
     },
-    "assets/pendingShares-CiuVHgN3.js": {
-      "sha256": "299b0c2ed96223c056754ac81c6b6a4be411fda1bebb2c55efd775ce761352ae",
+    "assets/pendingShares-Cc3HQDPy.js": {
+      "sha256": "74c009fc06d1acdf67f307400245487038f816c8c910ca2c8f9d48d901fd80f4",
       "size": 1654
     },
-    "assets/plugin-shell-Cwt_Mk34.js": {
-      "sha256": "55267eb02a15f2a62e092565ab33a3acdda9d1b7a6e8c040a5fa67dbec4a2f83",
-      "size": 455150
+    "assets/plugin-shell-CXl_BHbD.js": {
+      "sha256": "52c30d2662469f48db2b5a55bc6e5cf035a1f931090e7f478381d6a09f7392e4",
+      "size": 467903
     },
-    "assets/style-4EQ4qOmx.css": {
-      "sha256": "f659f91ba0a906d829109c9269eeb996745227db72f3f6b8aef9863f30483a0f",
-      "size": 517361
+    "assets/style-DH8QWVGR.css": {
+      "sha256": "53c4d6b2b8a8efec151a4fe135ff145134e4448317d851f3db86d748c3c0da7c",
+      "size": 518582
     },
     "assets/vite-preload-helper-BzLqMsWX.js": {
       "sha256": "e3f0027760fcc6e706cd50eb1bfafc936842290235ef74f626442754dc78daaa",
       "size": 1113
     },
     "plugin-shell.html": {
-      "sha256": "0b1f6f974b94997aa1f9e64629fc3b758e0b05aef734742dfe3b141d70605be4",
+      "sha256": "ede33108065db14cb89ae0e2fb92abe90a220a8a3eea215acd46efd047b4adae",
       "size": 1843
     },
     "remoteEntry.js": {
-      "sha256": "7b7648284b2677d95b3b308481cd3ff00ca116d207b42fd69bc91f52e5b3d562",
+      "sha256": "0b94ea069093bb88b530f77f69ebf886fef05c0450bc939f2b14e0b3cdd070cc",
       "size": 21291
     }
   }

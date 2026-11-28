@@ -572,22 +572,49 @@ struct NativeDiagnosticsToolsPage: View {
       if testMode == .recognize {
         formGroupedSection("识别选项") {
           if !mediaSources.isEmpty {
-            HStack(spacing: 12) {
-              Text("识别数据源")
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-              Spacer(minLength: 8)
-              Picker("识别数据源", selection: $selectedMediaSource) {
-                Text("系统默认").tag("")
-                ForEach(mediaSources) { src in
-                  Text(src.displayName).tag(src.mediaSource)
+            Menu {
+              Button {
+                selectedMediaSource = ""
+              } label: {
+                if selectedMediaSource.isEmpty {
+                  Label("系统默认", systemImage: "checkmark")
+                } else {
+                  Text("系统默认")
                 }
               }
-              .pickerStyle(.menu)
-              .tint(appearance.accentColor)
+              ForEach(mediaSources) { src in
+                Button {
+                  selectedMediaSource = src.mediaSource
+                } label: {
+                  if selectedMediaSource == src.mediaSource {
+                    Label(src.displayName, systemImage: "checkmark")
+                  } else {
+                    Text(src.displayName)
+                  }
+                }
+              }
+            } label: {
+              HStack(spacing: 10) {
+                Text("识别数据源")
+                  .font(.body)
+                  .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(
+                  mediaSources.first(where: { $0.mediaSource == selectedMediaSource })?.displayName
+                    ?? "系统默认"
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                Image(systemName: "chevron.up.chevron.down")
+                  .font(.caption.weight(.medium))
+                  .foregroundStyle(.secondary.opacity(0.65))
+              }
+              .padding(.horizontal, 16)
+              .padding(.vertical, 13)
+              .frame(minHeight: 52)
+              .contentShape(Rectangle())
             }
-            .padding(.horizontal, 15)
-            .padding(.vertical, 10)
+            .buttonStyle(.plain)
             CinematicFormDivider()
           }
 
@@ -631,25 +658,46 @@ struct NativeDiagnosticsToolsPage: View {
       } else {
         formGroupedSection("优先级规则组") {
           VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-              Text("目标规则组")
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-              Spacer(minLength: 8)
               if ruleGroups.isEmpty {
-                Text("未检测到规则组")
-                  .font(.caption)
-                  .foregroundStyle(NativeTheme.warning)
-              } else {
-                Picker("规则组", selection: $selectedRuleGroup) {
-                  ForEach(ruleGroups) { group in
-                    Text(group.name).tag(group.name)
-                  }
+                HStack {
+                  Text("目标规则组")
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                  Spacer(minLength: 8)
+                  Text("未检测到规则组")
+                    .font(.caption)
+                    .foregroundStyle(NativeTheme.warning)
                 }
-                .pickerStyle(.menu)
-                .tint(appearance.accentColor)
+              } else {
+                Menu {
+                  ForEach(ruleGroups) { group in
+                    Button {
+                      selectedRuleGroup = group.name
+                    } label: {
+                      if selectedRuleGroup == group.name {
+                        Label(group.name, systemImage: "checkmark")
+                      } else {
+                        Text(group.name)
+                      }
+                    }
+                  }
+                } label: {
+                  HStack(spacing: 10) {
+                    Text("目标规则组")
+                      .font(.body)
+                      .foregroundStyle(.primary)
+                    Spacer(minLength: 8)
+                    Text(selectedRuleGroup.isEmpty ? "请选择" : selectedRuleGroup)
+                      .font(.subheadline)
+                      .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.up.chevron.down")
+                      .font(.caption.weight(.medium))
+                      .foregroundStyle(.secondary.opacity(0.65))
+                  }
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
               }
-            }
             if let current = ruleGroups.first(where: { $0.name == selectedRuleGroup }),
               let ruleStr = current.ruleString, !ruleStr.isEmpty
             {

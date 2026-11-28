@@ -486,18 +486,53 @@ private struct NativeWorkflowEditorSheet: View {
                 CinematicFormDivider()
                 rowField("描述说明", placeholder: "可选", text: $description)
                 CinematicFormDivider()
-                HStack {
-                  Text("触发方式").font(.subheadline)
-                  Spacer()
-                  Picker("触发方式", selection: $triggerType) {
-                    Text("定时任务").tag("timer")
-                    Text("事件触发").tag("event")
-                    Text("手动触发").tag("manual")
+                Menu {
+                  Button {
+                    triggerType = "timer"
+                  } label: {
+                    if triggerType == "timer" {
+                      Label("定时任务", systemImage: "checkmark")
+                    } else {
+                      Text("定时任务")
+                    }
                   }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
+                  Button {
+                    triggerType = "event"
+                  } label: {
+                    if triggerType == "event" {
+                      Label("事件触发", systemImage: "checkmark")
+                    } else {
+                      Text("事件触发")
+                    }
+                  }
+                  Button {
+                    triggerType = "manual"
+                  } label: {
+                    if triggerType == "manual" {
+                      Label("手动触发", systemImage: "checkmark")
+                    } else {
+                      Text("手动触发")
+                    }
+                  }
+                } label: {
+                  HStack(spacing: 10) {
+                    Text("触发方式").font(.body).foregroundStyle(.primary)
+                    Spacer()
+                    Text(
+                      triggerType == "timer"
+                        ? "定时任务" : (triggerType == "event" ? "事件触发" : "手动触发")
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.up.chevron.down")
+                      .font(.caption.weight(.medium))
+                      .foregroundStyle(.secondary.opacity(0.65))
+                  }
+                  .padding(.horizontal, 16).padding(.vertical, 13)
+                  .frame(minHeight: 52)
+                  .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 15).padding(.vertical, 10)
+                .buttonStyle(.plain)
                 if triggerType == "timer" {
                   CinematicFormDivider()
                   rowField("Cron 周期", placeholder: "0 */6 * * *", text: $timer)

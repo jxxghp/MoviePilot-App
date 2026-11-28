@@ -704,7 +704,13 @@ private fun SubscribeEditorSheet(
     var quality by remember(item) { mutableStateOf(MoviePilotRepository.normalizeSubscribeFilterOption("quality", item.quality)) }
     var resolution by remember(item) { mutableStateOf(MoviePilotRepository.normalizeSubscribeFilterOption("resolution", item.resolution)) }
     var effect by remember(item) { mutableStateOf(MoviePilotRepository.normalizeSubscribeFilterOption("effect", item.effect)) }
+    var audioQuality by remember(item) { mutableStateOf(item.audioQuality) }
+    var audioFormat by remember(item) { mutableStateOf(item.audioFormat) }
+    var minBitrate by remember(item) { mutableIntStateOf(item.minBitrate) }
+    var minBitDepth by remember(item) { mutableIntStateOf(item.minBitDepth) }
+    var minSampleRate by remember(item) { mutableIntStateOf(item.minSampleRate) }
     var bestVersion by remember(item) { mutableStateOf(item.bestVersion) }
+    var bestVersionFull by remember(item) { mutableStateOf(item.bestVersion && item.bestVersionFull) }
 
     var downloader by remember(item) { mutableStateOf(item.downloader.ifBlank { "默认" }) }
     var savePath by remember(item) { mutableStateOf(item.savePath) }
@@ -782,14 +788,20 @@ private fun SubscribeEditorSheet(
                     onClick = {
                         onSave(
                             item.copy(
-                                season = seasonText.trim().toIntOrNull() ?: item.season,
-                                totalEpisode = totalEpText.trim().toIntOrNull() ?: item.totalEpisode,
-                                startEpisode = startEpText.trim().toIntOrNull(),
+                                season = seasonText.trim().toIntOrNull(),
+                                totalEpisode = totalEpText.trim().toIntOrNull() ?: 0,
+                                startEpisode = startEpText.trim().toIntOrNull() ?: 0,
                                 episodeGroup = episodeGroup.trim(),
                                 quality = quality,
                                 resolution = resolution,
                                 effect = effect,
+                                audioQuality = audioQuality,
+                                audioFormat = audioFormat,
+                                minBitrate = minBitrate,
+                                minBitDepth = minBitDepth,
+                                minSampleRate = minSampleRate,
                                 bestVersion = bestVersion,
+                                bestVersionFull = bestVersion && bestVersionFull,
                                 downloader = if (downloader == "默认") "" else downloader,
                                 savePath = savePath.trim(),
                                 sites = selectedSiteIds.toList().sorted(),
@@ -833,31 +845,45 @@ private fun SubscribeEditorSheet(
                 }
             }
 
-            // 分组 0：剧集季集与剧集组（电视剧显示）
-            if (item.type == "电视剧") {
-                Text("季集设置", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
-                CinematicPanel(padding = 0.dp, showsShadow = false) {
-                    Column {
-                        EditorInlineInputRow("订阅季号", seasonText, "如 1") { seasonText = it.filter(Char::isDigit) }
+            // 分组 0：搜索与集数范围（对齐 Web 基础页首屏：关键词 + 总集数 + 开始集数）
+            Text(if (item.type == "电视剧") "搜索与集数范围" else "搜索关键词", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+            CinematicPanel(padding = 0.dp, showsShadow = false) {
+                Column {
+                    EditorInlineInputRow("搜索关键词", keyword, "默认使用片名") { keyword = it }
+                    if (item.type == "电视剧") {
                         HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                         EditorInlineInputRow("总集数", totalEpText, "留空自动获取") { totalEpText = it.filter(Char::isDigit) }
                         HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                        EditorInlineInputRow("开始集数", startEpText, "从第几集开始追更") { startEpText = it.filter(Char::isDigit) }
+                        EditorInlineInputRow("开始集数", startEpText, "从第几集开始订阅") { startEpText = it.filter(Char::isDigit) }
                         HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                        EditorInlineInputRow("剧集组 ID", episodeGroup, "可选 TMDB 剧集组") { episodeGroup = it }
+                        EditorInlineInputRow("指定季号", seasonText, "0(特别篇)~100，留空默认") { seasonText = it.filter(Char::isDigit) }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorInlineInputRow("指定剧集组", episodeGroup, "可选 TMDB 剧集组") { episodeGroup = it }
                     }
                 }
             }
 
-            // 分组 1：画质与洗版
-            Text("画质与洗版", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+            // 分组 1：画质与洗版 / 音乐音质与洗版
+            Text(if (item.type == "音乐") "音乐音质与洗版" else "画质与洗版", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
             CinematicPanel(padding = 0.dp, showsShadow = false) {
                 Column {
-                    EditorMappedPickerRow("质量", quality, SUBSCRIBE_QUALITY_OPTIONS) { quality = it }
-                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                    EditorMappedPickerRow("分辨率", resolution, SUBSCRIBE_RESOLUTION_OPTIONS) { resolution = it }
-                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                    EditorMappedPickerRow("特效", effect, SUBSCRIBE_EFFECT_OPTIONS) { effect = it }
+                    if (item.type == "音乐") {
+                        EditorMappedPickerRow("音质等级", audioQuality, SUBSCRIBE_AUDIO_QUALITY_OPTIONS) { audioQuality = it }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorMappedPickerRow("音频格式", audioFormat, SUBSCRIBE_AUDIO_FORMAT_OPTIONS) { audioFormat = it }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorIntPickerRow("最低码率", minBitrate, SUBSCRIBE_AUDIO_BITRATE_OPTIONS) { minBitrate = it }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorIntPickerRow("最低位深", minBitDepth, SUBSCRIBE_AUDIO_BIT_DEPTH_OPTIONS) { minBitDepth = it }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorIntPickerRow("最低采样率", minSampleRate, SUBSCRIBE_AUDIO_SAMPLE_RATE_OPTIONS) { minSampleRate = it }
+                    } else {
+                        EditorMappedPickerRow("质量", quality, SUBSCRIBE_QUALITY_OPTIONS) { quality = it }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorMappedPickerRow("分辨率", resolution, SUBSCRIBE_RESOLUTION_OPTIONS) { resolution = it }
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorMappedPickerRow("特效", effect, SUBSCRIBE_EFFECT_OPTIONS) { effect = it }
+                    }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -865,7 +891,25 @@ private fun SubscribeEditorSheet(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("自动洗版", color = colors.textPrimary, fontSize = 15.sp)
-                        Switch(checked = bestVersion, onCheckedChange = { bestVersion = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
+                        Switch(
+                            checked = bestVersion,
+                            onCheckedChange = {
+                                bestVersion = it
+                                if (!it) bestVersionFull = false
+                            },
+                            colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg),
+                        )
+                    }
+                    if (bestVersion && item.type == "电视剧") {
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("全集洗版（仅整季合集）", color = colors.textPrimary, fontSize = 15.sp)
+                            Switch(checked = bestVersionFull, onCheckedChange = { bestVersionFull = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.primaryButtonFg))
+                        }
                     }
                 }
             }
@@ -1037,19 +1081,19 @@ private fun SubscribeEditorSheet(
                 }
             }
 
-            // 分组 4：过滤与识别规则
-            Text("过滤与识别规则", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
+            // 分组 4：进阶过滤与识别规则
+            Text("进阶过滤与识别规则", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
             CinematicPanel(padding = 0.dp, showsShadow = false) {
                 Column {
-                    EditorInlineInputRow("搜索关键字", keyword, "默认使用片名") { keyword = it }
-                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                     EditorInlineInputRow("包含规则", includeWord, "正则，如 中字|简繁") { includeWord = it }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
                     EditorInlineInputRow("排除规则", excludeWord, "正则，如 枪版|CAM") { excludeWord = it }
                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                    EditorInlineInputRow("媒体分类", mediaCategory, "自定义二级分类") { mediaCategory = it }
-                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
-                    EditorInlineInputRow("自定义识别词", customWords, "可选替换词") { customWords = it }
+                    EditorInlineInputRow("自定义类别", mediaCategory, "留空自动识别") { mediaCategory = it }
+                    if (item.type != "音乐") {
+                        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 16.dp))
+                        EditorInlineInputRow("自定义识别词", customWords, "支持多条或 @global") { customWords = it }
+                    }
                 }
             }
 
@@ -1095,6 +1139,83 @@ private val SUBSCRIBE_EFFECT_OPTIONS = listOf(
     "[\\s.]+HDR[\\s.]+|HDR10|HDR10\\+" to "HDR",
     "[\\s.]+SDR[\\s.]+" to "SDR",
 )
+
+private val SUBSCRIBE_AUDIO_QUALITY_OPTIONS = listOf(
+    "" to "全部",
+    "hires" to "Hi-Res",
+    "hires|lossless" to "无损及以上",
+    "lossy" to "有损",
+)
+
+private val SUBSCRIBE_AUDIO_FORMAT_OPTIONS = listOf(
+    "" to "全部",
+    "DSD|FLAC|ALAC|APE|WAV|AIFF|PCM" to "无损格式",
+    "FLAC" to "FLAC",
+    "DSD" to "DSD",
+    "ALAC" to "ALAC",
+    "WAV" to "WAV",
+    "MP3" to "MP3",
+    "AAC" to "AAC",
+    "OGG" to "OGG",
+    "OPUS" to "OPUS",
+)
+
+private val SUBSCRIBE_AUDIO_BITRATE_OPTIONS = listOf(
+    0 to "不限",
+    128000 to "128 kbps",
+    192000 to "192 kbps",
+    256000 to "256 kbps",
+    320000 to "320 kbps",
+)
+
+private val SUBSCRIBE_AUDIO_BIT_DEPTH_OPTIONS = listOf(
+    0 to "不限",
+    16 to "16-bit",
+    24 to "24-bit",
+    32 to "32-bit",
+)
+
+private val SUBSCRIBE_AUDIO_SAMPLE_RATE_OPTIONS = listOf(
+    0 to "不限",
+    44100 to "44.1 kHz",
+    48000 to "48 kHz",
+    96000 to "96 kHz",
+    192000 to "192 kHz",
+)
+
+@Composable
+/** 构建支持预设与自定义输入的整数订阅参数选择行。 */
+private fun EditorIntPickerRow(
+    label: String,
+    value: Int,
+    options: List<Pair<Int, String>>,
+    onSelect: (Int) -> Unit,
+) {
+    val colors = LocalMoviePilotColors.current
+    var expanded by remember { mutableStateOf(false) }
+    val displayTitle = options.firstOrNull { it.first == value }?.second ?: value.toString()
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, color = colors.textPrimary, fontSize = 15.sp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(displayTitle, color = colors.accent, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Icon(Icons.Rounded.UnfoldMore, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (optionValue, optionTitle) ->
+                DropdownMenuItem(text = { Text(optionTitle) }, onClick = { onSelect(optionValue); expanded = false })
+            }
+        }
+    }
+}
 
 /** 展示可读选项标题、底层提交正则取值并保留自定义表达式的订阅筛选下拉行。 */
 @Composable

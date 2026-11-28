@@ -304,15 +304,9 @@ struct NativeSettingsHubPage: View {
     .accessibilityIdentifier(id)
   }
 
-  /// 非超级管理员顶部展示个人账号绑定入口（媒体服务器账号绑定 + 渠道授权绑定码）。
+  /// 非超级管理员顶部展示渠道授权绑定入口（媒体服务器账号绑定已统一收纳于「播放偏好」中）。
   private var memberAccountBindingSection: some View {
     settingsGroup(t("账号与绑定")) {
-      navRow(
-        title: t("绑定媒体服务器账号"), subtitle: t("Emby · Jellyfin · Plex 个人同步"),
-        symbol: "tv.badge.wifi",
-        id: "native-settings-mediaserver-bindings"
-      ) { onNavigate(.mediaServerBindings) }
-      settingsRowDivider
       navRow(
         title: t("渠道授权与绑定"), subtitle: t("生成 5 分钟渠道关联绑定码"),
         symbol: "person.badge.key",
@@ -350,12 +344,6 @@ struct NativeSettingsHubPage: View {
         symbol: "server.rack",
         id: "native-settings-mediaservers"
       ) { onNavigate(.mediaServersManage) }
-      settingsRowDivider
-      navRow(
-        title: t("绑定媒体服务器账号"), subtitle: t("Emby · Jellyfin · Plex 个人同步"),
-        symbol: "tv.badge.wifi",
-        id: "native-settings-mediaserver-bindings"
-      ) { onNavigate(.mediaServerBindings) }
       settingsRowDivider
       navRow(
         title: t("整理与目录"), subtitle: t("目录映射与刮削"), symbol: "folder.badge.gearshape",
@@ -1198,18 +1186,53 @@ private struct NativeChannelAuthEditSheet: View {
             }
             CinematicPanel(padding: 0) {
               VStack(spacing: 0) {
-                HStack {
-                  Text("审批状态").font(.subheadline)
-                  Spacer()
-                  Picker("状态", selection: $status) {
-                    Text("批准/启用").tag("approved")
-                    Text("停用").tag("disabled")
-                    Text("拒绝").tag("rejected")
+                Menu {
+                  Button {
+                    status = "approved"
+                  } label: {
+                    if status == "approved" {
+                      Label("批准/启用", systemImage: "checkmark")
+                    } else {
+                      Text("批准/启用")
+                    }
                   }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
+                  Button {
+                    status = "disabled"
+                  } label: {
+                    if status == "disabled" {
+                      Label("停用", systemImage: "checkmark")
+                    } else {
+                      Text("停用")
+                    }
+                  }
+                  Button {
+                    status = "rejected"
+                  } label: {
+                    if status == "rejected" {
+                      Label("拒绝", systemImage: "checkmark")
+                    } else {
+                      Text("拒绝")
+                    }
+                  }
+                } label: {
+                  HStack(spacing: 10) {
+                    Text("审批状态").font(.body).foregroundStyle(.primary)
+                    Spacer()
+                    Text(
+                      status == "approved"
+                        ? "批准/启用" : (status == "disabled" ? "停用" : "拒绝")
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.up.chevron.down")
+                      .font(.caption.weight(.medium))
+                      .foregroundStyle(.secondary.opacity(0.65))
+                  }
+                  .padding(.horizontal, 16).padding(.vertical, 13)
+                  .frame(minHeight: 52)
+                  .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 15).padding(.vertical, 10)
+                .buttonStyle(.plain)
                 CinematicFormDivider()
                 HStack {
                   Text("角色").font(.subheadline)
@@ -1326,6 +1349,7 @@ struct NativeSubscribeSearchSettingsPage: View {
   @State private var bestVersionRuleGroups: Set<String> = []
   @State private var searchRuleGroups: Set<String> = []
   @State private var subscribeMode = "auto"
+  @State private var editingDefaultRuleType: String?
   @State private var isLoading = true
   @State private var hasLoaded = false
   @State private var isSaving = false
@@ -1423,24 +1447,91 @@ struct NativeSubscribeSearchSettingsPage: View {
               }
             }
 
+            // 默认订阅规则（电影 / 电视剧 / 音乐）
+            VStack(alignment: .leading, spacing: 10) {
+              Text("默认订阅规则").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  Button {
+                    editingDefaultRuleType = "电影"
+                  } label: {
+                    pickerRow("电影默认订阅规则", value: "画质与过滤预设")
+                  }
+                  .buttonStyle(.plain)
+                  .accessibilityIdentifier("native-settings-default-rule-movie")
+                  CinematicFormDivider()
+                  Button {
+                    editingDefaultRuleType = "电视剧"
+                  } label: {
+                    pickerRow("电视剧默认订阅规则", value: "画质与洗版预设")
+                  }
+                  .buttonStyle(.plain)
+                  .accessibilityIdentifier("native-settings-default-rule-tv")
+                  CinematicFormDivider()
+                  Button {
+                    editingDefaultRuleType = "音乐"
+                  } label: {
+                    pickerRow("音乐默认订阅规则", value: "音质与码率预设")
+                  }
+                  .buttonStyle(.plain)
+                  .accessibilityIdentifier("native-settings-default-rule-music")
+                }
+              }
+            }
+
             // 订阅模式
             VStack(alignment: .leading, spacing: 10) {
               Text("订阅刷新模式").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
               CinematicPanel(padding: 0) {
-                HStack {
-                  Text("订阅模式").font(.body)
-                  Spacer()
-                  Picker("订阅模式", selection: $subscribeMode) {
-                    Text("自动").tag("auto")
-                    Text("站点抓取").tag("spider")
-                    Text("RSS 订阅").tag("rss")
+                Menu {
+                  Button {
+                    subscribeMode = "auto"
+                  } label: {
+                    if subscribeMode == "auto" {
+                      Label("自动", systemImage: "checkmark")
+                    } else {
+                      Text("自动")
+                    }
                   }
-                  .pickerStyle(.menu)
-                  .tint(appearance.accentColor)
+                  Button {
+                    subscribeMode = "spider"
+                  } label: {
+                    if subscribeMode == "spider" {
+                      Label("站点抓取", systemImage: "checkmark")
+                    } else {
+                      Text("站点抓取")
+                    }
+                  }
+                  Button {
+                    subscribeMode = "rss"
+                  } label: {
+                    if subscribeMode == "rss" {
+                      Label("RSS 订阅", systemImage: "checkmark")
+                    } else {
+                      Text("RSS 订阅")
+                    }
+                  }
+                } label: {
+                  HStack(spacing: 10) {
+                    Text("订阅模式").font(.body).foregroundStyle(.primary)
+                    Spacer()
+                    Text(
+                      subscribeMode == "spider"
+                        ? "站点抓取" : (subscribeMode == "rss" ? "RSS 订阅" : "自动")
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.up.chevron.down")
+                      .font(.caption.weight(.medium))
+                      .foregroundStyle(.secondary.opacity(0.65))
+                  }
+                  .padding(.horizontal, 16).padding(.vertical, 14)
+                  .frame(minHeight: 56)
+                  .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 16).padding(.vertical, 12)
-                .frame(minHeight: 54)
+                .buttonStyle(.plain)
               }
             }
           }
@@ -1470,6 +1561,19 @@ struct NativeSubscribeSearchSettingsPage: View {
         }
         .tint(.primary)
         .disabled(isSaving || isLoading)
+      }
+    }
+    .sheet(
+      isPresented: Binding(
+        get: { editingDefaultRuleType != nil },
+        set: { if !$0 { editingDefaultRuleType = nil } }
+      )
+    ) {
+      if let ruleType = editingDefaultRuleType {
+        NativeSubscribeEditorSheet(session: session, defaultMediaType: ruleType) {
+          feedback = (false, "\(ruleType)默认订阅规则已保存。")
+        }
+        .nativeAdaptiveSheetSizing()
       }
     }
     .task { await loadAll(force: false) }

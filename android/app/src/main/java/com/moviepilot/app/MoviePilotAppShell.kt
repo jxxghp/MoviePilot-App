@@ -142,6 +142,10 @@ import com.moviepilot.media.SubtitleTrackItem
 import com.moviepilot.media.buildConfiguredExoPlayer
 import com.moviepilot.pluginhost.clearIsolatedPluginWebViewSession
 import com.moviepilot.pluginhost.VuePluginSurface
+import com.moviepilot.pluginhost.VuePluginSessionPayload
+import com.moviepilot.pluginhost.runtime.AndroidAgentPetManager
+import com.moviepilot.pluginhost.runtime.AndroidAgentPetOverlayHost
+import com.moviepilot.pluginhost.runtime.AndroidAgentPetPickerSheet
 import com.moviepilot.pluginhost.runtime.AndroidPluginCapsuleManager
 import com.moviepilot.pluginhost.runtime.AndroidPluginWebViewPool
 import com.moviepilot.pluginhost.runtime.PluginFloatingCapsuleOverlay
@@ -346,6 +350,7 @@ fun MoviePilotRootShell(
     var pendingCellularRequest by remember { mutableStateOf<MediaPlaybackRequest?>(null) }
     var cellularConfirmedInSession by rememberSaveable { mutableStateOf(false) }
     var activeMedalShowcase by remember { mutableStateOf<Pair<CommunityProfile, String>?>(null) }
+    var showAgentPetPicker by remember { mutableStateOf(false) }
 
     var isInPipMode by remember(activity) {
         mutableStateOf(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) activity?.isInPictureInPictureMode == true else false)
@@ -1781,7 +1786,13 @@ fun MoviePilotRootShell(
                                                     onBack = ::popRoute,
                                                     onOpenMedia = { pushRoute(AppRoute.MediaDetail(it)) },
                                                 )
-                                                is AppRoute.Agent -> AgentChatScreen(repository, route.prompt, onBack = ::popRoute)
+                                                is AppRoute.Agent -> AgentChatScreen(
+                                                    repository = repository,
+                                                    initialPrompt = route.prompt,
+                                                    onBack = ::popRoute,
+                                                    activePetName = AndroidAgentPetManager.effectivePet?.name,
+                                                    onOpenPetPicker = { showAgentPetPicker = true },
+                                                )
                                                 AppRoute.Appearance -> AppearanceSettingsScreen(onBack = ::popRoute)
                                                         }
                                                     }
@@ -1794,20 +1805,50 @@ fun MoviePilotRootShell(
                         }
                     }
 
-                    // 3. 一级主 Tab 右下角 AI 助手入口
-                    if (authSession != null && !isSwitchingServer && isTopLevelTab && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null && !isInPipMode) {
-                        val mascotBottom = when {
-                            isWideCanvas && showMiniMusicBar -> 92.dp
-                            isWideCanvas -> 24.dp
-                            showMiniMusicBar -> 158.dp
-                            else -> 92.dp
+                    // 3. 全界面 AI 助手形象宿主（覆盖主 Tab 与全部二级子页面；支持原生内置机器人与 Web AgentPets 插件舞台/悬浮形象直跑）
+                    if (authSession != null && !isSwitchingServer && appearanceStore.showAgentMascot && activeMedalShowcase == null && activePlayerRequest == null && !isInPipMode) {
+                        val petSessionPayload = remember(authSession.serverUrl, authSession.token, authSession.identity) {
+                            VuePluginSessionPayload(
+                                serverUrl = authSession.serverUrl,
+                                authToken = authSession.token,
+                                userId = authSession.identity.id,
+                                userName = authSession.identity.name,
+                                avatar = authSession.identity.avatar.orEmpty(),
+                                isSuperuser = authSession.identity.isSuperuser,
+                            )
                         }
-                        FloatingAgentMascot(
-                            onClick = { pushRoute(AppRoute.Agent()) },
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .navigationBarsPadding()
-                                .padding(end = 16.dp, bottom = mascotBottom),
+                        val petScopeKey = "${authSession.serverUrl}|${authSession.identity.id}|${authSession.identity.name}"
+                        val petHiddenByFullScreenRoute =
+                            showAgentPetPicker ||
+                                currentRoute is AppRoute.Messages ||
+                                currentRoute is AppRoute.WorkflowCanvas ||
+                                currentRoute is AppRoute.PluginDetail
+                        AndroidAgentPetOverlayHost(
+                            repository = repository,
+                            session = petSessionPayload,
+                            accountScopeKey = petScopeKey,
+                            isVisible = !petHiddenByFullScreenRoute,
+                            panelOpen = currentRoute is AppRoute.Agent,
+                            dockVisible = !isWideCanvas,
+                            isWideCanvas = isWideCanvas,
+                            showMiniMusicBar = showMiniMusicBar,
+                            onOpenAgent = { draft ->
+                                if (currentRoute !is AppRoute.Agent) {
+                                    pushRoute(AppRoute.Agent(prompt = draft.orEmpty()))
+                                }
+                            },
+                            onCloseAgent = {
+                                if (currentRoute is AppRoute.Agent) {
+                                    popRoute()
+                                }
+                            },
+                        )
+                    }
+
+                    if (showAgentPetPicker && authSession != null) {
+                        AndroidAgentPetPickerSheet(
+                            repository = repository,
+                            onDismiss = { showAgentPetPicker = false },
                         )
                     }
 

@@ -4267,19 +4267,10 @@ export struct HarmonySettingsHubPage {
                 .width('100%')
               }
             } else {
-              // 非超级管理员顶部展示个人账号与渠道绑定入口
+              // 非超级管理员顶部展示渠道授权绑定入口（媒体服务器账号绑定已统一收纳于「播放偏好」中）
               Text('账号与绑定').fontSize(13).fontColor(mpSecondaryText(this.isDark)).width('100%')
               CinematicPanel({ panelPadding: 0, cornerRadius: 18 }) {
                 Column() {
-                  HarmonySettingsRow({
-                    title: '绑定媒体服务器账号',
-                    sub: this.mediaServerBindingsSummaryText(),
-                    loadingSub: this.loadingSummary,
-                    symbolName: 'sys.symbol.TV_tv_fill',
-                    symbolTint: this.accentHex,
-                    onTap: () => { this.openMediaServerBindingsSheet(); }
-                  })
-                  Divider().color(HarmonyThemeColors.divider(this.isDark))
                   HarmonySettingsRow({
                     title: '渠道授权与绑定',
                     sub: '生成 5 分钟机器人绑定码',
@@ -4330,15 +4321,6 @@ export struct HarmonySettingsHubPage {
                     logoKind: 'mediaserver',
                     logoValue: this.primaryMediaServerType(),
                     onTap: () => { this.showMediaServersSheet = true; }
-                  })
-                  Divider().color(HarmonyThemeColors.divider(this.isDark))
-                  HarmonySettingsRow({
-                    title: '绑定媒体服务器账号',
-                    sub: this.mediaServerBindingsSummaryText(),
-                    loadingSub: this.loadingSummary,
-                    symbolName: 'sys.symbol.TV_tv_fill',
-                    symbolTint: this.accentHex,
-                    onTap: () => { this.openMediaServerBindingsSheet(); }
                   })
                   Divider().color(HarmonyThemeColors.divider(this.isDark))
                   HarmonySettingsRow({

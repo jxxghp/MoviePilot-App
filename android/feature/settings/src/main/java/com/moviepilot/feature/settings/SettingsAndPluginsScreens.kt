@@ -395,8 +395,6 @@ fun SettingsHubScreen(
                             Text("账号与绑定", color = colors.textSecondary, fontSize = 13.sp, modifier = Modifier.padding(start = 6.dp))
                             CinematicPanel(padding = 0.dp, showsShadow = false) {
                                 Column {
-                                    SettingsRow(Icons.Rounded.AccountCircle, "绑定媒体服务器账号", "Emby · Jellyfin · Plex 个人同步", onOpenMediaServerBindings)
-                                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                     SettingsRow(Icons.Outlined.Key, "渠道授权与绑定", "生成 5 分钟机器人绑定码", onOpenChannelAuth)
                                 }
                             }
@@ -418,8 +416,6 @@ fun SettingsHubScreen(
                                     SettingsRow(Icons.Outlined.Download, "下载器", "qBittorrent · Transmission · rTorrent", onOpenDownloaders)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                     SettingsRow(Icons.Outlined.Dns, "媒体服务器", "$mediaServersCount 个", onOpenMediaServers, isLoadingValue = showInlineShimmer)
-                                    HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
-                                    SettingsRow(Icons.Rounded.AccountCircle, "绑定媒体服务器账号", "Emby · Jellyfin · Plex 个人同步", onOpenMediaServerBindings)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))
                                     SettingsRow(Icons.Outlined.Folder, "整理与目录", "目录映射与刮削", onOpenDirectories)
                                     HorizontalDivider(color = colors.divider, modifier = Modifier.padding(start = 52.dp))

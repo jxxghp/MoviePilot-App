@@ -2213,20 +2213,12 @@ private struct NativeDirectoryEditorSheet: View {
           .padding(.horizontal, 16)
           .frame(minHeight: 54)
           CinematicFormDivider()
-          HStack {
-            Text("媒体类型")
-              .font(.body)
-            Spacer()
-            Picker("媒体类型", selection: $mediaType) {
-              Text("全部").tag("")
-              Text("电影").tag("电影")
-              Text("电视剧").tag("电视剧")
-              Text("音乐").tag("音乐")
-            }
-            .tint(appearance.accentColor)
-          }
-          .padding(.horizontal, 16)
-          .frame(minHeight: 54)
+          dirMenuRow(
+            title: "媒体类型",
+            value: mediaType.isEmpty ? "全部" : mediaType,
+            options: [("", "全部"), ("电影", "电影"), ("电视剧", "电视剧"), ("音乐", "音乐")],
+            selection: $mediaType
+          )
           CinematicFormDivider()
           HStack(spacing: 12) {
             Text("媒体分类")
@@ -2292,66 +2284,47 @@ private struct NativeDirectoryEditorSheet: View {
         .padding(.horizontal, 4)
       CinematicPanel(padding: 0) {
         VStack(spacing: 0) {
-          HStack {
-            Text("监控方式")
-              .font(.body)
-            Spacer()
-            Picker("监控方式", selection: $monitorType) {
-              Text("不监控").tag("")
-              Text("下载器监控").tag("downloader")
-              Text("目录监控").tag("monitor")
-            }
-            .tint(appearance.accentColor)
-          }
-          .padding(.horizontal, 16)
-          .frame(minHeight: 54)
+          dirMenuRow(
+            title: "监控方式",
+            value: monitorType == "monitor" ? "目录监控" : (monitorType == "downloader" ? "下载器监控" : "不监控"),
+            options: [("", "不监控"), ("downloader", "下载器监控"), ("monitor", "目录监控")],
+            selection: $monitorType
+          )
           if monitorType == "monitor" {
             CinematicFormDivider()
-            HStack {
-              Text("监控模式")
-                .font(.body)
-              Spacer()
-              Picker("监控模式", selection: $monitorMode) {
-                Text("性能模式").tag("fast")
-                Text("兼容模式").tag("compatibility")
-              }
-              .tint(appearance.accentColor)
-            }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 54)
+            dirMenuRow(
+              title: "监控模式",
+              value: monitorMode == "compatibility" ? "兼容模式" : "性能模式",
+              options: [("fast", "性能模式"), ("compatibility", "兼容模式")],
+              selection: $monitorMode
+            )
           }
           CinematicFormDivider()
-          HStack {
-            Text("整理方式")
-              .font(.body)
-            Spacer()
-            Picker("整理方式", selection: $transferType) {
-              Text("不整理").tag("")
-              Text("硬链接").tag("link")
-              Text("软链接").tag("softlink")
-              Text("移动").tag("move")
-              Text("复制").tag("copy")
-              Text("Reflink").tag("reflink")
-            }
-            .tint(appearance.accentColor)
-          }
-          .padding(.horizontal, 16)
-          .frame(minHeight: 54)
+          dirMenuRow(
+            title: "整理方式",
+            value: [("","不整理"),("link","硬链接"),("softlink","软链接"),("move","移动"),("copy","复制"),("reflink","Reflink")].first(where: { $0.0 == transferType })?.1 ?? transferType,
+            options: [
+              ("", "不整理"),
+              ("link", "硬链接"),
+              ("softlink", "软链接"),
+              ("move", "移动"),
+              ("copy", "复制"),
+              ("reflink", "Reflink"),
+            ],
+            selection: $transferType
+          )
           CinematicFormDivider()
-          HStack {
-            Text("覆盖模式")
-              .font(.body)
-            Spacer()
-            Picker("覆盖模式", selection: $overwriteMode) {
-              Text("从不覆盖").tag("never")
-              Text("总是覆盖").tag("always")
-              Text("按文件大小覆盖").tag("size")
-              Text("仅保留最新版本").tag("latest")
-            }
-            .tint(appearance.accentColor)
-          }
-          .padding(.horizontal, 16)
-          .frame(minHeight: 54)
+          dirMenuRow(
+            title: "覆盖模式",
+            value: [("never","从不覆盖"),("always","总是覆盖"),("size","按文件大小覆盖"),("latest","仅保留最新版本")].first(where: { $0.0 == overwriteMode })?.1 ?? overwriteMode,
+            options: [
+              ("never", "从不覆盖"),
+              ("always", "总是覆盖"),
+              ("size", "按文件大小覆盖"),
+              ("latest", "仅保留最新版本"),
+            ],
+            selection: $overwriteMode
+          )
         }
       }
     }
@@ -2397,6 +2370,41 @@ private struct NativeDirectoryEditorSheet: View {
         }
       }
     }
+  }
+
+    /// 构建显示目录路径并提供自定义输入入口的菜单行。
+  private func dirMenuRow(
+    title: String,
+    value: String,
+    options: [(value: String, label: String)],
+    selection: Binding<String>
+  ) -> some View {
+    Menu {
+      ForEach(options, id: \.value) { item in
+        Button {
+          selection.wrappedValue = item.value
+        } label: {
+          if selection.wrappedValue == item.value {
+            Label(item.label, systemImage: "checkmark")
+          } else {
+            Text(item.label)
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: 10) {
+        Text(title).font(.body).foregroundStyle(.primary)
+        Spacer()
+        Text(value).font(.subheadline).foregroundStyle(.secondary)
+        Image(systemName: "chevron.up.chevron.down")
+          .font(.caption.weight(.medium))
+          .foregroundStyle(.secondary.opacity(0.65))
+      }
+      .padding(.horizontal, 16)
+      .frame(minHeight: 54)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
   }
 
   private var behaviorSwitchesSection: some View {

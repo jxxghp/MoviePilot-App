@@ -979,10 +979,25 @@ export struct HarmonySideNavRail {
   }
 }
 
+function mixHexColor(baseHex: string, targetR: number, targetG: number, targetB: number, ratio: number): string {
+  const clean = baseHex.replace('#', '');
+  const full = clean.length === 8 ? clean.substring(2) : clean;
+  const r = parseInt(full.substring(0, 2), 16) || 122;
+  const g = parseInt(full.substring(2, 4), 16) || 87;
+  const b = parseInt(full.substring(4, 6), 16) || 224;
+  const t = Math.max(0, Math.min(1, ratio));
+  const mr = Math.round(r * (1 - t) + targetR * t);
+  const mg = Math.round(g * (1 - t) + targetG * t);
+  const mb = Math.round(b * (1 - t) + targetB * t);
+  const hex = (n: number): string => n.toString(16).padStart(2, '0');
+  return `#${hex(mr)}${hex(mg)}${hex(mb)}`;
+}
+
 /**
- * 紧凑可拖拽 MoviePilot 紫色机器人悬浮吉祥物（44×52vp，与 iOS/Android 视觉同源）：
- * - Canvas 原生绘制：微倾天线、#A385FA->#7A57E0 紫韵渐变头身、#262140 深色面罩、#F0EBFF 弯月睡眼、胸口纯白播放三角；
- * - 支持全屏安全边界内自由拖拽（`PanGesture`），当迷你音乐条可见时自动向上避让 `+68vp`，绝不遮挡底栏或播控条。
+ * Web `CssRobotRenderer.vue` 同款鸿蒙原生悬浮机器人（56×68vp）：
+ * - 按主题强调色派生高光/主体/暗部与清晰 2vp 实线描边（绝不做半透明灰雾退化）；
+ * - 靠近屏幕边缘闲置 4.2s 自动「贴边探头」：保持 100% 不透明，头歪 ±19° 露出一半，内侧手臂 78° 扒在最前层；
+ * - 支持 5.8s 上半身轻呼吸、7.6s 双眨眼、全部 16 个 Web 动作与拖拽摇晃彩蛋（晃 3 次晕眩、6 次散架重组、久拖困惑、轻挪点头）。
  */
 @Component
 export struct FloatingAiMascotButton {
@@ -992,26 +1007,48 @@ export struct FloatingAiMascotButton {
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_TOP_VP) @Watch('onViewportChanged') safeTopVp: number = 38;
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_LEFT_VP) @Watch('onViewportChanged') safeLeftVp: number = 0;
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_RIGHT_VP) @Watch('onViewportChanged') safeRightVp: number = 0;
+  @StorageLink(HarmonyAppearanceStore.KEY_ACCENT_HEX) accentHex: string = '#7A57E0';
   @Prop miniMusicVisible: boolean = false;
   @Prop baseRight: number = 14;
   @Prop baseBottom: number = 94;
+  @Prop thinking: boolean = false;
+  @Prop motionActive: boolean = true;
   @State private dragDx: number = 0;
   @State private dragDy: number = 0;
   @State private isIdleDocked: boolean = false;
   @State private isDragging: boolean = false;
   private idleTimerId: number = -1;
+  private animIntervalId: number = -1;
+  private randomActionTimerId: number = -1;
+  private activeAction: string = '';
+  private actionStartMs: number = 0;
+  private actionDurationMs: number = 0;
+  private lastRandomAction: string = '';
   private dragStartDx: number = 0;
   private dragStartDy: number = 0;
+  private dragStartMs: number = 0;
+  private shakePivotX: number = 0;
+  private shakeDir: number = 0;
+  private shakeTurns: number = 0;
+  private lastShakeTurnMs: number = 0;
+  private canvasReady: boolean = false;
   private mascotSettings: RenderingContextSettings = new RenderingContextSettings(true);
   private mascotCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.mascotSettings);
   onTap: () => void = () => {};
 
   aboutToAppear(): void {
     this.scheduleIdleDock();
+    this.startAnimLoop();
+    this.scheduleNextRandomAction();
   }
 
   aboutToDisappear(): void {
     this.clearIdleTimer();
+    this.stopAnimLoop();
+    if (this.randomActionTimerId !== -1) {
+      clearTimeout(this.randomActionTimerId);
+      this.randomActionTimerId = -1;
+    }
   }
 
   private clearIdleTimer(): void {
@@ -1021,29 +1058,110 @@ export struct FloatingAiMascotButton {
     }
   }
 
+  private startAnimLoop(): void {
+    this.stopAnimLoop();
+    this.animIntervalId = setInterval(() => {
+      if (this.canvasReady && this.motionActive) {
+        this.drawMascot();
+      }
+    }, 40);
+  }
+
+  private stopAnimLoop(): void {
+    if (this.animIntervalId !== -1) {
+      clearInterval(this.animIntervalId);
+      this.animIntervalId = -1;
+    }
+  }
+
+  private actionDuration(act: string): number {
+    if (act === 'nod') { return 1500; }
+    if (act === 'wake') { return 1800; }
+    if (act === 'wave' || act === 'peek') { return 2800; }
+    if (act === 'sit') { return 4200; }
+    if (act === 'eye-roll') { return 1900; }
+    if (act === 'faint' || act === 'charge') { return 4800; }
+    if (act === 'disassemble') { return 6200; }
+    if (act === 'happy-jump') { return 2600; }
+    if (act === 'sleep') { return 6800; }
+    if (act === 'stretch') { return 5200; }
+    if (act === 'scan') { return 3200; }
+    if (act === 'spin-cheer') { return 3600; }
+    if (act === 'shy') { return 3000; }
+    if (act === 'confused') { return 3400; }
+    return 2400;
+  }
+
+  private playAction(act: string): void {
+    this.activeAction = act;
+    this.actionStartMs = Date.now();
+    this.actionDurationMs = this.actionDuration(act);
+    if (this.canvasReady) {
+      this.drawMascot();
+    }
+  }
+
+  private scheduleNextRandomAction(): void {
+    if (this.randomActionTimerId !== -1) {
+      clearTimeout(this.randomActionTimerId);
+    }
+    const waitMs = 12000 + Math.floor(Math.random() * 12000);
+    this.randomActionTimerId = setTimeout(() => {
+      this.randomActionTimerId = -1;
+      if (this.motionActive && !this.isDragging && !this.effectiveDocked() && !this.thinking && this.activeAction.length === 0) {
+        const pool = ['sleep', 'sleep', 'sleep', 'stretch', 'stretch', 'sit', 'sit', 'wave', 'peek', 'shy', 'confused'];
+        const filtered = pool.filter((item: string) => item !== this.lastRandomAction);
+        const picked = filtered[Math.floor(Math.random() * filtered.length)] || 'sleep';
+        this.lastRandomAction = picked;
+        this.playAction(picked);
+      }
+      this.scheduleNextRandomAction();
+    }, waitMs);
+  }
+
   private scheduleIdleDock(): void {
     this.clearIdleTimer();
     this.isIdleDocked = false;
     this.idleTimerId = setTimeout(() => {
-      if (!this.isDragging) {
+      if (!this.isDragging && !this.thinking) {
         this.isIdleDocked = true;
       }
-    }, 3200);
+    }, 4200);
   }
 
-  private effectiveTranslateX(): number {
-    const clamped = this.clampDx(this.dragDx);
-    if (!this.isIdleDocked || this.isDragging) {
-      return clamped;
-    }
+  private dockBounds(): [number, number] {
     const railWidth = (this.breakpoint === 'md' || this.breakpoint === 'lg')
       ? (84 + this.safeLeftVp)
       : this.safeLeftVp;
     const availW = Math.max(200, this.windowWidthVp - railWidth - this.safeRightVp);
-    const minDx = Math.min(0, -(availW - 44 - this.baseRight - 10));
-    const midDx = minDx * 0.5;
-    // 贴近最近一侧边缘轻柔缩进，半隐露身不遮挡主画面。
-    return clamped < midDx ? (minDx - 12) : (this.baseRight + 10);
+    const minDx = Math.min(0, -(availW - 56 - this.baseRight - 8));
+    const maxDx = Math.max(0, this.baseRight - 6);
+    return [minDx, maxDx];
+  }
+
+  private dockOnLeft(): boolean {
+    const bounds = this.dockBounds();
+    const clamped = this.clampDx(this.dragDx);
+    return Math.abs(clamped - bounds[0]) < Math.abs(bounds[1] - clamped);
+  }
+
+  private nearScreenEdge(): boolean {
+    const bounds = this.dockBounds();
+    const clamped = this.clampDx(this.dragDx);
+    return Math.abs(clamped - bounds[0]) <= 88 || Math.abs(bounds[1] - clamped) <= 88;
+  }
+
+  private effectiveDocked(): boolean {
+    return this.isIdleDocked && !this.isDragging && !this.thinking && this.nearScreenEdge();
+  }
+
+  private effectiveTranslateX(): number {
+    const clamped = this.clampDx(this.dragDx);
+    if (!this.effectiveDocked()) {
+      return clamped;
+    }
+    const bounds = this.dockBounds();
+    return this.dockOnLeft() ? (bounds[0] - 20) : (this.baseRight + 20);
   }
 
   onViewportChanged(): void {
@@ -1062,102 +1180,414 @@ export struct FloatingAiMascotButton {
     ctx.closePath();
   }
 
+  private drawArm(
+    ctx: CanvasRenderingContext2D,
+    ax: number,
+    ay: number,
+    aw: number,
+    ah: number,
+    deg: number,
+    shellMid: string,
+    outlineSoft: string,
+    outline: string,
+    strokeW: number
+  ): void {
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate((deg * Math.PI) / 180);
+    const grad = ctx.createLinearGradient(0, -ah * 0.5, 0, ah * 0.5);
+    grad.addColorStop(0, shellMid);
+    grad.addColorStop(1, outlineSoft);
+    ctx.fillStyle = grad;
+    this.roundRectPath(ctx, -aw * 0.5, -ah * 0.5, aw, ah, aw * 0.5);
+    ctx.fill();
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = strokeW;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawRobotEye(
+    ctx: CanvasRenderingContext2D,
+    ecx: number,
+    ecy: number,
+    ew: number,
+    eh: number,
+    happy: boolean,
+    color: string
+  ): void {
+    const rx = ew * 0.5;
+    const outerRy = Math.max(eh, 1.0);
+    const innerRy = outerRy * 0.52;
+    const dir = happy ? -1 : 1;
+    const baseY = happy ? (ecy + outerRy * 0.45) : (ecy - outerRy * 0.35);
+    const steps = 14;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const theta = (i / steps) * Math.PI;
+      const x = ecx - rx * Math.cos(theta);
+      const y = baseY + dir * outerRy * Math.sin(theta);
+      if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+    }
+    for (let i = steps; i >= 0; i--) {
+      const theta = (i / steps) * Math.PI;
+      const x = ecx - rx * Math.cos(theta);
+      const y = baseY + dir * innerRy * Math.sin(theta);
+      ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
   private drawMascot(): void {
     const ctx = this.mascotCtx;
-    ctx.clearRect(0, 0, 44, 52);
+    const w = 56;
+    const h = 68;
+    const sx = w / 58;
+    const sy = h / 70;
+    const cx = w * 0.5;
+    const cy = h * 0.5;
+    ctx.clearRect(0, 0, w, h);
 
-    // 底部柔和紫晕投影
-    const glow = ctx.createRadialGradient(22, 46, 2, 22, 46, 15);
-    glow.addColorStop(0, '#507A57E0');
-    glow.addColorStop(1, '#007A57E0');
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(22, 46, 15, 0, Math.PI * 2);
-    ctx.fill();
+    const nowMs = Date.now();
+    if (this.activeAction.length > 0 && nowMs - this.actionStartMs >= this.actionDurationMs) {
+      this.activeAction = '';
+    }
+    const docked = this.effectiveDocked();
+    const dockLeft = this.dockOnLeft();
+    const act = docked ? '' : this.activeAction;
+    const p = act.length > 0 ? Math.max(0, Math.min(1, (nowMs - this.actionStartMs) / Math.max(100, this.actionDurationMs))) : 0;
+    const timeSec = (nowMs % 3600000) / 1000;
 
-    // 微倾天线（右上倾斜）
+    const breath = (this.motionActive && act.length === 0 && !docked && !this.isDragging)
+      ? Math.max(0, Math.sin((timeSec / 5.8) * Math.PI * 2))
+      : 0;
+    const blinkPhase = (timeSec % 7.6) / 7.6;
+    const blinkClosed = this.motionActive && ((blinkPhase > 0.33 && blinkPhase < 0.365) || (blinkPhase > 0.77 && blinkPhase < 0.805));
+
+    const outline = mixHexColor(this.accentHex, 9, 5, 16, 0.68);
+    const outlineSoft = mixHexColor(this.accentHex, 9, 5, 16, 0.46);
+    const shellStart = mixHexColor(this.accentHex, 255, 255, 255, 0.54);
+    const shellMid = mixHexColor(this.accentHex, 255, 255, 255, 0.16);
+    const shellEnd = mixHexColor(this.accentHex, 9, 5, 16, 0.18);
+    const eyeGlow = '#72FFF0';
+    const eyeColor = '#F5F2FF';
+
+    let rootOx = 0;
+    let rootOy = 0;
+    let rootRot = 0;
+    let headOx = 0;
+    let headOy = -1.3 * breath * sy;
+    let headRot = -3;
+    let bodyOy = 0;
+    let bodyScaleX = 1 + 0.02 * breath;
+    let bodyScaleY = 1 + 0.036 * breath;
+    let leftArmDeg = 17;
+    let rightArmDeg = -17;
+    let leftArmOx = 0;
+    let leftArmOy = 0;
+    let rightArmOx = 0;
+    let rightArmOy = 0;
+    let leftLegOx = 0;
+    let leftLegOy = 0;
+    let rightLegOx = 0;
+    let rightLegOy = 0;
+    let eyeOx = 0;
+    let eyeOy = 0;
+    let eyeScaleY = blinkClosed ? 0.14 : 1.0;
+    let antennaDeg = 22;
+    let showBlush = false;
+    let showScan = this.thinking;
+    let happyEyes = false;
+
+    if (act === 'nod') {
+      headOy += Math.sin(p * Math.PI * 4) * 2.2 * sy;
+      headRot += Math.sin(p * Math.PI * 4) * 6;
+    } else if (act === 'wake') {
+      const hop = Math.sin(Math.min(p * 2.2, 1) * Math.PI);
+      rootOy -= hop * 6 * sy;
+      antennaDeg -= hop * 18;
+    } else if (act === 'wave') {
+      const env = Math.sin(Math.min(p * 3, 1) * Math.PI * 0.5) * Math.sin(Math.min((1 - p) * 3, 1) * Math.PI * 0.5);
+      rightArmDeg = -17 - env * (128 + Math.sin(p * Math.PI * 10) * 20);
+      headRot += env * 7;
+      eyeOx += env * 1.4 * sx;
+    } else if (act === 'sit') {
+      const env = Math.sin(Math.min(p * 3.5, 1) * Math.PI * 0.5) * Math.sin(Math.min((1 - p) * 3.5, 1) * Math.PI * 0.5);
+      bodyOy += env * 4.5 * sy;
+      headOy += env * 5.2 * sy;
+      leftLegOx = -2.2 * sx * env;
+      leftLegOy = -2.5 * sy * env;
+      rightLegOx = 2.2 * sx * env;
+      rightLegOy = -2.5 * sy * env;
+    } else if (act === 'eye-roll') {
+      eyeOx = Math.cos(p * Math.PI * 2) * 2.4 * sx;
+      eyeOy = -Math.abs(Math.sin(p * Math.PI * 2)) * 2.6 * sy;
+    } else if (act === 'faint') {
+      const env = Math.sin(Math.min(p * 4, 1) * Math.PI * 0.5) * Math.sin(Math.min((1 - p) * 4, 1) * Math.PI * 0.5);
+      rootRot = env * (24 + Math.sin(p * Math.PI * 6) * 5);
+      rootOy += env * 4 * sy;
+      eyeScaleY = 0.24;
+    } else if (act === 'disassemble') {
+      const burst = Math.sin(Math.max(0, Math.min(1, (p - 0.08) / 0.72)) * Math.PI);
+      headOy -= burst * 9.5 * sy;
+      headRot += burst * 18;
+      leftArmOx = -7.5 * sx * burst;
+      leftArmOy = -3 * sy * burst;
+      rightArmOx = 7.5 * sx * burst;
+      rightArmOy = -3 * sy * burst;
+      leftArmDeg += burst * 42;
+      rightArmDeg -= burst * 42;
+      leftLegOx = -4 * sx * burst;
+      leftLegOy = 4 * sy * burst;
+      rightLegOx = 4 * sx * burst;
+      rightLegOy = 4 * sy * burst;
+      bodyOy += burst * 2.5 * sy;
+    } else if (act === 'happy-jump') {
+      const bounce = Math.abs(Math.sin(p * Math.PI * 3));
+      rootOy -= bounce * 11 * sy;
+      leftArmDeg = 17 + bounce * 118;
+      rightArmDeg = -17 - bounce * 118;
+      happyEyes = true;
+    } else if (act === 'sleep') {
+      const env = Math.sin(Math.min(p * 4, 1) * Math.PI * 0.5) * Math.sin(Math.min((1 - p) * 4, 1) * Math.PI * 0.5);
+      headOy += env * 2.6 * sy + Math.sin(p * Math.PI * 6) * 0.8 * sy;
+      headRot -= env * 9;
+      eyeScaleY = Math.max(0.14, 1 - env * 0.86);
+    } else if (act === 'stretch') {
+      const env = Math.sin(Math.min(p * 3, 1) * Math.PI * 0.5) * Math.sin(Math.min((1 - p) * 3, 1) * Math.PI * 0.5);
+      bodyScaleY = 1 + env * 0.14;
+      bodyScaleX = 1 - env * 0.06;
+      headOy -= env * 3.6 * sy;
+      leftArmDeg = 17 + env * 130;
+      rightArmDeg = -17 - env * 130;
+    } else if (act === 'peek') {
+      const look = Math.sin(p * Math.PI * 2);
+      headOx += look * 4.2 * sx;
+      headRot += look * 9;
+      eyeOx += look * 2.6 * sx;
+    } else if (act === 'scan') {
+      showScan = true;
+      eyeOx = Math.sin(p * Math.PI * 4) * 2.2 * sx;
+    } else if (act === 'charge') {
+      const env = Math.min(1, p * 1.4);
+      rootOx += Math.sin(p * Math.PI * 28) * 1.3 * sx * env;
+      bodyScaleX = 1 + env * 0.06;
+      bodyScaleY = 1 - env * 0.05;
+      leftArmDeg = 17 + env * 36;
+      rightArmDeg = -17 - env * 36;
+    } else if (act === 'spin-cheer') {
+      rootRot = p < 0.65 ? (p / 0.65) * 360 : 0;
+      const lift = Math.sin(p * Math.PI);
+      rootOy -= lift * 9 * sy;
+      leftArmDeg = 17 + lift * 132;
+      rightArmDeg = -17 - lift * 132;
+      happyEyes = true;
+    } else if (act === 'shy') {
+      const env = Math.sin(Math.min(p * 3.5, 1) * Math.PI * 0.5) * Math.sin(Math.min((1 - p) * 3.5, 1) * Math.PI * 0.5);
+      showBlush = env > 0.2;
+      headRot += Math.sin(p * Math.PI * 2) * 7 * env;
+      leftArmDeg = 17 - env * 28;
+      rightArmDeg = -17 + env * 28;
+    } else if (act === 'confused') {
+      const env = Math.sin(Math.min(p * 3.5, 1) * Math.PI * 0.5) * Math.sin(Math.min((1 - p) * 3.5, 1) * Math.PI * 0.5);
+      headRot += env * 18;
+      eyeOx += env * 1.2 * sx;
+    }
+
+    if (docked) {
+      rootRot = dockLeft ? 19 : -19;
+      rootOy = -2 * sy;
+      antennaDeg = dockLeft ? -12 : 12;
+      eyeOx = (dockLeft ? 2.2 : -2.2) * sx;
+    }
+
+    const strokeW = Math.max(1.6, 1.9 * sx);
+    const bodyVisible = !docked;
+
+    // 柔和接地阴影
+    if (bodyVisible) {
+      const shadow = ctx.createRadialGradient(cx + rootOx, cy + 28 * sy, 2, cx + rootOx, cy + 28 * sy, 18 * sx);
+      shadow.addColorStop(0, '#44090510');
+      shadow.addColorStop(1, '#00090510');
+      ctx.fillStyle = shadow;
+      ctx.beginPath();
+      ctx.ellipse(cx + rootOx, cy + 28 * sy, 17 * sx, 4.2 * sy, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.save();
-    ctx.strokeStyle = '#9D7FF5';
-    ctx.lineWidth = 2.4;
+    ctx.translate(cx + rootOx, cy + rootOy);
+    ctx.rotate((rootRot * Math.PI) / 180);
+    ctx.translate(-cx, -cy);
+
+    if (bodyVisible) {
+      // 1. 双腿
+      const sides = [-1, 1];
+      for (let i = 0; i < sides.length; i++) {
+        const side = sides[i];
+        const legW = 8.4 * sx;
+        const legH = 9 * sy;
+        const lx = cx + side * 7.6 * sx - legW * 0.5 + (side < 0 ? leftLegOx : rightLegOx);
+        const ly = cy + 25 * sy - legH * 0.5 + (side < 0 ? leftLegOy : rightLegOy);
+        const lg = ctx.createLinearGradient(0, ly, 0, ly + legH);
+        lg.addColorStop(0, shellMid);
+        lg.addColorStop(1, outlineSoft);
+        ctx.fillStyle = lg;
+        this.roundRectPath(ctx, lx, ly, legW, legH, 4 * sx);
+        ctx.fill();
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = strokeW;
+        ctx.stroke();
+      }
+
+      // 2. 双手臂
+      this.drawArm(ctx, cx - 15.8 * sx + leftArmOx, cy + 13.5 * sy + leftArmOy, 7.4 * sx, 13.4 * sy, leftArmDeg, shellMid, outlineSoft, outline, strokeW);
+      this.drawArm(ctx, cx + 15.8 * sx + rightArmOx, cy + 13.5 * sy + rightArmOy, 7.4 * sx, 13.4 * sy, rightArmDeg, shellMid, outlineSoft, outline, strokeW);
+
+      // 3. 躯干 + 胸口播放三角
+      const bodyW = 26.8 * sx * bodyScaleX;
+      const bodyH = 19.8 * sy * bodyScaleY;
+      const bx = cx - bodyW * 0.5;
+      const by = cy + 13.8 * sy + bodyOy - bodyH * 0.5;
+      const bg = ctx.createLinearGradient(bx, by, bx + bodyW, by + bodyH);
+      bg.addColorStop(0, shellMid);
+      bg.addColorStop(1, shellEnd);
+      ctx.fillStyle = bg;
+      this.roundRectPath(ctx, bx, by, bodyW, bodyH, 9.2 * sx);
+      ctx.fill();
+      ctx.fillStyle = '#3DFFFFFF';
+      this.roundRectPath(ctx, bx + 2.5 * sx, by + 1.4 * sy, bodyW - 5 * sx, 3.8 * sy, 3 * sx);
+      ctx.fill();
+      ctx.fillStyle = '#3D090510';
+      this.roundRectPath(ctx, bx + 1.5 * sx, by + bodyH - 3.6 * sy, bodyW - 3 * sx, 2.8 * sy, 3 * sx);
+      ctx.fill();
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = strokeW;
+      this.roundRectPath(ctx, bx, by, bodyW, bodyH, 9.2 * sx);
+      ctx.stroke();
+
+      const playCx = cx + 0.9 * sx;
+      const playCy = cy + 13.8 * sy + bodyOy;
+      ctx.fillStyle = this.thinking ? eyeGlow : '#FFFFFF';
+      ctx.beginPath();
+      ctx.moveTo(playCx - 3.4 * sx, playCy - 4.4 * sy);
+      ctx.lineTo(playCx + 4.4 * sx, playCy);
+      ctx.lineTo(playCx - 3.4 * sx, playCy + 4.4 * sy);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 4. 头部 + 天线 + 深色玻璃面罩 + 弯月眼睛
+    const headX = cx + headOx;
+    const headY = cy - 7.5 * sy + headOy;
+    ctx.save();
+    ctx.translate(headX, headY);
+    ctx.rotate((headRot * Math.PI) / 180);
+    ctx.translate(-headX, -headY);
+
+    // 倾斜天线
+    const antX = headX + 2.2 * sx;
+    const antY = headY - 14.5 * sy;
+    ctx.save();
+    ctx.translate(antX, antY);
+    ctx.rotate((antennaDeg * Math.PI) / 180);
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 2.6 * sx;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(23, 11.5);
-    ctx.lineTo(27.5, 4.5);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -8.5 * sy);
     ctx.stroke();
-
-    ctx.fillStyle = '#EAE2FF';
+    ctx.fillStyle = shellStart;
     ctx.beginPath();
-    ctx.arc(28, 4, 2.7, 0, Math.PI * 2);
+    ctx.arc(0, -10.5 * sy, 3.4 * sx, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#8361E8';
-    ctx.lineWidth = 1.0;
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = strokeW * 0.92;
     ctx.stroke();
     ctx.restore();
 
-    // 左右小耳廓
-    ctx.fillStyle = '#8361E8';
-    this.roundRectPath(ctx, 3.2, 16.5, 4.2, 8.5, 2.1);
+    // 头壳 45×31
+    const headW = 45 * sx;
+    const headH = 31 * sy;
+    const hx = headX - headW * 0.5;
+    const hy = headY - headH * 0.5;
+    const hg = ctx.createLinearGradient(hx, hy, hx + headW, hy + headH);
+    hg.addColorStop(0, shellStart);
+    hg.addColorStop(0.5, shellMid);
+    hg.addColorStop(1, shellEnd);
+    ctx.fillStyle = hg;
+    this.roundRectPath(ctx, hx, hy, headW, headH, 10.8 * sx);
     ctx.fill();
-    this.roundRectPath(ctx, 36.6, 16.5, 4.2, 8.5, 2.1);
+    ctx.fillStyle = '#47FFFFFF';
+    this.roundRectPath(ctx, hx + 3 * sx, hy + 1.5 * sy, headW - 6 * sx, 4.5 * sy, 3.5 * sx);
     ctx.fill();
-
-    // 圆润头部（#A385FA -> #7A57E0）
-    const headGrad = ctx.createLinearGradient(22, 10, 22, 31);
-    headGrad.addColorStop(0, '#A385FA');
-    headGrad.addColorStop(1, '#7A57E0');
-    ctx.fillStyle = headGrad;
-    this.roundRectPath(ctx, 6, 10, 32, 20.5, 9.5);
+    ctx.fillStyle = '#3D090510';
+    this.roundRectPath(ctx, hx + 2 * sx, hy + headH - 3.8 * sy, headW - 4 * sx, 3 * sy, 3 * sx);
     ctx.fill();
-    ctx.strokeStyle = '#52FFFFFF';
-    ctx.lineWidth = 0.9;
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = strokeW;
+    this.roundRectPath(ctx, hx, hy, headW, headH, 10.8 * sx);
     ctx.stroke();
 
-    // 深色护目镜面罩（#262140）
-    ctx.fillStyle = '#262140';
-    this.roundRectPath(ctx, 9.5, 13.5, 25, 13, 6);
+    // 深色护目镜面罩
+    const faceW = 34 * sx;
+    const faceH = 19.8 * sy;
+    const fx = headX - 1.5 * sx - faceW * 0.5;
+    const fy = headY + 0.6 * sy - faceH * 0.5;
+    const fg = ctx.createLinearGradient(0, fy, 0, fy + faceH);
+    fg.addColorStop(0, '#221B3A');
+    fg.addColorStop(1, '#0C0F1E');
+    ctx.fillStyle = fg;
+    this.roundRectPath(ctx, fx, fy, faceW, faceH, 7.2 * sx);
     ctx.fill();
+    ctx.strokeStyle = (this.thinking || showScan) ? eyeGlow : outlineSoft;
+    ctx.lineWidth = 1.6 * sx;
+    ctx.stroke();
 
-    // 慵懒可爱弯月眼（#F0EBFF）
-    ctx.save();
-    ctx.strokeStyle = '#F0EBFF';
-    ctx.lineWidth = 2.0;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(13.2, 20.4);
-    ctx.quadraticCurveTo(16.2, 17.4, 19.2, 20.4);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(24.8, 20.4);
-    ctx.quadraticCurveTo(27.8, 17.4, 30.8, 20.4);
-    ctx.stroke();
+    if (showScan) {
+      const sweep = (Math.sin(timeSec * 4.2) + 1) * 0.5;
+      const bxScan = fx + 3 * sx + sweep * (faceW - 6 * sx);
+      ctx.fillStyle = '#4D72FFF0';
+      ctx.fillRect(bxScan - 2 * sx, fy + 1.5 * sy, 4 * sx, faceH - 3 * sy);
+    }
+
+    if (showBlush) {
+      ctx.fillStyle = '#8CFF73A8';
+      ctx.beginPath();
+      ctx.ellipse(fx + 5.7 * sx, fy + faceH * 0.68, 2.8 * sx, 1.5 * sy, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(fx + faceW - 5.7 * sx, fy + faceH * 0.68, 2.8 * sx, 1.5 * sy, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const eyeBaseX = fx + faceW * 0.5 + eyeOx;
+    const eyeBaseY = fy + faceH * 0.5 - 1.2 * sy + eyeOy;
+    const activeEyeColor = (this.thinking || showScan) ? eyeGlow : eyeColor;
+    this.drawRobotEye(ctx, eyeBaseX - 7.3 * sx, eyeBaseY, 7.6 * sx, 5.2 * sy * eyeScaleY, happyEyes, activeEyeColor);
+    this.drawRobotEye(ctx, eyeBaseX + 7.3 * sx, eyeBaseY + 0.5 * sy, 7.6 * sx, 5.2 * sy * eyeScaleY, happyEyes, activeEyeColor);
     ctx.restore();
 
-    // 左右小圆润手臂
-    ctx.fillStyle = '#8664E8';
-    this.roundRectPath(ctx, 6.2, 34.2, 4.2, 9.2, 2.1);
-    ctx.fill();
-    this.roundRectPath(ctx, 33.6, 34.2, 4.2, 9.2, 2.1);
-    ctx.fill();
+    // 5. 贴边探头专属：内侧小手移至最前层 ±78° 扒住屏幕边缘
+    if (docked) {
+      this.drawArm(
+        ctx,
+        dockLeft ? (cx + 4.5 * sx) : (cx - 4.5 * sx),
+        cy + 12.5 * sy,
+        6.4 * sx,
+        13.8 * sy,
+        dockLeft ? -78 : 78,
+        shellMid,
+        outlineSoft,
+        outline,
+        strokeW
+      );
+    }
 
-    // 紧凑躯干（#A385FA -> #7A57E0）
-    const bodyGrad = ctx.createLinearGradient(22, 31.5, 22, 48.5);
-    bodyGrad.addColorStop(0, '#A385FA');
-    bodyGrad.addColorStop(1, '#7A57E0');
-    ctx.fillStyle = bodyGrad;
-    this.roundRectPath(ctx, 9.5, 31.8, 25, 16.5, 7.8);
-    ctx.fill();
-    ctx.strokeStyle = '#48FFFFFF';
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-
-    // 躯干中央纯白播放三角（MoviePilot 标志）
-    ctx.fillStyle = '#FFFFFF';
-    ctx.beginPath();
-    ctx.moveTo(19.4, 36.4);
-    ctx.lineTo(26.4, 40.2);
-    ctx.lineTo(19.4, 44.0);
-    ctx.closePath();
-    ctx.fill();
+    ctx.restore();
   }
 
   private effectiveBottomVp(): number {
@@ -1165,31 +1595,29 @@ export struct FloatingAiMascotButton {
   }
 
   private clampDx(rawDx: number): number {
-    const railWidth = (this.breakpoint === 'md' || this.breakpoint === 'lg')
-      ? (84 + this.safeLeftVp)
-      : this.safeLeftVp;
-    const availW = Math.max(200, this.windowWidthVp - railWidth - this.safeRightVp);
-    const minDx = Math.min(0, -(availW - 44 - this.baseRight - 10));
-    const maxDx = Math.max(0, this.baseRight - 8);
-    return Math.max(minDx, Math.min(maxDx, rawDx));
+    const bounds = this.dockBounds();
+    return Math.max(bounds[0], Math.min(bounds[1], rawDx));
   }
 
   private clampDy(rawDy: number): number {
     const availH = Math.max(220, this.windowHeightVp);
     const topReserve = Math.max(12, this.safeTopVp + 10);
-    const minDy = Math.min(0, -(availH - 52 - this.effectiveBottomVp() - topReserve));
+    const minDy = Math.min(0, -(availH - 68 - this.effectiveBottomVp() - topReserve));
     return Math.max(minDy, Math.min(0, rawDy));
   }
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
       Canvas(this.mascotCtx)
-        .width(44)
-        .height(52)
-        .onReady(() => this.drawMascot())
+        .width(56)
+        .height(68)
+        .onReady(() => {
+          this.canvasReady = true;
+          this.drawMascot();
+        })
     }
-    .width(44)
-    .height(52)
+    .width(56)
+    .height(68)
     .position({
       right: this.baseRight,
       bottom: this.effectiveBottomVp()
@@ -1199,14 +1627,18 @@ export struct FloatingAiMascotButton {
       y: this.clampDy(this.dragDy)
     })
     .scale({
-      x: this.isDragging ? 1.06 : (this.isIdleDocked ? 0.90 : 1.0),
-      y: this.isDragging ? 1.06 : (this.isIdleDocked ? 0.90 : 1.0)
+      x: this.isDragging ? 1.06 : 1.0,
+      y: this.isDragging ? 1.06 : 1.0
     })
-    .opacity(this.isDragging ? 1.0 : (this.isIdleDocked ? 0.50 : 0.94))
+    .opacity(1.0)
     .animation({ duration: HarmonyMotionTokens.DURATION_LOCAL, curve: HarmonyMotionTokens.CURVE_STANDARD })
     .hoverEffect(HoverEffect.Scale)
     .accessibilityText('打开 MoviePilot 智能助手（支持按住自由拖拽）')
     .onClick(() => {
+      if (this.effectiveDocked()) {
+        this.isIdleDocked = false;
+        this.playAction('wake');
+      }
       this.scheduleIdleDock();
       this.onTap();
     })
@@ -1216,16 +1648,44 @@ export struct FloatingAiMascotButton {
           this.clearIdleTimer();
           this.isDragging = true;
           this.isIdleDocked = false;
+          this.activeAction = '';
           this.dragStartDx = this.clampDx(this.dragDx);
           this.dragStartDy = this.clampDy(this.dragDy);
+          this.dragStartMs = Date.now();
+          this.shakePivotX = this.dragStartDx;
+          this.shakeDir = 0;
+          this.shakeTurns = 0;
+          this.lastShakeTurnMs = 0;
         })
         .onActionUpdate((ev: GestureEvent) => {
-          this.dragDx = this.clampDx(this.dragStartDx + ev.offsetX);
+          const nextDx = this.clampDx(this.dragStartDx + ev.offsetX);
+          this.dragDx = nextDx;
           this.dragDy = this.clampDy(this.dragStartDy + ev.offsetY);
+          const delta = nextDx - this.shakePivotX;
+          if (Math.abs(delta) >= 18) {
+            const dir = delta > 0 ? 1 : -1;
+            const now = Date.now();
+            if (now - this.lastShakeTurnMs > 550) {
+              this.shakeTurns = 0;
+            }
+            if (this.shakeDir !== 0 && dir !== this.shakeDir) {
+              this.shakeTurns += 1;
+            }
+            this.shakeDir = dir;
+            this.shakePivotX = nextDx;
+            this.lastShakeTurnMs = now;
+          }
         })
         .onActionEnd(() => {
           this.isDragging = false;
           this.scheduleIdleDock();
+          const now = Date.now();
+          const recentTurns = (now - this.lastShakeTurnMs <= 550) ? this.shakeTurns : 0;
+          const elapsed = now - this.dragStartMs;
+          const reaction = recentTurns >= 6
+            ? 'disassemble'
+            : (recentTurns >= 3 ? 'faint' : (elapsed > 4000 ? 'confused' : 'nod'));
+          this.playAction(reaction);
         })
         .onActionCancel(() => {
           this.isDragging = false;

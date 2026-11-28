@@ -59,6 +59,7 @@ struct NativeV2MainShell<PluginDestination: View>: View {
   }
 
   @State private var showsAgentSheet = false
+  @State private var showsPetPickerSheet = false
   @State private var showsMessagesSheet = false
   @State private var restoredCapsuleSheetTarget: MinimizedPluginSession?
   @State private var deepLinkPluginTarget: DeepLinkPluginTarget?
@@ -135,12 +136,30 @@ struct NativeV2MainShell<PluginDestination: View>: View {
           }
           .zIndex(46)
         }
-        if showFloatingAssistant && isAtRootNavigationLevel && !usesDuoSideOperationBar
-          && !showsAgentSheet && !showsMessagesSheet
-        {
-          NativeAgentFloatingMascot(
-            onOpen: { showsAgentSheet = true },
-            onHide: { showFloatingAssistant = false }
+        // 全界面 Agent 助手形象宿主（独立穿透 UIWindow 覆盖主 Tab 与全部二级子页面；底部安全边界恒定不随子页跳动，任意弹窗弹出自动避让并在关闭后 0ms 恢复）
+        if showFloatingAssistant && !usesDuoSideOperationBar && !playbackLauncher.hasActivePlayer {
+          NativeAgentPetOverlayHost(
+            session: session,
+            petStore: NativeAgentPetStore.shared(for: session),
+            isVisible: !showsMessagesSheet && !showsPetPickerSheet && !showsModuleSheet && restoredCapsuleSheetTarget == nil && deepLinkPluginTarget == nil,
+            panelOpen: showsAgentSheet,
+            dockVisible: !NativeDeviceLayout.isIPad && !usesDuoSideOperationBar,
+            thinking: NativeAgentChatStore.shared(for: session).isSending,
+            onOpenAgent: { draft in
+              if let draft, !draft.isEmpty {
+                pendingAgentPrompt = draft
+              }
+              showsAgentSheet = true
+            },
+            onCloseAgent: {
+              showsAgentSheet = false
+            },
+            onOpenPetPicker: {
+              showsPetPickerSheet = true
+            },
+            onHideFloating: {
+              showFloatingAssistant = false
+            }
           )
           .zIndex(48)
         }
@@ -169,6 +188,12 @@ struct NativeV2MainShell<PluginDestination: View>: View {
       if let target = pluginCapsuleManager.currentSession {
         restoredCapsuleSheetTarget = target
       }
+    }
+    .sheet(isPresented: $showsPetPickerSheet) {
+      NativeAgentPetPickerSheet(
+        session: session,
+        petStore: NativeAgentPetStore.shared(for: session)
+      )
     }
     .sheet(item: $restoredCapsuleSheetTarget) { restored in
       NativeVuePluginSheet(

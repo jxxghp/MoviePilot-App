@@ -1057,16 +1057,71 @@ fun NativePosterCard(
     }
 }
 
+/** 与 Web `agentPetActions.ts` 对齐的 16 个内置助手动作。 */
+enum class AgentMascotAction(val wireName: String, val durationMs: Long) {
+    Nod("nod", 1500L),
+    Wake("wake", 1800L),
+    Wave("wave", 2800L),
+    Sit("sit", 4200L),
+    EyeRoll("eye-roll", 1900L),
+    Faint("faint", 4800L),
+    Disassemble("disassemble", 6200L),
+    HappyJump("happy-jump", 2600L),
+    Sleep("sleep", 6800L),
+    Stretch("stretch", 5200L),
+    Peek("peek", 2800L),
+    Scan("scan", 3200L),
+    Charge("charge", 4800L),
+    SpinCheer("spin-cheer", 3600L),
+    Shy("shy", 3000L),
+    Confused("confused", 3400L);
+
+    companion object {
+        private val randomPool = listOf(Wave, Sit, Sleep, Stretch, Peek, Shy, Confused)
+
+                /** 选择一个与上次不同的随机待机动作。 */
+        fun pickRandomIdle(last: AgentMascotAction?): AgentMascotAction {
+            val weighted = buildList {
+                for (act in randomPool) {
+                    if (act == last) continue
+                    val w = when (act) {
+                        Sleep -> 3
+                        Stretch, Sit -> 2
+                        else -> 1
+                    }
+                    repeat(w) { add(act) }
+                }
+            }
+            return weighted.randomOrNull() ?: Sleep
+        }
+    }
+}
+
+/** 在两种颜色之间按比例插值，用于生成机器人主题色。 */
+private fun mixColor(a: Color, b: Color, ratio: Float): Color {
+    val t = ratio.coerceIn(0f, 1f)
+    return Color(
+        red = a.red * (1f - t) + b.red * t,
+        green = a.green * (1f - t) + b.green * t,
+        blue = a.blue * (1f - t) + b.blue * t,
+        alpha = 1f,
+    )
+}
+
 /**
- * 1:1 像素级复刻 iOS `NativeAgentFloatingMascot.swift`（源自 Web `CssRobotRenderer.vue`）：
- * 紫蓝三段立体渐变头壳、右倾 20° 圆球天线、-3° 微倾头部、深色面罩、半眯下弧弯月双眼（7.2s 慢速眨眼）、
- * 白色播放三角圆润躯干、外展 ±17° 短手与圆润短腿，支持全屏任意位置平滑拖曳、零残影。
+ * 1:1 复刻 Web `CssRobotRenderer.vue` 的高质感主题自适应机器人悬浮入口：
+ * - 基于主题强调色派生外壳高光/中调/暗部与清晰 2dp 实线描边（去除旧版半透明灰雾）；
+ * - 靠近屏幕左右边缘闲置 4.2s 进入「贴边探头」形态：保持 100% 不透明，歪头 ±19° 露出半脸与单眼，内侧手臂 78° 扒在最前层；
+ * - 5.8s 上半身轻呼吸 + 7.6s 双眨眼 + 全部 16 个 Web 动作 + 拖拽晃动彩蛋（晃 3 次晕眩、6 次散架重组、久拖困惑、轻挪点头）。
  */
 @Composable
 fun FloatingAgentMascot(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    thinking: Boolean = false,
+    motionActive: Boolean = true,
 ) {
+    val colors = LocalMoviePilotColors.current
     val view = LocalView.current
     val cfg = LocalConfiguration.current
     val layoutDir = LocalLayoutDirection.current
@@ -1077,8 +1132,10 @@ fun FloatingAgentMascot(
     val statusTopPx = with(density) { safePadding.calculateTopPadding().toPx() }
     val navBottomPx = with(density) { safePadding.calculateBottomPadding().toPx() }
     val safeMarginPx = with(density) { 6.dp.toPx() }
-    val mascotWidthPx = with(density) { 50.dp.toPx() }
-    val mascotHeightPx = with(density) { 60.dp.toPx() }
+    val mascotWidthPx = with(density) { 58.dp.toPx() }
+    val mascotHeightPx = with(density) { 70.dp.toPx() }
+    val edgeThresholdPx = with(density) { 88.dp.toPx() }
+    val shakeDeltaPx = with(density) { 18.dp.toPx() }
     val screenSizeKey = cfg.screenWidthDp to cfg.screenHeightDp
 
     var offsetX by remember { mutableFloatStateOf(0f) }
@@ -1089,9 +1146,25 @@ fun FloatingAgentMascot(
     var rootHeightPx by remember { mutableFloatStateOf(0f) }
     var lastOrientation by remember { mutableStateOf(cfg.orientation) }
     var isDragging by remember { mutableStateOf(false) }
-    var isBlinking by remember { mutableStateOf(false) }
     var isIdleDocked by remember { mutableStateOf(false) }
     var idleRevision by remember { mutableIntStateOf(0) }
+
+    var activeAction by remember { mutableStateOf<AgentMascotAction?>(null) }
+    var actionStartMs by remember { mutableStateOf(0L) }
+    var lastRandomAction by remember { mutableStateOf<AgentMascotAction?>(null) }
+    var animClockMs by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    var dragStartedAtMs by remember { mutableStateOf(0L) }
+    var shakePivotX by remember { mutableFloatStateOf(0f) }
+    var shakeDir by remember { mutableIntStateOf(0) }
+    var shakeTurns by remember { mutableIntStateOf(0) }
+    var lastShakeTurnMs by remember { mutableStateOf(0L) }
+
+        /** 启动指定机器人动作并重置对应的动画计时。 */
+    fun playAction(act: AgentMascotAction) {
+        activeAction = act
+        actionStartMs = System.currentTimeMillis()
+    }
 
     fun clampOffsets(rawX: Float, rawY: Float): Pair<Float, Float> {
         val vw = if (rootWidthPx > 0f) rootWidthPx else view.width.toFloat()
@@ -1123,61 +1196,72 @@ fun FloatingAgentMascot(
         }
     }
 
-    LaunchedEffect(idleRevision) {
+    LaunchedEffect(idleRevision, motionActive, thinking) {
         isIdleDocked = false
-        delay(3200L)
-        if (!isDragging) {
+        if (!motionActive || thinking) return@LaunchedEffect
+        delay(4200L)
+        if (!isDragging && !thinking) {
             isIdleDocked = true
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(activeAction, actionStartMs) {
+        val act = activeAction ?: return@LaunchedEffect
+        delay(act.durationMs)
+        if (activeAction == act) {
+            activeAction = null
+        }
+    }
+
+    LaunchedEffect(thinking) {
+        if (thinking) {
+            isIdleDocked = false
+            playAction(AgentMascotAction.Scan)
+        }
+    }
+
+    // 30fps 轻量级动画时钟（后台或暂停时停止）
+    LaunchedEffect(motionActive) {
+        if (!motionActive) return@LaunchedEffect
         while (true) {
-            delay(7200L)
-            if (!isDragging) {
-                isBlinking = true
-                delay(160L)
-                isBlinking = false
+            animClockMs = System.currentTimeMillis()
+            delay(33L)
+        }
+    }
+
+    // 12–24s 随机日常闲置动作调度
+    LaunchedEffect(motionActive) {
+        if (!motionActive) return@LaunchedEffect
+        while (true) {
+            delay((12000L..24000L).random())
+            if (!isDragging && !isIdleDocked && !thinking && activeAction == null) {
+                val next = AgentMascotAction.pickRandomIdle(lastRandomAction)
+                lastRandomAction = next
+                playAction(next)
             }
         }
     }
 
-    val eyeScaleY by animateFloatAsState(
-        targetValue = if (isBlinking) 0.15f else 1.0f,
-        animationSpec = tween(durationMillis = if (isBlinking) 110 else 180),
-        label = "mascotBlink",
-    )
+    val vwNow = if (rootWidthPx > 0f) rootWidthPx else view.width.toFloat()
+    val currentLeftPx = anchorX + offsetX
+    val distToLeft = if (anchorX >= 0f) currentLeftPx - safeLeftPx else Float.MAX_VALUE
+    val distToRight = if (anchorX >= 0f && vwNow > 0f) (vwNow - safeRightPx) - (currentLeftPx + mascotWidthPx) else 0f
+    val nearEdge = distToLeft <= edgeThresholdPx || distToRight <= edgeThresholdPx
+    val dockLeft = distToLeft < distToRight
+    val effectiveDocked = isIdleDocked && !isDragging && !thinking && nearEdge
+
     val dragScale by animateFloatAsState(
-        targetValue = when {
-            isDragging -> 1.06f
-            isIdleDocked -> 0.90f
-            else -> 1.0f
-        },
-        animationSpec = tween(durationMillis = 200),
+        targetValue = if (isDragging) 1.06f else 1.0f,
+        animationSpec = tween(durationMillis = 160),
         label = "mascotDragScale",
     )
-    val idleAlpha by animateFloatAsState(
-        targetValue = when {
-            isDragging -> 1.0f
-            isIdleDocked -> 0.50f
-            else -> 0.94f
-        },
-        animationSpec = tween(durationMillis = 260),
-        label = "mascotIdleAlpha",
-    )
     val dockShiftTargetPx = run {
-        if (!isIdleDocked || isDragging || anchorX < 0f) {
+        if (!effectiveDocked || anchorX < 0f || vwNow <= 0f) {
             0f
+        } else if (dockLeft) {
+            (safeLeftPx - mascotWidthPx * 0.36f) - (anchorX + offsetX)
         } else {
-            val vw = if (rootWidthPx > 0f) rootWidthPx else view.width.toFloat()
-            val centerAbsX = anchorX + offsetX + mascotWidthPx * 0.5f
-            if (vw > 0f && centerAbsX < vw * 0.5f) {
-                (safeLeftPx - mascotWidthPx * 0.34f) - (anchorX + offsetX)
-            } else if (vw > 0f) {
-                (vw - safeRightPx - mascotWidthPx * 0.66f) - (anchorX + offsetX)
-            } else {
-                0f
-            }
+            (vwNow - safeRightPx - mascotWidthPx * 0.64f) - (anchorX + offsetX)
         }
     }
     val dockShiftPx by animateFloatAsState(
@@ -1185,6 +1269,19 @@ fun FloatingAgentMascot(
         animationSpec = tween(durationMillis = 280),
         label = "mascotDockShift",
     )
+
+    val ink = Color(0xFF090510)
+    val accent = colors.accent
+    val outline = remember(accent) { mixColor(accent, ink, 0.68f) }
+    val outlineSoft = remember(accent) { mixColor(accent, ink, 0.46f) }
+    val shellStart = remember(accent) { mixColor(accent, Color.White, 0.54f) }
+    val shellMid = remember(accent) { mixColor(accent, Color.White, 0.16f) }
+    val shellEnd = remember(accent) { mixColor(accent, ink, 0.18f) }
+    val shellShade = Color(0x3D090510)
+    val faceStart = Color(0xFF221B3A)
+    val faceEnd = Color(0xFF0C0F1E)
+    val eyeColor = Color(0xFFF5F2FF)
+    val eyeGlow = Color(0xFF72FFF0)
 
     Box(
         modifier = modifier
@@ -1198,21 +1295,37 @@ fun FloatingAgentMascot(
                 if (kotlin.math.abs(nh - rootHeightPx) > 0.5f) rootHeightPx = nh
             }
             .offset { IntOffset((offsetX + dockShiftPx).roundToInt(), offsetY.roundToInt()) }
-            .size(width = 50.dp, height = 60.dp)
+            .size(width = 58.dp, height = 70.dp)
             .graphicsLayer {
                 scaleX = dragScale
                 scaleY = dragScale
-                alpha = idleAlpha
+                alpha = 1f
             }
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = {
                         isIdleDocked = false
                         isDragging = true
+                        activeAction = null
+                        dragStartedAtMs = System.currentTimeMillis()
+                        shakePivotX = offsetX
+                        shakeDir = 0
+                        shakeTurns = 0
+                        lastShakeTurnMs = 0L
                     },
                     onDragEnd = {
                         isDragging = false
                         idleRevision++
+                        val now = System.currentTimeMillis()
+                        val recentTurns = if (now - lastShakeTurnMs <= 550L) shakeTurns else 0
+                        val elapsed = now - dragStartedAtMs
+                        val reaction = when {
+                            recentTurns >= 6 -> AgentMascotAction.Disassemble
+                            recentTurns >= 3 -> AgentMascotAction.Faint
+                            elapsed > 4000L -> AgentMascotAction.Confused
+                            else -> AgentMascotAction.Nod
+                        }
+                        playAction(reaction)
                     },
                     onDragCancel = {
                         isDragging = false
@@ -1223,200 +1336,447 @@ fun FloatingAgentMascot(
                     val (cx, cy) = clampOffsets(offsetX + dragAmount.x, offsetY + dragAmount.y)
                     offsetX = cx
                     offsetY = cy
+                    val delta = cx - shakePivotX
+                    if (kotlin.math.abs(delta) >= shakeDeltaPx) {
+                        val dir = if (delta > 0f) 1 else -1
+                        val now = System.currentTimeMillis()
+                        if (now - lastShakeTurnMs > 550L) shakeTurns = 0
+                        if (shakeDir != 0 && dir != shakeDir) shakeTurns++
+                        shakeDir = dir
+                        shakePivotX = cx
+                        lastShakeTurnMs = now
+                    }
                 }
             }
             .clickable {
+                if (effectiveDocked) {
+                    isIdleDocked = false
+                    playAction(AgentMascotAction.Wake)
+                }
                 idleRevision++
                 onClick()
             },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val sx = size.width / 56f
-            val sy = size.height / 68f
+            val sx = size.width / 58f
+            val sy = size.height / 70f
             val cx = size.width * 0.5f
             val cy = size.height * 0.5f
+            val timeSec = (animClockMs % 3_600_000L) / 1000.0
+            val act = if (effectiveDocked) null else activeAction
+            val p = if (act != null) {
+                ((animClockMs - actionStartMs).toDouble() / act.durationMs.coerceAtLeast(100L)).coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
 
-            val outline = Color(0x6B473080)
-            val shellStart = Color(0xFFDBD1FF)
-            val shellMid = Color(0xFFA385FA)
-            val shellEnd = Color(0xFF7A57E0)
-            val faceStart = Color(0xFF262140)
-            val faceEnd = Color(0xFF0F1224)
-            val eyeColor = Color(0xFFF0EBFF)
+            val breath = if (motionActive && act == null && !effectiveDocked && !isDragging) {
+                sin((timeSec / 5.8) * 2.0 * PI).coerceAtLeast(0.0)
+            } else {
+                0.0
+            }
+            val blinkPhase = (timeSec % 7.6) / 7.6
+            val blinkClosed = motionActive && ((blinkPhase in 0.33..0.365) || (blinkPhase in 0.77..0.805))
+
+            var rootOx = 0f
+            var rootOy = 0f
+            var rootRot = 0f
+            var headOx = 0f
+            var headOy = (-1.3f * breath.toFloat()) * sy
+            var headRot = -3f
+            var bodyOy = 0f
+            var bodyScaleX = 1f + 0.02f * breath.toFloat()
+            var bodyScaleY = 1f + 0.036f * breath.toFloat()
+            var leftArmDeg = 17f
+            var rightArmDeg = -17f
+            var leftArmOx = 0f
+            var leftArmOy = 0f
+            var rightArmOx = 0f
+            var rightArmOy = 0f
+            var leftLegOx = 0f
+            var leftLegOy = 0f
+            var rightLegOx = 0f
+            var rightLegOy = 0f
+            var eyeOx = 0f
+            var eyeOy = 0f
+            var eyeScaleY = if (blinkClosed) 0.14f else 1f
+            var antennaDeg = 22f
+            var showBlush = false
+            var showScan = thinking
+            var happyEyes = false
+
+            when (act) {
+                AgentMascotAction.Nod -> {
+                    headOy += sin(p * PI * 4.0).toFloat() * 2.2f * sy
+                    headRot += sin(p * PI * 4.0).toFloat() * 6f
+                }
+                AgentMascotAction.Wake -> {
+                    val hop = sin((p * 2.2).coerceAtMost(1.0) * PI).toFloat()
+                    rootOy -= hop * 6f * sy
+                    antennaDeg -= hop * 18f
+                }
+                AgentMascotAction.Wave -> {
+                    val env = sin((p * 3.0).coerceAtMost(1.0) * PI * 0.5).toFloat() *
+                        sin(((1.0 - p) * 3.0).coerceAtMost(1.0) * PI * 0.5).toFloat()
+                    rightArmDeg = -17f - env * (128f + sin(p * PI * 10.0).toFloat() * 20f)
+                    headRot += env * 7f
+                    eyeOx += env * 1.4f * sx
+                }
+                AgentMascotAction.Sit -> {
+                    val env = sin((p * 3.5).coerceAtMost(1.0) * PI * 0.5).toFloat() *
+                        sin(((1.0 - p) * 3.5).coerceAtMost(1.0) * PI * 0.5).toFloat()
+                    bodyOy += env * 4.5f * sy
+                    headOy += env * 5.2f * sy
+                    leftLegOx = -2.2f * sx * env
+                    leftLegOy = -2.5f * sy * env
+                    rightLegOx = 2.2f * sx * env
+                    rightLegOy = -2.5f * sy * env
+                }
+                AgentMascotAction.EyeRoll -> {
+                    eyeOx = cos(p * PI * 2.0).toFloat() * 2.4f * sx
+                    eyeOy = -kotlin.math.abs(sin(p * PI * 2.0).toFloat()) * 2.6f * sy
+                }
+                AgentMascotAction.Faint -> {
+                    val env = sin((p * 4.0).coerceAtMost(1.0) * PI * 0.5).toFloat() *
+                        sin(((1.0 - p) * 4.0).coerceAtMost(1.0) * PI * 0.5).toFloat()
+                    rootRot = env * (24f + sin(p * PI * 6.0).toFloat() * 5f)
+                    rootOy += env * 4f * sy
+                    eyeScaleY = 0.24f
+                }
+                AgentMascotAction.Disassemble -> {
+                    val burst = sin(((p - 0.08) / 0.72).coerceIn(0.0, 1.0) * PI).toFloat()
+                    headOy -= burst * 9.5f * sy
+                    headRot += burst * 18f
+                    leftArmOx = -7.5f * sx * burst
+                    leftArmOy = -3f * sy * burst
+                    rightArmOx = 7.5f * sx * burst
+                    rightArmOy = -3f * sy * burst
+                    leftArmDeg += burst * 42f
+                    rightArmDeg -= burst * 42f
+                    leftLegOx = -4f * sx * burst
+                    leftLegOy = 4f * sy * burst
+                    rightLegOx = 4f * sx * burst
+                    rightLegOy = 4f * sy * burst
+                    bodyOy += burst * 2.5f * sy
+                }
+                AgentMascotAction.HappyJump -> {
+                    val bounce = kotlin.math.abs(sin(p * PI * 3.0).toFloat())
+                    rootOy -= bounce * 11f * sy
+                    leftArmDeg = 17f + bounce * 118f
+                    rightArmDeg = -17f - bounce * 118f
+                    happyEyes = true
+                }
+                AgentMascotAction.Sleep -> {
+                    val env = sin((p * 4.0).coerceAtMost(1.0) * PI * 0.5).toFloat() *
+                        sin(((1.0 - p) * 4.0).coerceAtMost(1.0) * PI * 0.5).toFloat()
+                    headOy += env * 2.6f * sy + sin(p * PI * 6.0).toFloat() * 0.8f * sy
+                    headRot -= env * 9f
+                    eyeScaleY = (1f - env * 0.86f).coerceAtLeast(0.14f)
+                }
+                AgentMascotAction.Stretch -> {
+                    val env = sin((p * 3.0).coerceAtMost(1.0) * PI * 0.5).toFloat() *
+                        sin(((1.0 - p) * 3.0).coerceAtMost(1.0) * PI * 0.5).toFloat()
+                    bodyScaleY = 1f + env * 0.14f
+                    bodyScaleX = 1f - env * 0.06f
+                    headOy -= env * 3.6f * sy
+                    leftArmDeg = 17f + env * 130f
+                    rightArmDeg = -17f - env * 130f
+                }
+                AgentMascotAction.Peek -> {
+                    val look = sin(p * PI * 2.0).toFloat()
+                    headOx += look * 4.2f * sx
+                    headRot += look * 9f
+                    eyeOx += look * 2.6f * sx
+                }
+                AgentMascotAction.Scan -> {
+                    showScan = true
+                    eyeOx = sin(p * PI * 4.0).toFloat() * 2.2f * sx
+                }
+                AgentMascotAction.Charge -> {
+                    val env = (p * 1.4).coerceAtMost(1.0).toFloat()
+                    rootOx += sin(p * PI * 28.0).toFloat() * 1.3f * sx * env
+                    bodyScaleX = 1f + env * 0.06f
+                    bodyScaleY = 1f - env * 0.05f
+                    leftArmDeg = 17f + env * 36f
+                    rightArmDeg = -17f - env * 36f
+                }
+                AgentMascotAction.SpinCheer -> {
+                    rootRot = if (p < 0.65) (p / 0.65).toFloat() * 360f else 0f
+                    val lift = sin(p * PI).toFloat()
+                    rootOy -= lift * 9f * sy
+                    leftArmDeg = 17f + lift * 132f
+                    rightArmDeg = -17f - lift * 132f
+                    happyEyes = true
+                }
+                AgentMascotAction.Shy -> {
+                    val env = sin((p * 3.5).coerceAtMost(1.0) * PI * 0.5).toFloat() *
+                        sin(((1.0 - p) * 3.5).coerceAtMost(1.0) * PI * 0.5).toFloat()
+                    showBlush = env > 0.2f
+                    headRot += sin(p * PI * 2.0).toFloat() * 7f * env
+                    leftArmDeg = 17f - env * 28f
+                    rightArmDeg = -17f + env * 28f
+                }
+                AgentMascotAction.Confused -> {
+                    val env = sin((p * 3.5).coerceAtMost(1.0) * PI * 0.5).toFloat() *
+                        sin(((1.0 - p) * 3.5).coerceAtMost(1.0) * PI * 0.5).toFloat()
+                    headRot += env * 18f
+                    eyeOx += env * 1.2f * sx
+                }
+                null -> Unit
+            }
+
+            if (effectiveDocked) {
+                rootRot = if (dockLeft) 19f else -19f
+                rootOy = -2f * sy
+                antennaDeg = if (dockLeft) -12f else 12f
+                eyeOx = (if (dockLeft) 2.2f else -2.2f) * sx
+            }
+
+            val strokeW = (1.9f * sx).coerceAtLeast(1.6f)
+            val bodyVisible = !effectiveDocked
 
             // 底层柔影
-            drawOval(
-                color = Color.Black.copy(alpha = 0.22f),
-                topLeft = Offset(cx - 17f * sx, cy + 25f * sy),
-                size = Size(34f * sx, 8f * sy),
-            )
-
-            // 1. 左/右小短腿 (offset y=+25)
-            for (side in listOf(-1f, 1f)) {
-                val legW = 8f * sx
-                val legH = 9f * sy
-                val lx = cx + side * 8f * sx - legW * 0.5f
-                val ly = cy + 25f * sy - legH * 0.5f
-                drawRoundRect(
-                    brush = Brush.verticalGradient(listOf(shellMid, outline), startY = ly, endY = ly + legH),
-                    topLeft = Offset(lx, ly),
-                    size = Size(legW, legH),
-                    cornerRadius = CornerRadius(4f * sx, 4f * sy),
-                )
-                drawRoundRect(
-                    color = outline,
-                    topLeft = Offset(lx, ly),
-                    size = Size(legW, legH),
-                    cornerRadius = CornerRadius(4f * sx, 4f * sy),
-                    style = Stroke(width = 1.5f * sx),
+            if (bodyVisible) {
+                drawOval(
+                    color = outline.copy(alpha = 0.28f),
+                    topLeft = Offset(cx + rootOx - 17f * sx, cy + 27f * sy),
+                    size = Size(34f * sx, 7.5f * sy),
                 )
             }
 
-            // 2. 左/右微倾胶囊小手臂 (offset y=+14, ±17°)
-            for ((side, deg) in listOf(-1f to 17f, 1f to -17f)) {
-                val armW = 7f * sx
-                val armH = 13f * sy
-                val ax = cx + side * 16f * sx
-                val ay = cy + 14f * sy
+                        /** 绘制按动作角度旋转的机器人手臂。 */
+            fun drawArm(ax: Float, ay: Float, aw: Float, ah: Float, deg: Float) {
                 rotate(degrees = deg, pivot = Offset(ax, ay)) {
                     drawRoundRect(
-                        brush = Brush.verticalGradient(listOf(shellMid, shellEnd), startY = ay - armH * 0.5f, endY = ay + armH * 0.5f),
-                        topLeft = Offset(ax - armW * 0.5f, ay - armH * 0.5f),
-                        size = Size(armW, armH),
-                        cornerRadius = CornerRadius(armW * 0.5f, armW * 0.5f),
+                        brush = Brush.verticalGradient(listOf(shellMid, outlineSoft), startY = ay - ah * 0.5f, endY = ay + ah * 0.5f),
+                        topLeft = Offset(ax - aw * 0.5f, ay - ah * 0.5f),
+                        size = Size(aw, ah),
+                        cornerRadius = CornerRadius(aw * 0.5f, aw * 0.5f),
                     )
                     drawRoundRect(
                         color = outline,
-                        topLeft = Offset(ax - armW * 0.5f, ay - armH * 0.5f),
-                        size = Size(armW, armH),
-                        cornerRadius = CornerRadius(armW * 0.5f, armW * 0.5f),
-                        style = Stroke(width = 1.5f * sx),
+                        topLeft = Offset(ax - aw * 0.5f, ay - ah * 0.5f),
+                        size = Size(aw, ah),
+                        cornerRadius = CornerRadius(aw * 0.5f, aw * 0.5f),
+                        style = Stroke(width = strokeW),
                     )
                 }
             }
 
-            // 3. 圆润躯干 + MoviePilot 白色播放三角核心 (offset y=+14)
-            val bodyW = 26f * sx
-            val bodyH = 19f * sy
-            val bx = cx - bodyW * 0.5f
-            val by = cy + 14f * sy - bodyH * 0.5f
-            drawRoundRect(
-                brush = Brush.linearGradient(
-                    listOf(shellMid, shellEnd),
-                    start = Offset(bx, by),
-                    end = Offset(bx + bodyW, by + bodyH),
-                ),
-                topLeft = Offset(bx, by),
-                size = Size(bodyW, bodyH),
-                cornerRadius = CornerRadius(9f * sx, 9f * sy),
-            )
-            drawRoundRect(
-                color = outline,
-                topLeft = Offset(bx, by),
-                size = Size(bodyW, bodyH),
-                cornerRadius = CornerRadius(9f * sx, 9f * sy),
-                style = Stroke(width = 1.6f * sx),
-            )
-            val playCx = cx + 0.8f * sx
-            val playCy = cy + 14f * sy
-            val playPath = Path().apply {
-                moveTo(playCx - 3.3f * sx, playCy - 4.1f * sy)
-                lineTo(playCx + 4.3f * sx, playCy)
-                lineTo(playCx - 3.3f * sx, playCy + 4.1f * sy)
-                close()
-            }
-            drawPath(playPath, Color.White)
+            rotate(degrees = rootRot, pivot = Offset(cx + rootOx, cy + rootOy)) {
+                val baseCx = cx + rootOx
+                val baseCy = cy + rootOy
 
-            // 4. 头部 + 倾斜天线 + 深色玻璃面罩 + 半眯下弧弯月双眼 (offset y=-7, rot -3°)
-            val headPivot = Offset(cx, cy - 7f * sy)
-            rotate(degrees = -3f, pivot = headPivot) {
-                // 倾斜天线与顶部圆球 (+20°)
-                val antBase = Offset(headPivot.x + 2f * sx, headPivot.y - 14f * sy)
-                rotate(degrees = 20f, pivot = antBase) {
-                    drawLine(
+                if (bodyVisible) {
+                    // 1. 双腿
+                    for (side in listOf(-1f, 1f)) {
+                        val lxOff = if (side < 0f) leftLegOx else rightLegOx
+                        val lyOff = if (side < 0f) leftLegOy else rightLegOy
+                        val legW = 8.4f * sx
+                        val legH = 9f * sy
+                        val lx = baseCx + side * 7.6f * sx - legW * 0.5f + lxOff
+                        val ly = baseCy + 25f * sy - legH * 0.5f + lyOff
+                        drawRoundRect(
+                            brush = Brush.verticalGradient(listOf(shellMid, outlineSoft), startY = ly, endY = ly + legH),
+                            topLeft = Offset(lx, ly),
+                            size = Size(legW, legH),
+                            cornerRadius = CornerRadius(4f * sx, 4f * sy),
+                        )
+                        drawRoundRect(
+                            color = outline,
+                            topLeft = Offset(lx, ly),
+                            size = Size(legW, legH),
+                            cornerRadius = CornerRadius(4f * sx, 4f * sy),
+                            style = Stroke(width = strokeW),
+                        )
+                    }
+
+                    // 2. 双手臂
+                    drawArm(baseCx - 15.8f * sx + leftArmOx, baseCy + 13.5f * sy + leftArmOy, 7.4f * sx, 13.4f * sy, leftArmDeg)
+                    drawArm(baseCx + 15.8f * sx + rightArmOx, baseCy + 13.5f * sy + rightArmOy, 7.4f * sx, 13.4f * sy, rightArmDeg)
+
+                    // 3. 躯干 + 胸口播放三角
+                    val bodyW = 26.8f * sx * bodyScaleX
+                    val bodyH = 19.8f * sy * bodyScaleY
+                    val bx = baseCx - bodyW * 0.5f
+                    val by = baseCy + 13.8f * sy + bodyOy - bodyH * 0.5f
+                    drawRoundRect(
+                        brush = Brush.linearGradient(listOf(shellMid, shellEnd), start = Offset(bx, by), end = Offset(bx + bodyW, by + bodyH)),
+                        topLeft = Offset(bx, by),
+                        size = Size(bodyW, bodyH),
+                        cornerRadius = CornerRadius(9.2f * sx, 9.2f * sy),
+                    )
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.24f),
+                        topLeft = Offset(bx + 2.5f * sx, by + 1.4f * sy),
+                        size = Size(bodyW - 5f * sx, 3.8f * sy),
+                        cornerRadius = CornerRadius(3f * sx, 3f * sy),
+                    )
+                    drawRoundRect(
+                        color = shellShade,
+                        topLeft = Offset(bx + 1.5f * sx, by + bodyH - 3.6f * sy),
+                        size = Size(bodyW - 3f * sx, 2.8f * sy),
+                        cornerRadius = CornerRadius(3f * sx, 3f * sy),
+                    )
+                    drawRoundRect(
                         color = outline,
-                        start = antBase,
-                        end = Offset(antBase.x, antBase.y - 9f * sy),
-                        strokeWidth = 2.5f * sx,
-                        cap = StrokeCap.Round,
+                        topLeft = Offset(bx, by),
+                        size = Size(bodyW, bodyH),
+                        cornerRadius = CornerRadius(9.2f * sx, 9.2f * sy),
+                        style = Stroke(width = strokeW),
                     )
-                    val ballCenter = Offset(antBase.x, antBase.y - 10.5f * sy)
-                    drawCircle(color = shellStart, radius = 3.5f * sx, center = ballCenter)
-                    drawCircle(color = outline, radius = 3.5f * sx, center = ballCenter, style = Stroke(width = 1.5f * sx))
+                    val playCx = baseCx + 0.9f * sx
+                    val playCy = baseCy + 13.8f * sy + bodyOy
+                    val playPath = Path().apply {
+                        moveTo(playCx - 3.4f * sx, playCy - 4.4f * sy)
+                        lineTo(playCx + 4.4f * sx, playCy)
+                        lineTo(playCx - 3.4f * sx, playCy + 4.4f * sy)
+                        close()
+                    }
+                    drawPath(playPath, if (thinking) eyeGlow else Color.White)
                 }
 
-                // 头壳 44×30
-                val headW = 44f * sx
-                val headH = 30f * sy
-                val hx = headPivot.x - headW * 0.5f
-                val hy = headPivot.y - headH * 0.5f
-                drawRoundRect(
-                    brush = Brush.linearGradient(
-                        listOf(shellStart, shellMid, shellEnd),
-                        start = Offset(hx, hy),
-                        end = Offset(hx + headW, hy + headH),
-                    ),
-                    topLeft = Offset(hx, hy),
-                    size = Size(headW, headH),
-                    cornerRadius = CornerRadius(10.5f * sx, 10.5f * sy),
-                )
-                drawRoundRect(
-                    color = outline,
-                    topLeft = Offset(hx, hy),
-                    size = Size(headW, headH),
-                    cornerRadius = CornerRadius(10.5f * sx, 10.5f * sy),
-                    style = Stroke(width = 1.8f * sx),
-                )
-
-                // 深色玻璃面罩 33×19
-                val faceW = 33f * sx
-                val faceH = 19f * sy
-                val fx = headPivot.x - 1.5f * sx - faceW * 0.5f
-                val fy = headPivot.y + 0.5f * sy - faceH * 0.5f
-                drawRoundRect(
-                    brush = Brush.verticalGradient(listOf(faceStart, faceEnd), startY = fy, endY = fy + faceH),
-                    topLeft = Offset(fx, fy),
-                    size = Size(faceW, faceH),
-                    cornerRadius = CornerRadius(7f * sx, 7f * sy),
-                )
-                drawRoundRect(
-                    color = outline.copy(alpha = 0.9f),
-                    topLeft = Offset(fx, fy),
-                    size = Size(faceW, faceH),
-                    cornerRadius = CornerRadius(7f * sx, 7f * sy),
-                    style = Stroke(width = 1.4f * sx),
-                )
-
-                // 半眯困倦下弧弯月双眼（1:1 复刻 SleepyRobotEyeShape）
-                fun drawSleepyEye(ecx: Float, eTopY: Float) {
-                    val ew = 7.4f * sx
-                    val eh = 5.2f * sy * eyeScaleY
-                    val rx = ew * 0.5f
-                    val outerRy = eh
-                    val innerRy = eh * 0.52f
-                    val path = Path()
-                    val steps = 16
-                    for (i in 0..steps) {
-                        val theta = (i.toDouble() / steps) * PI
-                        val x = ecx - rx * cos(theta).toFloat()
-                        val y = eTopY + outerRy * sin(theta).toFloat()
-                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                // 4. 头部 + 天线 + 深色面罩 + 弯月眼睛
+                val headPivot = Offset(baseCx + headOx, baseCy - 7.5f * sy + headOy)
+                rotate(degrees = headRot, pivot = headPivot) {
+                    val antBase = Offset(headPivot.x + 2.2f * sx, headPivot.y - 14.5f * sy)
+                    rotate(degrees = antennaDeg, pivot = antBase) {
+                        drawLine(
+                            color = outline.copy(alpha = if (effectiveDocked) 0.8f else 1f),
+                            start = antBase,
+                            end = Offset(antBase.x, antBase.y - 8.5f * sy),
+                            strokeWidth = 2.6f * sx,
+                            cap = StrokeCap.Round,
+                        )
+                        val ballCenter = Offset(antBase.x, antBase.y - 10.5f * sy)
+                        drawCircle(color = shellStart, radius = 3.4f * sx, center = ballCenter)
+                        drawCircle(
+                            color = outline.copy(alpha = if (effectiveDocked) 0.8f else 1f),
+                            radius = 3.4f * sx,
+                            center = ballCenter,
+                            style = Stroke(width = strokeW * 0.92f),
+                        )
                     }
-                    for (i in steps downTo 0) {
-                        val theta = (i.toDouble() / steps) * PI
-                        val x = ecx - rx * cos(theta).toFloat()
-                        val y = eTopY + innerRy * sin(theta).toFloat()
-                        path.lineTo(x, y)
+
+                    val headW = 45f * sx
+                    val headH = 31f * sy
+                    val hx = headPivot.x - headW * 0.5f
+                    val hy = headPivot.y - headH * 0.5f
+                    drawRoundRect(
+                        brush = Brush.linearGradient(
+                            listOf(shellStart, shellMid, shellEnd),
+                            start = Offset(hx, hy),
+                            end = Offset(hx + headW, hy + headH),
+                        ),
+                        topLeft = Offset(hx, hy),
+                        size = Size(headW, headH),
+                        cornerRadius = CornerRadius(10.8f * sx, 10.8f * sy),
+                    )
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.28f),
+                        topLeft = Offset(hx + 3f * sx, hy + 1.5f * sy),
+                        size = Size(headW - 6f * sx, 4.5f * sy),
+                        cornerRadius = CornerRadius(3.5f * sx, 3.5f * sy),
+                    )
+                    drawRoundRect(
+                        color = shellShade,
+                        topLeft = Offset(hx + 2f * sx, hy + headH - 3.8f * sy),
+                        size = Size(headW - 4f * sx, 3f * sy),
+                        cornerRadius = CornerRadius(3f * sx, 3f * sy),
+                    )
+                    drawRoundRect(
+                        color = outline,
+                        topLeft = Offset(hx, hy),
+                        size = Size(headW, headH),
+                        cornerRadius = CornerRadius(10.8f * sx, 10.8f * sy),
+                        style = Stroke(width = strokeW),
+                    )
+
+                    val faceW = 34f * sx
+                    val faceH = 19.8f * sy
+                    val fx = headPivot.x - 1.5f * sx - faceW * 0.5f
+                    val fy = headPivot.y + 0.6f * sy - faceH * 0.5f
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(listOf(faceStart, faceEnd), startY = fy, endY = fy + faceH),
+                        topLeft = Offset(fx, fy),
+                        size = Size(faceW, faceH),
+                        cornerRadius = CornerRadius(7.2f * sx, 7.2f * sy),
+                    )
+                    drawRoundRect(
+                        color = if (thinking || showScan) eyeGlow.copy(alpha = 0.65f) else outlineSoft,
+                        topLeft = Offset(fx, fy),
+                        size = Size(faceW, faceH),
+                        cornerRadius = CornerRadius(7.2f * sx, 7.2f * sy),
+                        style = Stroke(width = 1.6f * sx),
+                    )
+
+                    if (showScan) {
+                        val sweep = ((sin(timeSec * 4.2) + 1.0) * 0.5).toFloat()
+                        val bxScan = fx + 3f * sx + sweep * (faceW - 6f * sx)
+                        drawRect(
+                            color = eyeGlow.copy(alpha = 0.30f),
+                            topLeft = Offset(bxScan - 2f * sx, fy + 1.5f * sy),
+                            size = Size(4f * sx, faceH - 3f * sy),
+                        )
                     }
-                    path.close()
-                    drawPath(path, eyeColor)
+
+                    if (showBlush) {
+                        drawOval(
+                            color = Color(0x8CFF73A8),
+                            topLeft = Offset(fx + 3f * sx, fy + faceH * 0.60f),
+                            size = Size(5.5f * sx, 3f * sy),
+                        )
+                        drawOval(
+                            color = Color(0x8CFF73A8),
+                            topLeft = Offset(fx + faceW - 8.5f * sx, fy + faceH * 0.60f),
+                            size = Size(5.5f * sx, 3f * sy),
+                        )
+                    }
+
+                                        /** 绘制带高光与状态变化的机器人眼部。 */
+                    fun drawRobotEye(ecx: Float, eCy: Float) {
+                        val ew = 7.6f * sx
+                        val eh = (5.2f * sy * eyeScaleY).coerceAtLeast(1f)
+                        val rx = ew * 0.5f
+                        val outerRy = eh
+                        val innerRy = eh * 0.52f
+                        val dir = if (happyEyes) -1f else 1f
+                        val baseY = if (happyEyes) eCy + outerRy * 0.45f else eCy - outerRy * 0.35f
+                        val path = Path()
+                        val steps = 16
+                        for (i in 0..steps) {
+                            val theta = (i.toDouble() / steps) * PI
+                            val x = ecx - rx * cos(theta).toFloat()
+                            val y = baseY + dir * outerRy * sin(theta).toFloat()
+                            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        }
+                        for (i in steps downTo 0) {
+                            val theta = (i.toDouble() / steps) * PI
+                            val x = ecx - rx * cos(theta).toFloat()
+                            val y = baseY + dir * innerRy * sin(theta).toFloat()
+                            path.lineTo(x, y)
+                        }
+                        path.close()
+                        drawPath(path, if (thinking || showScan) eyeGlow else eyeColor)
+                    }
+
+                    val eyeBaseX = fx + faceW * 0.5f + eyeOx
+                    val eyeBaseY = fy + faceH * 0.5f - 1.2f * sy + eyeOy
+                    drawRobotEye(eyeBaseX - 7.3f * sx, eyeBaseY)
+                    drawRobotEye(eyeBaseX + 7.3f * sx, eyeBaseY + 0.5f * sy)
                 }
 
-                val eyeCenterBaseX = headPivot.x - 1.5f * sx
-                val eyeTopY = headPivot.y - 1.6f * sy
-                drawSleepyEye(eyeCenterBaseX - 7.4f * sx, eyeTopY)
-                drawSleepyEye(eyeCenterBaseX + 7.4f * sx, eyeTopY + 0.5f * sy)
+                // 5. 贴边探头专属：内侧小手移至最前层 ±78° 扒住屏幕边缘
+                if (effectiveDocked) {
+                    drawArm(
+                        ax = if (dockLeft) baseCx + 4.5f * sx else baseCx - 4.5f * sx,
+                        ay = baseCy + 12.5f * sy,
+                        aw = 6.4f * sx,
+                        ah = 13.8f * sy,
+                        deg = if (dockLeft) -78f else 78f,
+                    )
+                }
             }
         }
     }

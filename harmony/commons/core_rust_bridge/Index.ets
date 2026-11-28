@@ -131,6 +131,8 @@ export {
   MpAgentChoiceButton,
   MpAgentChoiceCard,
   MpAgentChatMessage,
+  MpAgentPetDeclaration,
+  MpAgentPetSelection,
   MpNetworkCheckItem,
   MpRecognizeResult,
   MpResolvedMediaIdentity,

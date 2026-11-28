@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/automation",
-  "version": "2.0.11",
+  "version": "2.0.12",
   "description": "MoviePilot HarmonyOS NEXT automation HAR",
   "main": "Index.ets",
   "dependencies": {

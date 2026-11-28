@@ -1,6 +1,6 @@
 {
   "name": "@moviepilot/discover",
-  "version": "2.0.11",
+  "version": "2.0.12",
   "description": "MoviePilot HarmonyOS NEXT discover HAR",
   "main": "Index.ets",
   "dependencies": {

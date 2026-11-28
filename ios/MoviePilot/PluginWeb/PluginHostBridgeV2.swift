@@ -81,6 +81,12 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
   var onToast: ((_ toast: PluginToastPayload) -> Void)?
   var onConfirm: ((_ confirmation: NativeVueSheetConfirmation) -> Void)?
   var onOpenRoute: ((_ path: String) -> Void)?
+  var onAgentOpen: ((_ draft: String?) -> Void)?
+  var onAgentClose: (() -> Void)?
+  var onAgentEmit: ((_ name: String, _ data: [String: Any]) -> Void)?
+  var onAgentPetAnchor: ((_ rect: CGRect?) -> Void)?
+  var onAgentPetInteracting: ((_ active: Bool) -> Void)?
+  var onAgentPetSay: ((_ text: String, _ durationMs: Int) -> Void)?
 
   override init() {
     let config = URLSessionConfiguration.ephemeral
@@ -110,6 +116,12 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
     onToast = nil
     onConfirm = nil
     onOpenRoute = nil
+    onAgentOpen = nil
+    onAgentClose = nil
+    onAgentEmit = nil
+    onAgentPetAnchor = nil
+    onAgentPetInteracting = nil
+    onAgentPetSay = nil
   }
 
   func abortAllInFlightRequests() {
@@ -150,6 +162,24 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
 
   func sendLocale(_ locale: String) {
     sendToWeb(type: "locale.update", payload: ["locale": locale])
+  }
+
+    /// 将原生 Agent 状态快照发送到当前插件 WebView。
+  func sendAgentState(_ state: [String: Any]) {
+    sendToWeb(type: "agent.state", payload: state)
+  }
+
+    /// 向插件发送带有附加数据的 Agent 交互事件。
+  func sendAgentEvent(name: String, data: [String: Any] = [:]) {
+    sendToWeb(
+      type: "agent.event",
+      payload: [
+        "name": name,
+        "source": "host",
+        "data": data,
+        "at": Int(Date().timeIntervalSince1970 * 1000),
+      ]
+    )
   }
 
   func sendSafeArea(top: CGFloat, bottom: CGFloat, left: CGFloat = 0, right: CGFloat = 0) {
@@ -278,6 +308,43 @@ final class PluginHostBridgeV2: NSObject, WKScriptMessageHandler {
 
     case "plugin.action":
       onPluginAction?(payload)
+
+    case "agent.open":
+      onAgentOpen?(payload["draft"] as? String)
+
+    case "agent.close":
+      onAgentClose?()
+
+    case "agent.emit":
+      let name = payload["name"] as? String ?? ""
+      let data = payload["data"] as? [String: Any] ?? [:]
+      if !name.isEmpty {
+        onAgentEmit?(name, data)
+      }
+
+    case "agent.pet.anchor":
+      if let dict = payload["rect"] as? [String: Any],
+        let x = (dict["x"] as? NSNumber)?.doubleValue,
+        let y = (dict["y"] as? NSNumber)?.doubleValue,
+        let w = (dict["width"] as? NSNumber)?.doubleValue,
+        let h = (dict["height"] as? NSNumber)?.doubleValue,
+        w > 0, h > 0
+      {
+        onAgentPetAnchor?(CGRect(x: x, y: y, width: w, height: h))
+      } else {
+        onAgentPetAnchor?(nil)
+      }
+
+    case "agent.pet.interacting":
+      let active = (payload["active"] as? Bool) ?? false
+      onAgentPetInteracting?(active)
+
+    case "agent.pet.say":
+      let text = (payload["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      let duration = (payload["duration"] as? NSNumber)?.intValue ?? 3500
+      if !text.isEmpty {
+        onAgentPetSay?(text, min(6000, max(1500, duration)))
+      }
 
     case "api.request":
       guard let requestId = payload["requestId"] as? String, !requestId.isEmpty else { return }

@@ -40,6 +40,13 @@ export interface HarmonyPluginBridgeCallbacks {
   onToast: (toast: HarmonyPluginToastSpec) => void;
   onConfirm: (spec: HarmonyPluginConfirmSpec) => void;
   onOpenRoute: (path: string) => void;
+  onAgentOpen?: (draft: string) => void;
+  onAgentClose?: () => void;
+  onAgentEmit?: (name: string, data: Record<string, Object>) => void;
+  onAgentPetAnchor?: (x: number, y: number, width: number, height: number) => void;
+  onAgentPetAnchorCleared?: () => void;
+  onAgentPetInteracting?: (active: boolean) => void;
+  onAgentPetSay?: (text: string, durationMs: number) => void;
 }
 
 /** ArkWeb `javaScriptProxy` 暴露给壳层的极薄同步代理对象。 */
@@ -145,6 +152,17 @@ export class HarmonyPluginHostBridgeV2 {
     this.sendToWeb('locale.update', `{"locale":${JSON.stringify(locale)}}`);
   }
 
+  sendAgentState(stateJson: string): void {
+    this.sendToWeb('agent.state', stateJson);
+  }
+
+  sendAgentEvent(name: string, dataJson: string = '{}'): void {
+    this.sendToWeb(
+      'agent.event',
+      `{"name":${JSON.stringify(name)},"source":"host","data":${dataJson},"at":${Date.now()}}`
+    );
+  }
+
   sendHostAction(actionId: string): void {
     this.sendToWeb('host.action', `{"actionId":${JSON.stringify(actionId)}}`);
   }
@@ -211,6 +229,63 @@ export class HarmonyPluginHostBridgeV2 {
       case 'plugin.close':
         this.callbacks.onPluginClose();
         break;
+      case 'agent.open': {
+        const draft = typeof payload['draft'] === 'string' ? (payload['draft'] as string) : '';
+        if (this.callbacks.onAgentOpen) {
+          this.callbacks.onAgentOpen(draft);
+        }
+        break;
+      }
+      case 'agent.close':
+        if (this.callbacks.onAgentClose) {
+          this.callbacks.onAgentClose();
+        }
+        break;
+      case 'agent.emit': {
+        const name = typeof payload['name'] === 'string' ? (payload['name'] as string) : '';
+        const data = (payload['data'] && typeof payload['data'] === 'object')
+          ? (payload['data'] as Record<string, Object>)
+          : ({} as Record<string, Object>);
+        if (name.length > 0 && this.callbacks.onAgentEmit) {
+          this.callbacks.onAgentEmit(name, data);
+        }
+        break;
+      }
+      case 'agent.pet.anchor': {
+        const rectObj = payload['rect'] as Record<string, Object> | null | undefined;
+        if (rectObj && typeof rectObj === 'object') {
+          const x = Number(rectObj['x']);
+          const y = Number(rectObj['y']);
+          const w = Number(rectObj['width']);
+          const h = Number(rectObj['height']);
+          if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+            if (this.callbacks.onAgentPetAnchor) {
+              this.callbacks.onAgentPetAnchor(x, y, w, h);
+            }
+            break;
+          }
+        }
+        if (this.callbacks.onAgentPetAnchorCleared) {
+          this.callbacks.onAgentPetAnchorCleared();
+        }
+        break;
+      }
+      case 'agent.pet.interacting': {
+        const active = typeof payload['active'] === 'boolean' ? (payload['active'] as boolean) : false;
+        if (this.callbacks.onAgentPetInteracting) {
+          this.callbacks.onAgentPetInteracting(active);
+        }
+        break;
+      }
+      case 'agent.pet.say': {
+        const text = typeof payload['text'] === 'string' ? (payload['text'] as string).trim() : '';
+        const rawDur = Number(payload['duration']);
+        const dur = Number.isFinite(rawDur) ? Math.min(6000, Math.max(1500, Math.round(rawDur))) : 3500;
+        if (text.length > 0 && this.callbacks.onAgentPetSay) {
+          this.callbacks.onAgentPetSay(text, dur);
+        }
+        break;
+      }
       case 'plugin.minimize': {
         const reqId = typeof payload['requestId'] === 'string' ? (payload['requestId'] as string) : '';
         if (this.callbacks.onPluginMinimize) {

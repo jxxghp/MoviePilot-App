@@ -6,6 +6,7 @@ import base64
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import re
 import struct
@@ -438,6 +439,9 @@ class NativeHandler(BaseHTTPRequestHandler):
             if endpoint == "api/v1/plugin/remotes":
                 self.plugin_remotes_endpoint(name)
                 return
+            if endpoint == "api/v1/plugin/agent_pets":
+                self.plugin_agent_pets_endpoint(name)
+                return
             if endpoint == "api/v1/plugin/file/vuecompatdemo/dist/assets/remoteEntry.js":
                 self.plugin_remote_entry_js_endpoint(name)
                 return
@@ -647,9 +651,11 @@ class NativeHandler(BaseHTTPRequestHandler):
             "api/v1/danmaku/config",
             "api/v1/media/search",
             "api/v1/media/source",
+            "api/v1/media/category",
             "api/v1/rule/groups",
             "api/v1/download/clients",
             "api/v1/download/paths",
+            "api/v1/site/rss",
             "api/v1/search/last",
             "api/v1/search/title",
             "api/v1/history/transfer",
@@ -820,13 +826,17 @@ class NativeHandler(BaseHTTPRequestHandler):
                 value = []
         elif endpoint == "api/v1/media/source":
             value = [{"name": "TMDB", "media_source": "themoviedb", "media_types": ["电影", "电视剧"]}]
+        elif endpoint == "api/v1/media/category":
+            value = {"电影": ["动画电影", "外语电影"], "电视剧": ["国产剧", "欧美剧", "日韩动漫"]}
+        elif re.fullmatch(r"api/v1/media/groups/[A-Za-z0-9_-]+", endpoint):
+            value = [{"id": "eg-1", "name": "剧场版与正篇顺序", "group_count": 2, "episode_count": 24}]
         elif endpoint == "api/v1/rule/groups":
             value = {"rule_groups": [{"name": "4K 优先", "rule_string": "", "media_type": "电影"}]}
         elif endpoint == "api/v1/download/clients":
             value = [{"name": "Qbittorrent", "type": "qbittorrent"}]
         elif endpoint == "api/v1/download/paths":
             value = [{"name": "电影库", "save_path": "local:/downloads/movies", "download_path": "/downloads/movies"}]
-        elif endpoint == "api/v1/site":
+        elif endpoint in {"api/v1/site", "api/v1/site/rss"}:
             value = [{"id": 3, "name": "合成站", "domain": "syn.example.test", "is_active": True, "pri": 1}]
         elif re.fullmatch(r"api/v1/site/test/[0-9]+", endpoint):
             value = None
@@ -970,7 +980,17 @@ class NativeHandler(BaseHTTPRequestHandler):
         elif endpoint == "api/v1/dashboard/transfer":
             value = [1, 2, 0, 3, 1, 4, 2]
         elif endpoint == "api/v1/github/community":
-            value = {"login": "synthetic", "medals": []}
+            if os.environ.get("MOVIEPILOT_FIXTURE_MEDALS") == "1":
+                value = {
+                    "login": "jxxghp",
+                    "medals": [
+                        {"key": "maintainer", "at": "2024-06-01"},
+                        {"key": "code", "tier": 4, "at": "2025-11-28"},
+                        {"key": "pioneer", "at": "2024-05-01"},
+                    ],
+                }
+            else:
+                value = {"login": "synthetic", "medals": []}
         elif endpoint == "api/v1/dashboard/statistic":
             value = {
                 "movie_count": 12, "tv_count": 8, "episode_count": None,
@@ -1782,6 +1802,17 @@ class NativeHandler(BaseHTTPRequestHandler):
                 row for row in self.server.profiles[name]["installed_plugins"] if row["id"] != plugin_id
             ]
         self.reply(200, {"success": True, "message": "", "data": None})
+
+    def plugin_agent_pets_endpoint(self, name):
+        """返回已启用插件声明的 Agent 助手形象清单。"""
+        with self.server.lock:
+            profile = self.server.profiles[name]
+            profile["counts"]["GET api/v1/plugin/agent_pets"] += 1
+            mode = profile["mode"]
+        if mode == "expired":
+            self.reply(401, {"success": False})
+            return
+        self.reply(200, [])
 
     def plugin_remotes_endpoint(self, name):
         """返回合成 Vue 联邦插件远程入口清单（完全无前端 HTML / 3000 端口依赖）。"""

@@ -338,16 +338,25 @@ export struct CommunityMedal3DComponent {
     ctx.restore();
   }
 
-  /** 绘制受倾角与旋转角度实时驱动的金属高光扫光层（严格裁剪在 `outline.json` 内，零方框溢出）。 */
+  /** 对标 Web communityMedalRelief.ts：正对静止时零泛白反光，仅在拖动倾斜时浮现极淡的金属柔光。 */
   private drawSpecularSweep(): void {
     const ctx = this.specCanvasCtx;
     const canvasSize = this.resolvedMedalSize();
     const w = 240;
     ctx.clearRect(0, 0, canvasSize, canvasSize);
+
+    const normY = ((this.rotY % 180) + 180) % 180;
+    const distFromFaceDeg = Math.min(normY, 180 - normY);
+    const tiltMag = Math.min(1, (distFromFaceDeg + Math.abs(this.rotX) * 1.2) / 36);
+    if (tiltMag < 0.05) {
+      return;
+    }
+
+    const p = this.palette();
     const activeOutline = this.isShowingBack() ? this.backSpec.outline : this.frontSpec.outline;
     const radY = (this.rotY * Math.PI) / 180;
-    const sweepRatio = 0.5 + Math.sin(radY * 1.35) * 0.44 - (this.rotX / 68);
-    const clampedCenter = Math.max(0.08, Math.min(0.92, sweepRatio));
+    const sweepRatio = 0.5 + Math.sin(radY * 1.35) * 0.42 - (this.rotX / 68);
+    const clampedCenter = Math.max(0.10, Math.min(0.90, sweepRatio));
 
     ctx.save();
     const s = canvasSize / w;
@@ -356,18 +365,19 @@ export struct CommunityMedal3DComponent {
     ctx.clip();
 
     const grad = ctx.createLinearGradient(0, 0, w, w * 0.88);
-    const s0 = Math.max(0, clampedCenter - 0.22);
-    const s1 = Math.max(0, clampedCenter - 0.06);
-    const s2 = Math.min(1, clampedCenter + 0.06);
-    const s3 = Math.min(1, clampedCenter + 0.22);
-    grad.addColorStop(0, '#00FFFFFF');
-    grad.addColorStop(s0, '#00FFFFFF');
-    grad.addColorStop(s1, '#32FFFFFF');
-    grad.addColorStop(clampedCenter, '#54FFFFFF');
-    grad.addColorStop(s2, '#2CFFFFFF');
-    grad.addColorStop(s3, '#00FFFFFF');
-    grad.addColorStop(1, '#00FFFFFF');
+    const s0 = Math.max(0, clampedCenter - 0.20);
+    const s1 = Math.max(0, clampedCenter - 0.05);
+    const s2 = Math.min(1, clampedCenter + 0.05);
+    const s3 = Math.min(1, clampedCenter + 0.20);
+    grad.addColorStop(0, 'rgba(255,255,255,0)');
+    grad.addColorStop(s0, 'rgba(255,255,255,0)');
+    grad.addColorStop(s1, p.engrave_light_hex);
+    grad.addColorStop(clampedCenter, p.engrave_light_hex);
+    grad.addColorStop(s2, p.engrave_light_hex);
+    grad.addColorStop(s3, 'rgba(255,255,255,0)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
 
+    ctx.globalAlpha = tiltMag * 0.13;
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, w);
     ctx.restore();
@@ -490,7 +500,7 @@ export struct CommunityMedal3DComponent {
             radius: Math.round((this.resolvedMedalSize() + 8) / 2),
             colors: [[`${this.palette().rim_hex}`, 0.0], ['#00000000', 1.0]]
           })
-          .opacity(this.isDark ? 0.26 : 0.18)
+          .opacity(this.isDark ? 0.14 : 0.09)
 
         // 3D 透视旋转勋章主体
         Stack({ alignContent: Alignment.Center }) {

@@ -705,8 +705,8 @@ private struct NativeFileRenameSheet: View {
         CinematicBackground()
         ScrollView {
           VStack(alignment: .leading, spacing: 14) {
-            CinematicPanel(padding: 14) {
-              VStack(alignment: .leading, spacing: 10) {
+            CinematicPanel(padding: 0) {
+              VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                   Image(systemName: item.symbolName)
                     .foregroundStyle(NativeTheme.brand)
@@ -715,60 +715,68 @@ private struct NativeFileRenameSheet: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
 
-                VStack(alignment: .leading, spacing: 6) {
+                CinematicFormDivider()
+
+                HStack(spacing: 12) {
                   Text("新名称")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                  Spacer(minLength: 8)
                   TextField("输入新的文件名或目录名", text: $newName)
                     .textFieldStyle(.plain)
                     .font(.subheadline)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background {
-                      RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(NativeTheme.chipFill)
-                        .overlay {
-                          RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
-                        }
-                    }
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(minHeight: 50)
+
+                CinematicFormDivider()
 
                 Button {
                   Task { await recommendName() }
                 } label: {
-                  HStack(spacing: 6) {
+                  HStack(spacing: 8) {
                     if isRecommending {
                       ProgressView().controlSize(.small)
                     } else {
                       Image(systemName: "text.viewfinder")
+                        .foregroundStyle(NativeTheme.brand)
                     }
                     Text(isRecommending ? "正在智能识别命名…" : "智能识别推荐命名")
+                      .font(.body)
+                      .foregroundStyle(NativeTheme.brand)
+                    Spacer()
                   }
-                  .font(.subheadline.weight(.medium))
-                  .foregroundStyle(NativeTheme.brand)
-                  .frame(maxWidth: .infinity)
-                  .padding(.vertical, 9)
-                  .background {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                      .fill(NativeTheme.brand.opacity(0.14))
-                  }
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 12)
+                  .frame(minHeight: 50)
+                  .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(isRecommending || isSubmitting)
 
                 if item.isDirectory {
+                  CinematicFormDivider()
                   Toggle(isOn: $recursive) {
                     VStack(alignment: .leading, spacing: 2) {
                       Text("递归智能重命名目录内媒体")
-                        .font(.subheadline)
+                        .font(.body)
+                        .foregroundStyle(.primary)
                       Text("按当前命名规则同步识别并重命名目录内音视频与字幕文件")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                     }
                   }
                   .tint(NativeTheme.brand)
+                  .padding(.horizontal, 16)
+                  .padding(.vertical, 12)
                 }
               }
             }
@@ -914,6 +922,7 @@ struct NativeManualTransferSheet: View {
   let onCompleted: (String) -> Void
 
   @Environment(\.dismiss) private var dismiss
+  @ObservedObject private var appearance = NativeAppearanceStore.shared
 
   @State private var storages: [NativeStorageOption]
   @State private var libraryDirectories: [NativeTransferDirectoryOption] = []
@@ -948,6 +957,10 @@ struct NativeManualTransferSheet: View {
 
   @State private var showingMediaPicker = false
   @State private var showingAdvancedOptions = false
+  @State private var showingCustomPathAlert = false
+  @State private var customPathDraft = ""
+  @State private var showingManualMediaIDAlert = false
+  @State private var manualMediaIDDraft = ""
   @State private var isLoadingMetadata = false
   @State private var isPreviewing = false
   @State private var isSubmitting = false
@@ -1033,6 +1046,9 @@ struct NativeManualTransferSheet: View {
     _mediaType = State(initialValue: defaultMediaType ?? "")
     _mediaSource = State(initialValue: defaultMediaSource ?? "")
     _mediaID = State(initialValue: defaultMediaID ?? "")
+    if let defaultMediaID, !defaultMediaID.isEmpty, !titleHint.isEmpty {
+      _selectedMediaTitle = State(initialValue: titleHint)
+    }
     _fromHistory = State(initialValue: true)
     _reorganize = State(initialValue: true)
   }
@@ -1082,21 +1098,46 @@ struct NativeManualTransferSheet: View {
       .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button {
+          Button("关闭") {
             dismiss()
-          } label: {
-            Image(systemName: "xmark")
           }
           .tint(.primary)
-          .accessibilityLabel("关闭")
         }
       }
       .task { await bootstrap() }
+      .alert("手动输入目标目录", isPresented: $showingCustomPathAlert) {
+        TextField("留空自动按目录规则匹配", text: $customPathDraft)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+        Button("确定") {
+          targetPath = customPathDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        Button("取消", role: .cancel) {}
+      }
+      .alert("手动输入媒体 ID", isPresented: $showingManualMediaIDAlert) {
+        TextField("TMDB / 豆瓣 / Bangumi / MusicBrainz ID", text: $manualMediaIDDraft)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+        Button("确定") {
+          let cleaned = manualMediaIDDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+          if cleaned != mediaID {
+            selectedMediaTitle = nil
+          }
+          mediaID = cleaned
+        }
+        Button("取消", role: .cancel) {}
+      }
       .sheet(isPresented: $showingMediaPicker) {
         NativeManualTransferMediaPickerSheet(
           session: session,
           initialKeyword: sourceTitleHint,
-          preferMusic: mediaType == "音乐"
+          preferMusic: mediaType == "音乐",
+          onEnterManualID: { enteredID in
+            if enteredID != mediaID {
+              selectedMediaTitle = nil
+            }
+            mediaID = enteredID
+          }
         ) { picked in
           mediaSource = picked.source
           mediaID = picked.mediaID
@@ -1117,14 +1158,14 @@ struct NativeManualTransferSheet: View {
   private var sourceSummaryCard: some View {
     CinematicPanel(padding: 13) {
       VStack(alignment: .leading, spacing: 6) {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
           Image(
             systemName: historyLogID != nil
               ? "arrow.clockwise.circle.fill"
               : (fileItem?.symbolName ?? "doc.fill")
           )
           .font(.title3)
-          .foregroundStyle(NativeTheme.brand)
+          .foregroundStyle(appearance.accentColor)
           VStack(alignment: .leading, spacing: 2) {
             Text(sourceTitleHint)
               .font(.subheadline.weight(.semibold))
@@ -1140,11 +1181,11 @@ struct NativeManualTransferSheet: View {
         }
         if let matchedTargetHint, !matchedTargetHint.isEmpty {
           HStack(spacing: 5) {
-            Image(systemName: "checkmark.circle")
+            Image(systemName: "checkmark.circle.fill")
               .font(.caption2)
               .foregroundStyle(NativeTheme.success)
             Text("已自动匹配目录：\(matchedTargetHint)")
-              .font(.caption2)
+              .font(.caption2.weight(.medium))
               .foregroundStyle(NativeTheme.success)
               .lineLimit(1)
               .truncationMode(.middle)
@@ -1163,266 +1204,360 @@ struct NativeManualTransferSheet: View {
 
   /// 已存在成功历史提示条。
   private var historyMatchBanner: some View {
-    CinematicPanel(padding: 12) {
-      VStack(alignment: .leading, spacing: 8) {
+    CinematicPanel(padding: 0) {
+      VStack(alignment: .leading, spacing: 0) {
         HStack(spacing: 8) {
           Image(systemName: "clock.badge.checkmark")
             .foregroundStyle(NativeTheme.warning)
           Text("检测到 \(matchedHistoryCount) 条已成功的整理历史")
             .font(.caption.weight(.semibold))
             .foregroundStyle(.primary)
+          Spacer()
         }
+        .padding(.horizontal, 15).padding(.vertical, 10)
+        CinematicFormDivider()
         Toggle("跳过已成功记录", isOn: $skipSuccess)
           .font(.subheadline)
-          .tint(NativeTheme.brand)
+          .foregroundStyle(.primary)
+          .tint(appearance.accentColor)
+          .padding(.horizontal, 15).padding(.vertical, 10)
         if !skipSuccess {
+          CinematicFormDivider()
           Toggle("清理旧目标并重新整理", isOn: $reorganize)
             .font(.subheadline)
-            .tint(NativeTheme.brand)
+            .foregroundStyle(.primary)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 15).padding(.vertical, 10)
         }
       }
     }
   }
 
-  /// 分组 1：目标存储、目标目录、整理方式与覆盖模式。
+  /// 分组 1：目标存储、目标目录（对齐设置页无内边框单行选择）、整理方式与覆盖模式。
   private var targetSection: some View {
     VStack(alignment: .leading, spacing: 8) {
       sectionHeader("目标存储与方式")
-      CinematicPanel(padding: 14) {
-        VStack(alignment: .leading, spacing: 12) {
-          groupedPickerRow(title: "目标存储") {
-            Menu {
-              ForEach(storages) { storage in
-                Button {
-                  targetStorage = storage.value
-                  Task { await matchTargetPath() }
-                } label: {
-                  if storage.value == targetStorage {
-                    Label(storage.title, systemImage: "checkmark")
-                  } else {
-                    Text(storage.title)
-                  }
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          Menu {
+            ForEach(storages) { storage in
+              Button {
+                targetStorage = storage.value
+                Task { await matchTargetPath() }
+              } label: {
+                if storage.value == targetStorage {
+                  Label(storage.title, systemImage: "checkmark")
+                } else {
+                  Text(storage.title)
                 }
               }
-            } label: {
-              menuValueLabel(
-                storages.first(where: { $0.value == targetStorage })?.title ?? targetStorage)
             }
+          } label: {
+            settingsMenuRowContent(
+              title: "目标存储",
+              value: storages.first(where: { $0.value == targetStorage })?.title ?? targetStorage
+            )
           }
+          .buttonStyle(.plain)
 
-          Divider().overlay(NativeTheme.chipBorder)
+          CinematicFormDivider()
 
-          VStack(alignment: .leading, spacing: 6) {
-            HStack {
-              Text("目标目录")
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-              Spacer()
+          HStack(spacing: 8) {
+            Menu {
+              Button {
+                targetPath = ""
+              } label: {
+                if targetPath.isEmpty {
+                  Label("自动按目录规则匹配", systemImage: "checkmark")
+                } else {
+                  Text("自动按目录规则匹配")
+                }
+              }
               if !filteredLibraryDirectories.isEmpty {
-                Menu {
-                  Button("自动按规则匹配") { targetPath = "" }
-                  Divider()
-                  ForEach(filteredLibraryDirectories) { dir in
-                    Button {
-                      targetPath = dir.libraryPath
-                      if let mode = dir.transferType, !mode.isEmpty {
-                        transferType = mode
-                      }
-                    } label: {
+                Divider()
+                ForEach(filteredLibraryDirectories) { dir in
+                  Button {
+                    targetPath = dir.libraryPath
+                    if let mode = dir.transferType, !mode.isEmpty {
+                      transferType = mode
+                    }
+                  } label: {
+                    if targetPath == dir.libraryPath {
+                      Label(dir.displayLabel, systemImage: "checkmark")
+                    } else {
                       Text(dir.displayLabel)
                     }
                   }
-                } label: {
-                  Label("选择媒体库目录", systemImage: "folder.badge.gearshape")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(NativeTheme.brand)
                 }
               }
-            }
-            TextField("留空按目录设置自动匹配", text: $targetPath)
-              .textFieldStyle(.plain)
-              .font(.caption.monospaced())
-              .autocorrectionDisabled()
-              .textInputAutocapitalization(.never)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 9)
-              .background {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                  .fill(NativeTheme.chipFill)
-              }
-          }
-
-          Divider().overlay(NativeTheme.chipBorder)
-
-          groupedPickerRow(title: "整理方式") {
-            Menu {
-              ForEach(transferTypes, id: \.value) { option in
-                Button {
-                  transferType = option.value
-                } label: {
-                  if transferType == option.value {
-                    Label(option.label, systemImage: "checkmark")
-                  } else {
-                    Text(option.label)
-                  }
-                }
+              Divider()
+              Button {
+                customPathDraft = targetPath
+                showingCustomPathAlert = true
+              } label: {
+                Label("手动输入目录路径…", systemImage: "pencil")
               }
             } label: {
-              menuValueLabel(
-                transferTypes.first(where: { $0.value == transferType })?.label ?? "自动")
+              let displayValue: String = {
+                let trimmed = targetPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+                if let hint = matchedTargetHint, !hint.isEmpty { return "自动 · \(hint)" }
+                return "自动匹配"
+              }()
+              HStack(spacing: 10) {
+                Text("目标目录")
+                  .font(.body)
+                  .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(displayValue)
+                  .font(!targetPath.isEmpty ? .caption.monospaced() : .subheadline)
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+                  .truncationMode(.middle)
+                Image(systemName: "chevron.up.chevron.down")
+                  .font(.caption.weight(.medium))
+                  .foregroundStyle(.secondary.opacity(0.65))
+              }
+              .padding(.vertical, 13)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if !targetPath.isEmpty {
+              inlineClearButton {
+                targetPath = ""
+              }
             }
           }
+          .padding(.horizontal, 16)
+          .frame(minHeight: 52)
 
-          Divider().overlay(NativeTheme.chipBorder)
+          CinematicFormDivider()
 
-          groupedPickerRow(title: "覆盖模式") {
-            Menu {
-              ForEach(overwriteModes, id: \.value) { option in
-                Button {
-                  overwriteMode = option.value
-                } label: {
-                  if overwriteMode == option.value {
-                    Label(option.label, systemImage: "checkmark")
-                  } else {
-                    Text(option.label)
-                  }
+          Menu {
+            ForEach(transferTypes, id: \.value) { option in
+              Button {
+                transferType = option.value
+              } label: {
+                if transferType == option.value {
+                  Label(option.label, systemImage: "checkmark")
+                } else {
+                  Text(option.label)
                 }
               }
-            } label: {
-              menuValueLabel(
-                overwriteModes.first(where: { $0.value == overwriteMode })?.label ?? "从不覆盖")
             }
+          } label: {
+            settingsMenuRowContent(
+              title: "整理方式",
+              value: transferTypes.first(where: { $0.value == transferType })?.label ?? "自动"
+            )
           }
+          .buttonStyle(.plain)
+
+          CinematicFormDivider()
+
+          Menu {
+            ForEach(overwriteModes, id: \.value) { option in
+              Button {
+                overwriteMode = option.value
+              } label: {
+                if overwriteMode == option.value {
+                  Label(option.label, systemImage: "checkmark")
+                } else {
+                  Text(option.label)
+                }
+              }
+            }
+          } label: {
+            settingsMenuRowContent(
+              title: "覆盖模式",
+              value: overwriteModes.first(where: { $0.value == overwriteMode })?.label ?? "从不覆盖"
+            )
+          }
+          .buttonStyle(.plain)
         }
       }
     }
   }
 
-  /// 分组 2：媒体识别覆写（类型、数据源、媒体 ID 搜索、季集/音乐参数）。
+  /// 分组 2：媒体识别覆写（类型、数据源、无边框单行媒体搜索与回显、季集/音乐参数）。
   private var mediaOverrideSection: some View {
     VStack(alignment: .leading, spacing: 8) {
       sectionHeader("媒体识别与定位（可选）")
-      CinematicPanel(padding: 14) {
-        VStack(alignment: .leading, spacing: 12) {
-          groupedPickerRow(title: "媒体类型") {
-            Menu {
-              ForEach(mediaTypes, id: \.value) { option in
-                Button {
-                  mediaType = option.value
-                } label: {
-                  if mediaType == option.value {
-                    Label(option.label, systemImage: "checkmark")
-                  } else {
-                    Text(option.label)
-                  }
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
+          Menu {
+            ForEach(mediaTypes, id: \.value) { option in
+              Button {
+                mediaType = option.value
+              } label: {
+                if mediaType == option.value {
+                  Label(option.label, systemImage: "checkmark")
+                } else {
+                  Text(option.label)
                 }
               }
-            } label: {
-              menuValueLabel(
-                mediaTypes.first(where: { $0.value == mediaType })?.label ?? "自动识别")
             }
+          } label: {
+            settingsMenuRowContent(
+              title: "媒体类型",
+              value: mediaTypes.first(where: { $0.value == mediaType })?.label ?? "自动识别"
+            )
           }
+          .buttonStyle(.plain)
 
-          Divider().overlay(NativeTheme.chipBorder)
+          CinematicFormDivider()
 
-          groupedPickerRow(title: "识别数据源") {
-            Menu {
-              ForEach(mediaSources, id: \.value) { option in
-                Button {
-                  mediaSource = option.value
-                } label: {
-                  if mediaSource == option.value {
-                    Label(option.label, systemImage: "checkmark")
-                  } else {
-                    Text(option.label)
-                  }
+          Menu {
+            ForEach(mediaSources, id: \.value) { option in
+              Button {
+                mediaSource = option.value
+              } label: {
+                if mediaSource == option.value {
+                  Label(option.label, systemImage: "checkmark")
+                } else {
+                  Text(option.label)
                 }
               }
-            } label: {
-              menuValueLabel(
-                mediaSources.first(where: { $0.value == mediaSource })?.label ?? "自动")
             }
+          } label: {
+            settingsMenuRowContent(
+              title: "识别数据源",
+              value: mediaSources.first(where: { $0.value == mediaSource })?.label ?? "自动"
+            )
           }
+          .buttonStyle(.plain)
 
-          Divider().overlay(NativeTheme.chipBorder)
+          CinematicFormDivider()
 
-          VStack(alignment: .leading, spacing: 6) {
-            HStack {
-              Text("指定媒体 ID")
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-              Spacer()
+          HStack(spacing: 8) {
+            Button {
+              showingMediaPicker = true
+            } label: {
+              let trimmedID = mediaID.trimmingCharacters(in: .whitespacesAndNewlines)
+              let labelText: String = {
+                guard !trimmedID.isEmpty else { return "自动识别" }
+                if let selectedMediaTitle, !selectedMediaTitle.isEmpty {
+                  return "\(selectedMediaTitle) (\(trimmedID))"
+                }
+                return "ID · \(trimmedID)"
+              }()
+              HStack(spacing: 10) {
+                Text("指定媒体")
+                  .font(.body)
+                  .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(labelText)
+                  .font(.subheadline)
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+                  .truncationMode(.middle)
+                Image(systemName: "chevron.right")
+                  .font(.footnote.weight(.semibold))
+                  .foregroundStyle(.secondary.opacity(0.55))
+              }
+              .padding(.vertical, 13)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
               Button {
                 showingMediaPicker = true
               } label: {
-                Label("搜索媒体", systemImage: "magnifyingglass")
-                  .font(.caption.weight(.medium))
-                  .foregroundStyle(NativeTheme.brand)
+                Label("搜索并选择媒体", systemImage: "magnifyingglass")
               }
-              .buttonStyle(.plain)
-            }
-            HStack(spacing: 8) {
-              TextField("留空自动识别，或输入 TMDB / 豆瓣 / BGM / MBID", text: $mediaID)
-                .textFieldStyle(.plain)
-                .font(.caption.monospaced())
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 9)
-                .background {
-                  RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(NativeTheme.chipFill)
-                }
+              Button {
+                manualMediaIDDraft = mediaID
+                showingManualMediaIDAlert = true
+              } label: {
+                Label("手动输入媒体 ID…", systemImage: "number")
+              }
               if !mediaID.isEmpty {
-                Button {
+                Button(role: .destructive) {
                   mediaID = ""
                   selectedMediaTitle = nil
                 } label: {
-                  Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                  Label("清除指定媒体", systemImage: "xmark.circle")
                 }
-                .buttonStyle(.plain)
               }
             }
-            if let selectedMediaTitle {
-              Text("已选：\(selectedMediaTitle)")
-                .font(.caption2)
-                .foregroundStyle(NativeTheme.brand)
+
+            if !mediaID.isEmpty {
+              inlineClearButton {
+                mediaID = ""
+                selectedMediaTitle = nil
+              }
             }
           }
+          .padding(.horizontal, 16)
+          .frame(minHeight: 52)
 
-          if mediaType == "电视剧" || mediaType.isEmpty {
-            Divider().overlay(NativeTheme.chipBorder)
-            HStack(spacing: 10) {
-              compactField(title: "指定季号", placeholder: "如 1", text: $seasonText, numeric: true)
-              compactField(title: "指定集数", placeholder: "如 1-12", text: $episodeDetail)
-              compactField(title: "集数偏移", placeholder: "如 EP+12", text: $episodeOffset)
-            }
+          if mediaType == "电视剧"
+            || !seasonText.isEmpty
+            || !episodeDetail.isEmpty
+            || !episodeOffset.isEmpty
+          {
+            CinematicFormDivider()
+            compactField(title: "指定季号", placeholder: "留空自动，如 1", text: $seasonText, numeric: true)
+            CinematicFormDivider()
+            compactField(title: "指定集数", placeholder: "如 1 或 1-12", text: $episodeDetail)
+            CinematicFormDivider()
+            compactField(title: "集数偏移", placeholder: "如 EP+12", text: $episodeOffset)
           }
 
           if mediaType == "音乐" {
-            Divider().overlay(NativeTheme.chipBorder)
-            groupedPickerRow(title: "音乐实体类型") {
-              Menu {
-                Button("自动") { musicType = "" }
-                Button("专辑 (album)") { musicType = "album" }
-                Button("单曲 (recording)") { musicType = "recording" }
+            CinematicFormDivider()
+            Menu {
+              Button {
+                musicType = ""
               } label: {
-                menuValueLabel(
-                  musicType == "album"
-                    ? "专辑" : (musicType == "recording" ? "单曲" : "自动"))
-              }
-            }
-            if musicType == "album" {
-              groupedPickerRow(title: "曲目对齐方式") {
-                Menu {
-                  Button("严格校验 (strict)") { musicTrackMatch = "strict" }
-                  Button("忽略时长 (ignore_duration)") { musicTrackMatch = "ignore_duration" }
-                  Button("按路径顺序 (sequential)") { musicTrackMatch = "sequential" }
-                } label: {
-                  menuValueLabel(musicTrackMatch)
+                if musicType.isEmpty {
+                  Label("自动", systemImage: "checkmark")
+                } else {
+                  Text("自动")
                 }
               }
+              Button {
+                musicType = "album"
+              } label: {
+                if musicType == "album" {
+                  Label("专辑 (album)", systemImage: "checkmark")
+                } else {
+                  Text("专辑 (album)")
+                }
+              }
+              Button {
+                musicType = "recording"
+              } label: {
+                if musicType == "recording" {
+                  Label("单曲 (recording)", systemImage: "checkmark")
+                } else {
+                  Text("单曲 (recording)")
+                }
+              }
+            } label: {
+              settingsMenuRowContent(
+                title: "音乐实体类型",
+                value: musicType == "album"
+                  ? "专辑" : (musicType == "recording" ? "单曲" : "自动")
+              )
+            }
+            .buttonStyle(.plain)
+            if musicType == "album" {
+              CinematicFormDivider()
+              Menu {
+                Button("严格校验 (strict)") { musicTrackMatch = "strict" }
+                Button("忽略时长 (ignore_duration)") { musicTrackMatch = "ignore_duration" }
+                Button("按路径顺序 (sequential)") { musicTrackMatch = "sequential" }
+              } label: {
+                settingsMenuRowContent(
+                  title: "曲目对齐方式",
+                  value: musicTrackMatch == "ignore_duration"
+                    ? "忽略时长"
+                    : (musicTrackMatch == "sequential" ? "按路径顺序" : "严格校验")
+                )
+              }
+              .buttonStyle(.plain)
             }
           }
         }
@@ -1434,42 +1569,68 @@ struct NativeManualTransferSheet: View {
   private var behaviorSection: some View {
     VStack(alignment: .leading, spacing: 8) {
       sectionHeader("执行选项")
-      CinematicPanel(padding: 14) {
-        VStack(alignment: .leading, spacing: 12) {
+      CinematicPanel(padding: 0) {
+        VStack(spacing: 0) {
           Toggle("后台异步执行", isOn: $runInBackground)
-            .font(.subheadline)
-            .tint(NativeTheme.brand)
+            .font(.body)
+            .foregroundStyle(.primary)
+            .tint(appearance.accentColor)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .frame(minHeight: 52)
 
           if historyLogID != nil {
-            Divider().overlay(NativeTheme.chipBorder)
+            CinematicFormDivider()
             Toggle("复用历史识别信息", isOn: $fromHistory)
-              .font(.subheadline)
-              .tint(NativeTheme.brand)
+              .font(.body)
+              .foregroundStyle(.primary)
+              .tint(appearance.accentColor)
+              .padding(.horizontal, 16).padding(.vertical, 12)
+              .frame(minHeight: 52)
           }
 
-          Divider().overlay(NativeTheme.chipBorder)
-          DisclosureGroup("更多高级参数", isExpanded: $showingAdvancedOptions) {
-            VStack(alignment: .leading, spacing: 11) {
-              triStatePicker(title: "刮削元数据", selection: $scrapeChoice)
-              triStatePicker(title: "按类型分类子目录", selection: $typeFolderChoice)
-              triStatePicker(title: "按二级分类子目录", selection: $categoryFolderChoice)
-              compactField(
-                title: "最低文件大小阈值 (MiB)", placeholder: "0 表示不限制",
-                text: $minFilesizeText, numeric: true)
-              if mediaType != "音乐" {
-                Divider().overlay(NativeTheme.chipBorder)
-                compactField(
-                  title: "自定义剧集识别格式", placeholder: "留空使用默认", text: $episodeFormat)
-                Divider().overlay(NativeTheme.chipBorder)
-                compactField(title: "指定 PART", placeholder: "如 part1", text: $episodePart)
-                Divider().overlay(NativeTheme.chipBorder)
-                compactField(title: "剧集组 ID", placeholder: "可选", text: $episodeGroup)
-              }
+          CinematicFormDivider()
+          Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+              showingAdvancedOptions.toggle()
             }
-            .padding(.top, 10)
+          } label: {
+            HStack {
+              Text("更多高级参数")
+                .font(.body)
+                .foregroundStyle(.primary)
+              Spacer()
+              Image(systemName: showingAdvancedOptions ? "chevron.up" : "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary.opacity(0.65))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .frame(minHeight: 52)
+            .contentShape(Rectangle())
           }
-          .font(.subheadline.weight(.medium))
-          .tint(NativeTheme.brand)
+          .buttonStyle(.plain)
+
+          if showingAdvancedOptions {
+            CinematicFormDivider()
+            triStatePicker(title: "刮削元数据", selection: $scrapeChoice)
+            CinematicFormDivider()
+            triStatePicker(title: "按类型分类子目录", selection: $typeFolderChoice)
+            CinematicFormDivider()
+            triStatePicker(title: "按二级分类子目录", selection: $categoryFolderChoice)
+            CinematicFormDivider()
+            compactField(
+              title: "最低文件大小阈值 (MiB)", placeholder: "0 表示不限制",
+              text: $minFilesizeText, numeric: true)
+            if mediaType != "音乐" {
+              CinematicFormDivider()
+              compactField(
+                title: "自定义剧集识别格式", placeholder: "留空使用默认", text: $episodeFormat)
+              CinematicFormDivider()
+              compactField(title: "指定 PART", placeholder: "如 part1", text: $episodePart)
+              CinematicFormDivider()
+              compactField(title: "剧集组 ID", placeholder: "可选", text: $episodeGroup)
+            }
+          }
         }
       }
     }
@@ -1536,7 +1697,7 @@ struct NativeManualTransferSheet: View {
     }
   }
 
-  /// 底部双按钮：预览与提交整理。
+  /// 底部双按钮：预览与提交整理（高对比主次动作设计）。
   private var actionFooter: some View {
     HStack(spacing: 12) {
       Button {
@@ -1544,14 +1705,14 @@ struct NativeManualTransferSheet: View {
       } label: {
         HStack(spacing: 6) {
           if isPreviewing {
-            ProgressView().controlSize(.small)
+            ProgressView().controlSize(.small).tint(.primary)
           } else {
             Image(systemName: "eye")
           }
           Text(isPreviewing ? "预览中…" : "预览整理")
         }
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.primary)
+        .foregroundStyle(Color.primary.opacity(0.94))
         .frame(maxWidth: .infinity)
         .padding(.vertical, 13)
         .background {
@@ -1559,7 +1720,7 @@ struct NativeManualTransferSheet: View {
             .fill(NativeTheme.chipFill)
             .overlay {
               RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(NativeTheme.chipBorder, lineWidth: 0.7)
+                .strokeBorder(NativeTheme.chipBorder, lineWidth: 0.85)
             }
         }
       }
@@ -1571,19 +1732,19 @@ struct NativeManualTransferSheet: View {
       } label: {
         HStack(spacing: 6) {
           if isSubmitting {
-            ProgressView().controlSize(.small).tint(.white)
+            ProgressView().controlSize(.small).tint(NativeTheme.primaryButtonForeground)
           } else {
             Image(systemName: "tray.and.arrow.down")
           }
           Text(isSubmitting ? "正在整理…" : "开始整理")
         }
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.white)
+        .foregroundStyle(NativeTheme.primaryButtonForeground)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 13)
         .background {
           RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(NativeTheme.brand)
+            .fill(NativeTheme.primaryButtonBackground)
         }
       }
       .buttonStyle(.plain)
@@ -1601,54 +1762,61 @@ struct NativeManualTransferSheet: View {
 
   private func sectionHeader(_ text: String) -> some View {
     Text(text)
-      .font(.caption.weight(.semibold))
+      .font(.subheadline.weight(.medium))
       .foregroundStyle(.secondary)
-      .padding(.horizontal, 4)
+      .padding(.horizontal, 8)
   }
 
-  private func groupedPickerRow<Content: View>(
-    title: String,
-    @ViewBuilder trailing: () -> Content
-  ) -> some View {
-    HStack {
+    /// 构建展示文件管理设置名称与当前值的菜单行。
+  private func settingsMenuRowContent(title: String, value: String) -> some View {
+    HStack(spacing: 10) {
       Text(title)
-        .font(.subheadline)
+        .font(.body)
         .foregroundStyle(.primary)
-      Spacer(minLength: 10)
-      trailing()
-    }
-  }
-
-  private func menuValueLabel(_ value: String) -> some View {
-    HStack(spacing: 4) {
+      Spacer(minLength: 8)
       Text(value)
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .lineLimit(1)
+        .truncationMode(.middle)
       Image(systemName: "chevron.up.chevron.down")
-        .font(.system(size: 10, weight: .semibold))
-        .foregroundStyle(.tertiary)
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary.opacity(0.65))
     }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 13)
+    .frame(minHeight: 52)
+    .contentShape(Rectangle())
+  }
+
+    /// 构建用于清空当前输入值的紧凑按钮。
+  private func inlineClearButton(action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Image(systemName: "xmark.circle.fill")
+        .font(.subheadline)
+        .foregroundStyle(Color.secondary.opacity(0.85))
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("清空")
   }
 
   private func triStatePicker(title: String, selection: Binding<TriStateChoice>) -> some View {
-    groupedPickerRow(title: title) {
-      Menu {
-        ForEach(TriStateChoice.allCases) { option in
-          Button {
-            selection.wrappedValue = option
-          } label: {
-            if selection.wrappedValue == option {
-              Label(option.rawValue, systemImage: "checkmark")
-            } else {
-              Text(option.rawValue)
-            }
+    Menu {
+      ForEach(TriStateChoice.allCases) { option in
+        Button {
+          selection.wrappedValue = option
+        } label: {
+          if selection.wrappedValue == option {
+            Label(option.rawValue, systemImage: "checkmark")
+          } else {
+            Text(option.rawValue)
           }
         }
-      } label: {
-        menuValueLabel(selection.wrappedValue.rawValue)
       }
+    } label: {
+      settingsMenuRowContent(title: title, value: selection.wrappedValue.rawValue)
     }
+    .buttonStyle(.plain)
   }
 
   private func compactField(
@@ -1657,11 +1825,12 @@ struct NativeManualTransferSheet: View {
     text: Binding<String>,
     numeric: Bool = false
   ) -> some View {
-    HStack(spacing: 12) {
+    HStack(spacing: 8) {
       Text(title)
-        .font(.subheadline)
+        .font(.body)
         .foregroundStyle(.primary)
         .layoutPriority(1)
+      Spacer(minLength: 8)
       TextField(placeholder, text: text)
         .textFieldStyle(.plain)
         .font(.subheadline)
@@ -1670,8 +1839,14 @@ struct NativeManualTransferSheet: View {
         .keyboardType(numeric ? .numberPad : .default)
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
+        .frame(maxWidth: 200)
+      if !text.wrappedValue.isEmpty && !(numeric && text.wrappedValue == "0") {
+        inlineClearButton { text.wrappedValue = numeric ? "0" : "" }
+      }
     }
-    .padding(.vertical, 2)
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
+    .frame(minHeight: 52)
   }
 
   /// 初始化存储列表、媒体库目录、自动目的路径与已有整理历史检测。
@@ -1865,6 +2040,7 @@ private struct NativeManualTransferMediaPickerSheet: View {
 
   let session: NativeSession
   let preferMusic: Bool
+  let onEnterManualID: ((String) -> Void)?
   let onPicked: (PickedMedia) -> Void
 
   @Environment(\.dismiss) private var dismiss
@@ -1873,15 +2049,19 @@ private struct NativeManualTransferMediaPickerSheet: View {
   @State private var results: [NativeManualMediaCandidate] = []
   @State private var isSearching = false
   @State private var errorMessage: String?
+  @State private var showsDirectIDAlert = false
+  @State private var directIDInput = ""
 
   init(
     session: NativeSession,
     initialKeyword: String,
     preferMusic: Bool,
+    onEnterManualID: ((String) -> Void)? = nil,
     onPicked: @escaping (PickedMedia) -> Void
   ) {
     self.session = session
     self.preferMusic = preferMusic
+    self.onEnterManualID = onEnterManualID
     self.onPicked = onPicked
     _keyword = State(initialValue: initialKeyword)
     _searchScope = State(initialValue: preferMusic ? "music" : "media")
@@ -1893,20 +2073,45 @@ private struct NativeManualTransferMediaPickerSheet: View {
         CinematicBackground()
         VStack(spacing: 10) {
           HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
             TextField("输入片名、剧名或专辑名搜索", text: $keyword)
               .textFieldStyle(.plain)
               .font(.subheadline)
+              .foregroundStyle(.primary)
               .submitLabel(.search)
               .onSubmit { Task { await runSearch() } }
-            Button("搜索") { Task { await runSearch() } }
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(NativeTheme.brand)
+            if !keyword.isEmpty {
+              Button {
+                keyword = ""
+              } label: {
+                Image(systemName: "xmark.circle.fill")
+                  .foregroundStyle(.secondary)
+              }
+              .buttonStyle(.plain)
+            }
+            Button {
+              Task { await runSearch() }
+            } label: {
+              Text("搜索")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(NativeTheme.primaryButtonForeground)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(NativeTheme.primaryButtonBackground, in: Capsule())
+            }
+            .buttonStyle(.plain)
           }
           .padding(.horizontal, 13)
-          .padding(.vertical, 10)
+          .padding(.vertical, 8)
           .background {
             RoundedRectangle(cornerRadius: 13, style: .continuous)
               .fill(NativeTheme.chipFill)
+              .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                  .strokeBorder(NativeTheme.chipBorder, lineWidth: 0.6)
+              }
           }
           .padding(.horizontal, CinematicStyle.margin)
 
@@ -2024,14 +2229,32 @@ private struct NativeManualTransferMediaPickerSheet: View {
       .nativeTopNavigationBar()
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button {
+          Button("取消") {
             dismiss()
-          } label: {
-            Image(systemName: "xmark")
           }
           .tint(.primary)
-          .accessibilityLabel("关闭")
         }
+        if let onEnterManualID {
+          ToolbarItem(placement: .topBarTrailing) {
+            Button("填 ID") {
+              showsDirectIDAlert = true
+            }
+            .tint(.primary)
+          }
+        }
+      }
+      .alert("直接输入媒体 ID", isPresented: $showsDirectIDAlert) {
+        TextField("TMDB / 豆瓣 / Bangumi / MusicBrainz ID", text: $directIDInput)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+        Button("确定") {
+          let cleaned = directIDInput.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !cleaned.isEmpty {
+            onEnterManualID?(cleaned)
+            dismiss()
+          }
+        }
+        Button("取消", role: .cancel) {}
       }
       .task {
         if !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

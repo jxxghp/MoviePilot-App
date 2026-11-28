@@ -190,7 +190,15 @@ export interface MpSubscribeItem {
   quality: string;
   resolution: string;
   effect?: string;
+  audioQuality?: string;
+  audioFormat?: string;
+  minBitrate?: number;
+  minBitDepth?: number;
+  minSampleRate?: number;
   bestVersion?: boolean;
+  bestVersionFull?: boolean;
+  keyword?: string;
+  mediaCategory?: string;
   startEpisode?: number;
   episodeGroup?: string;
   downloader?: string;
@@ -797,6 +805,33 @@ export interface MpAgentChatMessage {
   attachments: MpAgentAttachment[];
   choices: MpAgentChoiceCard[];
   timestamp: string;
+}
+
+/** 描述后端提供的插件助手形象与其远程资源信息。 */
+export interface MpAgentPetDeclaration {
+  id: string;
+  pluginId: string;
+  sourcePluginId: string;
+  pluginName: string;
+  key: string;
+  name: string;
+  description: string;
+  mode: string;
+  component: string;
+  apiVersion: number;
+  previewUrl: string;
+  avatarUrl: string;
+  remoteUrl: string;
+  pluginVersion: string;
+  bubbles: string;
+  randomActions: string[];
+}
+
+/** 描述当前用户在默认、内置与插件助手间的持久化选择。 */
+export interface MpAgentPetSelection {
+  kind: string; // 'default' | 'builtin' | 'plugin'
+  pluginId: string;
+  key: string;
 }
 
 export interface MpNetworkCheckItem {
@@ -3301,7 +3336,15 @@ export class MoviePilotRepository {
       quality: strVal(r, 'quality'),
       resolution: strVal(r, 'resolution'),
       effect: strVal(r, 'effect'),
+      audioQuality: strVal(r, 'audio_quality'),
+      audioFormat: strVal(r, 'audio_format'),
+      minBitrate: numVal(r, 'min_bitrate', 0),
+      minBitDepth: numVal(r, 'min_bit_depth', 0),
+      minSampleRate: numVal(r, 'min_sample_rate', 0),
       bestVersion: boolVal(r, 'best_version', false),
+      bestVersionFull: boolVal(r, 'best_version_full', false),
+      keyword: strVal(r, 'keyword'),
+      mediaCategory: strVal(r, 'media_category'),
       startEpisode: numVal(r, 'start_episode', 0),
       episodeGroup: strVal(r, 'episode_group'),
       downloader: strVal(r, 'downloader'),
@@ -3311,7 +3354,7 @@ export class MoviePilotRepository {
       exclude: strVal(r, 'exclude'),
       customWords: strVal(r, 'custom_words'),
       searchImdbid: boolVal(r, 'search_imdbid', false),
-      interval: numVal(r, 'interval', numVal(r, 'search_interval', 0)),
+      interval: numVal(r, 'search_interval', numVal(r, 'interval', 0)),
       date: strVal(r, 'date'),
       rawJson: JSON.stringify(r)
     };
@@ -6030,10 +6073,22 @@ export class MoviePilotRepository {
     payloadObj['resolution'] = MoviePilotRepository.normalizeSubscribeFilterOption('resolution', sub.resolution);
     payloadObj['effect'] = MoviePilotRepository.normalizeSubscribeFilterOption('effect', sub.effect ?? '');
     payloadObj['best_version'] = sub.bestVersion ? 1 : 0;
+    payloadObj['best_version_full'] = (sub.bestVersion && sub.bestVersionFull) ? 1 : 0;
     payloadObj['save_path'] = sub.savePath;
-    if (sub.season > 0) { payloadObj['season'] = sub.season; }
-    if (sub.totalEpisode > 0) { payloadObj['total_episode'] = sub.totalEpisode; }
-    if ((sub.startEpisode ?? 0) > 0) { payloadObj['start_episode'] = sub.startEpisode ?? 0; }
+    if (sub.keyword !== undefined) { payloadObj['keyword'] = sub.keyword; }
+    if (sub.mediaCategory !== undefined) { payloadObj['media_category'] = sub.mediaCategory; }
+    if (sub.type === '电视剧') {
+      payloadObj['season'] = sub.season >= 0 ? sub.season : 1;
+      payloadObj['total_episode'] = Math.max(0, sub.totalEpisode);
+      payloadObj['start_episode'] = Math.max(0, sub.startEpisode ?? 0);
+    }
+    if (sub.type === '音乐') {
+      payloadObj['audio_quality'] = sub.audioQuality || '';
+      payloadObj['audio_format'] = sub.audioFormat || '';
+      payloadObj['min_bitrate'] = (sub.minBitrate ?? 0) > 0 ? (sub.minBitrate ?? 0) : '';
+      payloadObj['min_bit_depth'] = (sub.minBitDepth ?? 0) > 0 ? (sub.minBitDepth ?? 0) : '';
+      payloadObj['min_sample_rate'] = (sub.minSampleRate ?? 0) > 0 ? (sub.minSampleRate ?? 0) : '';
+    }
     if (sub.episodeGroup !== undefined) { payloadObj['episode_group'] = sub.episodeGroup; }
     if (sub.downloader !== undefined) { payloadObj['downloader'] = sub.downloader; }
     if (sub.sites !== undefined) { payloadObj['sites'] = sub.sites; }
@@ -6042,7 +6097,7 @@ export class MoviePilotRepository {
     if (sub.exclude !== undefined) { payloadObj['exclude'] = sub.exclude; }
     if (sub.customWords !== undefined) { payloadObj['custom_words'] = sub.customWords; }
     if (sub.searchImdbid !== undefined) { payloadObj['search_imdbid'] = sub.searchImdbid ? 1 : 0; }
-    if ((sub.interval ?? 0) > 0) { payloadObj['interval'] = sub.interval ?? 0; }
+    payloadObj['search_interval'] = (sub.interval ?? 0) > 0 ? (sub.interval ?? 0) : '';
     const resp = await this.putJson(['subscribe'], JSON.stringify(payloadObj), true);
     return resp.status >= 200 && resp.status < 300;
   }
@@ -6766,6 +6821,102 @@ export class MoviePilotRepository {
       { 'X-MoviePilot-Agent-Interaction': '1' },
       onEvent
     );
+  }
+
+  /** 拉取全部已启用插件声明的 Agent 助手形象（`GET /api/v1/plugin/agent_pets`）。 */
+  async fetchAgentPets(): Promise<MpAgentPetDeclaration[]> {
+    const resp = await this.get(['plugin', 'agent_pets']);
+    if (resp.status < 200 || resp.status >= 300) {
+      return [];
+    }
+    const items = unwrapArray(parseJsonSafe(resp.body));
+    const out: MpAgentPetDeclaration[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const rec = items[i] as Record<string, Object>;
+      if (!rec) { continue; }
+      const pid = strVal(rec, 'plugin_id');
+      const key = strVal(rec, 'key');
+      const mode = strVal(rec, 'mode');
+      const apiVer = numVal(rec, 'api_version', 1);
+      if (!pid || !key || (mode !== 'stage' && mode !== 'renderer') || apiVer !== 1) {
+        continue;
+      }
+      const rawComp = strVal(rec, 'component', 'AgentPet').trim();
+      const comp = rawComp.startsWith('./') ? rawComp.substring(2) : (rawComp.length > 0 ? rawComp : 'AgentPet');
+      const rawPreview = strVal(rec, 'preview_url');
+      const rawAvatar = strVal(rec, 'avatar_url');
+      const rawRandom = rec['random_actions'];
+      const randomActions: string[] = [];
+      if (Array.isArray(rawRandom)) {
+        for (let j = 0; j < rawRandom.length; j++) {
+          const s = String(rawRandom[j] ?? '').trim();
+          if (s.length > 0) { randomActions.push(s); }
+        }
+      }
+      out.push({
+        id: `${pid}:${key}`,
+        pluginId: pid,
+        sourcePluginId: strVal(rec, 'source_plugin_id') || pid,
+        pluginName: strVal(rec, 'plugin_name') || pid,
+        key: key,
+        name: strVal(rec, 'name') || key,
+        description: strVal(rec, 'description'),
+        mode: mode,
+        component: comp,
+        apiVersion: apiVer,
+        previewUrl: rawPreview.length > 0 ? this.resolveImageUrl(rawPreview) : '',
+        avatarUrl: rawAvatar.length > 0 ? this.resolveImageUrl(rawAvatar) : '',
+        remoteUrl: strVal(rec, 'remote_url'),
+        pluginVersion: strVal(rec, 'plugin_version'),
+        bubbles: strVal(rec, 'bubbles', 'host'),
+        randomActions: randomActions
+      });
+    }
+    return out;
+  }
+
+  /** 读取当前用户在 `user/config/AgentPet` 中保存的助手形象选择。 */
+  async fetchAgentPetSelection(): Promise<MpAgentPetSelection> {
+    const resp = await this.get(['user', 'config', 'AgentPet']);
+    if (resp.status < 200 || resp.status >= 300) {
+      return { kind: 'default', pluginId: '', key: '' };
+    }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    const val = root ? root['value'] : undefined;
+    if (typeof val === 'string' && val === 'builtin') {
+      return { kind: 'builtin', pluginId: '', key: '' };
+    }
+    if (val && typeof val === 'object') {
+      const rec = val as Record<string, Object>;
+      const pid = strVal(rec, 'plugin_id');
+      const key = strVal(rec, 'key');
+      if (pid.length > 0 && key.length > 0) {
+        return { kind: 'plugin', pluginId: pid, key: key };
+      }
+    }
+    return { kind: 'default', pluginId: '', key: '' };
+  }
+
+  /** 保存用户助手形象选择至 `user/config/AgentPet`（与 Web/iOS/Android 互通）。 */
+  async saveAgentPetSelection(sel: MpAgentPetSelection): Promise<boolean> {
+    let body = 'null';
+    if (sel.kind === 'builtin') {
+      body = '"builtin"';
+    } else if (sel.kind === 'plugin' && sel.pluginId.length > 0 && sel.key.length > 0) {
+      body = JSON.stringify({ 'plugin_id': sel.pluginId, 'key': sel.key });
+    }
+    const resp = await this.postJson(['user', 'config', 'AgentPet'], body);
+    return resp.status >= 200 && resp.status < 300;
+  }
+
+  /** 读取全局默认助手形象配置 `AI_AGENT_PET`。 */
+  async fetchGlobalAgentPetDefault(): Promise<string> {
+    const resp = await this.get(['system', 'global', 'user']);
+    if (resp.status < 200 || resp.status >= 300) {
+      return '';
+    }
+    const root = unwrapObject(parseJsonSafe(resp.body));
+    return root ? strVal(root, 'AI_AGENT_PET').trim() : '';
   }
 
   /** 读取单值系统设置（如 `RECOGNIZE_SOURCE` / `SCRAP_SOURCE` / `SEARCH_SOURCE` / `SUBSCRIBE_MODE`）。 */

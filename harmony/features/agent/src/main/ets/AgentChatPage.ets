@@ -355,6 +355,7 @@ export struct HarmonyAgentChatPage {
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_WIDTH_VP) windowWidthVp: number = 412;
   @StorageLink(HarmonyAppearanceStore.KEY_WINDOW_HEIGHT_VP) windowHeightVp: number = 892;
   @StorageLink(HarmonyAppearanceStore.KEY_SAFE_BOTTOM_VP) safeBottomVp: number = 16;
+  @StorageProp('mp_agent_pet_name') activePetName: string = '';
   @State private activeSessionId: string = `harmony-${Date.now()}`;
   @State private activeSessionTitle: string = '新对话';
   @State private sessions: MpAgentSessionSummary[] = [];
@@ -378,6 +379,7 @@ export struct HarmonyAgentChatPage {
   private recordTimer: number = -1;
   private msgScroller: Scroller = new Scroller();
   onBack: () => void = () => {};
+  onOpenPetPicker: () => void = () => {};
 
   private readonly quickSkills: string[] = [
     '查看最近入库了哪些电影和剧集',
@@ -844,7 +846,7 @@ export struct HarmonyAgentChatPage {
   build() {
     Column() {
       NativeBackHeader({
-        title: '智能助手',
+        title: this.activePetName.length > 0 ? this.activePetName : '智能助手',
         subtitle: this.activeSessionTitle,
         secondarySymbol: 'sys.symbol.square_and_pencil',
         secondaryAccessibility: '新建对话',
@@ -857,6 +859,17 @@ export struct HarmonyAgentChatPage {
           this.showHistorySheet = true;
         }
       })
+
+      Row({ space: 8 }) {
+        NativeAdaptivePill({
+          title: this.activePetName.length > 0 ? `更换形象 · ${this.activePetName}` : '更换助手形象',
+          selected: false,
+          onTap: () => this.onOpenPetPicker()
+        })
+      }
+      .width('100%')
+      .constraintSize({ maxWidth: 780 })
+      .padding({ left: 16, right: 16, bottom: 4 })
 
       if (this.notice.length > 0) {
         Text(this.notice)

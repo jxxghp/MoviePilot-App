@@ -119,6 +119,13 @@ class AndroidPluginHostBridgeV2(
     var onToast: ((AndroidPluginToast) -> Unit)? = null
     var onConfirm: ((VuePluginConfirmation) -> Unit)? = null
     var onOpenRoute: ((path: String) -> Unit)? = null
+    var onAgentOpen: ((draft: String?) -> Unit)? = null
+    var onAgentClose: (() -> Unit)? = null
+    var onAgentEmit: ((name: String, data: JsonObject) -> Unit)? = null
+    var onAgentPetAnchor: ((x: Float, y: Float, w: Float, h: Float) -> Unit)? = null
+    var onAgentPetAnchorCleared: (() -> Unit)? = null
+    var onAgentPetInteracting: ((active: Boolean) -> Unit)? = null
+    var onAgentPetSay: ((text: String, durationMs: Int) -> Unit)? = null
 
     fun updateSession(session: VuePluginSessionPayload?) {
         activeSession = session
@@ -137,6 +144,13 @@ class AndroidPluginHostBridgeV2(
         onToast = null
         onConfirm = null
         onOpenRoute = null
+        onAgentOpen = null
+        onAgentClose = null
+        onAgentEmit = null
+        onAgentPetAnchor = null
+        onAgentPetAnchorCleared = null
+        onAgentPetInteracting = null
+        onAgentPetSay = null
     }
 
     fun abortAllInFlightRequests() {
@@ -173,6 +187,24 @@ class AndroidPluginHostBridgeV2(
 
     fun sendLocale(locale: String) {
         sendToWeb(type = "locale.update", payload = buildJsonObject { put("locale", locale) })
+    }
+
+    /** 将 Agent 状态快照转发给当前插件实例。 */
+    fun sendAgentState(state: JsonObject) {
+        sendToWeb(type = "agent.state", payload = state)
+    }
+
+    /** 向插件广播具名 Agent 交互事件及其附加数据。 */
+    fun sendAgentEvent(name: String, data: JsonObject = JsonObject(emptyMap())) {
+        sendToWeb(
+            type = "agent.event",
+            payload = buildJsonObject {
+                put("name", name)
+                put("source", "host")
+                put("data", data)
+                put("at", System.currentTimeMillis())
+            },
+        )
     }
 
     fun sendHostAction(actionId: String) {
@@ -260,6 +292,41 @@ class AndroidPluginHostBridgeV2(
                 mainHandler.post { onPluginError?.invoke(stage, msg, rec) }
             }
             "plugin.close" -> mainHandler.post { onPluginClose?.invoke() }
+            "agent.open" -> {
+                val draft = payload["draft"]?.strOrNull()
+                mainHandler.post { onAgentOpen?.invoke(draft) }
+            }
+            "agent.close" -> mainHandler.post { onAgentClose?.invoke() }
+            "agent.emit" -> {
+                val name = payload["name"]?.strOrNull().orEmpty()
+                val data = (payload["data"] as? JsonObject) ?: JsonObject(emptyMap())
+                if (name.isNotBlank()) {
+                    mainHandler.post { onAgentEmit?.invoke(name, data) }
+                }
+            }
+            "agent.pet.anchor" -> {
+                val rect = payload["rect"] as? JsonObject
+                val x = (rect?.get("x") as? JsonPrimitive)?.doubleOrNull?.toFloat()
+                val y = (rect?.get("y") as? JsonPrimitive)?.doubleOrNull?.toFloat()
+                val w = (rect?.get("width") as? JsonPrimitive)?.doubleOrNull?.toFloat()
+                val h = (rect?.get("height") as? JsonPrimitive)?.doubleOrNull?.toFloat()
+                if (x != null && y != null && w != null && h != null && w > 0f && h > 0f) {
+                    mainHandler.post { onAgentPetAnchor?.invoke(x, y, w, h) }
+                } else {
+                    mainHandler.post { onAgentPetAnchorCleared?.invoke() }
+                }
+            }
+            "agent.pet.interacting" -> {
+                val active = (payload["active"] as? JsonPrimitive)?.booleanOrNull ?: false
+                mainHandler.post { onAgentPetInteracting?.invoke(active) }
+            }
+            "agent.pet.say" -> {
+                val text = payload["text"]?.strOrNull()?.trim().orEmpty()
+                val duration = ((payload["duration"] as? JsonPrimitive)?.doubleOrNull?.toInt() ?: 3500).coerceIn(1500, 6000)
+                if (text.isNotBlank()) {
+                    mainHandler.post { onAgentPetSay?.invoke(text, duration) }
+                }
+            }
             "plugin.minimize" -> {
                 val reqId = payload["requestId"]?.strOrNull().orEmpty()
                 mainHandler.post {

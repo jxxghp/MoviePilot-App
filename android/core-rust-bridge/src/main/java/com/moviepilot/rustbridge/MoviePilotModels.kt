@@ -95,7 +95,13 @@ data class SubscribeItemDto(
     val quality: String = "",
     val resolution: String = "",
     val effect: String = "",
+    val audioQuality: String = "",
+    val audioFormat: String = "",
+    val minBitrate: Int = 0,
+    val minBitDepth: Int = 0,
+    val minSampleRate: Int = 0,
     val bestVersion: Boolean = false,
+    val bestVersionFull: Boolean = false,
     val sites: List<Int> = emptyList(),
     val filterGroups: List<String> = emptyList(),
     val searchImdbId: Boolean = false,
@@ -458,6 +464,39 @@ data class AgentChatMessageDto(
     val isProtected: Boolean = false,
     val isStreaming: Boolean = false,
 )
+
+/** 后端 `GET /api/v1/plugin/agent_pets` 返回的单个助手形象声明（v1）。 */
+@Serializable
+/** 描述服务端公布的插件助手形象及其远程入口。 */
+data class AgentPetDeclarationDto(
+    val pluginId: String,
+    val sourcePluginId: String = pluginId,
+    val pluginName: String = pluginId,
+    val key: String,
+    val name: String,
+    val description: String = "",
+    val mode: String = "renderer", // "stage" | "renderer"
+    val component: String = "AgentPet",
+    val apiVersion: Int = 1,
+    val previewUrl: String? = null,
+    val avatarUrl: String? = null,
+    val remoteUrl: String? = null,
+    val pluginVersion: String? = null,
+    val bubbles: String? = null,
+    val randomActions: List<String>? = null,
+) {
+    val id: String get() = "$pluginId:$key"
+    val isStageMode: Boolean get() = mode == "stage"
+    val normalizedComponent: String get() = component.trim().removePrefix("./").ifBlank { "AgentPet" }
+}
+
+/** 用户保存在 `user/config/AgentPet` 中的形象选择。 */
+sealed interface AgentPetSelection {
+    data object FollowDefault : AgentPetSelection
+    data object Builtin : AgentPetSelection
+        /** 标识由插件 ID 与形象键唯一确定的插件助手。 */
+    data class Plugin(val pluginId: String, val key: String) : AgentPetSelection
+}
 
 /** 手动整理预览条目与目标路径/历史匹配提示。 */
 @Serializable

@@ -75,6 +75,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -164,6 +165,8 @@ fun AgentChatScreen(
     repository: MoviePilotRepository,
     initialPrompt: String = "",
     onBack: () -> Unit,
+    activePetName: String? = null,
+    onOpenPetPicker: (() -> Unit)? = null,
 ) {
     val colors = LocalMoviePilotColors.current
     val margin = AdaptiveDeviceLayout.horizontalMargin()
@@ -172,10 +175,17 @@ fun AgentChatScreen(
     val listState = rememberLazyListState()
     val json = remember { Json { ignoreUnknownKeys = true; isLenient = true } }
     val prefs = remember(context) { context.getSharedPreferences("mp_agent_state_v3", Context.MODE_PRIVATE) }
+    val authState = repository.session.collectAsState().value as? com.moviepilot.rustbridge.SessionState.Authenticated
+    val accountScopeKey = remember(authState?.serverUrl, authState?.identity?.id, authState?.identity?.name) {
+        val srv = authState?.serverUrl?.trim()?.lowercase().orEmpty()
+        val uid = authState?.identity?.id?.takeIf { it > 0 }?.toString()
+            ?: authState?.identity?.name?.trim()?.lowercase().orEmpty()
+        if (srv.isNotEmpty() && uid.isNotEmpty()) "last_session_id|$srv|$uid" else null
+    }
 
-    var activeSessionId by remember {
+    var activeSessionId by remember(accountScopeKey) {
         mutableStateOf(
-            prefs.getString("last_session_id", null)?.takeIf { it.isNotBlank() }
+            accountScopeKey?.let { key -> prefs.getString(key, null)?.takeIf { it.isNotBlank() } }
                 ?: "android-${UUID.randomUUID().toString().take(12)}",
         )
     }
@@ -251,7 +261,7 @@ fun AgentChatScreen(
         val detail = repository.fetchAgentSessionDetail(sessionId)
         if (detail != null) {
             activeSessionId = sessionId
-            prefs.edit().putString("last_session_id", sessionId).apply()
+            accountScopeKey?.let { key -> prefs.edit().putString(key, sessionId).apply() }
             messages.clear()
             if (detail.first.isEmpty()) {
                 messages.add(welcomeMessage())
@@ -270,7 +280,7 @@ fun AgentChatScreen(
         streamJob = null
         isStreaming = false
         activeSessionId = "android-${UUID.randomUUID().toString().take(12)}"
-        prefs.edit().remove("last_session_id").apply()
+        accountScopeKey?.let { key -> prefs.edit().remove(key).apply() }
         messages.clear()
         messages.add(welcomeMessage())
         pendingUploads.clear()
@@ -331,14 +341,21 @@ fun AgentChatScreen(
         repository.saveAgentSessionDisplay(activeSessionId, title, arr.toString())
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(accountScopeKey) {
+        streamJob?.cancel()
+        streamJob = null
+        isStreaming = false
+        messages.clear()
+        sessions = emptyList()
+        commands = emptyList()
+        isInitialLoading = true
         coroutineScope {
             val cmdDef = async { repository.fetchAgentCommands() }
             val sessDef = async { refreshSessions() }
             commands = cmdDef.await()
             sessDef.await()
         }
-        val savedId = prefs.getString("last_session_id", null)?.takeIf { it.isNotBlank() }
+        val savedId = accountScopeKey?.let { key -> prefs.getString(key, null)?.takeIf { it.isNotBlank() } }
         val targetId = when {
             savedId != null && sessions.any { it.sessionId == savedId } -> savedId
             sessions.isNotEmpty() -> sessions.first().sessionId
@@ -346,6 +363,9 @@ fun AgentChatScreen(
         }
         if (targetId != null && initialPrompt.isBlank()) {
             openSession(targetId, silentOnEmpty = true)
+        } else if (targetId == null) {
+            activeSessionId = "android-${UUID.randomUUID().toString().take(12)}"
+            accountScopeKey?.let { key -> prefs.edit().remove(key).apply() }
         }
         if (messages.isEmpty()) {
             messages.add(welcomeMessage())
@@ -541,7 +561,7 @@ fun AgentChatScreen(
                         "start" -> {
                             dataObj?.get("session_id")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let { sid ->
                                 activeSessionId = sid
-                                prefs.edit().putString("last_session_id", sid).apply()
+                                accountScopeKey?.let { key -> prefs.edit().putString(key, sid).apply() }
                             }
                         }
                         "thinking" -> {
@@ -725,10 +745,17 @@ fun AgentChatScreen(
     }
 
     ExpressiveTintedScaffold(
-        title = "智能助手",
+        title = activePetName?.takeIf { it.isNotBlank() } ?: "智能助手",
         subtitle = currentSessionTitle,
         onBack = onBack,
         actions = {
+            if (onOpenPetPicker != null) {
+                ExpressiveHeaderActionButton(
+                    icon = Icons.Rounded.AutoAwesome,
+                    contentDescription = "更换助手形象",
+                    onClick = onOpenPetPicker,
+                )
+            }
             ExpressiveHeaderActionButton(
                 icon = Icons.Rounded.EditNote,
                 contentDescription = "新对话",

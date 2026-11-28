@@ -843,11 +843,10 @@ final class CommunityMedalRenderCache: @unchecked Sendable {
         normalBytes[outIdx + 2] = UInt8(max(0, min(255, ((nz / len) * 0.5 + 0.5) * 255.0)))
         normalBytes[outIdx + 3] = 255
 
-        // smoothstep(0.26, 0.45, h) 保持珐琅与宝石深邃质感，金属棱线仅保留克制的细腻反光
+        // 1:1 对齐 Web communityMedalRelief.ts：smoothstep(0.26, 0.45, h)，珐琅与铭牌严格为 0（零额外反光）
         let t = max(0, min(1, (hC - 0.26) / (0.45 - 0.26)))
         let smooth = t * t * (3.0 - 2.0 * t)
-        let metal = 0.04 + 0.46 * smooth
-        metalBytes[y * dim + x] = UInt8(max(0, min(255, metal * 255.0)))
+        metalBytes[y * dim + x] = UInt8(max(0, min(255, smooth * 255.0)))
       }
     }
 
@@ -1222,7 +1221,7 @@ struct NativeMedal3DStageView: UIViewRepresentable {
     private func setupScene() {
       scene.background.contents = UIColor.clear
       scene.lightingEnvironment.contents = CommunityMedalRenderCache.shared.studioEnvironmentMap()
-      scene.lightingEnvironment.intensity = 0.48
+      scene.lightingEnvironment.intensity = 0.36
 
       let cameraNode = SCNNode()
       let camera = SCNCamera()
@@ -1233,30 +1232,30 @@ struct NativeMedal3DStageView: UIViewRepresentable {
       cameraNode.position = SCNVector3(0, 0, 5.65)
       scene.rootNode.addChildNode(cameraNode)
 
-      // 影棚主定向光（对应 Web (-3, 4, 5)，以克制光比衬托浮雕而非过曝高光）
+      // 影棚主定向光（仅作用于 3D 金属侧壁；正反面采用对标 Web 的 .constant + 克制柔光着色器）
       let keyLight = SCNNode()
       keyLight.light = SCNLight()
       keyLight.light?.type = .directional
-      keyLight.light?.intensity = 340
+      keyLight.light?.intensity = 260
       keyLight.light?.color = UIColor(red: 1.0, green: 0.99, blue: 0.97, alpha: 1)
       keyLight.position = SCNVector3(-3, 4, 5)
       keyLight.look(at: SCNVector3Zero)
       scene.rootNode.addChildNode(keyLight)
 
-      // 右侧柔和轮廓补光
+      // 右侧柔和轮廓补光（侧壁边缘）
       let rimLight = SCNNode()
       rimLight.light = SCNLight()
       rimLight.light?.type = .directional
-      rimLight.light?.intensity = 150
+      rimLight.light?.intensity = 100
       rimLight.light?.color = UIColor(red: 0.90, green: 0.94, blue: 1.0, alpha: 1)
       rimLight.position = SCNVector3(4, 1.5, 3)
       rimLight.look(at: SCNVector3Zero)
       scene.rootNode.addChildNode(rimLight)
 
-      // 勋章主色轻氛围补光（极淡染色，不冲淡底部金属与宝石本色）
+      // 勋章主色微氛围补光（仅轻染金属侧壁）
       accentLightNode.light = SCNLight()
       accentLightNode.light?.type = .omni
-      accentLightNode.light?.intensity = 65
+      accentLightNode.light?.intensity = 32
       accentLightNode.position = SCNVector3(0, -2.5, 3.5)
       scene.rootNode.addChildNode(accentLightNode)
 
@@ -1264,7 +1263,7 @@ struct NativeMedal3DStageView: UIViewRepresentable {
       let ambient = SCNNode()
       ambient.light = SCNLight()
       ambient.light?.type = .ambient
-      ambient.light?.intensity = 120
+      ambient.light?.intensity = 90
       ambient.light?.color = UIColor(white: 0.92, alpha: 1)
       scene.rootNode.addChildNode(ambient)
 
@@ -1314,20 +1313,21 @@ struct NativeMedal3DStageView: UIViewRepresentable {
         let sideMat = SCNMaterial()
         sideMat.lightingModel = .physicallyBased
         sideMat.diffuse.contents = bundle.edgeMetalColor
-        sideMat.metalness.contents = NSNumber(value: 0.88)
-        sideMat.roughness.contents = NSNumber(value: 0.45)
+        sideMat.metalness.contents = NSNumber(value: 0.90)
+        sideMat.roughness.contents = NSNumber(value: 0.48)
         shape.materials = [sideMat]
         let rimNode = SCNNode(geometry: shape)
         contentRoot.addChildNode(rimNode)
       }
 
-      // 2. 正面浮雕主平面（透明裁切 + 法线贴图 + 金属度贴图）
+      // 2. 正面浮雕主平面（对标 Web CapShader：零场景灯过曝，仅在倾斜时于金属棱线呈现极淡柔光）
       let frontPlane = SCNPlane(width: width, height: width)
       frontPlane.materials = [
         makeReliefMaterial(
           diffuse: bundle.frontDiffuse,
           normal: bundle.frontNormal,
-          metalness: bundle.frontMetalness
+          metalness: bundle.frontMetalness,
+          accentColor: bundle.edgeMetalColor
         )
       ]
       let frontNode = SCNNode(geometry: frontPlane)
@@ -1347,7 +1347,8 @@ struct NativeMedal3DStageView: UIViewRepresentable {
           makeReliefMaterial(
             diffuse: outerDiffuse,
             normal: bundle.frontOuterNormal,
-            metalness: bundle.frontOuterMetalness
+            metalness: bundle.frontOuterMetalness,
+            accentColor: bundle.edgeMetalColor
           )
         ]
         let outerNode = SCNNode(geometry: outerPlane)
@@ -1363,7 +1364,8 @@ struct NativeMedal3DStageView: UIViewRepresentable {
         makeReliefMaterial(
           diffuse: bundle.backDiffuse,
           normal: bundle.backNormal,
-          metalness: bundle.backMetalness
+          metalness: bundle.backMetalness,
+          accentColor: bundle.edgeMetalColor
         )
       ]
       let backNode = SCNNode(geometry: backPlane)
@@ -1372,37 +1374,91 @@ struct NativeMedal3DStageView: UIViewRepresentable {
       contentRoot.addChildNode(backNode)
     }
 
+    private static let zeroMetalImage: UIImage = {
+      let format = UIGraphicsImageRendererFormat()
+      format.scale = 1
+      format.opaque = true
+      return UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2), format: format).image { ctx in
+        UIColor.black.setFill()
+        ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+      }
+    }()
+
+    private static let capSurfaceShader = """
+      #pragma arguments
+      texture2d<float> uMetalMap;
+      float3 uAccent;
+
+      #pragma body
+      constexpr sampler mpMedalSampler(filter::linear, address::clamp_to_edge);
+      float metal = uMetalMap.sample(mpMedalSampler, _surface.diffuseTexcoord).r;
+      float3 n = normalize(_surface.normal);
+      float3 v = normalize(_surface.view);
+      float3 r = reflect(-v, n);
+
+      // 1:1 对齐 Web communityMedalRelief.ts CapShader：以原画自带金工光影为主，
+      // 珐琅与铭牌（metal == 0）零反光，正对时几乎无光照叠加，仅在倾斜时于金属棱线浮现极淡柔光。
+      float3 light = float3(0.0);
+      light += float3(1.0) * smoothstep(0.2, 0.95, r.y) * 0.8;
+      float rxL = (r.x + 0.6) / 0.35;
+      float rxR = (r.x - 0.6) / 0.30;
+      float rzMask = smoothstep(-0.6, 0.3, r.z);
+      light += uAccent * exp(-(rxL * rxL)) * rzMask * 0.6;
+      light += float3(1.0) * exp(-(rxR * rxR)) * rzMask * 0.45;
+
+      float3 base = _surface.diffuse.rgb;
+      float ndv = max(dot(n, v), 0.0);
+      float fresnel = 0.2 + 0.8 * pow(1.0 - ndv, 3.0);
+      float3 tint = mix(float3(1.0), base * 1.6, 0.7);
+      float3 sheen = light * tint * fresnel;
+      float shade = 0.93 + 0.12 * dot(n, normalize(float3(-0.4, 0.6, 0.7)));
+      _surface.diffuse.rgb = base * mix(1.0, shade, metal * 0.5) + sheen * metal * 0.14;
+      """
+
+    private static let capFragmentShader = """
+      float alpha = smoothstep(0.45, 0.85, _output.color.a);
+      if (alpha <= 0.0) { discard_fragment(); }
+      _output.color.a = alpha;
+      """
+
     private func makeReliefMaterial(
       diffuse: UIImage,
       normal: UIImage?,
-      metalness: UIImage?
+      metalness: UIImage?,
+      accentColor: UIColor
     ) -> SCNMaterial {
       let mat = SCNMaterial()
-      mat.lightingModel = .physicallyBased
+      // 采用 .constant 彻底隔离外部场景灯与 IBL 过曝反光，完整还原原画写实金工与珐琅深邃质感
+      mat.lightingModel = .constant
       mat.diffuse.contents = diffuse
       mat.diffuse.mipFilter = .linear
       mat.diffuse.minificationFilter = .linear
       mat.diffuse.magnificationFilter = .linear
       mat.diffuse.maxAnisotropy = 4
-      // 以原画自带金工光影为主，通过轻度自发光锁住真实材质与色彩深度，避免强灯冲白细节
-      mat.emission.contents = diffuse
-      mat.emission.intensity = 0.52
       if let normal {
         mat.normal.contents = normal
-        mat.normal.intensity = 0.68
+        mat.normal.intensity = 1.0
       }
-      if let metalness {
-        mat.metalness.contents = metalness
-      } else {
-        mat.metalness.contents = NSNumber(value: 0.36)
-      }
-      mat.roughness.contents = NSNumber(value: 0.46)
       mat.isDoubleSided = false
       mat.writesToDepthBuffer = true
       mat.readsFromDepthBuffer = true
-      // 透明裁切避免正方形平面透明边缘遮挡 3D 金属侧边
+
+      var r: CGFloat = 0.8
+      var g: CGFloat = 0.78
+      var b: CGFloat = 0.72
+      var a: CGFloat = 1.0
+      accentColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+      // 转线性空间与 Metal shader 内线性漫反射一致
+      let accentVec = SCNVector3(
+        Float(pow(max(0, r), 2.2)),
+        Float(pow(max(0, g), 2.2)),
+        Float(pow(max(0, b), 2.2))
+      )
+      mat.setValue(SCNMaterialProperty(contents: metalness ?? Self.zeroMetalImage), forKey: "uMetalMap")
+      mat.setValue(NSValue(scnVector3: accentVec), forKey: "uAccent")
       mat.shaderModifiers = [
-        .fragment: "if (_output.color.a < 0.45) { discard_fragment(); }"
+        .surface: Self.capSurfaceShader,
+        .fragment: Self.capFragmentShader,
       ]
       return mat
     }

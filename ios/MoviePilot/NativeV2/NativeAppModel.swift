@@ -277,6 +277,7 @@ final class NativeAppModel: ObservableObject {
     }
     manager.disconnect()
     NativeAgentChatStore.resetAll()
+    NativeAgentPetStore.resetAll()
     NativeMediaPlaybackLauncher.shared.dismissSessionBoundPlayer(animated: false)
     NotificationService.shared.attachNative(nil)
     clearSecrets()
@@ -421,7 +422,10 @@ final class NativeAppModel: ObservableObject {
       isSwitchingServer = false
       previousAuthenticatedInstance = nil
       NativeAgentChatStore.resetAll()
+    NativeAgentPetStore.resetAll()
       PluginWebViewPool.shared.resetForSessionChange()
+      NativePageDataCache.shared.clearAll()
+      NativeMediaArtworkCache.shared.clearMemory()
       usageReportTask?.cancel()
       usageReportTask = nil
       reportedUsageScope = nil
@@ -462,15 +466,16 @@ final class NativeAppModel: ObservableObject {
       let target = selected ?? saved.first(where: { $0.id == instance.id })
       if let target { selected = target }
       NativeAgentChatStore.resetAll()
+    NativeAgentPetStore.resetAll()
       PluginWebViewPool.shared.resetForSessionChange()
+      NativePageDataCache.shared.clearAll()
+      NativeMediaArtworkCache.shared.clearMemory()
       usageReportTask?.cancel()
       usageReportTask = nil
       reportedUsageScope = nil
       lastUsageLookupAt = .distantPast
       lastSessionValidationAt = .distantPast
       NativeMediaPlaybackLauncher.shared.dismissSessionBoundPlayer(animated: false)
-      NativePageDataCache.shared.clearAll()
-      NativeMediaArtworkCache.shared.clearMemory()
       Self.dismissPresentedModals()
       WidgetService.shared.endSession(instanceId: instance.id, clear: true)
       WidgetService.shared.cancelOpen()

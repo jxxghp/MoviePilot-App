@@ -113,6 +113,7 @@ private fun JsonObject.safeStr(key: String): String? = this[key].safePrim()?.con
  * 必须在用户主动退出登录或 401 令牌失效自动退登时调用，杜绝跨账号残留。
  */
 fun clearIsolatedPluginWebViewSession(context: Context) {
+    com.moviepilot.pluginhost.runtime.AndroidAgentPetManager.reset()
     com.moviepilot.pluginhost.runtime.AndroidPluginCapsuleManager.resetForSessionChange(context)
     AndroidPluginWebViewPool.resetForSessionChange()
     PluginRemoteDiskCache.clearAll(context)

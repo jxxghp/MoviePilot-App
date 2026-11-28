@@ -360,7 +360,7 @@ class MoviePilotRepository(context: Context) {
             return LoginOutcome.Failure("服务端未返回有效访问令牌")
         }
 
-        val superUser = root.bool("super_user") ?: true
+        val superUser = root.bool("super_user") ?: false
         val userName = root.str("user_name") ?: username.trim()
         val userLevel = root.int("level") ?: root["data"].asObj()?.int("level") ?: 1
         val avatar = root.str("avatar")
@@ -555,7 +555,7 @@ class MoviePilotRepository(context: Context) {
             return LoginOutcome.Failure("未能完成通行密钥验证，请重新尝试。")
         }
 
-        val superUser = payloadObj.bool("super_user") ?: root.bool("super_user") ?: true
+        val superUser = payloadObj.bool("super_user") ?: root.bool("super_user") ?: false
         val userName = payloadObj.str("user_name") ?: root.str("user_name") ?: trimmedUser
         val userLevel = payloadObj.int("level") ?: root.int("level") ?: 1
         val avatar = payloadObj.str("avatar") ?: root.str("avatar")
@@ -616,6 +616,9 @@ class MoviePilotRepository(context: Context) {
         transport.clearCookies()
         resourceCookiePrimed = false
         clearSessionCaches()
+        runCatching {
+            appContext.getSharedPreferences("mp_agent_state_v3", Context.MODE_PRIVATE).edit().clear().apply()
+        }
         val current = _session.value
         val url = when (current) {
             is SessionState.Authenticated -> current.serverUrl
@@ -1901,7 +1904,13 @@ class MoviePilotRepository(context: Context) {
             quality = obj.str("quality") ?: "",
             resolution = obj.str("resolution") ?: "",
             effect = obj.str("effect") ?: "",
+            audioQuality = obj.str("audio_quality") ?: "",
+            audioFormat = obj.str("audio_format") ?: "",
+            minBitrate = obj.int("min_bitrate") ?: 0,
+            minBitDepth = obj.int("min_bit_depth") ?: 0,
+            minSampleRate = obj.int("min_sample_rate") ?: 0,
             bestVersion = (obj.int("best_version") ?: 0) == 1 || obj.bool("best_version") == true,
+            bestVersionFull = (obj.int("best_version_full") ?: 0) == 1 || obj.bool("best_version_full") == true,
             sites = obj["sites"].asArr()?.mapNotNull { it.asPrim()?.intOrNull } ?: emptyList(),
             filterGroups = obj["filter_groups"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s != "null" } } ?: emptyList(),
             searchImdbId = (obj.int("search_imdbid") ?: 0) == 1 || obj.bool("search_imdbid") == true,
@@ -2427,7 +2436,11 @@ class MoviePilotRepository(context: Context) {
         baseMap["year"] = JsonPrimitive(item.year.trim())
         baseMap["type"] = JsonPrimitive(canonicalType)
         if (isTv) {
-            baseMap["season"] = JsonPrimitive(item.season ?: 1)
+            if (item.season != null) {
+                baseMap["season"] = JsonPrimitive(item.season)
+            } else {
+                baseMap["season"] = kotlinx.serialization.json.JsonNull
+            }
         } else {
             baseMap.remove("season")
         }
@@ -2439,18 +2452,26 @@ class MoviePilotRepository(context: Context) {
             baseMap.remove("media_id")
         }
         baseMap["total_episode"] = JsonPrimitive(item.totalEpisode)
-        if (item.startEpisode != null) baseMap["start_episode"] = JsonPrimitive(item.startEpisode) else baseMap.remove("start_episode")
+        baseMap["start_episode"] = JsonPrimitive(item.startEpisode ?: 0)
         baseMap["quality"] = JsonPrimitive(normalizeSubscribeFilterOption("quality", item.quality))
         baseMap["resolution"] = JsonPrimitive(normalizeSubscribeFilterOption("resolution", item.resolution))
         baseMap["effect"] = JsonPrimitive(normalizeSubscribeFilterOption("effect", item.effect))
+        if (canonicalType == "音乐") {
+            baseMap["audio_quality"] = if (item.audioQuality.isBlank()) kotlinx.serialization.json.JsonNull else JsonPrimitive(item.audioQuality)
+            baseMap["audio_format"] = if (item.audioFormat.isBlank()) kotlinx.serialization.json.JsonNull else JsonPrimitive(item.audioFormat)
+            baseMap["min_bitrate"] = if (item.minBitrate > 0) JsonPrimitive(item.minBitrate) else kotlinx.serialization.json.JsonNull
+            baseMap["min_bit_depth"] = if (item.minBitDepth > 0) JsonPrimitive(item.minBitDepth) else kotlinx.serialization.json.JsonNull
+            baseMap["min_sample_rate"] = if (item.minSampleRate > 0) JsonPrimitive(item.minSampleRate) else kotlinx.serialization.json.JsonNull
+        }
         baseMap["best_version"] = JsonPrimitive(if (item.bestVersion) 1 else 0)
+        baseMap["best_version_full"] = JsonPrimitive(if (item.bestVersion && item.bestVersionFull) 1 else 0)
         baseMap["sites"] = JsonArray(item.sites.map { JsonPrimitive(it) })
         baseMap["filter_groups"] = JsonArray(item.filterGroups.map { JsonPrimitive(it) })
         baseMap["search_imdbid"] = JsonPrimitive(if (item.searchImdbId) 1 else 0)
         if (item.searchInterval != null && item.searchInterval > 0) {
             baseMap["search_interval"] = JsonPrimitive(item.searchInterval)
         } else {
-            baseMap.remove("search_interval")
+            baseMap["search_interval"] = kotlinx.serialization.json.JsonNull
         }
         baseMap["keyword"] = JsonPrimitive(item.keyword)
         baseMap["save_path"] = JsonPrimitive(item.savePath)
@@ -5726,6 +5747,83 @@ class MoviePilotRepository(context: Context) {
     fun streamAgentChat(prompt: String, sessionId: String = "android-default"): Flow<SseEventFfi>? {
         val body = """{"text":"${esc(prompt)}","display_text":"${esc(prompt)}","session_id":"${esc(sessionId)}","echo_user":true}"""
         return streamAgentChatPayload(body)
+    }
+
+    // ==================== Agent 助手形象（`plugin/agent_pets` + `user/config/AgentPet`） ====================
+
+        /** 获取服务端公布且当前账号可用的插件助手列表。 */
+    suspend fun fetchAgentPets(): List<AgentPetDeclarationDto> {
+        val resp = authedRequest(listOf("plugin", "agent_pets")).getOrNull() ?: return emptyList()
+        if (resp.status !in 200..299) return emptyList()
+        return extractArray(resp.body).mapNotNull { el ->
+            val o = el.asObj() ?: return@mapNotNull null
+            val pid = o.str("plugin_id")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val key = o.str("key")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val mode = o.str("mode")?.takeIf { it == "stage" || it == "renderer" } ?: return@mapNotNull null
+            val apiVer = o.int("api_version") ?: 1
+            if (apiVer != 1) return@mapNotNull null
+            val randomActions = o["random_actions"].asArr()?.mapNotNull { it.asPrim()?.content?.takeIf { s -> s.isNotBlank() } }
+            AgentPetDeclarationDto(
+                pluginId = pid,
+                sourcePluginId = o.str("source_plugin_id")?.takeIf { it.isNotBlank() } ?: pid,
+                pluginName = o.str("plugin_name")?.takeIf { it.isNotBlank() } ?: pid,
+                key = key,
+                name = o.str("name")?.takeIf { it.isNotBlank() } ?: key,
+                description = o.str("description").orEmpty(),
+                mode = mode,
+                component = o.str("component")?.trim()?.removePrefix("./")?.ifBlank { "AgentPet" } ?: "AgentPet",
+                apiVersion = apiVer,
+                previewUrl = resolveImageUrl(o.str("preview_url")) ?: o.str("preview_url"),
+                avatarUrl = resolveImageUrl(o.str("avatar_url")) ?: o.str("avatar_url"),
+                remoteUrl = o.str("remote_url"),
+                pluginVersion = o.str("plugin_version"),
+                bubbles = o.str("bubbles"),
+                randomActions = randomActions,
+            )
+        }
+    }
+
+        /** 读取当前用户持久化的助手形象选择。 */
+    suspend fun fetchAgentPetSelection(): AgentPetSelection {
+        val resp = authedRequest(listOf("user", "config", "AgentPet")).getOrNull() ?: return AgentPetSelection.FollowDefault
+        if (resp.status !in 200..299) return AgentPetSelection.FollowDefault
+        val obj = extractObject(resp.body) ?: return AgentPetSelection.FollowDefault
+        val valueEl = obj["value"] ?: return AgentPetSelection.FollowDefault
+        if (valueEl is JsonPrimitive && valueEl.isString && valueEl.content == "builtin") {
+            return AgentPetSelection.Builtin
+        }
+        val mapObj = valueEl.asObj()
+        if (mapObj != null) {
+            val pid = mapObj.str("plugin_id")?.takeIf { it.isNotBlank() }
+            val key = mapObj.str("key")?.takeIf { it.isNotBlank() }
+            if (pid != null && key != null) {
+                return AgentPetSelection.Plugin(pid, key)
+            }
+        }
+        return AgentPetSelection.FollowDefault
+    }
+
+        /** 保存用户的助手形象选择，返回服务端是否接受。 */
+    suspend fun saveAgentPetSelection(selection: AgentPetSelection): Boolean {
+        val body = when (selection) {
+            AgentPetSelection.FollowDefault -> "null"
+            AgentPetSelection.Builtin -> "\"builtin\""
+            is AgentPetSelection.Plugin -> """{"plugin_id":"${esc(selection.pluginId)}","key":"${esc(selection.key)}"}"""
+        }
+        val resp = authedRequest(
+            segments = listOf("user", "config", "AgentPet"),
+            method = "POST",
+            body = body,
+        ).getOrNull() ?: return false
+        return resp.status in 200..299
+    }
+
+        /** 读取管理员配置的默认助手形象标识。 */
+    suspend fun fetchGlobalAgentPetDefault(): String {
+        val resp = authedRequest(listOf("system", "global", "user")).getOrNull() ?: return ""
+        if (resp.status !in 200..299) return ""
+        val obj = extractObject(resp.body) ?: return ""
+        return obj.str("AI_AGENT_PET")?.trim().orEmpty()
     }
 
     // ==================== 100% JsonNull-Safe 解析工具 ====================

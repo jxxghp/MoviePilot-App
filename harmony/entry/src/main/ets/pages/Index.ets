@@ -5,7 +5,6 @@ import {
   CinematicAmbientGradient,
   HarmonyBottomNavBar,
   HarmonySideNavRail,
-  FloatingAiMascotButton,
   HarmonyAppearanceStore,
   HarmonyThemeColors,
   HarmonyMainTab,
@@ -57,6 +56,9 @@ import { HarmonyWorkflowCanvasPage, HarmonySitesPage } from '@moviepilot/automat
 import { HarmonyAgentChatPage } from '@moviepilot/agent';
 import { HarmonySettingsHubPage, HarmonyPluginsPage } from '@moviepilot/settings';
 import {
+  HarmonyAgentPetManager,
+  HarmonyAgentPetOverlayHost,
+  HarmonyAgentPetPickerSheet,
   HarmonyGlobalVuePluginOverlay,
   HarmonyPluginCapsuleManager,
   HarmonyPluginFloatingCapsule
@@ -93,6 +95,7 @@ struct Index {
 
   @State private hydratingSession: boolean = true;
   @State private authStage: string = 'connect'; // 'connect' | 'login' | 'main'
+  @State private showAgentPetPicker: boolean = false;
   @State private serverSwitchReturnStage: string = ''; // '' | 'main' | 'login'
   @State private serverUrl: string = '';
   @State private userName: string = 'admin';
@@ -608,6 +611,7 @@ struct Index {
     }
 
     if (returningFromMain && url !== this.serverUrl) {
+      HarmonyAgentPetManager.shared().reset();
       HarmonyPluginCapsuleManager.shared().closeAndDestroy();
       if (HarmonyAudioSession.shared().stopIfSessionBound()) {
         this.miniMusic = null;
@@ -645,6 +649,7 @@ struct Index {
       return;
     }
     this.serverSwitchReturnStage = '';
+    HarmonyAgentPetManager.shared().reset();
     HarmonyPluginCapsuleManager.shared().closeAndDestroy();
     if (HarmonyAudioSession.shared().stopIfSessionBound()) {
       this.miniMusic = null;
@@ -942,7 +947,10 @@ struct Index {
           onBack: () => this.popRoute()
         })
       } else if (this.currentRoute() === 'agent') {
-        HarmonyAgentChatPage({ onBack: () => this.popRoute() })
+        HarmonyAgentChatPage({
+          onBack: () => this.popRoute(),
+          onOpenPetPicker: () => { this.showAgentPetPicker = true; }
+        })
       } else if (this.currentRoute() === 'plugins') {
         HarmonyPluginsPage({
           serverUrl: this.serverUrl,
@@ -1114,15 +1122,6 @@ struct Index {
               this.subRouteOverlayBuilder()
             }
 
-            if (this.routeStack.length === 0 && this.showAiMascot) {
-              FloatingAiMascotButton({
-                miniMusicVisible: this.miniMusic !== null,
-                baseRight: 22,
-                baseBottom: Math.max(20, this.safeBottomVp + 10),
-                onTap: () => this.pushRoute('agent')
-              })
-            }
-
             if (this.miniMusic && this.currentRoute() !== 'agent') {
               FloatingMiniMusicBar({
                 request: this.miniMusic,
@@ -1160,15 +1159,6 @@ struct Index {
           }
 
           if (this.routeStack.length === 0) {
-            if (this.showAiMascot) {
-              FloatingAiMascotButton({
-                miniMusicVisible: this.miniMusic !== null,
-                baseRight: 14,
-                baseBottom: (this.windowHeightVp > 0 && this.windowHeightVp < 480 ? 70 : 80) + Math.max(10, this.safeBottomVp),
-                onTap: () => this.pushRoute('agent')
-              })
-            }
-
             Column({ space: 8 }) {
               if (this.miniMusic) {
                 FloatingMiniMusicBar({
@@ -1228,6 +1218,34 @@ struct Index {
       }
 
       if (!this.hydratingSession && this.authStage === 'main' && !this.activePlayer) {
+        if (this.showAiMascot) {
+          HarmonyAgentPetOverlayHost({
+            serverUrl: this.serverUrl,
+            authToken: MoviePilotRepository.shared().token,
+            userName: this.userName,
+            userAvatar: this.userAvatar,
+            isSuperuser: this.isSuperuser,
+            isVisible: !this.showAgentPetPicker &&
+              this.currentRoute() !== 'messages' &&
+              this.currentRoute() !== 'workflowCanvas' &&
+              this.currentRoute() !== 'plugins',
+            panelOpen: this.currentRoute() === 'agent',
+            dockVisible: !this.isWideLayout(),
+            isWideLayout: this.isWideLayout(),
+            miniMusicVisible: this.miniMusic !== null,
+            onOpenAgent: (_draft: string) => {
+              if (this.currentRoute() !== 'agent') {
+                this.pushRoute('agent');
+              }
+            },
+            onCloseAgent: () => {
+              if (this.currentRoute() === 'agent') {
+                this.popRoute();
+              }
+            }
+          })
+        }
+
         HarmonyPluginFloatingCapsule({
           bottomClearanceVp: (this.routeStack.length === 0 && !this.isWideLayout() ? 94 : 24)
         })
@@ -1242,6 +1260,18 @@ struct Index {
             this.routeStack = ['plugins'];
           }
         })
+      }
+      if (this.showAgentPetPicker && this.authStage === 'main') {
+        Column() {
+          HarmonyAgentPetPickerSheet({
+            onClose: () => { this.showAgentPetPicker = false; }
+          })
+        }
+        .width('100%')
+        .height('78%')
+        .borderRadius({ topLeft: 24, topRight: 24 })
+        .backgroundColor(HarmonyThemeColors.cardElevated(this.isDark))
+        .shadow({ radius: 24, color: '#44000000', offsetY: -6 })
       }
 
       if (this.activePlayer) {

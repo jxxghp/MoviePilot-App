@@ -17,6 +17,7 @@
 		0FE557F4111AB0095942BEFF /* NativeDiscoverModulesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE7B8D4C7A31F109890ABCF /* NativeDiscoverModulesSheet.swift */; };
 		1239E3EF7CE49B9F5D5C757C /* WidgetService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA1934688E4D109E194DB96 /* WidgetService.swift */; };
 		1643E5D3ACDFDECB97B3BD54 /* NativeSitesPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F33A2CBF14E52CA99816FE7 /* NativeSitesPage.swift */; };
+		169682793A6AB8E0FB58A3E7 /* NativeAgentPetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABDB7D26B25547D2A4BA97CD /* NativeAgentPetManager.swift */; };
 		1B6DCC76020A6EE81DA87E69 /* NativeEntityIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D4C74144CA16E15C0B2839 /* NativeEntityIcons.swift */; };
 		1C92A256F9DF407CB0D39639 /* NativeSettingsHubPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4365514BAF4C18C82A3BCB98 /* NativeSettingsHubPage.swift */; };
 		21666CAD1184959714A12971 /* DanmakuEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365E2792CA694B9640677A70 /* DanmakuEngine.swift */; };
@@ -50,6 +51,7 @@
 		6CDCB467D0F4D78498B4B275 /* NativeMediaServerLibraryPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B862EABE429A361CC27AD33 /* NativeMediaServerLibraryPage.swift */; };
 		713D9E91E655AFBD94513CE8 /* NativeCommunityMedal3D.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6175439779975CFCB2785F /* NativeCommunityMedal3D.swift */; };
 		74BB072F347838874E453BDA /* MoviePilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5EA1036A3B6223749CA83C56 /* MoviePilotCore */; };
+		7AABB93D21AB8486474D8357 /* NativeAgentPetOverlayHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C16ED956F46719320197A4C /* NativeAgentPetOverlayHost.swift */; };
 		81225805767A9EA522F839C9 /* PluginShell in Resources */ = {isa = PBXBuildFile; fileRef = E0B1D45452F242A84DDE3942 /* PluginShell */; };
 		81605C89FB80C7DDEB3B42C2 /* CinematicForms.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDEA5C38B21EC1C887096B9D /* CinematicForms.swift */; };
 		823F9719D320A50E3E7ACBFF /* NativeMediaPlaybackLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87FA9E46584D4776F3809815 /* NativeMediaPlaybackLauncher.swift */; };
@@ -182,6 +184,7 @@
 		474B78994605A9AAE8AE2900 /* AVPlayerPlaybackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVPlayerPlaybackEngine.swift; sourceTree = "<group>"; };
 		4A47B559552B90D83BE13166 /* NativeSystemIntegrationSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSystemIntegrationSheets.swift; sourceTree = "<group>"; };
 		4B46855E6AB548E26061B2F7 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		4C16ED956F46719320197A4C /* NativeAgentPetOverlayHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAgentPetOverlayHost.swift; sourceTree = "<group>"; };
 		4C8474DE5C29423EF8B68B9C /* DanmakuControlSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DanmakuControlSheets.swift; sourceTree = "<group>"; };
 		5459CACEBD27D42F6FD137E0 /* MoviePilot.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MoviePilot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		56A041E4198BE71B63A2B109 /* NativeAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAppModel.swift; sourceTree = "<group>"; };
@@ -214,6 +217,7 @@
 		A7076717937113403C755586 /* NativeAgentChatPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAgentChatPage.swift; sourceTree = "<group>"; };
 		A7D4C74144CA16E15C0B2839 /* NativeEntityIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeEntityIcons.swift; sourceTree = "<group>"; };
 		A8D947D97A101D7977471583 /* NativeMediaServerDetailPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMediaServerDetailPage.swift; sourceTree = "<group>"; };
+		ABDB7D26B25547D2A4BA97CD /* NativeAgentPetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAgentPetManager.swift; sourceTree = "<group>"; };
 		AC48C1614B5128296F31DB7D /* CinematicSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicSurfaces.swift; sourceTree = "<group>"; };
 		B27822CB5BB7D354B979B834 /* NativePluginFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePluginFormView.swift; sourceTree = "<group>"; };
 		B3191247C287F641E8A353FB /* DanmakuRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DanmakuRepository.swift; sourceTree = "<group>"; };
@@ -417,6 +421,8 @@
 			isa = PBXGroup;
 			children = (
 				1CC709A18D7FAEDC0527EDD8 /* NativeAgentFloatingMascot.swift */,
+				ABDB7D26B25547D2A4BA97CD /* NativeAgentPetManager.swift */,
+				4C16ED956F46719320197A4C /* NativeAgentPetOverlayHost.swift */,
 				56A041E4198BE71B63A2B109 /* NativeAppModel.swift */,
 				DDC39012EDE608FCCD82D37B /* NativeDeviceLayout.swift */,
 				06C61A153F85D5CD1A2B2698 /* NativeDynamicActionCenter.swift */,
@@ -690,6 +696,8 @@
 				49E389A8F3CA2E221DC15FD7 /* MpvPlaybackEngine.swift in Sources */,
 				31DD46221D3AA358E7045054 /* NativeAgentChatPage.swift in Sources */,
 				0F10DAF3C3E45285527B6679 /* NativeAgentFloatingMascot.swift in Sources */,
+				169682793A6AB8E0FB58A3E7 /* NativeAgentPetManager.swift in Sources */,
+				7AABB93D21AB8486474D8357 /* NativeAgentPetOverlayHost.swift in Sources */,
 				9DF0F4028DD3BB274401298C /* NativeAppModel.swift in Sources */,
 				41EAC1FFF43BBB88B9E028CD /* NativeAppearanceSettingsPage.swift in Sources */,
 				04729F76AADB6E784C8E9C39 /* NativeAppearanceStore.swift in Sources */,
@@ -840,7 +848,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 32;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
@@ -854,7 +862,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 2.0.11;
+				MARKETING_VERSION = 2.0.12;
 				MOVIEPILOT_APNS_ENVIRONMENT = production;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -975,7 +983,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 32;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -995,7 +1003,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 2.0.11;
+				MARKETING_VERSION = 2.0.12;
 				MOVIEPILOT_APNS_ENVIRONMENT = production;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;

@@ -1199,6 +1199,7 @@ private struct NativeSiteEditorSheet: View {
   @State private var render = false
   @State private var isActive = true
   @State private var downloader = ""
+  @State private var downloaderOptions: [String] = []
   @State private var filter = ""
   @State private var isSubmitting = false
   @State private var errorMsg: String?
@@ -1210,7 +1211,7 @@ private struct NativeSiteEditorSheet: View {
       ZStack {
         CinematicBackground()
         ScrollView {
-          VStack(alignment: .leading, spacing: 16) {
+          VStack(alignment: .leading, spacing: 18) {
             if let errorMsg {
               CinematicPanel(padding: 11) {
                 Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
@@ -1220,55 +1221,134 @@ private struct NativeSiteEditorSheet: View {
             }
 
             // 基本信息
-            CinematicPanel(padding: 0) {
-              VStack(spacing: 0) {
-                rowField("站点名称", placeholder: "必填，如 M-Team", text: $name)
-                CinematicFormDivider()
-                rowField("站点地址", placeholder: "https://example.com", text: $url)
-                CinematicFormDivider()
-                Stepper("搜索优先级：\(pri)", value: $pri, in: 0...999)
-                  .font(.subheadline)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
-                CinematicFormDivider()
-                Toggle("启用站点", isOn: $isActive)
-                  .font(.subheadline).tint(appearance.accentColor)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
+            VStack(alignment: .leading, spacing: 8) {
+              Text("基本信息")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  rowField("站点名称", placeholder: "必填，如 M-Team", text: $name)
+                  CinematicFormDivider()
+                  rowField("站点地址", placeholder: "https://example.com", text: $url)
+                  CinematicFormDivider()
+                  HStack(spacing: 8) {
+                    Text("搜索优先级").font(.body).foregroundStyle(.primary)
+                    Spacer()
+                    Text("\(pri)")
+                      .font(.subheadline.monospacedDigit())
+                      .foregroundStyle(.secondary)
+                    Stepper("", value: $pri, in: 0...999)
+                      .labelsHidden()
+                  }
+                  .padding(.horizontal, 16).padding(.vertical, 10)
+                  .frame(minHeight: 52)
+                  CinematicFormDivider()
+                  Toggle("启用站点", isOn: $isActive)
+                    .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .frame(minHeight: 52)
+                }
               }
             }
 
             // 认证凭据与 RSS
-            CinematicPanel(padding: 0) {
-              VStack(spacing: 0) {
-                rowField("RSS 地址", placeholder: "可选", text: $rss)
-                CinematicFormDivider()
-                rowField("Cookie", placeholder: isCreate ? "可选" : "留空保留原值", text: $cookie)
-                CinematicFormDivider()
-                rowField("User-Agent", placeholder: "可选", text: $ua)
-                CinematicFormDivider()
-                rowField("API Key", placeholder: "可选", text: $apiKey)
-                CinematicFormDivider()
-                rowField("Token", placeholder: "可选", text: $token)
+            VStack(alignment: .leading, spacing: 8) {
+              Text("认证凭据与 RSS")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  rowField("RSS 地址", placeholder: "可选", text: $rss)
+                  CinematicFormDivider()
+                  rowField("Cookie", placeholder: isCreate ? "可选" : "留空保留原值", text: $cookie)
+                  CinematicFormDivider()
+                  rowField("User-Agent", placeholder: "可选", text: $ua)
+                  CinematicFormDivider()
+                  rowField("API Key", placeholder: "可选", text: $apiKey)
+                  CinematicFormDivider()
+                  rowField("Token", placeholder: "可选", text: $token)
+                }
               }
             }
 
             // 请求与下载选项
-            CinematicPanel(padding: 0) {
-              VStack(spacing: 0) {
-                Toggle("使用代理访问", isOn: $proxy)
-                  .font(.subheadline).tint(appearance.accentColor)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
-                CinematicFormDivider()
-                Toggle("浏览器仿真渲染", isOn: $render)
-                  .font(.subheadline).tint(appearance.accentColor)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
-                CinematicFormDivider()
-                Stepper("请求超时：\(timeout) 秒", value: $timeout, in: 5...120, step: 5)
-                  .font(.subheadline)
-                  .padding(.horizontal, 15).padding(.vertical, 10)
-                CinematicFormDivider()
-                rowField("指定下载器", placeholder: "留空使用默认", text: $downloader)
-                CinematicFormDivider()
-                rowField("过滤规则", placeholder: "可选正则", text: $filter)
+            VStack(alignment: .leading, spacing: 8) {
+              Text("请求与下载选项")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+              CinematicPanel(padding: 0) {
+                VStack(spacing: 0) {
+                  Toggle("使用代理访问", isOn: $proxy)
+                    .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .frame(minHeight: 52)
+                  CinematicFormDivider()
+                  Toggle("浏览器仿真渲染", isOn: $render)
+                    .font(.body).foregroundStyle(.primary).tint(appearance.accentColor)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .frame(minHeight: 52)
+                  CinematicFormDivider()
+                  HStack(spacing: 8) {
+                    Text("请求超时").font(.body).foregroundStyle(.primary)
+                    Spacer()
+                    Text("\(timeout) 秒")
+                      .font(.subheadline.monospacedDigit())
+                      .foregroundStyle(.secondary)
+                    Stepper("", value: $timeout, in: 5...120, step: 5)
+                      .labelsHidden()
+                  }
+                  .padding(.horizontal, 16).padding(.vertical, 10)
+                  .frame(minHeight: 52)
+                  CinematicFormDivider()
+                  if !downloaderOptions.isEmpty {
+                    Menu {
+                      Button {
+                        downloader = ""
+                      } label: {
+                        if downloader.isEmpty {
+                          Label("默认下载器", systemImage: "checkmark")
+                        } else {
+                          Text("默认下载器")
+                        }
+                      }
+                      Divider()
+                      ForEach(downloaderOptions, id: \.self) { option in
+                        Button {
+                          downloader = option
+                        } label: {
+                          if downloader == option {
+                            Label(option, systemImage: "checkmark")
+                          } else {
+                            Text(option)
+                          }
+                        }
+                      }
+                    } label: {
+                      HStack(spacing: 10) {
+                        Text("指定下载器").font(.body).foregroundStyle(.primary)
+                        Spacer(minLength: 8)
+                        Text(downloader.isEmpty ? "默认" : downloader)
+                          .font(.subheadline)
+                          .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.up.chevron.down")
+                          .font(.caption.weight(.medium))
+                          .foregroundStyle(.secondary.opacity(0.65))
+                      }
+                      .padding(.horizontal, 16)
+                      .padding(.vertical, 13)
+                      .frame(minHeight: 52)
+                      .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                  } else {
+                    rowField("指定下载器", placeholder: "留空使用默认", text: $downloader)
+                  }
+                  CinematicFormDivider()
+                  rowField("过滤规则", placeholder: "可选正则", text: $filter)
+                }
               }
             }
 
@@ -1329,6 +1409,9 @@ private struct NativeSiteEditorSheet: View {
           filter = existing.filter ?? ""
         }
       }
+      .task {
+        await loadDownloaderOptions()
+      }
     }
     .nativeGlassSheet()
     .nativeAdaptiveSheetSizing()
@@ -1336,12 +1419,48 @@ private struct NativeSiteEditorSheet: View {
 
   private func rowField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
     HStack(spacing: 12) {
-      Text(label).font(.subheadline).frame(width: 86, alignment: .leading)
+      Text(label)
+        .font(.body)
+        .foregroundStyle(.primary)
+        .layoutPriority(1)
+      Spacer(minLength: 8)
       TextField(placeholder, text: text)
-        .font(.subheadline).multilineTextAlignment(.trailing)
-        .textInputAutocapitalization(.never).autocorrectionDisabled()
+        .textFieldStyle(.plain)
+        .font(.subheadline)
+        .foregroundStyle(.primary)
+        .multilineTextAlignment(.trailing)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+      if !text.wrappedValue.isEmpty {
+        Button {
+          text.wrappedValue = ""
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(.subheadline)
+            .foregroundStyle(Color.secondary.opacity(0.8))
+        }
+        .buttonStyle(.plain)
+      }
     }
-    .padding(.horizontal, 15).padding(.vertical, 11)
+    .padding(.horizontal, 16).padding(.vertical, 12)
+    .frame(minHeight: 52)
+  }
+
+    /// 加载当前站点可使用的下载器选项及管理权限数据。
+  private func loadDownloaderOptions() async {
+        /// 解码下载器列表中页面展示所需的单项数据。
+    struct DownloaderRow: Decodable {
+      let name: String
+      let enabled: Bool?
+    }
+        /// 解码下载器接口返回的数据容器。
+    struct Box: Decodable {
+      let value: [DownloaderRow]?
+    }
+    guard let ep = try? APIEndpoint(path: ["system", "setting", "Downloaders"]),
+      let res = try? await session.request(ep, as: Box.self, requiring: .init(category: .admin)).value
+    else { return }
+    downloaderOptions = (res.value ?? []).filter { $0.enabled != false }.map(\.name)
   }
 
   private func submit() async {

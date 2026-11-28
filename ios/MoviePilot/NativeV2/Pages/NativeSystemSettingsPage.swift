@@ -124,7 +124,7 @@ struct NativeSystemSettingsPage: View {
     Divider().overlay(.primary.opacity(0.08))
   }
 
-  /// 统一文本输入配置行（适合代理地址、域名、镜像源等较长配置）。
+  /// 统一文本输入配置行（无内嵌边框，与设置页分组列表 1:1 对齐）。
   private func textSettingRow(
     title: String,
     placeholder: String,
@@ -132,32 +132,67 @@ struct NativeSystemSettingsPage: View {
     isURL: Bool = true,
     id: String
   ) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
+    HStack(spacing: 12) {
       Text(title)
-        .font(.subheadline)
-        .foregroundStyle(.primary.opacity(0.84))
+        .font(.body)
+        .foregroundStyle(.primary)
+        .layoutPriority(1)
+      Spacer(minLength: 8)
       TextField(
         placeholder,
         text: text,
-        prompt: Text(placeholder).foregroundColor(.secondary.opacity(0.75))
+        prompt: Text(placeholder).foregroundColor(.secondary.opacity(0.7))
       )
-      .font(.footnote.monospaced())
-      .foregroundStyle(.primary.opacity(0.88))
+      .textFieldStyle(.plain)
+      .font(.subheadline)
+      .foregroundStyle(.primary)
+      .multilineTextAlignment(.trailing)
       .textInputAutocapitalization(.never)
       .autocorrectionDisabled()
       .keyboardType(isURL ? .URL : .default)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 8)
-      .background {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .fill(.primary.opacity(0.06))
-          .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-              .strokeBorder(.primary.opacity(0.10), lineWidth: 0.6)
-          }
-      }
       .accessibilityIdentifier(id)
     }
+    .frame(minHeight: 30)
+  }
+
+  /// 统一下拉菜单配置行（无边框，带 `.buttonStyle(.plain)` 保持高清晰文字对比度）。
+  private func menuSettingRow(
+    title: String,
+    value: String,
+    options: [(value: String, label: String)],
+    selection: Binding<String>,
+    id: String
+  ) -> some View {
+    Menu {
+      ForEach(options, id: \.value) { item in
+        Button {
+          selection.wrappedValue = item.value
+        } label: {
+          if selection.wrappedValue == item.value {
+            Label(item.label, systemImage: "checkmark")
+          } else {
+            Text(item.label)
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: 10) {
+        Text(title)
+          .font(.body)
+          .foregroundStyle(.primary)
+        Spacer(minLength: 8)
+        Text(value)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+        Image(systemName: "chevron.up.chevron.down")
+          .font(.caption.weight(.medium))
+          .foregroundStyle(.secondary.opacity(0.65))
+      }
+      .frame(minHeight: 30)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier(id)
   }
 
   /// 统一切换开关行。
@@ -167,8 +202,8 @@ struct NativeSystemSettingsPage: View {
     id: String
   ) -> some View {
     Toggle(title, isOn: isOn)
-      .font(.subheadline)
-      .foregroundStyle(.primary.opacity(0.84))
+      .font(.body)
+      .foregroundStyle(.primary)
       .tint(NativeAppearanceStore.shared.accentColor)
       .accessibilityIdentifier(id)
   }
@@ -237,27 +272,21 @@ struct NativeSystemSettingsPage: View {
       mutedSectionHeader("媒体与元数据")
       CinematicPanel {
         VStack(spacing: 14) {
-          HStack {
-            Text("主识别来源").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
-            Spacer()
-            Picker("主识别来源", selection: $draft.recognizeSource) {
-              Text("TheMovieDB").tag("themoviedb")
-              Text("豆瓣").tag("douban")
-            }
-            .tint(.secondary)
-            .accessibilityIdentifier("native-settings-recognize-source")
-          }
+          menuSettingRow(
+            title: "主识别来源",
+            value: draft.recognizeSource == "douban" ? "豆瓣" : "TheMovieDB",
+            options: [("themoviedb", "TheMovieDB"), ("douban", "豆瓣")],
+            selection: $draft.recognizeSource,
+            id: "native-settings-recognize-source"
+          )
           rowDivider
-          HStack {
-            Text("搜索数据源").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
-            Spacer()
-            Picker("搜索数据源", selection: $draft.searchSource) {
-              Text("TheMovieDB").tag("themoviedb")
-              Text("豆瓣").tag("douban")
-            }
-            .tint(.secondary)
-            .accessibilityIdentifier("native-settings-search-source")
-          }
+          menuSettingRow(
+            title: "搜索数据源",
+            value: draft.searchSource == "douban" ? "豆瓣" : "TheMovieDB",
+            options: [("themoviedb", "TheMovieDB"), ("douban", "豆瓣")],
+            selection: $draft.searchSource,
+            id: "native-settings-search-source"
+          )
           rowDivider
           textSettingRow(
             title: "TheMovieDB API 域名",
@@ -313,16 +342,13 @@ struct NativeSystemSettingsPage: View {
       mutedSectionHeader("性能、订阅与同步")
       CinematicPanel {
         VStack(spacing: 14) {
-          HStack {
-            Text("订阅模式").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
-            Spacer()
-            Picker("订阅模式", selection: $draft.subscribeMode) {
-              Text("站点爬虫").tag("spider")
-              Text("RSS 订阅").tag("rss")
-            }
-            .tint(.secondary)
-            .accessibilityIdentifier("native-settings-subscribe-mode")
-          }
+          menuSettingRow(
+            title: "订阅模式",
+            value: draft.subscribeMode == "rss" ? "RSS 订阅" : "站点爬虫",
+            options: [("spider", "站点爬虫"), ("rss", "RSS 订阅")],
+            selection: $draft.subscribeMode,
+            id: "native-settings-subscribe-mode"
+          )
           rowDivider
           Stepper(value: $draft.subscribeRssInterval, in: 5...720, step: 5) {
             HStack {
@@ -413,17 +439,13 @@ struct NativeSystemSettingsPage: View {
           rowDivider
           toggleSettingRow("调试模式", isOn: $draft.debug, id: "native-settings-debug")
           rowDivider
-          HStack {
-            Text("日志级别").font(.subheadline).foregroundStyle(.primary.opacity(0.84))
-            Spacer()
-            Picker("日志级别", selection: $draft.logLevel) {
-              ForEach(["DEBUG", "INFO", "WARNING", "ERROR"], id: \.self) { level in
-                Text(level).tag(level)
-              }
-            }
-            .tint(.secondary)
-            .accessibilityIdentifier("native-settings-log-level")
-          }
+          menuSettingRow(
+            title: "日志级别",
+            value: draft.logLevel,
+            options: ["DEBUG", "INFO", "WARNING", "ERROR"].map { ($0, $0) },
+            selection: $draft.logLevel,
+            id: "native-settings-log-level"
+          )
           if !draft.timezone.isEmpty {
             rowDivider
             HStack {

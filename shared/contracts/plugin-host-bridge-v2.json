@@ -31,7 +31,9 @@
     "host.action",
     "capsule.action",
     "bridge.response",
-    "device.event"
+    "device.event",
+    "agent.state",
+    "agent.event"
   ],
   "webToHostTypes": [
     "shell.ready",
@@ -42,6 +44,12 @@
     "plugin.capsule.update",
     "plugin.restore",
     "plugin.action",
+    "agent.open",
+    "agent.close",
+    "agent.emit",
+    "agent.pet.anchor",
+    "agent.pet.interacting",
+    "agent.pet.say",
     "api.request",
     "api.abort",
     "ui.toast",

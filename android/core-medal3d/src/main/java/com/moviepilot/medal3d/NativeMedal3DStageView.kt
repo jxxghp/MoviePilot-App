@@ -395,7 +395,7 @@ private class Medal3DTextureHost(
                             texFrontDiffuse,
                             if (texFrontNormal != 0) texFrontNormal else texFlatNormal,
                             if (texFrontMetal != 0) texFrontMetal else texDefaultMetal,
-                            bundle.toneRgb,
+                            bundle.edgeMetalRgb,
                         )
 
                         // 3. 主创勋章等外圈机械步进旋转环（绕 spin 中心旋转）
@@ -413,7 +413,7 @@ private class Medal3DTextureHost(
                                 texOuterDiffuse,
                                 if (texOuterNormal != 0) texOuterNormal else texFlatNormal,
                                 if (texOuterMetal != 0) texOuterMetal else texDefaultMetal,
-                                bundle.toneRgb,
+                                bundle.edgeMetalRgb,
                             )
                         }
 
@@ -426,7 +426,7 @@ private class Medal3DTextureHost(
                             texBackDiffuse,
                             if (texBackNormal != 0) texBackNormal else texFlatNormal,
                             if (texBackMetal != 0) texBackMetal else texDefaultMetal,
-                            bundle.toneRgb,
+                            bundle.edgeMetalRgb,
                         )
                     }
 
@@ -509,7 +509,7 @@ private class Medal3DTextureHost(
             }
 
             texFlatNormal = uploadSolidTexture(128, 128, 255)
-            texDefaultMetal = uploadSolidTexture(92, 92, 92)
+            texDefaultMetal = uploadSolidTexture(0, 0, 0)
         }
 
         private fun uploadBundle(bundle: CommunityMedalRenderBundle?) {
@@ -783,7 +783,8 @@ private class Medal3DTextureHost(
             }
         """
 
-        // 对齐 iOS SceneKit 影棚三灯 + 高度法线贴图 + 0.52 自发光锁色 + 金属柔光条带反射 + alpha < 0.45 裁切
+        // 1:1 对齐 Web communityMedalRelief.ts CapShader：以原画自带金工光影为主，
+        // 珐琅与铭牌零反光，正对时几乎无光照叠加，仅在倾斜时于金属棱线浮现极淡柔光。
         private const val RELIEF_FS = """
             precision highp float;
             uniform sampler2D uDiffuse;
@@ -793,47 +794,38 @@ private class Medal3DTextureHost(
             varying vec2 vUv;
             varying vec3 vWorldPos;
             varying mat3 vTbn;
+
+            vec3 studio(vec3 r, vec3 accentLin) {
+                vec3 light = vec3(0.0);
+                light += vec3(1.0) * smoothstep(0.2, 0.95, r.y) * 0.8;
+                float rxL = (r.x + 0.6) / 0.35;
+                float rxR = (r.x - 0.6) / 0.30;
+                float rzMask = smoothstep(-0.6, 0.3, r.z);
+                light += accentLin * exp(-(rxL * rxL)) * rzMask * 0.6;
+                light += vec3(1.0) * exp(-(rxR * rxR)) * rzMask * 0.45;
+                return light;
+            }
+
             void main() {
                 vec4 albedo = texture2D(uDiffuse, vUv);
-                if (albedo.a < 0.45) discard;
+                float alpha = smoothstep(0.45, 0.85, albedo.a);
+                if (alpha <= 0.0) discard;
 
                 vec3 nSample = texture2D(uNormal, vUv).xyz * 2.0 - 1.0;
-                nSample.xy *= 0.68;
                 vec3 N = normalize(vTbn * normalize(nSample));
                 vec3 V = normalize(vec3(0.0, 0.0, 5.65) - vWorldPos);
-
-                float metal = texture2D(uMetal, vUv).r;
-                float specPower = mix(22.0, 54.0, metal);
-
-                // 主定向光 (-3, 4, 5)
-                vec3 L1 = normalize(vec3(-3.0, 4.0, 5.0));
-                vec3 H1 = normalize(L1 + V);
-                float diff1 = max(dot(N, L1), 0.0);
-                float spec1 = pow(max(dot(N, H1), 0.0), specPower) * (0.16 + 0.52 * metal);
-
-                // 右侧轮廓冷补光 (4, 1.5, 3)
-                vec3 L2 = normalize(vec3(4.0, 1.5, 3.0));
-                vec3 H2 = normalize(L2 + V);
-                float diff2 = max(dot(N, L2), 0.0);
-                float spec2 = pow(max(dot(N, H2), 0.0), specPower * 0.85) * (0.10 + 0.34 * metal);
-
-                // 底部勋章主色微氛围补光 (0, -2.5, 3.5)
-                vec3 L3 = normalize(vec3(0.0, -2.5, 3.5));
-                float diff3 = max(dot(N, L3), 0.0);
-
-                // 影棚柔光条带环境反射（倾斜时金属面呈现细腻丝滑反光）
                 vec3 R = reflect(-V, N);
-                float stripTop = smoothstep(0.32, 0.85, R.y) * 0.24;
-                float stripSide = smoothstep(0.55, 0.95, abs(R.x)) * (1.0 - abs(R.y)) * 0.18;
-                vec3 envSheen = mix(vec3(1.0), albedo.rgb, 0.55) * (stripTop + stripSide) * (0.28 + 0.72 * metal);
 
-                vec3 baseLit = albedo.rgb * (0.52 + 0.42 * diff1 + 0.16 * diff2)
-                    + albedo.rgb * uToneColor * (0.10 * diff3)
-                    + mix(vec3(1.0, 0.99, 0.96), albedo.rgb, 0.35) * spec1
-                    + vec3(0.88, 0.94, 1.0) * spec2
-                    + envSheen;
-
-                gl_FragColor = vec4(clamp(baseLit, 0.0, 1.0), 1.0);
+                vec3 baseLin = pow(max(albedo.rgb, vec3(0.0)), vec3(2.2));
+                vec3 accentLin = pow(max(uToneColor, vec3(0.0)), vec3(2.2));
+                float metal = texture2D(uMetal, vUv).r;
+                float fresnel = 0.2 + 0.8 * pow(1.0 - max(dot(N, V), 0.0), 3.0);
+                vec3 tint = mix(vec3(1.0), baseLin * 1.6, 0.7);
+                vec3 sheen = studio(R, accentLin) * tint * fresnel;
+                float shade = 0.93 + 0.12 * dot(N, normalize(vec3(-0.4, 0.6, 0.7)));
+                vec3 rgbLin = baseLin * mix(1.0, shade, metal * 0.5) + sheen * metal * 0.14;
+                vec3 rgb = pow(clamp(rgbLin, 0.0, 1.0), vec3(1.0 / 2.2));
+                gl_FragColor = vec4(rgb, alpha);
             }
         """
 
@@ -867,11 +859,12 @@ private class Medal3DTextureHost(
                 float d2 = max(dot(N, L2), 0.0);
                 vec3 H1 = normalize(L1 + V);
                 vec3 H2 = normalize(L2 + V);
-                float s1 = pow(max(dot(N, H1), 0.0), 36.0) * 0.65;
-                float s2 = pow(max(dot(N, H2), 0.0), 28.0) * 0.40;
-                vec3 col = uEdgeColor * (0.36 + 0.62 * d1 + 0.28 * d2)
-                    + mix(vec3(1.0), uEdgeColor, 0.45) * (s1 + s2)
-                    + uToneColor * 0.05;
+                float s1 = pow(max(dot(N, H1), 0.0), 28.0) * 0.22;
+                float s2 = pow(max(dot(N, H2), 0.0), 22.0) * 0.14;
+                vec3 wallColor = uEdgeColor * 0.85;
+                vec3 col = wallColor * (0.50 + 0.36 * d1 + 0.14 * d2)
+                    + mix(vec3(1.0), wallColor, 0.55) * (s1 + s2)
+                    + uToneColor * 0.02;
                 gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
             }
         """

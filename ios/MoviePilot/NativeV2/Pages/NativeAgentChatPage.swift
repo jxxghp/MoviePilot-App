@@ -34,7 +34,7 @@ final class NativeAgentChatStore: ObservableObject {
   @Published fileprivate var messages: [NativeAgentMessage] = []
   @Published fileprivate var sessions: [NativeAgentSessionSummary] = []
   @Published fileprivate var commands: [NativeAgentCommandItem] = []
-  @Published fileprivate var isSending = false
+  @Published var isSending = false
   @Published fileprivate var isLoadingInitialSession = true
   @Published fileprivate var isLoadingSessions = false
   @Published fileprivate var feedback: NativeAgentFeedback?
@@ -645,11 +645,13 @@ struct NativeAgentChatPage: View {
 
   @ObservedObject private var appearance = NativeAppearanceStore.shared
   @ObservedObject private var store: NativeAgentChatStore
+  @ObservedObject private var petStore: NativeAgentPetStore
   @StateObject private var audioBridge = NativeAgentAudioController()
   @State private var draftText: String
   @State private var pendingUploads: [NativeAgentUploadedAttachment] = []
   @State private var isUploadingAttachment = false
   @State private var showsSessionsSheet = false
+  @State private var showsPetPickerSheet = false
   @State private var pendingDeleteSession: NativeAgentSessionSummary?
 
   // 多模态输入与附件预览
@@ -673,6 +675,7 @@ struct NativeAgentChatPage: View {
   init(session: NativeSession, initialPrompt: String = "") {
     self.session = session
     _store = ObservedObject(wrappedValue: NativeAgentChatStore.shared(for: session))
+    _petStore = ObservedObject(wrappedValue: NativeAgentPetStore.shared(for: session))
     _draftText = State(initialValue: initialPrompt)
   }
 
@@ -753,11 +756,20 @@ struct NativeAgentChatPage: View {
           .padding(.bottom, 10)
       }
     }
-    .navigationTitle("智能助手")
+    .navigationTitle(petStore.effectivePet?.name ?? "智能助手")
     .navigationBarTitleDisplayMode(.inline)
     .nativeTopNavigationBar()
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
+        Button {
+          showsPetPickerSheet = true
+        } label: {
+          Image(systemName: "sparkles")
+        }
+        .tint(.primary)
+        .accessibilityLabel("更换助手形象")
+        .accessibilityIdentifier("native-agent-pet-picker")
+
         Button {
           startNewSession()
         } label: {
@@ -777,6 +789,9 @@ struct NativeAgentChatPage: View {
         .accessibilityLabel("历史会话")
         .accessibilityIdentifier("native-agent-sessions")
       }
+    }
+    .sheet(isPresented: $showsPetPickerSheet) {
+      NativeAgentPetPickerSheet(session: session, petStore: petStore)
     }
     .photosPicker(isPresented: $showsPhotoPicker, selection: $selectedPhotoItem, matching: .images)
     .onChange(of: selectedPhotoItem) { newItem in

@@ -417,9 +417,10 @@ object CommunityMedalAssetEngine {
                 val nb = ((nz * invLen * 0.5f + 0.5f) * 255f).toInt().coerceIn(0, 255)
                 normalPixels[y * dim + x] = Color.argb(255, nr, ng, nb)
 
+                // 1:1 对齐 Web communityMedalRelief.ts：smoothstep(0.26, 0.45, h)，珐琅与铭牌严格为 0
                 val t = ((hC - 0.26f) / (0.45f - 0.26f)).coerceIn(0f, 1f)
                 val smooth = t * t * (3f - 2f * t)
-                val metal = ((0.04f + 0.46f * smooth) * 255f).toInt().coerceIn(0, 255)
+                val metal = (smooth * 255f).toInt().coerceIn(0, 255)
                 metalPixels[y * dim + x] = Color.argb(255, metal, metal, metal)
             }
         }
