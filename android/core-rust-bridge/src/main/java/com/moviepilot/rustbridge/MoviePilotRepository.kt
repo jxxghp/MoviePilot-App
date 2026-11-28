@@ -3987,7 +3987,11 @@ class MoviePilotRepository(context: Context) {
         return ok to (obj?.str("message") ?: if (ok) "已复用工作流「${share.shareTitle.ifBlank { share.name }}」" else "复用失败（HTTP ${resp.status}）")
     }
 
-    suspend fun fetchPlugins(installedOnly: Boolean, forceRefresh: Boolean = false): List<PluginItemDto> {
+    suspend fun fetchPlugins(installedOnly: Boolean, forceRefresh: Boolean = false): List<PluginItemDto> =
+        fetchPluginsOrNull(installedOnly = installedOnly, forceRefresh = forceRefresh).orEmpty()
+
+    /** 查询已安装或市场插件列表；网络失败或非 2xx 时返回 `null`，避免把失败误当作空列表覆盖更新标记。 */
+    suspend fun fetchPluginsOrNull(installedOnly: Boolean, forceRefresh: Boolean = false): List<PluginItemDto>? {
         if (!forceRefresh) {
             val cached = if (installedOnly) cachedInstalledPlugins else cachedMarketPlugins
             if (!cached.isNullOrEmpty()) return cached
@@ -4033,6 +4037,9 @@ class MoviePilotRepository(context: Context) {
             }
             Triple(listDeferred.await(), remotesDeferred.await(), statsDeferred.await() to ratingsDeferred.await())
         }
+        if (resp == null || resp.status !in 200..299) {
+            return null
+        }
         val statsResp = statsAndRatings.first
         val ratingsResp = statsAndRatings.second
         val remoteVueIds = if (remotesResp != null) {
@@ -4062,10 +4069,11 @@ class MoviePilotRepository(context: Context) {
         } else {
             emptyMap()
         }
-        return extractArray(resp?.body).mapNotNull { el ->
+        return extractArray(resp.body).mapNotNull { el ->
             val obj = el.asObj() ?: return@mapNotNull null
             val id = obj.str("id") ?: return@mapNotNull null
-            val sourceId = obj.str("source_plugin_id")?.lowercase()
+            val rawSourceId = obj.str("source_plugin_id").orEmpty()
+            val sourceId = rawSourceId.takeIf { it.isNotBlank() }?.lowercase()
             val rawRenderMode = obj.str("render_mode")
             val resolvedRenderMode = if (
                 rawRenderMode.equals("vue", ignoreCase = true) ||
@@ -4098,6 +4106,7 @@ class MoviePilotRepository(context: Context) {
                 hasUpdate = obj.bool("has_update") ?: false,
                 renderMode = resolvedRenderMode,
                 repoUrl = obj.str("repo_url").orEmpty(),
+                sourcePluginId = rawSourceId,
                 installCount = mergedDownloads,
                 addTime = obj.int("add_time") ?: 0,
                 averageRating = obj.dbl("average_rating")
@@ -4106,12 +4115,10 @@ class MoviePilotRepository(context: Context) {
                     ?: 0.0,
             )
         }.distinctBy { it.id }.also { parsed ->
-            if (parsed.isNotEmpty() || resp?.status in 200..299) {
-                if (installedOnly) {
-                    cachedInstalledPlugins = parsed
-                } else {
-                    cachedMarketPlugins = parsed
-                }
+            if (installedOnly) {
+                cachedInstalledPlugins = parsed
+            } else {
+                cachedMarketPlugins = parsed
             }
         }
     }
@@ -4127,8 +4134,12 @@ class MoviePilotRepository(context: Context) {
         val obj = runCatching { json.parseToJsonElement(resp.body).asObj() }.getOrNull()
         val ok = obj?.bool("success") ?: (resp.status in 200..299)
         if (ok) {
-            cachedInstalledPlugins = null
-            cachedMarketPlugins = null
+            cachedInstalledPlugins = cachedInstalledPlugins?.let {
+                PluginUpdateReconciler.markPluginUpdated(it, pluginId)
+            }
+            cachedMarketPlugins = cachedMarketPlugins?.let {
+                PluginUpdateReconciler.markPluginUpdated(it, pluginId)
+            }
         }
         return ok to (obj?.str("message") ?: if (ok) (if (force) "插件更新成功" else "插件安装成功") else "安装失败（HTTP ${resp.status}）")
     }

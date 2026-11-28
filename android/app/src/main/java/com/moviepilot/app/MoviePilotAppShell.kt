@@ -1046,28 +1046,47 @@ fun MoviePilotRootShell(
         }
     }
 
+    var lastUsageLookupEpochMs by remember { mutableStateOf(0L) }
+    suspend fun reportUsageIfAdmin(forceLookup: Boolean = false) {
+        val latestAuth = repository.session.value as? SessionState.Authenticated ?: return
+        if (!latestAuth.permissions.admin) return
+        val nowMs = System.currentTimeMillis()
+        if (!forceLookup && nowMs - lastUsageLookupEpochMs < 60_000L) return
+        val appVersion = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull()?.takeIf { it.isNotBlank() }.orEmpty()
+        if (appVersion.isEmpty()) return
+        lastUsageLookupEpochMs = nowMs
+        runCatching {
+            val cfg = repository.fetchUsageReportingConfig()
+            if (cfg != null && cfg.first) {
+                AppUsageReporter.forContext(context).report(
+                    enabled = true,
+                    host = cfg.second,
+                    version = appVersion,
+                )
+            }
+        }
+    }
+
     LaunchedEffect(authKey) {
         if (authKey != null) {
             repository.hydrateAuthenticatedSession()
-            val latestAuth = repository.session.value as? SessionState.Authenticated
-            if (latestAuth?.permissions?.admin == true) {
-                val appVersion = runCatching {
-                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                }.getOrNull()?.takeIf { it.isNotBlank() }.orEmpty()
-                if (appVersion.isNotEmpty()) {
-                    runCatching {
-                        val cfg = repository.fetchUsageReportingConfig()
-                        if (cfg != null && cfg.first) {
-                            AppUsageReporter.forContext(context).report(
-                                enabled = true,
-                                host = cfg.second,
-                                version = appVersion,
-                            )
-                        }
-                    }
-                }
+            reportUsageIfAdmin(forceLookup = true)
+        }
+    }
+
+    // 回到前台时自动补报：若上次因网络或服务端未就绪失败，无需强杀重启即可重试（成功态仍由 24h 节流保护）
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, authKey) {
+        if (authKey == null) return@DisposableEffect onDispose {}
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                scope.launch { reportUsageIfAdmin(forceLookup = false) }
             }
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // 处理未登录也可直放的本地/外部音视频打开请求（仅消费外部媒体，不误清待登录重放的 DeepLink）

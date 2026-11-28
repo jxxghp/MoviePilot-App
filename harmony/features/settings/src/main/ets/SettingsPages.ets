@@ -242,6 +242,65 @@ export struct HarmonyPluginsPage {
     }
   }
 
+  private static canonicalPluginKey(item: MpPluginItem): string {
+    const src = (item.sourcePluginId ?? '').trim();
+    return (src.length > 0 ? src : item.id.trim()).toLowerCase();
+  }
+
+  private static clonePluginItemWithUpdate(
+    cur: MpPluginItem,
+    hasUpdate: boolean,
+    installed?: boolean,
+    repoUrl?: string
+  ): MpPluginItem {
+    return {
+      id: cur.id,
+      pluginName: cur.pluginName,
+      pluginDesc: cur.pluginDesc,
+      pluginVersion: cur.pluginVersion,
+      pluginAuthor: cur.pluginAuthor,
+      installed: installed !== undefined ? installed : cur.installed,
+      state: cur.state,
+      hasPage: cur.hasPage,
+      iconUrl: cur.iconUrl,
+      renderMode: cur.renderMode,
+      repoUrl: (cur.repoUrl && cur.repoUrl.length > 0) ? cur.repoUrl : (repoUrl ?? cur.repoUrl),
+      sourcePluginId: cur.sourcePluginId,
+      hasUpdate: hasUpdate,
+      installCount: cur.installCount,
+      addTime: cur.addTime,
+      averageRating: cur.averageRating,
+      pluginLabel: cur.pluginLabel
+    };
+  }
+
+  private static markPluginUpdatedInList(
+    items: MpPluginItem[],
+    pluginId: string,
+    sourcePluginId?: string
+  ): MpPluginItem[] {
+    const targetId = pluginId.trim().toLowerCase();
+    const targetSrc = (sourcePluginId ?? '').trim().toLowerCase();
+    if (targetId.length === 0 && targetSrc.length === 0) {
+      return items;
+    }
+    const next: MpPluginItem[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const cur = items[i];
+      const curId = cur.id.trim().toLowerCase();
+      const curCanon = HarmonyPluginsPage.canonicalPluginKey(cur);
+      const matched = curId === targetId
+        || curCanon === targetId
+        || (targetSrc.length > 0 && (curId === targetSrc || curCanon === targetSrc));
+      if (matched) {
+        next.push(HarmonyPluginsPage.clonePluginItemWithUpdate(cur, false, true));
+      } else {
+        next.push(cur);
+      }
+    }
+    return next;
+  }
+
   private mergeMarketUpdatesOntoInstalled(installed: MpPluginItem[], market: MpPluginItem[]): MpPluginItem[] {
     if (installed.length === 0 || market.length === 0) {
       return installed;
@@ -250,51 +309,19 @@ export struct HarmonyPluginsPage {
     for (let i = 0; i < market.length; i++) {
       const mp = market[i];
       if (mp.hasUpdate) {
-        updateById.set(mp.id.toLowerCase(), mp);
+        updateById.set(mp.id.trim().toLowerCase(), mp);
+        updateById.set(HarmonyPluginsPage.canonicalPluginKey(mp), mp);
       }
     }
     const merged: MpPluginItem[] = [];
     for (let i = 0; i < installed.length; i++) {
       const cur = installed[i];
-      const marketMatch = updateById.get(cur.id.toLowerCase());
+      const marketMatch = updateById.get(HarmonyPluginsPage.canonicalPluginKey(cur))
+        ?? updateById.get(cur.id.trim().toLowerCase());
       if (marketMatch) {
-        merged.push({
-          id: cur.id,
-          pluginName: cur.pluginName,
-          pluginDesc: cur.pluginDesc,
-          pluginVersion: cur.pluginVersion,
-          pluginAuthor: cur.pluginAuthor,
-          installed: cur.installed,
-          state: cur.state,
-          hasPage: cur.hasPage,
-          iconUrl: cur.iconUrl,
-          renderMode: cur.renderMode,
-          repoUrl: (cur.repoUrl && cur.repoUrl.length > 0) ? cur.repoUrl : marketMatch.repoUrl,
-          hasUpdate: true,
-          installCount: cur.installCount,
-          addTime: cur.addTime,
-          averageRating: cur.averageRating,
-          pluginLabel: cur.pluginLabel
-        });
+        merged.push(HarmonyPluginsPage.clonePluginItemWithUpdate(cur, true, cur.installed, marketMatch.repoUrl));
       } else if (cur.hasUpdate) {
-        merged.push({
-          id: cur.id,
-          pluginName: cur.pluginName,
-          pluginDesc: cur.pluginDesc,
-          pluginVersion: cur.pluginVersion,
-          pluginAuthor: cur.pluginAuthor,
-          installed: cur.installed,
-          state: cur.state,
-          hasPage: cur.hasPage,
-          iconUrl: cur.iconUrl,
-          renderMode: cur.renderMode,
-          repoUrl: cur.repoUrl,
-          hasUpdate: false,
-          installCount: cur.installCount,
-          addTime: cur.addTime,
-          averageRating: cur.averageRating,
-          pluginLabel: cur.pluginLabel
-        });
+        merged.push(HarmonyPluginsPage.clonePluginItemWithUpdate(cur, false));
       } else {
         merged.push(cur);
       }
@@ -305,11 +332,13 @@ export struct HarmonyPluginsPage {
   private async loadMarketForUpdatesSilently(): Promise<void> {
     if (this.marketLoadedOnce) { return; }
     try {
-      const market = await MoviePilotRepository.shared().fetchPlugins('market');
-      this.marketPlugins = market;
-      this.marketLoadedOnce = true;
-      if (this.installedPlugins.length > 0) {
-        this.installedPlugins = this.mergeMarketUpdatesOntoInstalled(this.installedPlugins, market);
+      const market = await MoviePilotRepository.shared().fetchPluginsOrNull('market');
+      if (market !== null) {
+        this.marketPlugins = market;
+        this.marketLoadedOnce = true;
+        if (this.installedPlugins.length > 0) {
+          this.installedPlugins = this.mergeMarketUpdatesOntoInstalled(this.installedPlugins, market);
+        }
       }
     } catch {
       // silent background check
@@ -319,15 +348,53 @@ export struct HarmonyPluginsPage {
   private async loadInstalled(): Promise<void> {
     this.loading = true;
     try {
-      const loaded = await MoviePilotRepository.shared().fetchPlugins('installed');
-      this.installedPlugins = this.marketPlugins.length > 0
-        ? this.mergeMarketUpdatesOntoInstalled(loaded, this.marketPlugins)
-        : loaded;
+      const loaded = await MoviePilotRepository.shared().fetchPluginsOrNull('installed');
+      if (loaded !== null) {
+        this.installedPlugins = this.marketPlugins.length > 0
+          ? this.mergeMarketUpdatesOntoInstalled(loaded, this.marketPlugins)
+          : loaded;
+      }
     } catch {
-      this.installedPlugins = [];
+      if (this.installedPlugins.length === 0) {
+        this.installedPlugins = [];
+      }
     }
     this.loading = false;
     this.consumePendingOpenPluginIfNeeded();
+  }
+
+  private async reloadAfterPluginMutation(mutatedPluginId: string, mutatedSourcePluginId?: string): Promise<void> {
+    const fallbackInstalled = HarmonyPluginsPage.markPluginUpdatedInList(
+      this.installedPlugins, mutatedPluginId, mutatedSourcePluginId
+    );
+    const fallbackMarket = HarmonyPluginsPage.markPluginUpdatedInList(
+      this.marketPlugins, mutatedPluginId, mutatedSourcePluginId
+    );
+    this.installedPlugins = fallbackInstalled;
+    this.marketPlugins = fallbackMarket;
+
+    try {
+      const repo = MoviePilotRepository.shared();
+      const results = await Promise.all([
+        repo.fetchPluginsOrNull('installed'),
+        repo.fetchPluginsOrNull('market')
+      ]);
+      const freshInstalled = results[0];
+      const freshMarket = results[1];
+      const effectiveMarket = freshMarket !== null ? freshMarket : fallbackMarket;
+      if (freshMarket !== null) {
+        this.marketPlugins = freshMarket;
+        this.marketLoadedOnce = true;
+      }
+      const baseInstalled = freshInstalled !== null ? freshInstalled : fallbackInstalled;
+      if (effectiveMarket.length > 0) {
+        this.installedPlugins = this.mergeMarketUpdatesOntoInstalled(baseInstalled, effectiveMarket);
+      } else {
+        this.installedPlugins = this.mergeMarketUpdatesOntoInstalled(baseInstalled, fallbackInstalled);
+      }
+    } catch {
+      // 保留已在本地消标的兜底快照，不覆盖其余插件的更新状态
+    }
   }
 
   onPendingOpenPluginChanged(): void {
@@ -353,14 +420,16 @@ export struct HarmonyPluginsPage {
     if (!force && this.marketPlugins.length > 0) { return; }
     this.loading = true;
     try {
-      this.marketPlugins = await MoviePilotRepository.shared().fetchPlugins('market');
-      this.marketLoadedOnce = true;
-      if (this.installedPlugins.length > 0) {
-        this.installedPlugins = this.mergeMarketUpdatesOntoInstalled(this.installedPlugins, this.marketPlugins);
+      const loaded = await MoviePilotRepository.shared().fetchPluginsOrNull('market');
+      if (loaded !== null) {
+        this.marketPlugins = loaded;
+        this.marketLoadedOnce = true;
+        if (this.installedPlugins.length > 0) {
+          this.installedPlugins = this.mergeMarketUpdatesOntoInstalled(this.installedPlugins, loaded);
+        }
       }
     } catch {
-      this.marketPlugins = [];
-      this.marketLoadedOnce = true;
+      // 拉取失败保留既有市场缓存，避免覆盖已安装列表的更新状态
     }
     this.loading = false;
   }
@@ -418,7 +487,7 @@ export struct HarmonyPluginsPage {
     if (ok) {
       this.showMarketDetailSheet = false;
       this.marketDetailTarget = null;
-      await Promise.all([this.loadMarketIfNeeded(true), this.loadInstalled()]);
+      await this.reloadAfterPluginMutation(pl.id, pl.sourcePluginId);
     }
   }
 

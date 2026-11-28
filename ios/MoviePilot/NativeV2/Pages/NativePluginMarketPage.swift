@@ -44,6 +44,8 @@ struct NativePluginMarketPage: View {
   @State private var loadFailed = false
   @State private var reloadToken = 0
   @State private var mutatingID: String?
+  @State private var completedUpdateIDs: Set<String> = []
+  @State private var marketSyncTask: Task<Void, Never>?
 
   @State private var activeDestination: MarketDestination?
   @State private var isDestinationPresented = false
@@ -151,7 +153,10 @@ struct NativePluginMarketPage: View {
         if let activeDestination {
           switch activeDestination {
           case .store:
-            NativePluginStorePage(session: session) {
+            NativePluginStorePage(session: session) { updatedID, updatedSourceID in
+              if let updatedID {
+                recordPluginUpdated(id: updatedID, sourcePluginID: updatedSourceID)
+              }
               reloadToken += 1
             }
           case .form(let plugin):
@@ -182,6 +187,10 @@ struct NativePluginMarketPage: View {
       .task(id: reloadToken) {
         await loadInstalled(forceRefresh: reloadToken > 0)
       }
+      .onDisappear {
+        marketSyncTask?.cancel()
+        marketSyncTask = nil
+      }
   }
 
   private var contentWithSheets: some View {
@@ -200,6 +209,7 @@ struct NativePluginMarketPage: View {
           }
         ) { message in
           feedback = NativePluginMarketFeedback(isError: false, message: message)
+          recordPluginUpdated(id: plugin.id, sourcePluginID: plugin.sourcePluginID)
           reloadToken += 1
         }
       }
@@ -210,6 +220,7 @@ struct NativePluginMarketPage: View {
           actionMode: .update
         ) { message in
           feedback = NativePluginMarketFeedback(isError: false, message: message)
+          recordPluginUpdated(id: plugin.id, sourcePluginID: plugin.sourcePluginID)
           reloadToken += 1
         }
       }
@@ -579,12 +590,24 @@ struct NativePluginMarketPage: View {
 
   private func loadInstalled(forceRefresh: Bool = false) async {
     let cacheKey = "plugins|installed"
+    let marketCacheKey = "plugins|market"
     let remotesCacheKey = "plugins|remotes"
     if !forceRefresh,
       let cached: [NativeMarketPluginRecord] = NativePageDataCache.shared.get(
         cacheKey, session: session)
     {
-      installedPlugins = cached
+      if let cachedMarket: [NativeMarketPluginRecord] = NativePageDataCache.shared.get(
+        marketCacheKey, session: session)
+      {
+        let reconciled = Self.applyAuthoritativeMarket(installed: cached, market: cachedMarket)
+        installedPlugins = reconciled
+        if reconciled != cached {
+          NativePageDataCache.shared.set(reconciled, for: cacheKey, session: session)
+        }
+      } else {
+        installedPlugins = cached
+        scheduleMarketUpdateSync(refreshMarketFromServer: true, forceRemoteIndex: false)
+      }
       if let cachedRemotes: [String] = NativePageDataCache.shared.get(
         remotesCacheKey, session: session)
       {
@@ -599,6 +622,7 @@ struct NativePluginMarketPage: View {
     if installedPlugins.isEmpty { isLoading = true }
     loadFailed = false
     defer { isLoading = false }
+    let previousSnapshot = installedPlugins
     async let remotesTask: Set<String>? = fetchVueRemoteIDs()
     do {
       let endpoint = try APIEndpoint(
@@ -613,16 +637,26 @@ struct NativePluginMarketPage: View {
       let loadedRemotes = await remotesTask
       try Task.checkCancellation()
       let valid = loaded.filter { !$0.id.isEmpty }
-      installedPlugins = valid
+      let cachedMarket: [NativeMarketPluginRecord]? = NativePageDataCache.shared.get(
+        marketCacheKey, session: session)
+      let merged = Self.carryOverUpdates(
+        freshInstalled: valid,
+        previousInstalled: previousSnapshot,
+        cachedMarket: cachedMarket,
+        completedUpdateIDs: completedUpdateIDs
+      )
+      installedPlugins = merged
       if let loadedRemotes {
         vueRemoteIDs = loadedRemotes
         NativePageDataCache.shared.set(
           Array(loadedRemotes), for: remotesCacheKey, session: session)
       }
-      NativePageDataCache.shared.set(valid, for: cacheKey, session: session)
-      Task(priority: .utility) { await syncInstalledUpdateFlags(forceMarket: forceRefresh) }
+      NativePageDataCache.shared.set(merged, for: cacheKey, session: session)
+      // 后端 `state=market`（不带 force=true）复用服务端索引缓存并按当前已装版本实时重算 has_update（约百毫秒），
+      // 避免携带 force=true 触发全仓库远端拉取超时导致其余插件更新标记丢失。
+      scheduleMarketUpdateSync(refreshMarketFromServer: forceRefresh, forceRemoteIndex: false)
       Task(priority: .utility) {
-        await loadPluginStatsAndRatings(pluginIDs: valid.map { $0.sourcePluginID ?? $0.id })
+        await loadPluginStatsAndRatings(pluginIDs: merged.map { $0.sourcePluginID ?? $0.id })
       }
     } catch is CancellationError {
       return
@@ -631,23 +665,75 @@ struct NativePluginMarketPage: View {
     }
   }
 
+  /// 单个插件完成更新后立即在本地列表与市场缓存中仅清除该插件的更新标记，确保其余待更新插件零闪烁保留。
+  private func recordPluginUpdated(id: String, sourcePluginID: String?) {
+    let lowerID = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if !lowerID.isEmpty { completedUpdateIDs.insert(lowerID) }
+    let lowerSource = sourcePluginID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    if !lowerSource.isEmpty { completedUpdateIDs.insert(lowerSource) }
+
+    if !installedPlugins.isEmpty {
+      var nextInstalled = installedPlugins
+      var changed = false
+      for idx in nextInstalled.indices {
+        let itemID = nextInstalled[idx].id.lowercased()
+        let itemCanonical = PluginUpdateProjection.canonicalID(
+          id: nextInstalled[idx].id, sourcePluginID: nextInstalled[idx].sourcePluginID)
+        if completedUpdateIDs.contains(itemID) || completedUpdateIDs.contains(itemCanonical) {
+          if nextInstalled[idx].hasUpdate {
+            nextInstalled[idx].hasUpdate = false
+            changed = true
+          }
+        }
+      }
+      if changed {
+        installedPlugins = nextInstalled
+        NativePageDataCache.shared.set(nextInstalled, for: "plugins|installed", session: session)
+      }
+    }
+
+    let marketCacheKey = "plugins|market"
+    if var cachedMarket: [NativeMarketPluginRecord] = NativePageDataCache.shared.get(
+      marketCacheKey, session: session)
+    {
+      let updatedMarket = Self.markUpdatedInMarket(
+        cachedMarket, pluginID: id, sourcePluginID: sourcePluginID)
+      cachedMarket = updatedMarket
+      NativePageDataCache.shared.set(cachedMarket, for: marketCacheKey, session: session)
+    }
+  }
+
+  private func scheduleMarketUpdateSync(refreshMarketFromServer: Bool, forceRemoteIndex: Bool) {
+    marketSyncTask?.cancel()
+    marketSyncTask = Task(priority: .utility) {
+      await syncInstalledUpdateFlags(
+        refreshMarketFromServer: refreshMarketFromServer,
+        forceRemoteIndex: forceRemoteIndex
+      )
+    }
+  }
+
   /// 对齐 Web `mergeMarketMetadataIntoInstalled`：将市场清单中的 `has_update` 与 `repo_url` 投影到已安装插件列表。
-  private func syncInstalledUpdateFlags(forceMarket: Bool) async {
+  private func syncInstalledUpdateFlags(
+    refreshMarketFromServer: Bool,
+    forceRemoteIndex: Bool
+  ) async {
     let marketCacheKey = "plugins|market"
     let marketItems: [NativeMarketPluginRecord]
-    if !forceMarket,
+    if !refreshMarketFromServer && !forceRemoteIndex,
       let cached: [NativeMarketPluginRecord] = NativePageDataCache.shared.get(
         marketCacheKey, session: session)
     {
       marketItems = cached
     } else {
       var query = [URLQueryItem(name: "state", value: "market")]
-      if forceMarket { query.append(URLQueryItem(name: "force", value: "true")) }
+      if forceRemoteIndex { query.append(URLQueryItem(name: "force", value: "true")) }
       guard
         let endpoint = try? APIEndpoint(
           path: ["plugin"],
           query: query,
           maximumResponseBytes: 8 * 1024 * 1024,
+          timeout: forceRemoteIndex ? 90 : 30,
           trailingSlash: true
         ),
         let loaded = try? await session.request(
@@ -660,29 +746,86 @@ struct NativePluginMarketPage: View {
       marketItems = valid
     }
     guard !Task.isCancelled, !installedPlugins.isEmpty else { return }
-    var updatableByID: [String: NativeMarketPluginRecord] = [:]
-    for item in marketItems where item.hasUpdate {
-      updatableByID[item.id] = item
-      updatableByID[item.id.lowercased()] = item
+    let next = Self.applyAuthoritativeMarket(installed: installedPlugins, market: marketItems)
+    if refreshMarketFromServer || forceRemoteIndex {
+      completedUpdateIDs.removeAll()
     }
-    var changed = false
-    var next = installedPlugins
-    for idx in next.indices {
-      let key = next[idx].sourcePluginID ?? next[idx].id
-      let marketMatch = updatableByID[key] ?? updatableByID[key.lowercased()]
-      let shouldUpdate = (marketMatch != nil) || next[idx].hasUpdate
-      if next[idx].hasUpdate != shouldUpdate {
-        next[idx].hasUpdate = shouldUpdate
-        changed = true
-      }
-      if let repo = marketMatch?.repoURL, !repo.isEmpty, (next[idx].repoURL ?? "").isEmpty {
-        next[idx].repoURL = repo
-        changed = true
-      }
-    }
-    if changed {
+    if next != installedPlugins {
       installedPlugins = next
       NativePageDataCache.shared.set(next, for: "plugins|installed", session: session)
+    }
+  }
+
+  private static func projectionItems(
+    from records: [NativeMarketPluginRecord]
+  ) -> [PluginUpdateProjectionItem] {
+    records.map {
+      PluginUpdateProjectionItem(
+        id: $0.id,
+        sourcePluginID: $0.sourcePluginID,
+        hasUpdate: $0.hasUpdate,
+        repoURL: $0.repoURL
+      )
+    }
+  }
+
+  private static func applyProjection(
+    _ projected: [PluginUpdateProjectionItem],
+    onto records: [NativeMarketPluginRecord]
+  ) -> [NativeMarketPluginRecord] {
+    zip(records, projected).map { record, item in
+      var next = record
+      next.hasUpdate = item.hasUpdate
+      if let repo = item.repoURL, !repo.isEmpty, (next.repoURL ?? "").isEmpty {
+        next.repoURL = repo
+      }
+      return next
+    }
+  }
+
+  private static func carryOverUpdates(
+    freshInstalled: [NativeMarketPluginRecord],
+    previousInstalled: [NativeMarketPluginRecord],
+    cachedMarket: [NativeMarketPluginRecord]?,
+    completedUpdateIDs: Set<String>
+  ) -> [NativeMarketPluginRecord] {
+    let projected = PluginUpdateProjection.carryOverBeforeMarketSync(
+      freshInstalled: projectionItems(from: freshInstalled),
+      previousInstalled: projectionItems(from: previousInstalled),
+      cachedMarket: cachedMarket.map(projectionItems(from:)),
+      completedUpdateIDs: completedUpdateIDs
+    )
+    return applyProjection(projected, onto: freshInstalled)
+  }
+
+  private static func applyAuthoritativeMarket(
+    installed: [NativeMarketPluginRecord],
+    market: [NativeMarketPluginRecord]
+  ) -> [NativeMarketPluginRecord] {
+    let projected = PluginUpdateProjection.applyAuthoritativeMarket(
+      installed: projectionItems(from: installed),
+      market: projectionItems(from: market)
+    )
+    return applyProjection(projected, onto: installed)
+  }
+
+  private static func markUpdatedInMarket(
+    _ market: [NativeMarketPluginRecord],
+    pluginID: String,
+    sourcePluginID: String?
+  ) -> [NativeMarketPluginRecord] {
+    let projected = PluginUpdateProjection.markUpdatedInMarket(
+      projectionItems(from: market),
+      pluginID: pluginID,
+      sourcePluginID: sourcePluginID
+    )
+    return zip(market, projected).map { record, item in
+      var next = record
+      if next.hasUpdate != item.hasUpdate {
+        next.installed = true
+        next.hasUpdate = item.hasUpdate
+      }
+      return next
     }
   }
 
@@ -810,6 +953,7 @@ struct NativePluginMarketPage: View {
       feedback = NativePluginMarketFeedback(
         isError: false,
         message: resp.message?.isEmpty == false ? resp.message! : "「\(plugin.displayName)」更新已完成。")
+      recordPluginUpdated(id: plugin.id, sourcePluginID: plugin.sourcePluginID)
       reloadToken += 1
     } catch {
       feedback = NativePluginMarketFeedback(isError: true, message: "更新插件失败，请检查仓库连通性后重试。")
@@ -888,7 +1032,7 @@ private struct NativePluginStorePage: View {
   }
 
   let session: NativeSession
-  let onMutated: () -> Void
+  let onMutated: (_ updatedPluginID: String?, _ updatedSourcePluginID: String?) -> Void
 
   @Environment(\.openURL) private var openURL
   @State private var marketFilter: MarketFilter = .all
@@ -1077,8 +1221,9 @@ private struct NativePluginStorePage: View {
         if let idx = marketPlugins.firstIndex(where: { $0.id == plugin.id }) {
           marketPlugins[idx].installed = true
           marketPlugins[idx].hasUpdate = false
+          NativePageDataCache.shared.set(marketPlugins, for: "plugins|market", session: session)
         }
-        onMutated()
+        onMutated(plugin.id, plugin.sourcePluginID)
       }
     }
     .sheet(item: $versionHistoryTarget) { plugin in
@@ -1091,8 +1236,9 @@ private struct NativePluginStorePage: View {
         if let idx = marketPlugins.firstIndex(where: { $0.id == plugin.id }) {
           marketPlugins[idx].installed = true
           marketPlugins[idx].hasUpdate = false
+          NativePageDataCache.shared.set(marketPlugins, for: "plugins|market", session: session)
         }
-        onMutated()
+        onMutated(plugin.id, plugin.sourcePluginID)
       }
     }
     .task(id: reloadToken) {
@@ -1162,7 +1308,11 @@ private struct NativePluginStorePage: View {
     if forceMarket { query.append(URLQueryItem(name: "force", value: "true")) }
     do {
       let endpoint = try APIEndpoint(
-        path: ["plugin"], query: query, maximumResponseBytes: 8 * 1024 * 1024, trailingSlash: true)
+        path: ["plugin"],
+        query: query,
+        maximumResponseBytes: 8 * 1024 * 1024,
+        timeout: forceMarket ? 90 : 30,
+        trailingSlash: true)
       let loaded = try await session.request(
         endpoint, as: [NativeMarketPluginRecord].self,
         requiring: PermissionRequirement(category: .admin)
@@ -3114,7 +3264,7 @@ private struct NativePluginRatingSummary: Decodable, Sendable {
   }
 }
 
-private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable {
+private struct NativeMarketPluginRecord: Codable, Sendable, Identifiable, Equatable {
   let id: String
   let sourcePluginID: String?
   let isInstance: Bool

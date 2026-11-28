@@ -118,6 +118,7 @@ struct Index {
   @State private activePlayer: HarmonyPlaybackRequest | null = null;
   @State private miniMusic: HarmonyPlaybackRequest | null = null;
   private tabsController: TabsController = new TabsController();
+  private lastUsageLookupMs: number = 0;
   private audioSyncListener: AudioStateListener = () => {
     const sess = HarmonyAudioSession.shared();
     const cur = sess.currentRequest();
@@ -142,6 +143,12 @@ struct Index {
 
   aboutToDisappear(): void {
     HarmonyAudioSession.shared().unsubscribe(this.audioSyncListener);
+  }
+
+  onPageShow(): void {
+    if (this.authStage === 'main' && this.isSuperuser) {
+      this.triggerUsageReportIfAdmin(false);
+    }
   }
 
   private async bootstrapSessionAndAppearance(): Promise<void> {
@@ -190,9 +197,12 @@ struct Index {
     this.consumePendingIntents();
   }
 
-  /** 仅在超级管理员会话下检查实例统计开关，若开启则异步执行 24 小时节流匿名版本上报。 */
-  private triggerUsageReportIfAdmin(): void {
+  /** 仅在超级管理员会话下检查实例统计开关，若开启则异步执行 24 小时节流匿名版本上报；回前台时自动重试此前失败的上报。 */
+  private triggerUsageReportIfAdmin(forceLookup: boolean = true): void {
     if (!this.isSuperuser) { return; }
+    const nowMs = Date.now();
+    if (!forceLookup && nowMs - this.lastUsageLookupMs < 60_000) { return; }
+    this.lastUsageLookupMs = nowMs;
     MoviePilotRepository.shared().fetchUsageReportingConfig().then((cfg) => {
       if (cfg && cfg.enabled) {
         HarmonyUsageReporter.shared().report(true, cfg.serverHost).catch(() => {});

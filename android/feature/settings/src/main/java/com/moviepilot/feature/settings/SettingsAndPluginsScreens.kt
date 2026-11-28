@@ -1152,47 +1152,85 @@ fun PluginsCenterScreen(
     var pendingResetPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
     var pendingUninstallPlugin by remember { mutableStateOf<PluginItemDto?>(null) }
 
-    fun mergeMarketUpdates(installed: List<PluginItemDto>, market: List<PluginItemDto>): List<PluginItemDto> {
-        if (installed.isEmpty() || market.isEmpty()) return installed
-        val updatableById = market.filter { it.hasUpdate }.associateBy { it.id.lowercase() }
-        if (updatableById.isEmpty()) return installed
-        return installed.map { item ->
-            val match = updatableById[item.id.lowercase()]
-            if (match != null) {
-                item.copy(
-                    hasUpdate = true,
-                    repoUrl = item.repoUrl.ifBlank { match.repoUrl },
-                )
-            } else {
-                item
-            }
-        }
-    }
+    fun mergeMarketUpdates(
+        installed: List<PluginItemDto>,
+        freshMarket: List<PluginItemDto>?,
+        fallbackMarket: List<PluginItemDto> = marketPlugins,
+        previousInstalled: List<PluginItemDto> = installedPlugins,
+        completedUpdateIds: Set<String> = emptySet(),
+    ): List<PluginItemDto> =
+        com.moviepilot.rustbridge.PluginUpdateReconciler.reconcileInstalledUpdates(
+            installed = installed,
+            freshMarket = freshMarket,
+            fallbackMarket = fallbackMarket,
+            previousInstalled = previousInstalled,
+            completedUpdateIds = completedUpdateIds,
+        )
 
     suspend fun loadTab(installedOnly: Boolean, forceRefresh: Boolean = true) {
         if (installedOnly) {
-            val loadedInstalled = repository.fetchPlugins(installedOnly = true, forceRefresh = forceRefresh)
-            installedPlugins = mergeMarketUpdates(loadedInstalled, marketPlugins)
-            repository.cachedInstalledPlugins = installedPlugins
+            val loadedInstalled = repository.fetchPluginsOrNull(installedOnly = true, forceRefresh = forceRefresh)
+            if (loadedInstalled != null) {
+                installedPlugins = mergeMarketUpdates(
+                    installed = loadedInstalled,
+                    freshMarket = marketPlugins.takeIf { it.isNotEmpty() },
+                )
+                repository.cachedInstalledPlugins = installedPlugins
+            }
             isLoadingInstalled = false
         } else {
-            val loadedMarket = repository.fetchPlugins(installedOnly = false, forceRefresh = forceRefresh)
-            marketPlugins = loadedMarket
-            installedPlugins = mergeMarketUpdates(installedPlugins, loadedMarket)
-            repository.cachedInstalledPlugins = installedPlugins
+            val loadedMarket = repository.fetchPluginsOrNull(installedOnly = false, forceRefresh = forceRefresh)
+            if (loadedMarket != null) {
+                marketPlugins = loadedMarket
+                installedPlugins = mergeMarketUpdates(installed = installedPlugins, freshMarket = loadedMarket)
+                repository.cachedInstalledPlugins = installedPlugins
+            }
             isLoadingMarket = false
         }
         isRefreshing = false
     }
 
-    suspend fun reloadBoth(forceRefresh: Boolean = false) {
+    suspend fun reloadBoth(
+        forceRefresh: Boolean = false,
+        updatedPluginId: String? = null,
+        updatedSourcePluginId: String = "",
+    ) {
+        val completedIds = buildSet {
+            updatedPluginId?.trim()?.takeIf { it.isNotEmpty() }?.let(::add)
+            updatedSourcePluginId.trim().takeIf { it.isNotEmpty() }?.let(::add)
+        }
+        if (!updatedPluginId.isNullOrBlank()) {
+            installedPlugins = com.moviepilot.rustbridge.PluginUpdateReconciler.markPluginUpdated(
+                items = installedPlugins,
+                pluginId = updatedPluginId,
+                sourcePluginId = updatedSourcePluginId,
+            )
+            marketPlugins = com.moviepilot.rustbridge.PluginUpdateReconciler.markPluginUpdated(
+                items = marketPlugins,
+                pluginId = updatedPluginId,
+                sourcePluginId = updatedSourcePluginId,
+            )
+            repository.cachedInstalledPlugins = installedPlugins
+            repository.cachedMarketPlugins = marketPlugins
+        }
+        val previousInstalled = installedPlugins
+        val fallbackMarket = marketPlugins
         val (loadedInstalled, loadedMarket) = coroutineScope {
-            val instDef = async { repository.fetchPlugins(installedOnly = true, forceRefresh = forceRefresh) }
-            val mktDef = async { repository.fetchPlugins(installedOnly = false, forceRefresh = forceRefresh) }
+            val instDef = async { repository.fetchPluginsOrNull(installedOnly = true, forceRefresh = forceRefresh) }
+            val mktDef = async { repository.fetchPluginsOrNull(installedOnly = false, forceRefresh = forceRefresh) }
             instDef.await() to mktDef.await()
         }
-        marketPlugins = loadedMarket
-        installedPlugins = mergeMarketUpdates(loadedInstalled, loadedMarket)
+        if (loadedMarket != null) {
+            marketPlugins = loadedMarket
+        }
+        val nextInstalledBase = loadedInstalled ?: previousInstalled
+        installedPlugins = mergeMarketUpdates(
+            installed = nextInstalledBase,
+            freshMarket = loadedMarket,
+            fallbackMarket = fallbackMarket,
+            previousInstalled = previousInstalled,
+            completedUpdateIds = completedIds,
+        )
         repository.cachedInstalledPlugins = installedPlugins
         isLoadingInstalled = false
         isLoadingMarket = false
@@ -1203,7 +1241,10 @@ fun PluginsCenterScreen(
         if (initialInstalledCache == null || initialMarketCache == null) {
             reloadBoth(forceRefresh = false)
         } else {
-            installedPlugins = mergeMarketUpdates(initialInstalledCache, initialMarketCache)
+            installedPlugins = mergeMarketUpdates(
+                installed = initialInstalledCache,
+                freshMarket = initialMarketCache.takeIf { it.isNotEmpty() },
+            )
         }
     }
 
@@ -1439,7 +1480,13 @@ fun PluginsCenterScreen(
                                                                 repoUrl = plugin.repoUrl,
                                                                 force = plugin.hasUpdate || plugin.installed,
                                                             )
-                                                            if (ok) reloadBoth()
+                                                            if (ok) {
+                                                                reloadBoth(
+                                                                    forceRefresh = true,
+                                                                    updatedPluginId = plugin.id,
+                                                                    updatedSourcePluginId = plugin.sourcePluginId,
+                                                                )
+                                                            }
                                                             installingIds.remove(plugin.id)
                                                             snackbar?.showSnackbar(msg)
                                                         }
@@ -1574,7 +1621,9 @@ fun PluginsCenterScreen(
                                 scope.launch {
                                     installingIds[plugin.id] = true
                                     val (ok, msg) = repository.reloadPlugin(plugin.id)
-                                    if (ok) reloadBoth()
+                                    if (ok) {
+                                        reloadBoth(forceRefresh = true)
+                                    }
                                     installingIds.remove(plugin.id)
                                     snackbar?.showSnackbar(msg)
                                 }
@@ -1596,7 +1645,13 @@ fun PluginsCenterScreen(
                                                 repoUrl = plugin.repoUrl,
                                                 force = true,
                                             )
-                                            if (ok) reloadBoth()
+                                            if (ok) {
+                                                reloadBoth(
+                                                    forceRefresh = true,
+                                                    updatedPluginId = plugin.id,
+                                                    updatedSourcePluginId = plugin.sourcePluginId,
+                                                )
+                                            }
                                             installingIds.remove(plugin.id)
                                             snackbar?.showSnackbar(msg)
                                         }
@@ -1697,7 +1752,13 @@ fun PluginsCenterScreen(
                                 repoUrl = target.repoUrl,
                                 force = true,
                             )
-                            if (ok) reloadBoth()
+                            if (ok) {
+                                reloadBoth(
+                                    forceRefresh = true,
+                                    updatedPluginId = target.id,
+                                    updatedSourcePluginId = target.sourcePluginId,
+                                )
+                            }
                             installingIds.remove(target.id)
                             marketInstallSheetPlugin = null
                             snackbar?.showSnackbar(msg)
@@ -1815,7 +1876,9 @@ fun PluginsCenterScreen(
                         pendingUninstallPlugin = null
                         scope.launch {
                             val (ok, msg) = repository.uninstallPlugin(target.id)
-                            if (ok) reloadBoth()
+                            if (ok) {
+                                reloadBoth(forceRefresh = true)
+                            }
                             snackbar?.showSnackbar(msg)
                         }
                     },

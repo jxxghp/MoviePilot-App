@@ -326,6 +326,7 @@ export interface MpPluginItem {
   iconUrl: string;
   renderMode: string;
   repoUrl?: string;
+  sourcePluginId?: string;
   hasUpdate?: boolean;
   installCount?: number;
   addTime?: number;
@@ -3827,6 +3828,12 @@ export class MoviePilotRepository {
   }
 
   async fetchPlugins(state: string = 'installed'): Promise<MpPluginItem[]> {
+    const res = await this.fetchPluginsOrNull(state);
+    return res ?? [];
+  }
+
+  /** 查询插件列表；网络错误或非 200 时返回 `null`，避免调用方把拉取失败当作空市场覆盖更新状态。 */
+  async fetchPluginsOrNull(state: string = 'installed'): Promise<MpPluginItem[] | null> {
     const q: Record<string, string> = {};
     q['state'] = state;
     const remotesPromise: Promise<Set<string>> = state === 'installed'
@@ -3894,7 +3901,7 @@ export class MoviePilotRepository {
     const remoteVueIds = await remotesPromise;
     const statsMap = await statsPromise;
     const ratingsMap = await ratingsPromise;
-    if (resp.status !== 200) { return []; }
+    if (resp.status !== 200) { return null; }
     const arr = unwrapArray(parseJsonSafe(resp.body));
     const out: MpPluginItem[] = [];
     for (let i = 0; i < arr.length; i++) {
@@ -3903,7 +3910,8 @@ export class MoviePilotRepository {
       const pid = strVal(r, 'id');
       if (!pid) { continue; }
       const lowerId = pid.toLowerCase();
-      const srcId = strVal(r, 'source_plugin_id').toLowerCase();
+      const rawSrcId = strVal(r, 'source_plugin_id');
+      const srcId = rawSrcId.toLowerCase();
       const rawMode = strVal(r, 'render_mode', 'vuetify');
       const resolvedMode = (rawMode.toLowerCase() === 'vue'
         || remoteVueIds.has(lowerId)
@@ -3926,6 +3934,7 @@ export class MoviePilotRepository {
         iconUrl: this.resolvePluginIconUrl(strVal(r, 'plugin_icon')),
         renderMode: resolvedMode,
         repoUrl: strVal(r, 'repo_url'),
+        sourcePluginId: rawSrcId,
         hasUpdate: boolVal(r, 'has_update', false),
         installCount: Math.max(rawInstalls, statInstalls),
         addTime: Math.round(numVal(r, 'add_time', 0)),

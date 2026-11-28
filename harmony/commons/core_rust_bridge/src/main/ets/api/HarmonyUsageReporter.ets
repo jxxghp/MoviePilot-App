@@ -95,6 +95,23 @@ export class HarmonyUsageReporter {
     }
   }
 
+  /** 构造受控长度的 Preferences 节流键（规避 HarmonyOS preferences 80 字节键长上限）。 */
+  static buildThrottleKey(base: string, version: string): string {
+    const raw = `${HarmonyUsageReporter.SUCCESS_KEY_PREFIX}${base}_${version}`;
+    if (raw.length <= 72) {
+      return raw;
+    }
+    let h1 = 0x811c9dc5;
+    let h2 = 0x01000193;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 0x01000193) >>> 0;
+      h2 = Math.imul(h2 ^ (ch + i), 0x01000193) >>> 0;
+    }
+    const cleanVer = version.replace(/[^A-Za-z0-9._-]/g, '').substring(0, 24);
+    return `${HarmonyUsageReporter.SUCCESS_KEY_PREFIX}${h1.toString(16)}_${h2.toString(16)}_${cleanVer}`;
+  }
+
   /** 当实例开启使用统计共享时，按 24 小时节流策略发送一次匿名版本上报。 */
   async report(enabled: boolean, rawServerHost: string): Promise<void> {
     if (!enabled || this.inFlight) { return; }
@@ -107,7 +124,7 @@ export class HarmonyUsageReporter {
     const store = NativeHuksStore.shared();
     const client = http.createHttp();
     try {
-      const throttleKey = `${HarmonyUsageReporter.SUCCESS_KEY_PREFIX}${base}_${version}`;
+      const throttleKey = HarmonyUsageReporter.buildThrottleKey(base, version);
       const nowMs = Date.now();
       const lastRaw = await store.loadUsagePreference(throttleKey);
       if (lastRaw.length > 0) {
